@@ -79,6 +79,7 @@ func TestApplySentryRuntimeScopeSetsRequiredTags(t *testing.T) {
 	event := scope.ApplyToEvent(&sentry.Event{}, nil, nil)
 	if event == nil {
 		t.Fatal("expected event")
+		return
 	}
 
 	want := map[string]string{

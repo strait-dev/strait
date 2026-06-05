@@ -156,6 +156,7 @@ func TestSentryClientOptionsEnablesTracingWithSampler(t *testing.T) {
 	}
 	if opts.TracesSampler == nil {
 		t.Fatal("expected traces sampler")
+		return
 	}
 	if opts.TracesSampleRate != 0 {
 		t.Fatalf("TracesSampleRate = %v, want sampler-only config", opts.TracesSampleRate)

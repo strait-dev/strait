@@ -1,12 +1,18 @@
 package worker
 
 import (
+	"context"
 	"fmt"
 	"hash/fnv"
+	"net/http"
+	"net/http/httptest"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/sourcegraph/conc"
+
+	"strait/internal/domain"
 )
 
 func TestShardedBulkhead_AcquireUpToLimit(t *testing.T) {
@@ -252,6 +258,135 @@ func TestShardedBulkhead_ExplicitLimitOne(t *testing.T) {
 	if !b.TryAcquire("job-1", 1) {
 		t.Fatal("acquire after release should succeed")
 	}
+}
+
+func TestExecutorBulkhead_DefaultAppliedWhenJobHasNoLimit(t *testing.T) {
+	t.Parallel()
+
+	exec := newBulkheadTestExecutor(t, 3)
+
+	for i := range 3 {
+		if !exec.tryAcquireBulkheadSlot("job-1", 0) {
+			t.Fatalf("slot %d should be acquired", i+1)
+		}
+	}
+	if exec.tryAcquireBulkheadSlot("job-1", 0) {
+		t.Fatal("4th slot should be rejected with default concurrency 3")
+	}
+}
+
+func TestExecutorBulkhead_ExplicitOverridesDefault(t *testing.T) {
+	t.Parallel()
+
+	exec := newBulkheadTestExecutor(t, 3)
+
+	for i := range 5 {
+		if !exec.tryAcquireBulkheadSlot("job-1", 5) {
+			t.Fatalf("slot %d should be acquired with explicit limit 5", i+1)
+		}
+	}
+	if exec.tryAcquireBulkheadSlot("job-1", 5) {
+		t.Fatal("6th slot should be rejected with explicit limit 5")
+	}
+}
+
+func TestExecutorBulkhead_DefaultZeroDisabled(t *testing.T) {
+	t.Parallel()
+
+	exec := newBulkheadTestExecutor(t, 0)
+
+	for i := range 100 {
+		if !exec.tryAcquireBulkheadSlot("job-1", 0) {
+			t.Fatalf("slot %d should be acquired with no limit", i+1)
+		}
+	}
+}
+
+func TestExecutor_Bulkheads_AtCapacityRequeues(t *testing.T) {
+	t.Parallel()
+	var called atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		called.Add(1)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
+
+	store := &mockExecutorStore{}
+	store.getJobFn = func(context.Context, string) (*domain.Job, error) {
+		job := testJob(server.URL, 3, 5)
+		job.MaxConcurrency = 1
+		return job, nil
+	}
+
+	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
+	exec.bulkhead.TryAcquire("job-1", 1)
+
+	run := testRun(1)
+	exec.execute(context.Background(), run)
+
+	if called.Load() != 0 {
+		t.Fatalf("dispatch called %d times, want 0", called.Load())
+	}
+
+	calls := store.statusUpdates()
+	if len(calls) != 1 {
+		t.Fatalf("status update calls = %d, want 1", len(calls))
+	}
+	if calls[0].from != domain.StatusDequeued || calls[0].to != domain.StatusQueued {
+		t.Fatalf("transition = %s->%s, want %s->%s", calls[0].from, calls[0].to, domain.StatusDequeued, domain.StatusQueued)
+	}
+	if calls[0].fields["error"] != "job bulkhead at capacity" {
+		t.Fatalf("error field = %v, want %q", calls[0].fields["error"], "job bulkhead at capacity")
+	}
+}
+
+func TestExecutor_Bulkheads_EnabledUnderLimitExecutes(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
+
+	store := &mockExecutorStore{}
+	store.getJobFn = func(context.Context, string) (*domain.Job, error) {
+		job := testJob(server.URL, 1, 5)
+		job.MaxConcurrency = 1
+		return job, nil
+	}
+
+	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
+
+	run := testRun(1)
+	exec.execute(context.Background(), run)
+
+	calls := store.statusUpdates()
+	if len(calls) != 2 {
+		t.Fatalf("status update calls = %d, want 2", len(calls))
+	}
+	if calls[0].to != domain.StatusExecuting || calls[1].to != domain.StatusCompleted {
+		t.Fatalf("transitions = %s then %s, want executing then completed", calls[0].to, calls[1].to)
+	}
+
+	if count := exec.bulkhead.ActiveCount("job-1"); count != 0 {
+		t.Fatalf("bulkhead active count = %d, want 0 (released)", count)
+	}
+}
+
+func newBulkheadTestExecutor(t *testing.T, defaultLimit int) *Executor {
+	t.Helper()
+
+	pool := NewPool(10)
+	t.Cleanup(func() { _ = pool.Shutdown(context.Background()) })
+
+	return NewExecutor(ExecutorConfig{
+		Pool:                     pool,
+		Queue:                    &mockExecQueue{},
+		Store:                    &mockExecutorStore{},
+		PollInterval:             time.Hour,
+		DefaultJobMaxConcurrency: defaultLimit,
+	})
 }
 
 func BenchmarkShardedBulkhead_Contention(b *testing.B) {

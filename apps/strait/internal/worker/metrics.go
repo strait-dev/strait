@@ -2,132 +2,73 @@ package worker
 
 import (
 	"context"
-	"sync/atomic"
 	"time"
 
-	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 )
 
-// workerMetrics holds the package-level metric instruments. It is an atomic
-// pointer so tests can swap in a meter backed by a ManualReader without
-// racing against in-flight Add/Record calls from concurrent tests.
-var workerMetrics atomic.Pointer[workerRuntimeMetrics]
+type workerDispatchMode string
+type workerDispatchOutcome string
+type workerRetryReason string
+type dispatchMode string
+type dispatchOutcome string
+type snoozeSkippedReason string
+type responseStatusClass string
 
-// init seeds the default runtime metric instruments before any worker code can
-// record against them. Tests replace this atomic pointer with a ManualReader
-// backed meter when they need deterministic collection.
-func init() {
-	m := newWorkerMetrics()
-	workerMetrics.Store(&m)
-}
+const (
+	workerDispatchModeGRPC       workerDispatchMode    = "grpc"
+	workerDispatchOutcomeSuccess workerDispatchOutcome = "success"
+	workerDispatchOutcomeError   workerDispatchOutcome = "error"
+	workerDispatchOutcomeTimeout workerDispatchOutcome = "timeout"
 
-type workerRuntimeMetrics struct {
-	dispatchDuration metric.Float64Histogram
-	retries          metric.Int64Counter
-	poolActive       metric.Int64Gauge
-	poolIdle         metric.Int64Gauge
-	heartbeatLag     metric.Float64Histogram
-	dispatchAttempts metric.Int64Counter
-	payloadBytes     metric.Int64Histogram
-	responseStatus   metric.Int64Counter
-	snoozeSkipped    metric.Int64Counter
-}
+	workerRetryReasonDispatcherUnconfigured workerRetryReason = "dispatcher_unconfigured"
+	workerRetryReasonTimeout                workerRetryReason = "timeout"
+	workerRetryReasonCancelled              workerRetryReason = "cancelled"
+	workerRetryReasonNoWorker               workerRetryReason = "no_worker"
+	workerRetryReasonDispatchError          workerRetryReason = "dispatch_error"
+	workerRetryReasonWorkerFailure          workerRetryReason = "worker_failure"
 
-func newWorkerMetrics() workerRuntimeMetrics {
-	meter := otel.Meter("strait/worker_runtime")
-	dispatchDuration, _ := meter.Float64Histogram(
-		"strait_worker_dispatch_duration_seconds",
-		metric.WithDescription("Worker dispatch duration by execution mode and outcome"),
-		metric.WithUnit("s"),
-		metric.WithExplicitBucketBoundaries(0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60),
-	)
-	retries, _ := meter.Int64Counter(
-		"strait_worker_retry_total",
-		metric.WithDescription("Worker retry decisions by execution mode and reason"),
-		metric.WithUnit("1"),
-	)
-	poolActive, _ := meter.Int64Gauge(
-		"strait_worker_pool_active",
-		metric.WithDescription("Active worker pool slots by execution mode"),
-		metric.WithUnit("1"),
-	)
-	poolIdle, _ := meter.Int64Gauge(
-		"strait_worker_pool_idle",
-		metric.WithDescription("Idle worker pool slots by execution mode"),
-		metric.WithUnit("1"),
-	)
-	heartbeatLag, _ := meter.Float64Histogram(
-		"strait_worker_heartbeat_lag_seconds",
-		metric.WithDescription("Age of the oldest active heartbeat at flush time"),
-		metric.WithUnit("s"),
-		metric.WithExplicitBucketBoundaries(0.5, 1, 2.5, 5, 10, 30, 60, 120, 300),
-	)
-	dispatchAttempts, _ := meter.Int64Counter(
-		"strait_dispatch_attempts_total",
-		metric.WithDescription("Dispatch attempts by execution mode and outcome"),
-		metric.WithUnit("1"),
-	)
-	payloadBytes, _ := meter.Int64Histogram(
-		"strait_dispatch_payload_bytes",
-		metric.WithDescription("Dispatch payload size by execution mode"),
-		metric.WithUnit("By"),
-		metric.WithExplicitBucketBoundaries(0, 512, 1024, 4096, 16384, 65536, 262144, 1048576),
-	)
-	responseStatus, _ := meter.Int64Counter(
-		"strait_dispatch_response_status_total",
-		metric.WithDescription("HTTP dispatch responses by status class"),
-		metric.WithUnit("1"),
-	)
-	snoozeSkipped, _ := meter.Int64Counter(
-		"strait_worker_snooze_skipped_total",
-		metric.WithDescription("Snooze attempts that no-op'd because the run row was already locked by another transaction or had moved past the expected status. Labeled by from-status and reason."),
-		metric.WithUnit("1"),
-	)
-	return workerRuntimeMetrics{
-		dispatchDuration: dispatchDuration,
-		retries:          retries,
-		poolActive:       poolActive,
-		poolIdle:         poolIdle,
-		heartbeatLag:     heartbeatLag,
-		dispatchAttempts: dispatchAttempts,
-		payloadBytes:     payloadBytes,
-		responseStatus:   responseStatus,
-		snoozeSkipped:    snoozeSkipped,
-	}
-}
+	dispatchModeHTTP       dispatchMode    = "http"
+	dispatchOutcomeSuccess dispatchOutcome = "success"
+	dispatchOutcomeError   dispatchOutcome = "error"
+
+	snoozeSkippedReasonLocked   snoozeSkippedReason = "locked"
+	snoozeSkippedReasonConflict snoozeSkippedReason = "conflict"
+
+	responseStatusClassUnknown responseStatusClass = "unknown"
+)
 
 // recordSnoozeSkipped increments the counter that tracks snooze no-ops
 // caused by row-lock contention (reason="locked") or by the run having
 // already moved past the expected from-status (reason="conflict"). The
 // from label is the status the snooze was attempting to transition out of.
-func recordSnoozeSkipped(ctx context.Context, from, reason string) {
+func recordSnoozeSkipped(ctx context.Context, from string, reason snoozeSkippedReason) {
 	workerMetrics.Load().snoozeSkipped.Add(ctx, 1, metric.WithAttributes(
 		attribute.String("from", from),
-		attribute.String("reason", reason),
+		attribute.String("reason", string(reason)),
 	))
 }
 
-func recordWorkerDispatch(ctx context.Context, mode, outcome string, started time.Time) {
+func recordWorkerDispatch(ctx context.Context, mode workerDispatchMode, outcome workerDispatchOutcome, started time.Time) {
 	if started.IsZero() {
 		return
 	}
 	workerMetrics.Load().dispatchDuration.Record(ctx, time.Since(started).Seconds(), metric.WithAttributes(
-		attribute.String("mode", mode),
-		attribute.String("outcome", outcome),
+		attribute.String("mode", string(mode)),
+		attribute.String("outcome", string(outcome)),
 	))
 }
 
-func recordWorkerRetry(ctx context.Context, reason string) {
+func recordWorkerRetry(ctx context.Context, reason workerRetryReason) {
 	workerMetrics.Load().retries.Add(ctx, 1, metric.WithAttributes(
-		attribute.String("mode", "grpc"),
-		attribute.String("reason", reason),
+		attribute.String("mode", string(workerDispatchModeGRPC)),
+		attribute.String("reason", string(reason)),
 	))
 }
 
-func recordWorkerPool(ctx context.Context, mode string, active, idle int64) {
-	attrs := metric.WithAttributes(attribute.String("mode", mode))
+func recordWorkerPool(ctx context.Context, mode dispatchMode, active, idle int64) {
+	attrs := metric.WithAttributes(attribute.String("mode", string(mode)))
 	m := workerMetrics.Load()
 	m.poolActive.Record(ctx, active, attrs)
 	m.poolIdle.Record(ctx, idle, attrs)
@@ -140,27 +81,27 @@ func recordHeartbeatLag(ctx context.Context, lag time.Duration) {
 	workerMetrics.Load().heartbeatLag.Record(ctx, lag.Seconds())
 }
 
-func recordDispatchAttempt(ctx context.Context, mode, outcome string) {
+func recordDispatchAttempt(ctx context.Context, mode dispatchMode, outcome dispatchOutcome) {
 	workerMetrics.Load().dispatchAttempts.Add(ctx, 1, metric.WithAttributes(
-		attribute.String("mode", mode),
-		attribute.String("outcome", outcome),
+		attribute.String("mode", string(mode)),
+		attribute.String("outcome", string(outcome)),
 	))
 }
 
-func recordDispatchPayloadBytes(ctx context.Context, mode string, size int) {
-	workerMetrics.Load().payloadBytes.Record(ctx, int64(size), metric.WithAttributes(attribute.String("mode", mode)))
+func recordDispatchPayloadBytes(ctx context.Context, mode dispatchMode, size int) {
+	workerMetrics.Load().payloadBytes.Record(ctx, int64(size), metric.WithAttributes(attribute.String("mode", string(mode))))
 }
 
-func recordDispatchResponseStatus(ctx context.Context, mode string, statusCode int) {
+func recordDispatchResponseStatus(ctx context.Context, mode dispatchMode, statusCode int) {
 	workerMetrics.Load().responseStatus.Add(ctx, 1, metric.WithAttributes(
-		attribute.String("mode", mode),
-		attribute.String("status_class", statusClass(statusCode)),
+		attribute.String("mode", string(mode)),
+		attribute.String("status_class", string(statusClass(statusCode))),
 	))
 }
 
-func statusClass(statusCode int) string {
+func statusClass(statusCode int) responseStatusClass {
 	if statusCode < 100 || statusCode > 599 {
-		return "unknown"
+		return responseStatusClassUnknown
 	}
-	return string(rune('0'+statusCode/100)) + "xx"
+	return responseStatusClass(string(rune('0'+statusCode/100)) + "xx")
 }

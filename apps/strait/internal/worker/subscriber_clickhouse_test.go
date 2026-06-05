@@ -318,6 +318,47 @@ func TestRunEventsFromDomain(t *testing.T) {
 	}
 }
 
+func TestRunAnalyticsRecordFromLifecycleEvent(t *testing.T) {
+	t.Parallel()
+	finishedAt := time.Now()
+	startedAt := finishedAt.Add(-1500 * time.Millisecond)
+	createdAt := finishedAt.Add(time.Second)
+
+	record := runAnalyticsRecordFromLifecycleEvent(RunLifecycleEvent{
+		Type: EventCompleted,
+		Run: &domain.JobRun{
+			ID:           "run-1",
+			JobID:        "job-1",
+			ProjectID:    "proj-1",
+			Status:       domain.StatusCompleted,
+			Attempt:      2,
+			StartedAt:    &startedAt,
+			FinishedAt:   &finishedAt,
+			TriggeredBy:  "manual",
+			Tags:         map[string]string{"env": "prod"},
+			JobVersionID: "version-1",
+		},
+		Job:       &domain.Job{ExecutionMode: domain.ExecutionModeHTTP},
+		QueueWait: 250 * time.Millisecond,
+	}, createdAt)
+
+	if record.RunID != "run-1" || record.JobID != "job-1" || record.ProjectID != "proj-1" {
+		t.Fatalf("record IDs mismatch: %+v", record)
+	}
+	if record.Status != string(domain.StatusCompleted) || record.ExecutionMode != string(domain.ExecutionModeHTTP) {
+		t.Fatalf("record status/mode mismatch: %+v", record)
+	}
+	if record.Attempt != 2 || record.DurationMs != 1500 || record.QueueWaitMs != 250 {
+		t.Fatalf("record timing mismatch: %+v", record)
+	}
+	if record.TriggeredBy != "manual" || record.Tags != `{"env":"prod"}` || record.JobVersionID != "version-1" {
+		t.Fatalf("record metadata mismatch: %+v", record)
+	}
+	if !record.CreatedAt.Equal(createdAt) || record.StartedAt != &startedAt || record.FinishedAt != &finishedAt {
+		t.Fatalf("record timestamps mismatch: %+v", record)
+	}
+}
+
 func TestClickHouseSubscriber_SemaphoreWaitsBeforeDropping(t *testing.T) {
 	var concWG conc.WaitGroup
 	defer concWG.Wait()

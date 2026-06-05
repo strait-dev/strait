@@ -63,115 +63,42 @@ func (s *Server) handleListRuns(ctx context.Context, input *ListRunsInput) (*Lis
 		return nil, huma.Error400BadRequest("project_id is required")
 	}
 
-	statuses, statusQuery, err := buildRunStatusFilter(input.Status, input.Statuses)
+	query, err := newListRunsQuery(input)
 	if err != nil {
 		return nil, err
-	}
-
-	tagKey := input.TagKey
-	tagValue := input.TagValue
-
-	if tagValue != "" && tagKey == "" {
-		return nil, huma.Error400BadRequest("tag_key is required when tag_value is provided")
-	}
-	if tagKey != "" {
-		if err := validateTags(map[string]string{tagKey: tagValue}); err != nil {
-			return nil, huma.Error400BadRequest(err.Error())
-		}
-	}
-
-	metadataKeyRaw := input.MetadataKey
-	metadataValueRaw := input.MetadataValue
-
-	if metadataValueRaw != "" && metadataKeyRaw == "" {
-		return nil, huma.Error400BadRequest("metadata_key is required when metadata_value is provided")
-	}
-
-	if tagKey != "" && metadataKeyRaw != "" {
-		return nil, huma.Error400BadRequest("tag_key and metadata_key filters are mutually exclusive")
-	}
-
-	var metadataKey *string
-	if metadataKeyRaw != "" {
-		metadataKey = &metadataKeyRaw
-	}
-
-	var metadataValue *string
-	if metadataValueRaw != "" {
-		metadataValue = &metadataValueRaw
-	}
-
-	var triggeredBy *string
-	if input.TriggeredBy != "" {
-		triggeredBy = &input.TriggeredBy
-	}
-
-	var batchID *string
-	if input.BatchID != "" {
-		batchID = &input.BatchID
-	}
-
-	var payloadContains json.RawMessage
-	if input.PayloadContains != "" {
-		if !json.Valid([]byte(input.PayloadContains)) {
-			return nil, huma.Error400BadRequest("payload_contains must be valid JSON")
-		}
-		payloadContains = json.RawMessage(input.PayloadContains)
-	}
-
-	var executionMode *domain.ExecutionMode
-	if input.ExecutionMode != "" {
-		parsed := domain.ExecutionMode(input.ExecutionMode)
-		if !parsed.IsValid() {
-			return nil, huma.Error400BadRequest("execution_mode is invalid")
-		}
-		executionMode = &parsed
-	}
-
-	var errorClass *string
-	if input.ErrorClass != "" {
-		if !domain.ValidErrorClasses[input.ErrorClass] {
-			return nil, huma.Error400BadRequest("error_class is invalid")
-		}
-		errorClass = &input.ErrorClass
-	}
-
-	limit, cursor, err := parsePaginationParamsTyped(input.Limit, input.Cursor)
-	if err != nil {
-		return nil, huma.Error400BadRequest(err.Error())
 	}
 
 	var (
 		runs    []domain.JobRun
 		listErr error
 	)
-	if environmentIDFromContext(ctx) != "" || tagKey != "" || len(statuses) > 1 {
+	if query.usesFilteredStorePath(environmentIDFromContext(ctx)) {
 		runs, listErr = s.listRunsWithFilters(
 			ctx,
 			projectID,
-			statusQuery,
-			statuses,
-			tagKey,
-			tagValue,
-			metadataKey,
-			metadataValue,
-			triggeredBy,
-			batchID,
-			payloadContains,
-			executionMode,
-			errorClass,
-			limit+1,
-			cursor,
+			query.statusQuery,
+			query.statuses,
+			query.tagKey,
+			query.tagValue,
+			query.metadataKey,
+			query.metadataValue,
+			query.triggeredBy,
+			query.batchID,
+			query.payloadContains,
+			query.executionMode,
+			query.errorClass,
+			query.limit+1,
+			query.cursor,
 		)
 	} else {
-		runs, listErr = s.store.ListRunsByProject(ctx, projectID, statusQuery, metadataKey, metadataValue, triggeredBy, batchID, payloadContains, executionMode, errorClass, limit+1, cursor)
+		runs, listErr = s.store.ListRunsByProject(ctx, projectID, query.statusQuery, query.metadataKey, query.metadataValue, query.triggeredBy, query.batchID, query.payloadContains, query.executionMode, query.errorClass, query.limit+1, query.cursor)
 	}
 	if listErr != nil {
 		return nil, huma.Error500InternalServerError("failed to list runs")
 	}
 
 	return &ListRunsOutput{
-		Body: paginatedResult(runs, limit, func(run domain.JobRun) string {
+		Body: paginatedResult(runs, query.limit, func(run domain.JobRun) string {
 			return run.CreatedAt.Format(time.RFC3339Nano)
 		}),
 	}, nil
@@ -266,60 +193,6 @@ func (s *Server) handleCancelRun(ctx context.Context, input *CancelRunInput) (*C
 	})
 
 	return &CancelRunOutput{Body: updatedRun}, nil
-}
-
-// maxCancelDepth limits recursive child cancellation to prevent runaway traversal.
-const maxCancelDepth = 20
-
-// cancelChildRunsRecursive uses CancelChildRunsByParentIDs to bulk-cancel
-// children at each depth level, avoiding N+1 individual UpdateRunStatus calls.
-func (s *Server) cancelChildRunsRecursive(ctx context.Context, parentRunID string) int64 {
-	now := time.Now()
-	parentIDs := []string{parentRunID}
-	var total int64
-
-	for depth := range maxCancelDepth {
-		select {
-		case <-ctx.Done():
-			return total
-		default:
-		}
-
-		if len(parentIDs) == 0 {
-			break
-		}
-
-		canceled, err := s.store.CancelChildRunsByParentIDs(ctx, parentIDs, now, "parent run canceled")
-		if err != nil {
-			slog.Error("failed to bulk cancel child runs", "depth", depth, "parent_count", len(parentIDs), "error", err)
-			break
-		}
-		if canceled == 0 {
-			break
-		}
-		total += canceled
-
-		// Collect IDs of the just-canceled children to recurse into their children.
-		// We need to list them to get their IDs for the next depth level.
-		nextParentIDs := make([]string, 0)
-		for _, pid := range parentIDs {
-			var cursor *time.Time
-			for {
-				children, listErr := s.store.ListChildRuns(ctx, pid, 100, cursor)
-				if listErr != nil || len(children) == 0 {
-					break
-				}
-				for _, child := range children {
-					nextParentIDs = append(nextParentIDs, child.ID)
-				}
-				lastCreatedAt := children[len(children)-1].CreatedAt
-				cursor = &lastCreatedAt
-			}
-		}
-		parentIDs = nextParentIDs
-	}
-
-	return total
 }
 
 // GetRunDependencyStatusInput is the typed input for getting run dependency status.
@@ -1239,102 +1112,4 @@ func runMatchesTagFilter(run domain.JobRun, tagKey, tagValue string) bool {
 		return true
 	}
 	return value == tagValue
-}
-
-func (s *Server) runMatchesEnvironment(ctx context.Context, run domain.JobRun, jobEnvCache map[string]bool) (bool, error) {
-	if environmentIDFromContext(ctx) == "" {
-		return true, nil
-	}
-	if allowed, ok := jobEnvCache[run.JobID]; ok {
-		return allowed, nil
-	}
-
-	job, err := s.store.GetJob(ctx, run.JobID)
-	if err != nil {
-		return false, err
-	}
-	if job == nil {
-		return false, huma.Error404NotFound("run not found")
-	}
-
-	allowed := requireEnvironmentMatch(ctx, job.EnvironmentID) == nil
-	jobEnvCache[run.JobID] = allowed
-	return allowed, nil
-}
-
-func (s *Server) listDeadLetterRunsForEnvironment(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.JobRun, error) {
-	jobEnvCache := make(map[string]bool)
-	filtered := make([]domain.JobRun, 0, limit)
-	pageCursor := cursor
-	fetchLimit := max(limit, 25)
-
-	for {
-		page, err := s.store.ListDeadLetterRuns(ctx, projectID, fetchLimit, pageCursor)
-		if err != nil {
-			return nil, err
-		}
-		if len(page) == 0 {
-			return filtered, nil
-		}
-
-		for _, run := range page {
-			allowed, err := s.runMatchesEnvironment(ctx, run, jobEnvCache)
-			if err != nil {
-				return nil, err
-			}
-			if !allowed {
-				continue
-			}
-			filtered = append(filtered, run)
-			if len(filtered) >= limit {
-				return filtered, nil
-			}
-		}
-
-		if len(page) < fetchLimit {
-			return filtered, nil
-		}
-		lastCreatedAt := page[len(page)-1].CreatedAt
-		pageCursor = &lastCreatedAt
-	}
-}
-
-func (s *Server) bulkReplayDeadLetterRunsForEnvironment(ctx context.Context, projectID string, limit int) ([]domain.JobRun, error) {
-	cursor := (*time.Time)(nil)
-	jobEnvCache := make(map[string]bool)
-	runIDs := make([]string, 0, limit)
-
-	for len(runIDs) < limit {
-		page, err := s.store.ListDeadLetterRuns(ctx, projectID, limit+1, cursor)
-		if err != nil {
-			return nil, err
-		}
-		if len(page) == 0 {
-			break
-		}
-
-		for _, run := range page {
-			allowed, err := s.runMatchesEnvironment(ctx, run, jobEnvCache)
-			if err != nil {
-				return nil, err
-			}
-			if allowed {
-				runIDs = append(runIDs, run.ID)
-				if len(runIDs) >= limit {
-					break
-				}
-			}
-		}
-
-		if len(page) < limit+1 {
-			break
-		}
-		lastCreatedAt := page[len(page)-1].CreatedAt
-		cursor = &lastCreatedAt
-	}
-
-	if len(runIDs) == 0 {
-		return []domain.JobRun{}, nil
-	}
-	return s.store.BulkReplayDeadLetterRuns(ctx, runIDs, "", 0)
 }

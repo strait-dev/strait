@@ -82,6 +82,80 @@ func TestExecutorExecutionTraceModeFieldSelection(t *testing.T) {
 	}
 }
 
+func TestPopulateExecutionTraceRunTimings(t *testing.T) {
+	t.Parallel()
+
+	createdAt := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	startedAt := createdAt.Add(150 * time.Millisecond)
+	executeStart := createdAt.Add(425 * time.Millisecond)
+	traceEnd := executeStart.Add(1250 * time.Microsecond)
+	trace := &domain.ExecutionTrace{DispatchMs: 12}
+	run := &domain.JobRun{
+		CreatedAt: createdAt,
+		StartedAt: &startedAt,
+	}
+
+	populateExecutionTraceRunTimings(trace, run, executeStart, traceEnd)
+
+	if trace.DispatchMs != 12 {
+		t.Fatalf("DispatchMs = %d, want preserved 12", trace.DispatchMs)
+	}
+	if trace.QueueWaitMs != 425 {
+		t.Fatalf("QueueWaitMs = %d, want 425", trace.QueueWaitMs)
+	}
+	if trace.DequeueMs != 275 {
+		t.Fatalf("DequeueMs = %d, want 275", trace.DequeueMs)
+	}
+	if trace.TotalMs != 1 {
+		t.Fatalf("TotalMs = %d, want sub-millisecond floor 1", trace.TotalMs)
+	}
+}
+
+func TestPopulateExecutionTraceRunTimingsClampsNegativeDurations(t *testing.T) {
+	t.Parallel()
+
+	createdAt := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	startedAt := createdAt.Add(2 * time.Second)
+	executeStart := createdAt.Add(time.Second)
+	trace := &domain.ExecutionTrace{}
+	run := &domain.JobRun{
+		CreatedAt: createdAt.Add(3 * time.Second),
+		StartedAt: &startedAt,
+	}
+
+	populateExecutionTraceRunTimings(trace, run, executeStart, executeStart.Add(-time.Millisecond))
+
+	if trace.QueueWaitMs != 0 {
+		t.Fatalf("QueueWaitMs = %d, want 0", trace.QueueWaitMs)
+	}
+	if trace.DequeueMs != 0 {
+		t.Fatalf("DequeueMs = %d, want 0", trace.DequeueMs)
+	}
+	if trace.TotalMs != 0 {
+		t.Fatalf("TotalMs = %d, want 0", trace.TotalMs)
+	}
+}
+
+func TestPopulateExecutionTraceRunTimingsHandlesNilInputs(t *testing.T) {
+	t.Parallel()
+
+	populateExecutionTraceRunTimings(nil, &domain.JobRun{}, time.Now(), time.Now())
+
+	trace := &domain.ExecutionTrace{DispatchMs: 5}
+	start := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	populateExecutionTraceRunTimings(trace, nil, start, start.Add(10*time.Millisecond))
+
+	if trace.DispatchMs != 5 {
+		t.Fatalf("DispatchMs = %d, want preserved 5", trace.DispatchMs)
+	}
+	if trace.TotalMs != 10 {
+		t.Fatalf("TotalMs = %d, want 10", trace.TotalMs)
+	}
+	if trace.QueueWaitMs != 0 || trace.DequeueMs != 0 {
+		t.Fatalf("run timings = queue %d dequeue %d, want zeroes", trace.QueueWaitMs, trace.DequeueMs)
+	}
+}
+
 func BenchmarkExecutionTraceModeFieldSelection(b *testing.B) {
 	trace := &domain.ExecutionTrace{DispatchMs: 10}
 	benches := []struct {

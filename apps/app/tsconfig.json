@@ -16,6 +16,8 @@
     "forceConsistentCasingInFileNames": true,
     "paths": {
       "@/*": ["./src/*"],
+      "@strait/billing": ["../../packages/billing/src/products.ts"],
+      "@strait/billing/products": ["../../packages/billing/src/products.ts"],
       "@strait/db/*": ["../../packages/db/src/*"],
       "@strait/utils": ["../../packages/utils/src/index"],
       "@strait/transactional": ["../../packages/transactional/src/index.ts"]

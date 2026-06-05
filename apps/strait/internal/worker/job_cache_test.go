@@ -331,6 +331,72 @@ func TestWorkerJobCache_LoadPreservesUpdatedAtVersionInRedis(t *testing.T) {
 	}
 }
 
+func TestJobCacheVersion(t *testing.T) {
+	t.Parallel()
+
+	updatedAt := time.Unix(1700000200, 789).UTC()
+	tests := []struct {
+		name string
+		job  *domain.Job
+		want int64
+	}{
+		{name: "nil job", job: nil, want: 0},
+		{
+			name: "cache version wins",
+			job:  &domain.Job{CacheVersion: 42, UpdatedAt: updatedAt, Version: 3},
+			want: 42,
+		},
+		{
+			name: "updated at wins over semantic version",
+			job:  &domain.Job{UpdatedAt: updatedAt, Version: 3},
+			want: updatedAt.UnixNano(),
+		},
+		{
+			name: "semantic version fallback",
+			job:  &domain.Job{Version: 3},
+			want: 3,
+		},
+		{
+			name: "minimum nonzero fallback",
+			job:  &domain.Job{},
+			want: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := jobCacheVersion(tt.job); got != tt.want {
+				t.Fatalf("jobCacheVersion() = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestWorkerJobVersionKeyString(t *testing.T) {
+	t.Parallel()
+
+	got := workerJobVersionKeyString(jobVersionKey{JobID: "job-1", Version: 7})
+	if got != "job-1\x007" {
+		t.Fatalf("workerJobVersionKeyString() = %q, want %q", got, "job-1\x007")
+	}
+}
+
+func TestVersionedJobCache_NilCacheUsesLoader(t *testing.T) {
+	t.Parallel()
+
+	var cache *tierVersionedJobCache
+	got, err := cache.Load(t.Context(), jobVersionKey{JobID: "job-1", Version: 4}, func(_ context.Context, key jobVersionKey) (*domain.Job, error) {
+		return &domain.Job{ID: key.JobID, Version: key.Version}, nil
+	})
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if got == nil || got.ID != "job-1" || got.Version != 4 {
+		t.Fatalf("Load() = %+v, want job-1 version 4", got)
+	}
+}
+
 func TestJobCache_MultipleKeys(t *testing.T) {
 	t.Parallel()
 
@@ -750,5 +816,191 @@ func TestJobCache_ResolveJobForRun_CacheExpiry(t *testing.T) {
 	_, _ = e.resolveJobForRun(ctx, run)
 	if dbCalls.Load() != 2 {
 		t.Fatalf("DB calls = %d, want 2 (cache expired)", dbCalls.Load())
+	}
+}
+
+func TestResolveJob_CacheHit(t *testing.T) {
+	t.Parallel()
+
+	var getJobCalls atomic.Int32
+	store := &mockExecutorStore{
+		getJobFn: func(_ context.Context, _ string) (*domain.Job, error) {
+			getJobCalls.Add(1)
+			return &domain.Job{ID: "job-1", Version: 1, EndpointURL: "http://example.com"}, nil
+		},
+	}
+
+	exec := NewExecutor(ExecutorConfig{
+		Pool:         NewPool(10),
+		Queue:        &mockExecQueue{},
+		Store:        store,
+		PollInterval: time.Hour,
+		JobCacheTTL:  5 * time.Minute,
+	})
+	t.Cleanup(exec.CloseCache)
+
+	run := &domain.JobRun{ID: "run-1", JobID: "job-1", JobVersion: 1}
+
+	job1, err := exec.resolveJobForRun(context.Background(), run)
+	if err != nil {
+		t.Fatalf("first call error: %v", err)
+	}
+	if job1 == nil {
+		t.Fatal("expected job, got nil")
+		return
+	}
+
+	job2, err := exec.resolveJobForRun(context.Background(), run)
+	if err != nil {
+		t.Fatalf("second call error: %v", err)
+	}
+	if job2 == nil {
+		t.Fatal("expected job, got nil")
+		return
+	}
+
+	if getJobCalls.Load() != 1 {
+		t.Errorf("expected 1 GetJob call (cache hit), got %d", getJobCalls.Load())
+	}
+}
+
+func TestDeepSecResolveJob_ClonesCachedJobBeforeEnvironmentOverrideMutation(t *testing.T) {
+	t.Parallel()
+
+	exec := NewExecutor(ExecutorConfig{
+		Pool:         NewPool(10),
+		Queue:        &mockExecQueue{},
+		Store:        &mockExecutorStore{},
+		PollInterval: time.Hour,
+		JobCacheTTL:  5 * time.Minute,
+	})
+	t.Cleanup(exec.CloseCache)
+
+	cached := &domain.Job{ID: "job-1", ProjectID: "proj-1", Version: 1, EndpointURL: "https://original.example/run"}
+	if err := exec.jobCache.Set(context.Background(), "job-1", cached); err != nil {
+		t.Fatalf("seed cache: %v", err)
+	}
+	run := &domain.JobRun{ID: "run-1", JobID: "job-1", JobVersion: 1}
+
+	resolved, err := exec.resolveJobForRun(context.Background(), run)
+	if err != nil {
+		t.Fatalf("resolveJobForRun: %v", err)
+	}
+	resolved.EndpointURL = "https://override.example/run"
+
+	again, err := exec.jobCache.Get(context.Background(), "job-1")
+	if err != nil {
+		t.Fatalf("read cache: %v", err)
+	}
+	if again.EndpointURL != "https://original.example/run" {
+		t.Fatalf("cached endpoint mutated to %q", again.EndpointURL)
+	}
+}
+
+func TestDeepSecResolveJob_RefreshesLatestPolicyCacheHit(t *testing.T) {
+	t.Parallel()
+
+	var getJobCalls atomic.Int32
+	store := &mockExecutorStore{
+		getJobFn: func(_ context.Context, _ string) (*domain.Job, error) {
+			getJobCalls.Add(1)
+			return &domain.Job{
+				ID:            "job-1",
+				ProjectID:     "proj-1",
+				Version:       2,
+				VersionID:     "v2",
+				VersionPolicy: domain.VersionPolicyLatest,
+				EndpointURL:   "https://fresh.example/run",
+			}, nil
+		},
+	}
+	exec := NewExecutor(ExecutorConfig{
+		Pool:         NewPool(10),
+		Queue:        &mockExecQueue{},
+		Store:        store,
+		PollInterval: time.Hour,
+		JobCacheTTL:  5 * time.Minute,
+	})
+	t.Cleanup(exec.CloseCache)
+	if err := exec.jobCache.Set(context.Background(), "job-1", &domain.Job{
+		ID:            "job-1",
+		ProjectID:     "proj-1",
+		Version:       1,
+		VersionPolicy: domain.VersionPolicyLatest,
+		EndpointURL:   "https://stale.example/run",
+	}); err != nil {
+		t.Fatalf("seed cache: %v", err)
+	}
+
+	run := &domain.JobRun{ID: "run-1", JobID: "job-1", JobVersion: 1}
+	resolved, err := exec.resolveJobForRun(context.Background(), run)
+	if err != nil {
+		t.Fatalf("resolveJobForRun: %v", err)
+	}
+	if getJobCalls.Load() != 1 {
+		t.Fatalf("GetJob calls = %d, want 1", getJobCalls.Load())
+	}
+	if resolved.Version != 2 || resolved.EndpointURL != "https://fresh.example/run" {
+		t.Fatalf("resolved stale job: version=%d endpoint=%q", resolved.Version, resolved.EndpointURL)
+	}
+}
+
+func TestResolveJob_CacheExpiry(t *testing.T) {
+	t.Parallel()
+
+	var getJobCalls atomic.Int32
+	store := &mockExecutorStore{
+		getJobFn: func(_ context.Context, _ string) (*domain.Job, error) {
+			getJobCalls.Add(1)
+			return &domain.Job{ID: "job-1", Version: 1, EndpointURL: "http://example.com"}, nil
+		},
+	}
+
+	exec := NewExecutor(ExecutorConfig{
+		Pool:         NewPool(10),
+		Queue:        &mockExecQueue{},
+		Store:        store,
+		PollInterval: time.Hour,
+		JobCacheTTL:  1 * time.Second,
+	})
+	t.Cleanup(exec.CloseCache)
+
+	run := &domain.JobRun{ID: "run-1", JobID: "job-1", JobVersion: 1}
+
+	_, _ = exec.resolveJobForRun(context.Background(), run)
+	time.Sleep(3 * time.Second)
+	_, _ = exec.resolveJobForRun(context.Background(), run)
+
+	if getJobCalls.Load() != 2 {
+		t.Errorf("expected 2 GetJob calls after expiry, got %d", getJobCalls.Load())
+	}
+}
+
+func TestResolveJob_CacheDisabledWhenTTLZero(t *testing.T) {
+	t.Parallel()
+
+	var getJobCalls atomic.Int32
+	store := &mockExecutorStore{
+		getJobFn: func(_ context.Context, _ string) (*domain.Job, error) {
+			getJobCalls.Add(1)
+			return &domain.Job{ID: "job-1", Version: 1, EndpointURL: "http://example.com"}, nil
+		},
+	}
+
+	exec := NewExecutor(ExecutorConfig{
+		Pool:         NewPool(10),
+		Queue:        &mockExecQueue{},
+		Store:        store,
+		PollInterval: time.Hour,
+		JobCacheTTL:  0,
+	})
+
+	run := &domain.JobRun{ID: "run-1", JobID: "job-1", JobVersion: 1}
+
+	_, _ = exec.resolveJobForRun(context.Background(), run)
+	_, _ = exec.resolveJobForRun(context.Background(), run)
+
+	if getJobCalls.Load() != 2 {
+		t.Errorf("expected 2 GetJob calls (cache disabled), got %d", getJobCalls.Load())
 	}
 }

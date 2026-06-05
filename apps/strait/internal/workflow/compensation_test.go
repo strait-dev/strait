@@ -32,6 +32,7 @@ func TestCompensation_ReverseOrder(t *testing.T) {
 	}
 	if plan == nil {
 		t.Fatal("expected non-nil plan")
+		return
 	}
 	if len(plan.Steps) != 2 {
 		t.Fatalf("expected 2 compensation steps, got %d", len(plan.Steps))
@@ -62,6 +63,7 @@ func TestCompensation_OnlyCompletedSteps(t *testing.T) {
 	}
 	if plan == nil {
 		t.Fatal("expected non-nil plan")
+		return
 	}
 	if len(plan.Steps) != 1 {
 		t.Fatalf("expected 1 step (only a completed), got %d", len(plan.Steps))
@@ -152,6 +154,7 @@ func TestCompensation_SkipsStepsWithoutCompensation(t *testing.T) {
 	}
 	if plan == nil {
 		t.Fatal("expected non-nil plan")
+		return
 	}
 	// Only a has compensation (b has none, c failed).
 	if len(plan.Steps) != 1 {
@@ -178,6 +181,7 @@ func TestCompensation_PassesOriginalOutput(t *testing.T) {
 	}
 	if plan == nil {
 		t.Fatal("expected non-nil plan")
+		return
 	}
 	if string(plan.Steps[0].OriginalOutput) != string(output) {
 		t.Errorf("original output = %s, want %s", plan.Steps[0].OriginalOutput, output)
@@ -206,6 +210,7 @@ func TestCompensation_DiamondDAG(t *testing.T) {
 	}
 	if plan == nil {
 		t.Fatal("expected non-nil plan")
+		return
 	}
 	if len(plan.Steps) != 3 {
 		t.Fatalf("expected 3 compensation steps, got %d", len(plan.Steps))
@@ -243,6 +248,7 @@ func TestCompensation_UnorderedDefinitionsUseTopologicalFallback(t *testing.T) {
 	}
 	if plan == nil {
 		t.Fatal("expected non-nil plan")
+		return
 	}
 	refs := make([]string, len(plan.Steps))
 	for i, step := range plan.Steps {
@@ -502,6 +508,7 @@ func TestCompensation_NilStepOutput(t *testing.T) {
 	}
 	if plan == nil {
 		t.Fatal("expected non-nil plan")
+		return
 	}
 	if plan.Steps[0].OriginalOutput != nil {
 		t.Errorf("expected nil output, got %s", plan.Steps[0].OriginalOutput)
@@ -526,6 +533,7 @@ func TestCompensation_HugeOutput(t *testing.T) {
 	}
 	if plan == nil {
 		t.Fatal("expected non-nil plan")
+		return
 	}
 	if len(plan.Steps[0].OriginalOutput) < 5*1024*1024 {
 		t.Error("large output should be preserved")
@@ -560,6 +568,7 @@ func TestCompensation_ManySteps(t *testing.T) {
 	}
 	if plan == nil {
 		t.Fatal("expected non-nil plan")
+		return
 	}
 	if len(plan.Steps) != n {
 		t.Fatalf("expected %d steps, got %d", n, len(plan.Steps))

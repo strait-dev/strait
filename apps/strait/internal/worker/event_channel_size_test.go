@@ -61,7 +61,7 @@ func TestEmit_SaturationDropsAndNoDeadlock(t *testing.T) {
 		eventChannelSize:   4,
 		logger:             slog.Default(),
 		subscribers:        []RunEventSubscriber{func(_ context.Context, _ RunLifecycleEvent) {}},
-		saturationLastWarn: make(map[string]time.Time),
+		saturationLastWarn: make(map[eventChannelKind]time.Time),
 	}
 	run := &domain.JobRun{ID: "r1"}
 
@@ -82,19 +82,35 @@ func TestEmit_SaturationDropsAndNoDeadlock(t *testing.T) {
 
 func TestShouldLogSaturation_Throttles(t *testing.T) {
 	t.Parallel()
-	exec := &Executor{saturationLastWarn: make(map[string]time.Time)}
-	if !exec.shouldLogSaturation("completed") {
+	exec := &Executor{saturationLastWarn: make(map[eventChannelKind]time.Time)}
+	if !exec.shouldLogSaturation(eventChannelKind(EventCompleted)) {
 		t.Fatal("first call should log")
 	}
-	if exec.shouldLogSaturation("completed") {
+	if exec.shouldLogSaturation(eventChannelKind(EventCompleted)) {
 		t.Fatal("second call within window should be throttled")
 	}
-	if !exec.shouldLogSaturation("other") {
+	if !exec.shouldLogSaturation(eventChannelKind("other")) {
 		t.Fatal("different kind should log once")
 	}
 	// Simulate expiry.
-	exec.saturationLastWarn["completed"] = time.Now().Add(-2 * eventChannelWarnInterval)
-	if !exec.shouldLogSaturation("completed") {
+	exec.saturationLastWarn[eventChannelKind(EventCompleted)] = time.Now().Add(-2 * eventChannelWarnInterval)
+	if !exec.shouldLogSaturation(eventChannelKind(EventCompleted)) {
 		t.Fatal("after interval, should log again")
+	}
+}
+
+func TestResolveInstanceID_StableAndNonEmpty(t *testing.T) {
+	t.Parallel()
+
+	exec := &Executor{}
+
+	first := exec.resolveInstanceID()
+	second := exec.resolveInstanceID()
+
+	if first == "" {
+		t.Fatal("resolveInstanceID returned empty string")
+	}
+	if second != first {
+		t.Fatalf("resolveInstanceID changed between calls: first=%q second=%q", first, second)
 	}
 }

@@ -97,14 +97,17 @@ func TestBackpressureSampler_RunHonoursContext(t *testing.T) {
 		s.Run(ctx)
 		close(done)
 	})
-	time.Sleep(25 * time.Millisecond)
+	deadline := time.Now().Add(time.Second)
+	for fake.calls.Load() == 0 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if fake.calls.Load() == 0 {
+		t.Fatal("expected at least one tick before cancel")
+	}
 	cancel()
 	select {
 	case <-done:
 	case <-time.After(time.Second):
 		t.Fatal("Run did not exit after cancel")
-	}
-	if fake.calls.Load() == 0 {
-		t.Fatal("expected at least one tick before cancel")
 	}
 }

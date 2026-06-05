@@ -4,6 +4,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -20,19 +21,28 @@ func TestSingleSendWebhookOnceImpl(t *testing.T) {
 	t.Parallel()
 
 	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, "webhook.go", nil, parser.SkipObjectResolution)
+	files, err := filepath.Glob("webhook*.go")
 	if err != nil {
-		t.Fatalf("parse webhook.go: %v", err)
+		t.Fatalf("glob webhook files: %v", err)
 	}
 
 	var matches []string
-	for _, decl := range file.Decls {
-		fn, ok := decl.(*ast.FuncDecl)
-		if !ok || fn.Recv != nil {
+	for _, path := range files {
+		if strings.HasSuffix(path, "_test.go") {
 			continue
 		}
-		if strings.HasPrefix(fn.Name.Name, "sendWebhookOnce") {
-			matches = append(matches, fn.Name.Name)
+		file, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
+		if err != nil {
+			t.Fatalf("parse %s: %v", path, err)
+		}
+		for _, decl := range file.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok || fn.Recv != nil {
+				continue
+			}
+			if strings.HasPrefix(fn.Name.Name, "sendWebhookOnce") {
+				matches = append(matches, fn.Name.Name)
+			}
 		}
 	}
 

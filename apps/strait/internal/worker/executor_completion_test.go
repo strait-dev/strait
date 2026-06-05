@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -159,6 +160,93 @@ func TestCompleteRunWithWebhook_StoreError_Propagated(t *testing.T) {
 	}
 	if err.Error() != "db write failed" {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestTerminalRunCompletion_CompletedEndpointWebhook(t *testing.T) {
+	t.Parallel()
+
+	finishedAt := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	result := json.RawMessage(`{"ok":true}`)
+	run := &domain.JobRun{
+		ID:     "run-1",
+		JobID:  "job-1",
+		Status: domain.StatusExecuting,
+	}
+	job := &domain.Job{
+		ID:          "job-1",
+		ProjectID:   "project-1",
+		EndpointURL: "https://example.com/run",
+		WebhookURL:  "https://example.com/hook",
+	}
+	fields := map[string]any{
+		"finished_at": finishedAt,
+		"result":      result,
+	}
+
+	completion := newTerminalRunCompletion(run, job, domain.StatusCompleted, fields)
+
+	if completion.from != domain.StatusExecuting {
+		t.Fatalf("from = %s, want %s", completion.from, domain.StatusExecuting)
+	}
+	if completion.to != domain.StatusCompleted {
+		t.Fatalf("to = %s, want %s", completion.to, domain.StatusCompleted)
+	}
+	if string(completion.fields["result"].(json.RawMessage)) != string(result) {
+		t.Fatalf("result field = %v, want %s", completion.fields["result"], result)
+	}
+	if !completion.recordEndpointSuccess {
+		t.Fatal("completed endpoint run should record endpoint success")
+	}
+	if !completion.enqueueWebhook {
+		t.Fatal("webhook URL should enqueue webhook delivery")
+	}
+	if completion.webhookRun.Status != domain.StatusCompleted {
+		t.Fatalf("webhook run status = %s, want %s", completion.webhookRun.Status, domain.StatusCompleted)
+	}
+	if string(completion.webhookRun.Result) != string(result) {
+		t.Fatalf("webhook result = %s, want %s", completion.webhookRun.Result, result)
+	}
+	if completion.webhookRun.FinishedAt == nil || !completion.webhookRun.FinishedAt.Equal(finishedAt) {
+		t.Fatalf("webhook finished_at = %v, want %s", completion.webhookRun.FinishedAt, finishedAt)
+	}
+}
+
+func TestTerminalRunCompletion_FailedRunSkipsEndpointSuccess(t *testing.T) {
+	t.Parallel()
+
+	finishedAt := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	run := &domain.JobRun{
+		ID:     "run-1",
+		JobID:  "job-1",
+		Status: domain.StatusExecuting,
+	}
+	job := &domain.Job{
+		ID:          "job-1",
+		ProjectID:   "project-1",
+		EndpointURL: "https://example.com/run",
+	}
+	fields := map[string]any{
+		"finished_at": finishedAt,
+		"error":       "failed",
+	}
+
+	completion := newTerminalRunCompletion(run, job, domain.StatusDeadLetter, fields)
+
+	if completion.recordEndpointSuccess {
+		t.Fatal("failed run should not record endpoint success")
+	}
+	if completion.enqueueWebhook {
+		t.Fatal("empty webhook URL should not enqueue webhook delivery")
+	}
+	if completion.webhookRun.Status != domain.StatusDeadLetter {
+		t.Fatalf("webhook run status = %s, want %s", completion.webhookRun.Status, domain.StatusDeadLetter)
+	}
+	if completion.webhookRun.Error != "failed" {
+		t.Fatalf("webhook error = %q, want failed", completion.webhookRun.Error)
+	}
+	if completion.webhookRun.FinishedAt == nil || !completion.webhookRun.FinishedAt.Equal(finishedAt) {
+		t.Fatalf("webhook finished_at = %v, want %s", completion.webhookRun.FinishedAt, finishedAt)
 	}
 }
 

@@ -338,6 +338,25 @@ func TestEstimateWorkflowCriticalPath_IgnoresUnknownDependencies(t *testing.T) {
 	}
 }
 
+func TestEstimateStepTiming_RunningPastTimeoutClampsRemaining(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	startedAt := now.Add(-3 * time.Second)
+
+	estimateMS, remainingMS := estimateStepTiming(
+		domain.WorkflowStep{StepRef: "slow", StepType: domain.WorkflowStepTypeJob, TimeoutSecsOverride: 2},
+		domain.WorkflowStepRun{StepRef: "slow", Status: domain.StepRunning, StartedAt: &startedAt},
+		now,
+	)
+
+	if estimateMS != 2_000 {
+		t.Fatalf("estimateMS = %d, want 2000", estimateMS)
+	}
+	if remainingMS != 0 {
+		t.Fatalf("remainingMS = %d, want 0", remainingMS)
+	}
+}
+
 func timelineStepByRef(t *testing.T, steps []domain.TimelineStep, ref string) domain.TimelineStep {
 	t.Helper()
 	for _, step := range steps {

@@ -151,3 +151,16 @@ func TestValidateWorkflowSteps_AllowsValidEventNotifyURL(t *testing.T) {
 		t.Fatalf("validate valid event_notify_url: %v", err)
 	}
 }
+
+func TestValidateWorkflowStepAcyclic_DuplicateDependencyIsNotCycle(t *testing.T) {
+	t.Parallel()
+
+	steps := []workflowStepRequest{
+		{StepRef: "a", JobID: "job-a"},
+		{StepRef: "b", JobID: "job-b", DependsOn: []string{"a", "a"}},
+	}
+
+	if err := validateWorkflowSteps(steps); err != nil {
+		t.Fatalf("duplicate dependency should not be reported as a cycle: %v", err)
+	}
+}

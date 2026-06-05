@@ -5,8 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"runtime"
-	"strconv"
-	"strings"
 	"time"
 
 	"strait/internal/domain"
@@ -15,18 +13,6 @@ import (
 
 	"github.com/getsentry/sentry-go"
 )
-
-// workerQueueDequeuer claims worker-mode runs for specific queues.
-type workerQueueDequeuer interface {
-	DequeueNForWorkerQueues(ctx context.Context, n int, queues []domain.WorkerQueueRef) ([]domain.JobRun, error)
-}
-
-// QueueSnapshotter returns the environment-qualified queues that have active
-// workers connected to this replica. Implemented by grpc.ConnectionRegistry via
-// an adapter to avoid a circular import.
-type QueueSnapshotter interface {
-	SnapshotWorkerQueues() []domain.WorkerQueueRef
-}
 
 func (e *Executor) poll(ctx context.Context) {
 	start := time.Now()
@@ -144,10 +130,10 @@ func (e *Executor) checkMemoryPressure() bool {
 // computeAvailable returns the number of runs that can be dequeued this cycle,
 // bounded by pool availability, the adaptive concurrency limit, and the max batch size.
 func (e *Executor) computeAvailable() int {
-	available := e.pool.Available()
+	active, available := e.pool.observedSnapshot()
 	if e.concurrencyLimit != nil {
 		target := max(e.concurrencyLimit.CurrentLimit(), 1)
-		adaptiveAvailable := target - e.pool.ActiveCount()
+		adaptiveAvailable := target - active
 		if adaptiveAvailable < available {
 			available = adaptiveAvailable
 		}
@@ -156,124 +142,4 @@ func (e *Executor) computeAvailable() int {
 		available = e.maxDequeueBatchSize
 	}
 	return available
-}
-
-// dequeueRuns fetches up to capacity runs from the queue.
-// In fair-share mode it round-robins across partitions; otherwise it performs
-// a two-pass dequeue: HTTP-eligible runs first, then worker-eligible runs.
-func (e *Executor) dequeueRuns(ctx context.Context, capacity int) ([]domain.JobRun, error) {
-	if len(e.partitionCycle) > 0 {
-		return e.dequeueAcrossPartitions(ctx, capacity)
-	}
-
-	// Pass 1: HTTP-eligible runs (any replica can dispatch these).
-	runs, err := e.queue.DequeueN(ctx, capacity)
-	if err != nil {
-		return nil, err
-	}
-
-	// Pass 2: Worker-eligible runs — only attempt if this replica has
-	// connected workers and capacity remains after the HTTP pass.
-	runs = e.appendWorkerRuns(ctx, runs, capacity)
-	return runs, nil
-}
-
-// appendWorkerRuns dequeues worker-mode runs and appends them to runs when
-// connected workers are available and remaining capacity allows it.
-func (e *Executor) appendWorkerRuns(ctx context.Context, runs []domain.JobRun, capacity int) []domain.JobRun {
-	if e.queueSnapshotter == nil {
-		return runs
-	}
-	workerQueues := e.queueSnapshotter.SnapshotWorkerQueues()
-	if len(workerQueues) == 0 {
-		return runs
-	}
-	remaining := capacity - len(runs)
-	if remaining <= 0 {
-		return runs
-	}
-	wq, ok := e.queue.(workerQueueDequeuer)
-	if !ok {
-		return runs
-	}
-	workerRuns, wErr := wq.DequeueNForWorkerQueues(ctx, remaining, workerQueues)
-	if wErr != nil {
-		// Log but don't block the HTTP pass result.
-		e.logger.Warn("worker dequeue failed", "error", wErr)
-		return runs
-	}
-	return append(runs, workerRuns...)
-}
-
-func (e *Executor) dequeueAcrossPartitions(ctx context.Context, capacity int) ([]domain.JobRun, error) {
-	out := make([]domain.JobRun, 0, capacity)
-	if capacity <= 0 || len(e.partitionCycle) == 0 {
-		return out, nil
-	}
-
-	remaining := capacity
-	iterations := len(e.partitionCycle)
-	qm, _ := queue.Metrics()
-	for i := 0; i < iterations && remaining > 0; i++ {
-		partition := e.partitionCycle[e.nextPartition%len(e.partitionCycle)]
-		e.nextPartition = (e.nextPartition + 1) % len(e.partitionCycle)
-
-		partStart := time.Now()
-		claimed, err := e.queue.DequeueNByProject(ctx, remaining, partition)
-		if qm != nil {
-			// Avoid attaching partition/project_id as a label here;
-			// in fair-share mode that would explode Prometheus cardinality.
-			qm.PartitionDequeueLag.Record(ctx, time.Since(partStart).Seconds())
-		}
-		if err != nil {
-			return nil, err
-		}
-		if len(claimed) == 0 {
-			continue
-		}
-
-		out = append(out, claimed...)
-		remaining -= len(claimed)
-	}
-
-	return out, nil
-}
-
-func buildPartitionCycle(partitions []string, weightsRaw string) []string {
-	if len(partitions) == 0 {
-		return nil
-	}
-
-	weights := make(map[string]int)
-	if weightsRaw != "" {
-		for _, token := range strings.FieldsFunc(weightsRaw, func(r rune) bool { return r == ',' }) {
-			token = strings.TrimSpace(token)
-			if token == "" {
-				continue
-			}
-			parts := strings.SplitN(token, ":", 2)
-			if len(parts) != 2 {
-				continue
-			}
-			key := strings.TrimSpace(parts[0])
-			weight, err := strconv.Atoi(strings.TrimSpace(parts[1]))
-			if err != nil || weight <= 0 {
-				continue
-			}
-			weights[key] = weight
-		}
-	}
-
-	cycle := make([]string, 0, len(partitions))
-	for _, partition := range partitions {
-		w := weights[partition]
-		if w <= 0 {
-			w = 1
-		}
-		for range w {
-			cycle = append(cycle, partition)
-		}
-	}
-
-	return cycle
 }

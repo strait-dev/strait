@@ -1,7 +1,6 @@
 package billing
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -576,74 +575,15 @@ func (e *Enforcer) GetOrgPlanLimits(ctx context.Context, orgID string) (limits O
 
 	// Otherwise, result is the OrgSubscription — build limits from it.
 	sub := result.(*OrgSubscription)
-
-	tier := domain.PlanTier(sub.PlanTier)
-	cacheVersion := orgSubscriptionCacheVersion(sub)
-
-	// Read the persisted entitlements snapshot when present. Empty (nil) and
-	// the literal `{}` default are treated as "no snapshot"
-	// so the recompute path opportunistically populates the column for
-	// orgs that haven't been touched by a mutator since migration 259.
-	usedSnapshot := false
-	if e.entitlementsAuthoritative && hasPersistedEntitlements(sub.Entitlements) {
-		var snap OrgPlanLimits
-		if err := json.Unmarshal(sub.Entitlements, &snap); err != nil {
-			// Malformed JSON in the column: log and fall back to recompute.
-			// The recompute path below opportunistically rewrites the
-			// snapshot with a valid value.
-			e.logger.Warn("entitlements snapshot is malformed, falling back to recompute",
-				"org_id", orgID, "error", err)
-		} else {
-			limits = snap
-			usedSnapshot = true
-		}
-	}
-
-	if !usedSnapshot {
-		limits = GetPlanLimits(tier)
-
-		// Add-ons are part of the runtime entitlement set. If they cannot
-		// be read, callers must fail closed instead of enforcing stale base
-		// plan limits.
-		addons, addonErr := e.store.ListActiveAddons(ctx, orgID)
-		if addonErr != nil {
-			return OrgPlanLimits{}, fmt.Errorf("listing active add-ons: %w", addonErr)
-		} else if len(addons) > 0 {
-			limits = EffectiveLimits(limits, addons)
-		}
-
-		// Keep the legacy add_ons JSONB compatibility step inert.
-		limits = ApplySubscriptionAddOns(limits, sub.AddOns)
-
-		// Opportunistically populate the snapshot column so subsequent
-		// reads hit the fast path. Failures here are non-fatal — the
-		// snapshot is a cache and the catalog data remains the source
-		// of truth.
-		if e.entitlementsAuthoritative {
-			if err := e.store.UpdateEntitlements(ctx, orgID, limits); err != nil {
-				e.logger.Warn("failed to opportunistically populate entitlements",
-					"org_id", orgID, "error", err)
-			} else {
-				cacheVersion++
-			}
-		}
-	}
-
-	// Apply per-org overrides from support. These run on top of the
-	// snapshot too — overrides are a runtime knob, not part of the
-	// resolved plan, and they must not be persisted into the snapshot.
-	// The legacy daily run override is intentionally ignored for launch:
-	// billing is monthly orchestration runs, and all launch plans keep
-	// MaxRunsPerDay at -1 so stale support metadata cannot reactivate a
-	// public daily quota.
-	if sub.OverrideConcurrentRunLimit != nil {
-		limits.MaxConcurrentRuns = *sub.OverrideConcurrentRunLimit
+	resolution, err := e.resolveOrgPlanLimits(ctx, orgID, sub)
+	if err != nil {
+		return OrgPlanLimits{}, err
 	}
 
 	cached := &cachedOrgLimits{
-		tier:            tier,
-		limits:          limits,
-		enforcementMode: sub.EnforcementMode,
+		tier:            resolution.tier,
+		limits:          resolution.limits,
+		enforcementMode: resolution.enforcementMode,
 	}
 	_, _ = e.orgCache.StrongWriteThrough(
 		ctx,
@@ -651,31 +591,10 @@ func (e *Enforcer) GetOrgPlanLimits(ctx context.Context, orgID string) (limits O
 		orgID,
 		orgID,
 		cached,
-		cacheVersion,
+		resolution.cacheVersion,
 		e.cacheBus,
 	)
-	return limits, nil
-}
-
-func orgSubscriptionCacheVersion(sub *OrgSubscription) int64 {
-	if sub == nil || sub.CacheVersion <= 0 {
-		return 1
-	}
-	return sub.CacheVersion
-}
-
-// hasPersistedEntitlements reports whether the raw JSONB bytes contain
-// a non-default snapshot. The migration default is the empty object `{}`
-// which is two bytes; anything longer is treated as a populated snapshot.
-// nil and zero-length are also considered empty.
-func hasPersistedEntitlements(raw []byte) bool {
-	if len(raw) <= 2 {
-		return false
-	}
-	// Tolerate whitespace-only payloads like ` {} ` by trimming and
-	// comparing to the empty object literal.
-	trimmed := bytes.TrimSpace(raw)
-	return len(trimmed) > 2 && string(trimmed) != "{}"
+	return resolution.limits, nil
 }
 
 // checkPaymentStatus checks the org's payment/grace status. nil means normal

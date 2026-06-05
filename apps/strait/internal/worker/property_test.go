@@ -109,25 +109,6 @@ func TestProperty_Concurrency_NeverExceedsMax(t *testing.T) {
 	}
 }
 
-// TestProperty_Priority_HigherFirst verifies that boostPriority always returns
-// a value >= the original priority and never exceeds the cap of 10.
-func TestProperty_Priority_HigherFirst(t *testing.T) {
-	t.Parallel()
-
-	for range 2000 {
-		current := rand.IntN(11) // 0-10.
-		boost := rand.IntN(20)   // 0-19.
-
-		result := boostPriority(current, boost)
-		if result < current {
-			t.Fatalf("boostPriority(%d, %d) = %d, lower than current", current, boost, result)
-		}
-		if result > 10 {
-			t.Fatalf("boostPriority(%d, %d) = %d, exceeds cap of 10", current, boost, result)
-		}
-	}
-}
-
 // TestProperty_ErrorHash_Deterministic verifies that errorHash produces the
 // same output when called twice with the same input.
 func TestProperty_ErrorHash_Deterministic(t *testing.T) {

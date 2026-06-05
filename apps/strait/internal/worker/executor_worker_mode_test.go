@@ -145,6 +145,74 @@ func workerModeJob(maxAttempts int) *domain.Job {
 	}
 }
 
+func TestWorkerRunResultFromDispatch(t *testing.T) {
+	t.Parallel()
+
+	opaque := struct{ id string }{id: "result-1"}
+	wantOutput := json.RawMessage(`{"ok":true}`)
+	dispatcher := &fakeWorkerDispatcher{
+		statusOf: map[any]string{opaque: "success"},
+		errorOf:  map[any]string{opaque: "ignored warning"},
+		outputOf: map[any]json.RawMessage{opaque: wantOutput},
+	}
+	exec, _, _ := newWorkerModeExecutor(t, &mockExecutorStore{}, dispatcher)
+
+	result := exec.workerRunResultFromDispatch(opaque)
+	if result.status != "success" {
+		t.Fatalf("status = %q, want success", result.status)
+	}
+	if result.errorMessage != "ignored warning" {
+		t.Fatalf("errorMessage = %q, want ignored warning", result.errorMessage)
+	}
+	if string(result.output) != string(wantOutput) {
+		t.Fatalf("output = %s, want %s", result.output, wantOutput)
+	}
+	if !result.succeeded() {
+		t.Fatal("success status should be marked succeeded")
+	}
+}
+
+func TestWorkerRunResultFailureMessage(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		in   workerRunResult
+		want string
+	}{
+		{
+			name: "explicit error wins",
+			in: workerRunResult{
+				status:       "failed",
+				errorMessage: "boom",
+			},
+			want: "boom",
+		},
+		{
+			name: "empty status means malformed result",
+			in:   workerRunResult{},
+			want: "worker returned malformed or empty result",
+		},
+		{
+			name: "terminal status without error is named",
+			in: workerRunResult{
+				status: "cancelled",
+			},
+			want: `worker reported terminal status "cancelled" without error message`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := tt.in.failureMessage(); got != tt.want {
+				t.Fatalf("failureMessage() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestFinalizeWorkerRunResult_SuccessUsesExecutorCompletionPath(t *testing.T) {
 	t.Parallel()
 	startedAt := time.Now().Add(-time.Second)
@@ -180,13 +248,7 @@ func TestFinalizeWorkerRunResult_SuccessUsesExecutorCompletionPath(t *testing.T)
 	if taskStatus != domain.WorkerTaskStatusCompleted {
 		t.Fatalf("task status = %q, want completed", taskStatus)
 	}
-	if len(ms.statusCalls) != 1 {
-		t.Fatalf("status calls = %d, want 1", len(ms.statusCalls))
-	}
-	call := ms.statusCalls[0]
-	if call.from != domain.StatusExecuting || call.to != domain.StatusCompleted {
-		t.Fatalf("transition = %s -> %s, want executing -> completed", call.from, call.to)
-	}
+	call := requireOnlyStatusTransition(t, ms.statusUpdates(), domain.StatusExecuting, domain.StatusCompleted)
 	if string(call.fields["result"].(json.RawMessage)) != `{"ok":true}` {
 		t.Fatalf("result field = %v, want worker output", call.fields["result"])
 	}
@@ -221,13 +283,7 @@ func TestFinalizeWorkerRunResult_FailureUsesExecutorRetryPath(t *testing.T) {
 	if taskStatus != domain.WorkerTaskStatusFailed {
 		t.Fatalf("task status = %q, want failed", taskStatus)
 	}
-	if len(ms.statusCalls) != 1 {
-		t.Fatalf("status calls = %d, want 1", len(ms.statusCalls))
-	}
-	call := ms.statusCalls[0]
-	if call.from != domain.StatusExecuting || call.to != domain.StatusQueued {
-		t.Fatalf("transition = %s -> %s, want executing -> queued", call.from, call.to)
-	}
+	call := requireOnlyStatusTransition(t, ms.statusUpdates(), domain.StatusExecuting, domain.StatusQueued)
 	if call.fields["attempt"] != 2 {
 		t.Fatalf("attempt field = %v, want 2", call.fields["attempt"])
 	}
@@ -258,16 +314,7 @@ func TestExecuteWorkerMode_SuccessRoutesToHandleSuccess(t *testing.T) {
 
 	waitForCondition(t, 2*time.Second, func() bool { return cb.calls.Load() >= 1 }, "callback")
 
-	updates := ms.statusUpdates()
-	gotCompleted := false
-	for _, u := range updates {
-		if u.to == domain.StatusCompleted {
-			gotCompleted = true
-		}
-	}
-	if !gotCompleted {
-		t.Fatalf("expected transition to completed, got updates: %+v", updates)
-	}
+	requireStatusUpdateTo(t, ms.statusUpdates(), domain.StatusCompleted)
 }
 
 func TestExecuteWorkerMode_TimesOutWorkerDispatchUsingExecutionPolicy(t *testing.T) {
@@ -313,17 +360,7 @@ func TestExecuteWorkerMode_TimesOutWorkerDispatchUsingExecutionPolicy(t *testing
 		t.Fatalf("worker-mode timeout elapsed = %s, want about 1s", elapsed)
 	}
 
-	var timeoutUpdate *statusUpdateCall
-	updates := ms.statusUpdates()
-	for i := range updates {
-		if updates[i].from == domain.StatusExecuting && updates[i].to == domain.StatusQueued {
-			timeoutUpdate = &updates[i]
-			break
-		}
-	}
-	if timeoutUpdate == nil {
-		t.Fatalf("expected timeout requeue update, got: %+v", updates)
-	}
+	timeoutUpdate := requireRetryTransition(t, ms.statusUpdates())
 	if timeoutUpdate.fields["attempt"] != 2 {
 		t.Fatalf("attempt field = %v, want 2", timeoutUpdate.fields["attempt"])
 	}
@@ -376,17 +413,7 @@ func TestExecuteWorkerMode_ParentCancellationRequeuesWithoutTimeout(t *testing.T
 		t.Fatal("worker-mode dispatch did not return after parent cancellation")
 	}
 
-	var requeueUpdate *statusUpdateCall
-	for _, update := range ms.statusUpdates() {
-		if update.from == domain.StatusExecuting && update.to == domain.StatusQueued {
-			u := update
-			requeueUpdate = &u
-			break
-		}
-	}
-	if requeueUpdate == nil {
-		t.Fatalf("expected cancellation requeue, got updates: %+v", ms.statusUpdates())
-	}
+	requeueUpdate := requireRetryTransition(t, ms.statusUpdates())
 	if _, ok := requeueUpdate.fields["attempt"]; ok {
 		t.Fatalf("cancellation requeue should not increment attempt: %+v", requeueUpdate.fields)
 	}
@@ -415,29 +442,14 @@ func TestExecuteWorkerMode_SuccessPersistsWorkerOutput(t *testing.T) {
 	run := testRun(1)
 	exec.executeWorkerMode(context.Background(), run, workerModeJob(3))
 
-	waitForCondition(t, 2*time.Second, func() bool {
-		for _, u := range ms.statusUpdates() {
-			if u.to == domain.StatusCompleted {
-				return true
-			}
-		}
-		return false
-	}, "completed transition")
-
-	for _, u := range ms.statusUpdates() {
-		if u.to != domain.StatusCompleted {
-			continue
-		}
-		got, ok := u.fields["result"].(json.RawMessage)
-		if !ok {
-			t.Fatalf("completed fields missing json result: %+v", u.fields)
-		}
-		if string(got) != string(wantOutput) {
-			t.Fatalf("result = %s, want %s", got, wantOutput)
-		}
-		return
+	completed := waitForStatusUpdate(t, ms, domain.StatusCompleted)
+	got, ok := completed.fields["result"].(json.RawMessage)
+	if !ok {
+		t.Fatalf("completed fields missing json result: %+v", completed.fields)
 	}
-	t.Fatal("completed transition not found")
+	if string(got) != string(wantOutput) {
+		t.Fatalf("result = %s, want %s", got, wantOutput)
+	}
 }
 
 func TestExecuteWorkerMode_CompletesWorkerTaskAfterRunResultPersists(t *testing.T) {
@@ -535,26 +547,10 @@ func TestExecuteWorkerMode_FailedStatusRoutesToHandleFailure(t *testing.T) {
 	waitForCondition(t, 2*time.Second, func() bool { return cb.calls.Load() >= 1 }, "callback")
 
 	updates := ms.statusUpdates()
-	gotCompleted := false
-	gotDeadLetter := false
-	var failureFields map[string]any
-	for _, u := range updates {
-		if u.to == domain.StatusCompleted {
-			gotCompleted = true
-		}
-		if u.to == domain.StatusDeadLetter {
-			gotDeadLetter = true
-			failureFields = u.fields
-		}
-	}
-	if gotCompleted {
-		t.Fatal("worker reported failed but run was marked completed — regression")
-	}
-	if !gotDeadLetter {
-		t.Fatalf("expected dead_letter transition, got updates: %+v", updates)
-	}
-	if msg, ok := failureFields["error"].(string); !ok || msg == "" {
-		t.Fatalf("expected error message in failure fields, got: %+v", failureFields)
+	requireNoStatusUpdateTo(t, updates, domain.StatusCompleted)
+	deadLetter := requireStatusUpdateTo(t, updates, domain.StatusDeadLetter)
+	if msg, ok := deadLetter.fields["error"].(string); !ok || msg == "" {
+		t.Fatalf("expected error message in failure fields, got: %+v", deadLetter.fields)
 	}
 }
 
@@ -580,23 +576,10 @@ func TestExecuteWorkerMode_FailedWithEmptyErrorUsesDefault(t *testing.T) {
 	run := testRun(1)
 	exec.executeWorkerMode(context.Background(), run, workerModeJob(1))
 
-	waitForCondition(t, 2*time.Second, func() bool {
-		for _, u := range ms.statusUpdates() {
-			if u.to == domain.StatusDeadLetter {
-				return true
-			}
-		}
-		return false
-	}, "dead_letter transition")
-
-	for _, u := range ms.statusUpdates() {
-		if u.to == domain.StatusDeadLetter {
-			msg, _ := u.fields["error"].(string)
-			if msg == "" {
-				t.Fatalf("expected default error message, got empty")
-			}
-			return
-		}
+	deadLetter := waitForStatusUpdate(t, ms, domain.StatusDeadLetter)
+	msg, _ := deadLetter.fields["error"].(string)
+	if msg == "" {
+		t.Fatalf("expected default error message, got empty")
 	}
 }
 
@@ -619,20 +602,9 @@ func TestExecuteWorkerMode_NilResultTreatedAsFailure(t *testing.T) {
 	run := testRun(1)
 	exec.executeWorkerMode(context.Background(), run, workerModeJob(1))
 
-	waitForCondition(t, 2*time.Second, func() bool {
-		for _, u := range ms.statusUpdates() {
-			if u.to == domain.StatusDeadLetter {
-				return true
-			}
-		}
-		return false
-	}, "dead_letter transition")
+	waitForStatusUpdate(t, ms, domain.StatusDeadLetter)
 
-	for _, u := range ms.statusUpdates() {
-		if u.to == domain.StatusCompleted {
-			t.Fatal("nil result silently routed to completed — regression")
-		}
-	}
+	requireNoStatusUpdateTo(t, ms.statusUpdates(), domain.StatusCompleted)
 }
 
 // TestExecuteWorkerMode_UnknownStatusTreatedAsFailure asserts an unrecognized
@@ -657,20 +629,9 @@ func TestExecuteWorkerMode_UnknownStatusTreatedAsFailure(t *testing.T) {
 	run := testRun(1)
 	exec.executeWorkerMode(context.Background(), run, workerModeJob(1))
 
-	waitForCondition(t, 2*time.Second, func() bool {
-		for _, u := range ms.statusUpdates() {
-			if u.to == domain.StatusDeadLetter {
-				return true
-			}
-		}
-		return false
-	}, "dead_letter transition")
+	waitForStatusUpdate(t, ms, domain.StatusDeadLetter)
 
-	for _, u := range ms.statusUpdates() {
-		if u.to == domain.StatusCompleted {
-			t.Fatal("unknown status silently routed to completed — regression")
-		}
-	}
+	requireNoStatusUpdateTo(t, ms.statusUpdates(), domain.StatusCompleted)
 }
 
 // TestExecuteWorkerMode_DispatchErrorRequeuesOnNoWorker asserts that the
@@ -692,18 +653,8 @@ func TestExecuteWorkerMode_DispatchErrorRequeuesOnNoWorker(t *testing.T) {
 	run.Status = domain.StatusExecuting
 	exec.executeWorkerMode(context.Background(), run, workerModeJob(3))
 
-	gotRequeued := false
-	var requeueFields map[string]any
-	for _, u := range ms.statusUpdates() {
-		if u.from == domain.StatusExecuting && u.to == domain.StatusQueued {
-			gotRequeued = true
-			requeueFields = u.fields
-		}
-	}
-	if !gotRequeued {
-		t.Fatalf("expected requeue from executing to queued, got: %+v", ms.statusUpdates())
-	}
-	assertQueuedResetFields(t, requeueFields)
+	requeue := requireRetryTransition(t, ms.statusUpdates())
+	assertQueuedResetFields(t, requeue.fields)
 }
 
 // TestExecuteWorkerMode_RegistersHeartbeatWhileDispatchInFlight verifies that
@@ -763,18 +714,8 @@ func TestExecuteWorkerMode_NilDispatcherRequeuesWithCleanQueuedFields(t *testing
 	run.Status = domain.StatusExecuting
 	exec.executeWorkerMode(context.Background(), run, workerModeJob(3))
 
-	gotRequeued := false
-	var requeueFields map[string]any
-	for _, u := range ms.statusUpdates() {
-		if u.from == domain.StatusExecuting && u.to == domain.StatusQueued {
-			gotRequeued = true
-			requeueFields = u.fields
-		}
-	}
-	if !gotRequeued {
-		t.Fatalf("expected requeue from executing to queued, got: %+v", ms.statusUpdates())
-	}
-	assertQueuedResetFields(t, requeueFields)
+	requeue := requireRetryTransition(t, ms.statusUpdates())
+	assertQueuedResetFields(t, requeue.fields)
 }
 
 func TestExecuteWorkerMode_NilDispatcherRequeuesDequeuedRun(t *testing.T) {
@@ -787,18 +728,8 @@ func TestExecuteWorkerMode_NilDispatcherRequeuesDequeuedRun(t *testing.T) {
 	run.Status = domain.StatusDequeued
 	exec.executeWorkerMode(context.Background(), run, workerModeJob(3))
 
-	gotRequeued := false
-	var requeueFields map[string]any
-	for _, u := range ms.statusUpdates() {
-		if u.from == domain.StatusDequeued && u.to == domain.StatusQueued {
-			gotRequeued = true
-			requeueFields = u.fields
-		}
-	}
-	if !gotRequeued {
-		t.Fatalf("expected requeue from dequeued to queued, got: %+v", ms.statusUpdates())
-	}
-	assertQueuedResetFields(t, requeueFields)
+	requeue := requireStatusTransition(t, ms.statusUpdates(), domain.StatusDequeued, domain.StatusQueued)
+	assertQueuedResetFields(t, requeue.fields)
 }
 
 // TestExecuteWorkerMode_TrustsExplicitFailureOverErrorField is an adversarial
@@ -826,14 +757,22 @@ func TestExecuteWorkerMode_TrustsExplicitFailureOverErrorField(t *testing.T) {
 	run := testRun(1)
 	exec.executeWorkerMode(context.Background(), run, workerModeJob(3))
 
+	waitForStatusUpdate(t, ms, domain.StatusCompleted)
+}
+
+func waitForStatusUpdate(t *testing.T, store *mockExecutorStore, status domain.RunStatus) statusUpdateCall {
+	t.Helper()
+
 	waitForCondition(t, 2*time.Second, func() bool {
-		for _, u := range ms.statusUpdates() {
-			if u.to == domain.StatusCompleted {
+		for _, update := range store.statusUpdates() {
+			if update.to == status {
 				return true
 			}
 		}
 		return false
-	}, "completed transition")
+	}, string(status)+" transition")
+
+	return requireStatusUpdateTo(t, store.statusUpdates(), status)
 }
 
 func assertQueuedResetFields(t *testing.T, fields map[string]any) {
@@ -841,6 +780,7 @@ func assertQueuedResetFields(t *testing.T, fields map[string]any) {
 
 	if fields == nil {
 		t.Fatal("expected queued reset fields, got nil")
+		return
 	}
 
 	wantNil := []string{

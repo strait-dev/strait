@@ -75,7 +75,7 @@ func TestHealthSampler_SurvivesDroppedPartition(t *testing.T) {
 		close(done)
 	})
 
-	time.Sleep(200 * time.Millisecond)
+	waitFor(t, 2*time.Second, func() bool { return sampler.Iterations() >= 3 })
 	cancel()
 
 	select {

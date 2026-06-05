@@ -9491,14 +9491,21 @@ func (mock *APIStoreMock) GetEventTriggerByEventKeyForProject(ctx context.Contex
 	mock.calls.GetEventTriggerByEventKeyForProject = append(mock.calls.GetEventTriggerByEventKeyForProject, callInfo)
 	mock.lockGetEventTriggerByEventKeyForProject.Unlock()
 	if mock.GetEventTriggerByEventKeyForProjectFunc == nil {
-		if mock.GetEventTriggerByEventKeyFunc != nil {
-			return mock.GetEventTriggerByEventKey(ctx, eventKey)
+		if mock.GetEventTriggerByEventKeyFunc == nil {
+			var (
+				eventTriggerOut *domain.EventTrigger
+				errOut          error
+			)
+			return eventTriggerOut, errOut
 		}
-		var (
-			eventTriggerOut *domain.EventTrigger
-			errOut          error
-		)
-		return eventTriggerOut, errOut
+		trigger, err := mock.GetEventTriggerByEventKey(ctx, eventKey)
+		if err != nil || trigger == nil {
+			return trigger, err
+		}
+		if trigger.ProjectID != projectID {
+			return nil, nil
+		}
+		return trigger, nil
 	}
 	return mock.GetEventTriggerByEventKeyForProjectFunc(ctx, eventKey, projectID)
 }

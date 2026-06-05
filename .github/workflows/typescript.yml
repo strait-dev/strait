@@ -130,9 +130,24 @@ jobs:
             sleep 1
           done
 
-          asset=$(sed -n 's/.*href="\([^"]*\.css\)".*/\1/p' /tmp/strait-app-login.html | head -1)
-          test -n "$asset"
-          test "$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:3017${asset}")" = "200"
+          asset=$(
+            sed -nE \
+              -e 's/.*href="([^"]*\/assets\/[^"]+\.css)".*/\1/p' \
+              -e 's/.*src="([^"]*\/assets\/[^"]+\.js)".*/\1/p' \
+              /tmp/strait-app-login.html | head -1
+          )
+          if [ -z "$asset" ]; then
+            echo "No built CSS or JS asset found in /login response"
+            sed -n '1,80p' /tmp/strait-app-login.html
+            docker logs strait-app-ci-smoke || true
+            exit 1
+          fi
+          asset_code=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:3017${asset}")
+          if [ "$asset_code" != "200" ]; then
+            echo "Asset smoke check failed for ${asset}: HTTP ${asset_code}"
+            docker logs strait-app-ci-smoke || true
+            exit 1
+          fi
 
           for i in $(seq 1 30); do
             health=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' strait-app-ci-smoke)

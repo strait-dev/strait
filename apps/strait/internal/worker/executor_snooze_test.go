@@ -29,6 +29,79 @@ func newSnoozeTestExecutor(t *testing.T, store *mockExecutorStore, maxSnoozeCoun
 	return exec
 }
 
+func TestSnoozeTransitionState(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		metadata map[string]string
+		want     int
+	}{
+		{name: "nil metadata", want: 1},
+		{name: "empty metadata", metadata: map[string]string{}, want: 1},
+		{name: "existing count", metadata: map[string]string{"snooze_count": "5"}, want: 6},
+		{name: "malformed count", metadata: map[string]string{"snooze_count": "not-a-number"}, want: 1},
+		{name: "negative count", metadata: map[string]string{"snooze_count": "-5"}, want: -4},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			run := testRun(1)
+			run.Metadata = tt.metadata
+			state := newSnoozeTransitionState(run, "reason")
+			if state.count != tt.want {
+				t.Fatalf("count = %d, want %d", state.count, tt.want)
+			}
+		})
+	}
+}
+
+func TestSnoozeTransitionStateFields(t *testing.T) {
+	t.Parallel()
+
+	state := snoozeTransitionState{reason: "endpoint health score below threshold", count: 3}
+	fields := state.fields()
+
+	if fields["error"] != state.reason {
+		t.Fatalf("error = %v, want %q", fields["error"], state.reason)
+	}
+	if fields["error_class"] != domain.ErrorClassTransient {
+		t.Fatalf("error_class = %v, want %q", fields["error_class"], domain.ErrorClassTransient)
+	}
+	if fields["started_at"] != nil {
+		t.Fatalf("started_at = %v, want nil", fields["started_at"])
+	}
+	if fields["finished_at"] != nil {
+		t.Fatalf("finished_at = %v, want nil", fields["finished_at"])
+	}
+	metadata, ok := fields["metadata"].(map[string]string)
+	if !ok {
+		t.Fatalf("metadata = %T, want map[string]string", fields["metadata"])
+	}
+	if metadata["snooze_count"] != "3" {
+		t.Fatalf("snooze_count = %q, want 3", metadata["snooze_count"])
+	}
+	if _, ok := fields["next_retry_at"]; ok {
+		t.Fatal("next_retry_at must not be stored on job_runs fields")
+	}
+}
+
+func TestSnoozeTransitionStateExceeds(t *testing.T) {
+	t.Parallel()
+
+	if !((snoozeTransitionState{count: 4}).exceeds(3)) {
+		t.Fatal("count 4 should exceed max 3")
+	}
+	if (snoozeTransitionState{count: 3}).exceeds(3) {
+		t.Fatal("count 3 should not exceed max 3")
+	}
+	if (snoozeTransitionState{count: 100}).exceeds(0) {
+		t.Fatal("max 0 disables snooze cap")
+	}
+}
+
 // collectEvents subscribes a test subscriber that collects events into a slice.
 // Returns a function that polls until at least one event arrives (or 2s timeout),
 // then returns all collected events. Thread-safe.

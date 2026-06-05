@@ -3,10 +3,77 @@ package worker
 import (
 	"context"
 	"math"
+	"math/rand/v2"
 	"testing"
 
 	"strait/internal/domain"
 )
+
+func TestBoostPriority_TableDriven(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		current  int
+		boost    int
+		expected int
+	}{
+		{"zero_plus_one", 0, 1, 1},
+		{"three_plus_two", 3, 2, 5},
+		{"eight_plus_two_exact_max", 8, 2, 10},
+		{"nine_plus_three_capped", 9, 3, 10},
+		{"ten_plus_one_capped", 10, 1, 10},
+		{"ten_plus_ten_capped", 10, 10, 10},
+		{"zero_plus_ten_max", 0, 10, 10},
+		{"five_plus_five_exact_max", 5, 5, 10},
+		{"maxint_plus_one_overflow", math.MaxInt, 1, 10},
+		{"maxint_plus_maxint_overflow", math.MaxInt, math.MaxInt, 10},
+		{"large_current_plus_large_boost", 1000000, 1000000, 10},
+		{"negative_current_plus_boost", -5, 3, -2},
+		{"negative_current_large_boost", -5, 20, 10},
+		{"zero_plus_zero", 0, 0, 0},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := boostPriority(tc.current, tc.boost)
+			if got != tc.expected {
+				t.Fatalf("boostPriority(%d, %d) = %d, want %d", tc.current, tc.boost, got, tc.expected)
+			}
+		})
+	}
+}
+
+// TestBoostPriority_Overflow verifies that boosting beyond max is capped at 10.
+func TestBoostPriority_Overflow(t *testing.T) {
+	t.Parallel()
+	got := boostPriority(9, 5)
+	if got != 10 {
+		t.Fatalf("boostPriority(9, 5) = %d, want 10", got)
+	}
+}
+
+// TestBoostPriority_NegativeBoost verifies that a negative boost triggers the
+// overflow guard (boosted < current) and caps at 10.
+func TestBoostPriority_NegativeBoost(t *testing.T) {
+	t.Parallel()
+	got := boostPriority(5, -3)
+	// boosted = 5 + (-3) = 2, which is < current (5), so the overflow guard
+	// activates and returns 10.
+	if got != 10 {
+		t.Fatalf("boostPriority(5, -3) = %d, want 10", got)
+	}
+}
+
+// TestBoostPriority_ZeroCurrent verifies boosting from zero priority.
+func TestBoostPriority_ZeroCurrent(t *testing.T) {
+	t.Parallel()
+	got := boostPriority(0, 3)
+	if got != 3 {
+		t.Fatalf("boostPriority(0, 3) = %d, want 3", got)
+	}
+}
 
 func FuzzBoostPriority(f *testing.F) {
 	// Seed corpus with interesting values.
@@ -86,6 +153,25 @@ func FuzzBoostPriorityOverflow(f *testing.F) {
 			t.Errorf("boostPriority(%d, %d) = %d, exceeds max priority 10", current, boost, result)
 		}
 	})
+}
+
+// TestProperty_Priority_HigherFirst verifies that boostPriority always returns
+// a value >= the original priority and never exceeds the cap of 10.
+func TestProperty_Priority_HigherFirst(t *testing.T) {
+	t.Parallel()
+
+	for range 2000 {
+		current := rand.IntN(11) // 0-10.
+		boost := rand.IntN(20)   // 0-19.
+
+		result := boostPriority(current, boost)
+		if result < current {
+			t.Fatalf("boostPriority(%d, %d) = %d, lower than current", current, boost, result)
+		}
+		if result > 10 {
+			t.Fatalf("boostPriority(%d, %d) = %d, exceeds cap of 10", current, boost, result)
+		}
+	}
 }
 
 func FuzzHandleFailureRetryPriority(f *testing.F) {

@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"strconv"
 	"time"
 
 	"strait/internal/domain"
@@ -72,31 +71,4 @@ func (s *Server) handleListRunOutputs(ctx context.Context, input *ListRunOutputs
 			return o.CreatedAt.Format(time.RFC3339Nano)
 		}),
 	}, nil
-}
-
-// parsePaginationParamsTyped is a typed-handler variant of parsePaginationParams
-// that accepts raw string values from query params instead of *http.Request.
-func parsePaginationParamsTyped(limitStr, cursorStr string) (int, *time.Time, error) {
-	limit := defaultPageLimit
-	if limitStr != "" {
-		parsed, parseErr := strconv.Atoi(limitStr)
-		if parseErr != nil || parsed <= 0 {
-			return 0, nil, &paginationError{msg: "limit must be a positive integer"}
-		}
-		if parsed > maxPageLimit {
-			parsed = maxPageLimit
-		}
-		limit = parsed
-	}
-
-	var cursor *time.Time
-	if cursorStr != "" {
-		parsed, parseErr := time.Parse(time.RFC3339Nano, cursorStr)
-		if parseErr != nil {
-			return 0, nil, &paginationError{msg: "cursor must be a valid RFC3339 timestamp"}
-		}
-		cursor = &parsed
-	}
-
-	return limit, cursor, nil
 }

@@ -2,9 +2,15 @@ package worker
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log/slog"
+	"net/http"
+	"sync/atomic"
 	"testing"
 	"time"
+
+	"strait/internal/domain"
 )
 
 // TestExecutor_HeartbeatTrackedForShutdown verifies that the heartbeat
@@ -82,5 +88,363 @@ func TestExecutor_HeartbeatFlushesBeforeShutdown(t *testing.T) {
 	calls := hbStore.calls()
 	if len(calls) == 0 {
 		t.Fatal("expected at least one heartbeat batch call before shutdown")
+	}
+}
+
+func TestExecutor_Poll_NoAvailableSlots(t *testing.T) {
+	t.Parallel()
+	pool := NewPool(1)
+	defer func() { _ = pool.Shutdown(context.Background()) }()
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	pool.Submit(context.Background(), func() {
+		close(started)
+		<-release
+	})
+	waitForSignal(t, started, "blocking task did not start")
+
+	var called atomic.Int32
+	q := &mockExecQueue{
+		dequeueNFn: func(context.Context, int) ([]domain.JobRun, error) {
+			called.Add(1)
+			return nil, nil
+		},
+	}
+
+	exec := NewExecutor(ExecutorConfig{
+		Pool:              pool,
+		Queue:             q,
+		Store:             &mockExecutorStore{},
+		PollInterval:      time.Millisecond,
+		HeartbeatInterval: time.Hour,
+	})
+
+	exec.poll(context.Background())
+	if called.Load() != 0 {
+		t.Fatalf("DequeueN call count = %d, want 0", called.Load())
+	}
+
+	close(release)
+}
+
+func TestExecutor_Poll_EmptyQueue(t *testing.T) {
+	t.Parallel()
+	var dequeueCalls atomic.Int32
+	q := &mockExecQueue{
+		dequeueNFn: func(_ context.Context, n int) ([]domain.JobRun, error) {
+			dequeueCalls.Add(1)
+			if n <= 0 {
+				t.Fatalf("dequeue n = %d, want > 0", n)
+			}
+			return []domain.JobRun{}, nil
+		},
+	}
+
+	exec := newTestExecutor(t, &mockExecutorStore{}, q, time.Hour, nil)
+	exec.poll(context.Background())
+
+	if dequeueCalls.Load() != 1 {
+		t.Fatalf("DequeueN call count = %d, want 1", dequeueCalls.Load())
+	}
+	if got := exec.pool.ActiveCount(); got != 0 {
+		t.Fatalf("pool active count = %d, want 0", got)
+	}
+}
+
+func TestExecutor_Poll_DequeueError(t *testing.T) {
+	t.Parallel()
+	var dequeueCalls atomic.Int32
+	q := &mockExecQueue{
+		dequeueNFn: func(context.Context, int) ([]domain.JobRun, error) {
+			dequeueCalls.Add(1)
+			return nil, errors.New("queue down")
+		},
+	}
+
+	exec := newTestExecutor(t, &mockExecutorStore{}, q, time.Hour, nil)
+	exec.poll(context.Background())
+
+	if dequeueCalls.Load() != 1 {
+		t.Fatalf("DequeueN call count = %d, want 1", dequeueCalls.Load())
+	}
+}
+
+func TestExecutor_Poll_UsesProjectPartitionDequeue(t *testing.T) {
+	t.Parallel()
+	store := &mockExecutorStore{}
+
+	called := false
+	q := &mockExecQueue{
+		dequeueNByProjectFn: func(_ context.Context, n int, projectID string) ([]domain.JobRun, error) {
+			called = true
+			if n <= 0 {
+				t.Fatalf("expected positive dequeue size")
+			}
+			if projectID != "proj-a" {
+				t.Fatalf("projectID = %q, want %q", projectID, "proj-a")
+			}
+			return nil, nil
+		},
+		dequeueNFn: func(_ context.Context, _ int) ([]domain.JobRun, error) {
+			t.Fatal("did not expect global DequeueN when partitions are configured")
+			return nil, nil
+		},
+	}
+
+	pool := NewPool(1)
+	defer func() { _ = pool.Shutdown(context.Background()) }()
+
+	exec := NewExecutor(ExecutorConfig{
+		Pool:              pool,
+		Queue:             q,
+		Store:             store,
+		PollInterval:      time.Millisecond,
+		HeartbeatInterval: time.Second,
+		Partitions:        []string{"proj-a"},
+	})
+
+	exec.poll(context.Background())
+	if !called {
+		t.Fatal("expected partitioned dequeue to be called")
+	}
+}
+
+func BenchmarkExecutorPoll(b *testing.B) {
+	store := &mockExecutorStore{}
+	store.getJobFn = func(context.Context, string) (*domain.Job, error) {
+		return testJob("http://example.invalid", 1, 1), nil
+	}
+
+	q := &mockExecQueue{
+		dequeueNFn: func(_ context.Context, n int) ([]domain.JobRun, error) {
+			runs := make([]domain.JobRun, 0, n)
+			for i := range n {
+				runs = append(runs, domain.JobRun{
+					ID:        fmt.Sprintf("run-%d", i),
+					JobID:     "job-1",
+					ProjectID: "proj-1",
+					Status:    domain.StatusDequeued,
+					Attempt:   1,
+				})
+			}
+			return runs, nil
+		},
+	}
+
+	exec := NewExecutor(ExecutorConfig{
+		Pool:              NewPool(16),
+		Queue:             q,
+		Store:             store,
+		PollInterval:      time.Millisecond,
+		HeartbeatInterval: time.Hour,
+		HTTPClient:        &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) { return nil, errors.New("skip") })},
+	})
+	exec.logger = slog.New(slog.DiscardHandler)
+	defer func() { _ = exec.pool.Shutdown(context.Background()) }()
+
+	b.ResetTimer()
+	for range b.N {
+		exec.poll(context.Background())
+	}
+}
+
+func TestAdaptiveDequeue_SkipsWhenPoolSaturated(t *testing.T) {
+	t.Parallel()
+
+	var dequeueCalled atomic.Bool
+	q := &mockExecQueue{
+		dequeueNFn: func(_ context.Context, _ int) ([]domain.JobRun, error) {
+			dequeueCalled.Store(true)
+			return nil, nil
+		},
+	}
+
+	pool := NewPool(1)
+	t.Cleanup(func() { _ = pool.Shutdown(context.Background()) })
+
+	started := make(chan struct{})
+	done := make(chan struct{})
+	pool.Submit(context.Background(), func() {
+		close(started)
+		<-done
+	})
+	<-started
+
+	exec := NewExecutor(ExecutorConfig{
+		Pool:         pool,
+		Queue:        q,
+		Store:        &mockExecutorStore{},
+		PollInterval: time.Hour,
+	})
+
+	exec.poll(context.Background())
+	close(done)
+
+	if dequeueCalled.Load() {
+		t.Fatal("expected dequeue to be skipped when pool is saturated")
+	}
+}
+
+func TestAdaptiveDequeue_UsesIdleCount(t *testing.T) {
+	t.Parallel()
+
+	var requestedN atomic.Int32
+	q := &mockExecQueue{
+		dequeueNFn: func(_ context.Context, n int) ([]domain.JobRun, error) {
+			requestedN.Store(int32(n))
+			return nil, nil
+		},
+	}
+
+	pool := NewPool(10)
+	t.Cleanup(func() { _ = pool.Shutdown(context.Background()) })
+
+	started := make(chan struct{}, 5)
+	done := make(chan struct{})
+	for range 5 {
+		pool.Submit(context.Background(), func() {
+			started <- struct{}{}
+			<-done
+		})
+	}
+	for range 5 {
+		<-started
+	}
+
+	exec := NewExecutor(ExecutorConfig{
+		Pool:         pool,
+		Queue:        q,
+		Store:        &mockExecutorStore{},
+		PollInterval: time.Hour,
+	})
+
+	exec.poll(context.Background())
+	close(done)
+
+	got := requestedN.Load()
+	if got != 5 {
+		t.Fatalf("expected dequeue with n=5 (idle workers), got n=%d", got)
+	}
+}
+
+func TestAdaptiveDequeue_CapsAtMaxBatch(t *testing.T) {
+	t.Parallel()
+
+	var requestedN atomic.Int32
+	q := &mockExecQueue{
+		dequeueNFn: func(_ context.Context, n int) ([]domain.JobRun, error) {
+			requestedN.Store(int32(n))
+			return nil, nil
+		},
+	}
+
+	pool := NewPool(100)
+	t.Cleanup(func() { _ = pool.Shutdown(context.Background()) })
+
+	exec := NewExecutor(ExecutorConfig{
+		Pool:                pool,
+		Queue:               q,
+		Store:               &mockExecutorStore{},
+		PollInterval:        time.Hour,
+		MaxDequeueBatchSize: 10,
+	})
+
+	exec.poll(context.Background())
+
+	got := requestedN.Load()
+	if got != 10 {
+		t.Fatalf("expected dequeue capped at maxBatchSize=10, got n=%d", got)
+	}
+}
+
+func TestAdaptiveDequeue_SingleIdleWorker(t *testing.T) {
+	t.Parallel()
+
+	var requestedN atomic.Int32
+	q := &mockExecQueue{
+		dequeueNFn: func(_ context.Context, n int) ([]domain.JobRun, error) {
+			requestedN.Store(int32(n))
+			return nil, nil
+		},
+	}
+
+	pool := NewPool(2)
+	t.Cleanup(func() { _ = pool.Shutdown(context.Background()) })
+
+	started := make(chan struct{})
+	done := make(chan struct{})
+	pool.Submit(context.Background(), func() {
+		close(started)
+		<-done
+	})
+	<-started
+
+	exec := NewExecutor(ExecutorConfig{
+		Pool:                pool,
+		Queue:               q,
+		Store:               &mockExecutorStore{},
+		PollInterval:        time.Hour,
+		MaxDequeueBatchSize: 10,
+	})
+
+	exec.poll(context.Background())
+	close(done)
+
+	got := requestedN.Load()
+	if got != 1 {
+		t.Fatalf("expected dequeue with n=1 (single idle worker), got n=%d", got)
+	}
+}
+
+func TestPoll_MemoryPressure_SkipsDequeue(t *testing.T) {
+	t.Parallel()
+
+	var dequeueCalled atomic.Bool
+	q := &mockExecQueue{
+		dequeueNFn: func(_ context.Context, _ int) ([]domain.JobRun, error) {
+			dequeueCalled.Store(true)
+			return nil, nil
+		},
+	}
+
+	exec := NewExecutor(ExecutorConfig{
+		Pool:                       NewPool(10),
+		Queue:                      q,
+		Store:                      &mockExecutorStore{},
+		PollInterval:               time.Hour,
+		MemoryPressureThresholdPct: 1,
+	})
+
+	exec.poll(context.Background())
+
+	if dequeueCalled.Load() {
+		t.Fatal("dequeue should not be called when memory pressure exceeds threshold")
+	}
+}
+
+func TestPoll_MemoryPressure_DisabledByDefault(t *testing.T) {
+	t.Parallel()
+
+	var dequeueCalled atomic.Bool
+	q := &mockExecQueue{
+		dequeueNFn: func(_ context.Context, _ int) ([]domain.JobRun, error) {
+			dequeueCalled.Store(true)
+			return nil, nil
+		},
+	}
+
+	exec := NewExecutor(ExecutorConfig{
+		Pool:                       NewPool(10),
+		Queue:                      q,
+		Store:                      &mockExecutorStore{},
+		PollInterval:               time.Hour,
+		MemoryPressureThresholdPct: 0,
+	})
+
+	exec.poll(context.Background())
+
+	if !dequeueCalled.Load() {
+		t.Fatal("dequeue should be called when memory pressure threshold disabled")
 	}
 }

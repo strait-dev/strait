@@ -87,6 +87,101 @@ func TestCheckTriggerLimitsInTx_UsesTransactionalCounts(t *testing.T) {
 	}
 }
 
+func TestCheckTriggerDispatchPrioritySkipsZeroPriority(t *testing.T) {
+	t.Parallel()
+
+	enforcer := &triggerPriorityAdmissionEnforcer{
+		checkFunc: func(context.Context, string, int) error {
+			t.Fatal("CheckMaxDispatchPriority must not run for zero-priority triggers")
+			return nil
+		},
+	}
+	srv := &Server{edition: domain.EditionCloud, billingEnforcer: enforcer}
+
+	if err := srv.checkTriggerDispatchPriority(context.Background(), "project-1", 0); err != nil {
+		t.Fatalf("checkTriggerDispatchPriority() error = %v", err)
+	}
+}
+
+func TestCheckTriggerDispatchPriorityMapsPlanErrorTo402(t *testing.T) {
+	t.Parallel()
+
+	enforcer := &triggerPriorityAdmissionEnforcer{
+		checkFunc: func(_ context.Context, projectID string, priority int) error {
+			if projectID != "project-1" {
+				t.Fatalf("projectID = %q, want project-1", projectID)
+			}
+			if priority != 9 {
+				t.Fatalf("priority = %d, want 9", priority)
+			}
+			return errors.New("dispatch priority exceeds plan limit")
+		},
+	}
+	srv := &Server{edition: domain.EditionCloud, billingEnforcer: enforcer}
+
+	err := srv.checkTriggerDispatchPriority(context.Background(), "project-1", 9)
+	var statusErr huma.StatusError
+	if !errors.As(err, &statusErr) {
+		t.Fatalf("checkTriggerDispatchPriority() = %T, want huma.StatusError", err)
+	}
+	if statusErr.GetStatus() != http.StatusPaymentRequired {
+		t.Fatalf("status = %d, want 402", statusErr.GetStatus())
+	}
+	if !strings.Contains(err.Error(), "dispatch priority exceeds plan limit") {
+		t.Fatalf("error = %v, want plan-limit message", err)
+	}
+}
+
+func TestCheckTriggerDailyCostBudgetUsesUTCDefault(t *testing.T) {
+	t.Parallel()
+
+	srv := &Server{store: &APIStoreMock{
+		SumProjectDailyCostMicrousdFunc: func(_ context.Context, projectID, timezone string) (int64, error) {
+			if projectID != "project-1" {
+				t.Fatalf("projectID = %q, want project-1", projectID)
+			}
+			if timezone != "UTC" {
+				t.Fatalf("timezone = %q, want UTC", timezone)
+			}
+			return 4999, nil
+		},
+	}}
+
+	err := srv.checkTriggerDailyCostBudget(context.Background(), "project-1", &store.ProjectQuota{
+		ProjectID:            "project-1",
+		MaxDailyCostMicrousd: 5000,
+	})
+	if err != nil {
+		t.Fatalf("checkTriggerDailyCostBudget() error = %v", err)
+	}
+}
+
+func TestCheckTriggerDailyCostBudgetRejectsAtLimit(t *testing.T) {
+	t.Parallel()
+
+	srv := &Server{store: &APIStoreMock{
+		SumProjectDailyCostMicrousdFunc: func(_ context.Context, _ string, timezone string) (int64, error) {
+			if timezone != "Europe/Madrid" {
+				t.Fatalf("timezone = %q, want Europe/Madrid", timezone)
+			}
+			return 5000, nil
+		},
+	}}
+
+	err := srv.checkTriggerDailyCostBudget(context.Background(), "project-1", &store.ProjectQuota{
+		ProjectID:            "project-1",
+		MaxDailyCostMicrousd: 5000,
+		Timezone:             "Europe/Madrid",
+	})
+	var statusErr huma.StatusError
+	if !errors.As(err, &statusErr) {
+		t.Fatalf("checkTriggerDailyCostBudget() = %T, want huma.StatusError", err)
+	}
+	if statusErr.GetStatus() != http.StatusTooManyRequests {
+		t.Fatalf("status = %d, want 429", statusErr.GetStatus())
+	}
+}
+
 func TestTriggerAdmissionContentionMapsToRetryable429(t *testing.T) {
 	t.Parallel()
 
@@ -109,6 +204,15 @@ func TestTriggerAdmissionContentionMapsToRetryable429(t *testing.T) {
 	}
 	if !strings.Contains(apiErr.Error(), "trigger admission busy") {
 		t.Fatalf("triggerLimitAPIError() = %v, want trigger admission busy", apiErr)
+	}
+}
+
+func TestClassifyTriggerAdmissionLockError_DeadlockIsContention(t *testing.T) {
+	t.Parallel()
+
+	err := classifyTriggerAdmissionLockError(&pgconn.PgError{Code: "40P01"})
+	if !errors.Is(err, errTriggerAdmissionContended) {
+		t.Fatalf("classifyTriggerAdmissionLockError() = %v, want errTriggerAdmissionContended", err)
 	}
 }
 
@@ -168,6 +272,15 @@ func absInt(v int) int {
 		return -v
 	}
 	return v
+}
+
+type triggerPriorityAdmissionEnforcer struct {
+	tunableLimitsEnforcer
+	checkFunc func(context.Context, string, int) error
+}
+
+func (e *triggerPriorityAdmissionEnforcer) CheckMaxDispatchPriority(ctx context.Context, projectID string, priority int) error {
+	return e.checkFunc(ctx, projectID, priority)
 }
 
 type triggerAdmissionTx struct {

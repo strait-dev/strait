@@ -189,12 +189,13 @@ func TestNonSuccessCleanupSurvivesTimeout(t *testing.T) {
 }
 
 // TestCleanupBoundsCleanupDuration is the adversarial guard:
-// DeleteIdempotencyKey must complete within ~5s even when the store
-// blocks indefinitely. The cleanup timeout protects shutdown ordering
-// and prevents leaking goroutines on a wedged store.
+// DeleteIdempotencyKey must complete within the configured cleanup timeout
+// even when the store blocks indefinitely. The cleanup timeout protects
+// shutdown ordering and prevents leaking goroutines on a wedged store.
 func TestCleanupBoundsCleanupDuration(t *testing.T) {
 	t.Parallel()
 
+	cleanupTimeout := 100 * time.Millisecond
 	deleteCh := make(chan struct{})
 	deadlineCh := make(chan time.Duration, 1)
 
@@ -216,6 +217,7 @@ func TestCleanupBoundsCleanupDuration(t *testing.T) {
 	}
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv.config.IdempotencyCleanupTimeout = cleanupTimeout
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -231,18 +233,18 @@ func TestCleanupBoundsCleanupDuration(t *testing.T) {
 	wrapped.ServeHTTP(w, r)
 	select {
 	case <-deleteCh:
-	case <-time.After(8 * time.Second):
-		t.Fatalf("DeleteIdempotencyKey did not return within 8s; cleanup timeout missing")
+	case <-time.After(2 * time.Second):
+		t.Fatalf("DeleteIdempotencyKey did not return within 2s; cleanup timeout missing")
 	}
 	elapsed := time.Since(start)
-	if elapsed > 8*time.Second {
+	if elapsed > 2*time.Second {
 		t.Fatalf("middleware blocked %v on cleanup; expected bounded cleanup", elapsed)
 	}
 
 	select {
 	case d := <-deadlineCh:
-		if d <= 0 || d > 6*time.Second {
-			t.Fatalf("cleanup deadline = %v, want a finite positive value <= 5s", d)
+		if d <= 0 || d > cleanupTimeout {
+			t.Fatalf("cleanup deadline = %v, want a finite positive value <= %v", d, cleanupTimeout)
 		}
 	default:
 		t.Fatal("cleanup ctx had no deadline")

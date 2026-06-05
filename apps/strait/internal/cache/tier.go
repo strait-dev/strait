@@ -118,6 +118,10 @@ func (t *Tier[K, V]) Stop() {
 	t.l1.StopAllGoroutines()
 }
 
+func (t *Tier[K, V]) Close() {
+	t.Stop()
+}
+
 func (t *Tier[K, V]) Get(ctx context.Context, key K, loader LoadFunc[K, V]) (V, error) {
 	if t == nil {
 		var zero V

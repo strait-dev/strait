@@ -168,7 +168,7 @@ func TestAllow_ConcurrentAccess(t *testing.T) {
 	var wg conc.WaitGroup
 	for range goroutines {
 		wg.Go(func() {
-			res, err := rl.Allow(ctx, key, limit, window)
+			res, err := rl.AllowStrict(ctx, key, limit, window)
 			if err != nil {
 				t.Errorf("Allow() error = %v", err)
 				return

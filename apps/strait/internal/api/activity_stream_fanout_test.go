@@ -70,8 +70,6 @@ func TestProjectActivityStream_FanoutDrains(t *testing.T) {
 	}
 	srv.Close()
 
-	srv.Close()
-
 	// All fanout goroutines must be gone now that the handler has returned.
 	goleak.VerifyNone(t, baseline, ignoreCacheCleanup)
 }

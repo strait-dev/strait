@@ -314,6 +314,117 @@ func TestScheduler_New(t *testing.T) {
 	}
 }
 
+func TestScheduler_Components_RegistersRequiredLoops(t *testing.T) {
+	t.Parallel()
+
+	store := &mockSchedulerStore{
+		cron:   &mockCronStore{},
+		poller: &mockPollerStore{},
+		reaper: &mockReaperStore{},
+		index:  &mockIndexMaintenanceStore{},
+	}
+	s := New(context.Background(), testSchedulerConfig(), store, &mockQueue{}, nil, nil)
+
+	components := s.components()
+	names := schedulerComponentNames(components)
+	required := []string{
+		"cron_reloader",
+		"poller",
+		"reaper",
+		"index_maintainer",
+		"debounce_poller",
+		"batch_flusher",
+		"stats_aggregator",
+		"budget_monitor",
+		"memory_cleanup",
+	}
+	for _, name := range required {
+		if !names[name] {
+			t.Fatalf("expected component %q to be registered", name)
+		}
+	}
+	for i, name := range required {
+		if components[i].name != name {
+			t.Fatalf("component %d = %q, want %q", i, components[i].name, name)
+		}
+	}
+}
+
+func TestScheduler_Components_SkipsUnsetOptionalLoops(t *testing.T) {
+	t.Parallel()
+
+	store := &mockSchedulerStore{
+		cron:   &mockCronStore{},
+		poller: &mockPollerStore{},
+		reaper: &mockReaperStore{},
+		index:  &mockIndexMaintenanceStore{},
+	}
+	s := New(context.Background(), testSchedulerConfig(), store, &mockQueue{}, nil, nil)
+
+	names := schedulerComponentNames(s.components())
+	for _, name := range []string{
+		"usage_flusher",
+		"slo_evaluator",
+		"concurrent_reconciler",
+		"heartbeat_gc",
+	} {
+		if names[name] {
+			t.Fatalf("component %q registered without being configured", name)
+		}
+	}
+}
+
+func TestScheduler_TrackComponents_SkipsInvalidComponents(t *testing.T) {
+	t.Parallel()
+
+	s := &Scheduler{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	ran := make(chan string, 1)
+	s.trackComponents(ctx, []schedulerComponent{
+		{},
+		{name: "missing_run"},
+		{run: func(context.Context) {}},
+		{
+			name: "valid",
+			run: func(ctx context.Context) {
+				ran <- "valid"
+				<-ctx.Done()
+			},
+		},
+	})
+
+	select {
+	case got := <-ran:
+		if got != "valid" {
+			t.Fatalf("unexpected component ran: %s", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("valid component did not run")
+	}
+
+	cancel()
+	done := make(chan struct{})
+	go func() {
+		s.wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("tracked component did not stop")
+	}
+}
+
+func schedulerComponentNames(components []schedulerComponent) map[string]bool {
+	names := make(map[string]bool, len(components))
+	for _, component := range components {
+		names[component.name] = true
+	}
+	return names
+}
+
 func TestWithBudgetMonitoringStores_WiresSpendingStore(t *testing.T) {
 	t.Parallel()
 
