@@ -2,19 +2,11 @@ package worker
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	straitcache "strait/internal/cache"
 	"strait/internal/domain"
-
-	"github.com/redis/go-redis/v9"
 )
-
-type jobVersionKey struct {
-	JobID   string
-	Version int
-}
 
 type executorJobCache interface {
 	Get(context.Context, string) (*domain.Job, error)
@@ -23,19 +15,12 @@ type executorJobCache interface {
 	Delete(context.Context, string) error
 }
 
-type executorVersionedJobCache interface {
-	Load(context.Context, jobVersionKey, straitcache.LoadFunc[jobVersionKey, *domain.Job]) (*domain.Job, error)
-}
-
 type tierJobCache struct {
 	tier *straitcache.Tier[string, *domain.Job]
 	bus  *straitcache.Bus
 }
 
-const (
-	workerJobCacheNamespace        = "worker_job"
-	workerJobVersionCacheNamespace = "worker_job_version"
-)
+const workerJobCacheNamespace = "worker_job"
 
 func newTierJobCache(ttl time.Duration, depsOpt ...workerCacheDeps) *tierJobCache {
 	if ttl <= 0 {
@@ -127,82 +112,4 @@ func (c *tierJobCache) Delete(ctx context.Context, key string) error {
 		workerCacheBarrier(time.Now().UnixNano()),
 		c.bus,
 	)
-}
-
-func workerCachePolicy(namespace string) straitcache.StrongNamespacePolicy {
-	return straitcache.StrongNamespacePolicy{Namespace: namespace}
-}
-
-func workerCacheBarrier(version int64) straitcache.VersionBarrier {
-	return straitcache.VersionBarrier{Version: version}
-}
-
-func jobCacheVersion(job *domain.Job) int64 {
-	if job == nil {
-		return 0
-	}
-	if job.CacheVersion > 0 {
-		return job.CacheVersion
-	}
-	if !job.UpdatedAt.IsZero() {
-		return job.UpdatedAt.UnixNano()
-	}
-	if job.Version > 0 {
-		return int64(job.Version)
-	}
-	return 1
-}
-
-type tierVersionedJobCache struct {
-	tier *straitcache.Tier[jobVersionKey, *domain.Job]
-}
-
-func newTierVersionedJobCache(ttl time.Duration, depsOpt ...workerCacheDeps) *tierVersionedJobCache {
-	if ttl <= 0 {
-		return nil
-	}
-	var deps workerCacheDeps
-	if len(depsOpt) > 0 {
-		deps = depsOpt[0]
-	}
-	l2 := newWorkerJobVersionL2(deps.Redis)
-	tier := straitcache.NewTier[jobVersionKey, *domain.Job](straitcache.TierConfig[jobVersionKey, *domain.Job]{
-		Name:        workerJobVersionCacheNamespace,
-		L2:          l2,
-		Consistency: straitcache.Immutable,
-		MaximumSize: 10_000,
-		TTL:         ttl,
-		TTLJitter:   0.1,
-		DisableL2:   l2 == nil,
-		Clone:       cloneJob,
-	})
-	return &tierVersionedJobCache{tier: tier}
-}
-
-func newWorkerJobVersionL2(redis redis.Cmdable) straitcache.L2[jobVersionKey, *domain.Job] {
-	if redis == nil {
-		return nil
-	}
-	return straitcache.NewRedisL2[jobVersionKey, *domain.Job](
-		straitcache.RedisL2Config[jobVersionKey, *domain.Job]{
-			Client:    redis,
-			Namespace: workerJobVersionCacheNamespace,
-			Key:       workerJobVersionKeyString,
-		},
-	)
-}
-
-func workerJobVersionKeyString(key jobVersionKey) string {
-	return fmt.Sprintf("%s\x00%d", key.JobID, key.Version)
-}
-
-func (c *tierVersionedJobCache) Load(
-	ctx context.Context,
-	key jobVersionKey,
-	loader straitcache.LoadFunc[jobVersionKey, *domain.Job],
-) (*domain.Job, error) {
-	if c == nil || c.tier == nil {
-		return loader(ctx, key)
-	}
-	return c.tier.Get(ctx, key, loader)
 }

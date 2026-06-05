@@ -331,6 +331,72 @@ func TestWorkerJobCache_LoadPreservesUpdatedAtVersionInRedis(t *testing.T) {
 	}
 }
 
+func TestJobCacheVersion(t *testing.T) {
+	t.Parallel()
+
+	updatedAt := time.Unix(1700000200, 789).UTC()
+	tests := []struct {
+		name string
+		job  *domain.Job
+		want int64
+	}{
+		{name: "nil job", job: nil, want: 0},
+		{
+			name: "cache version wins",
+			job:  &domain.Job{CacheVersion: 42, UpdatedAt: updatedAt, Version: 3},
+			want: 42,
+		},
+		{
+			name: "updated at wins over semantic version",
+			job:  &domain.Job{UpdatedAt: updatedAt, Version: 3},
+			want: updatedAt.UnixNano(),
+		},
+		{
+			name: "semantic version fallback",
+			job:  &domain.Job{Version: 3},
+			want: 3,
+		},
+		{
+			name: "minimum nonzero fallback",
+			job:  &domain.Job{},
+			want: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := jobCacheVersion(tt.job); got != tt.want {
+				t.Fatalf("jobCacheVersion() = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestWorkerJobVersionKeyString(t *testing.T) {
+	t.Parallel()
+
+	got := workerJobVersionKeyString(jobVersionKey{JobID: "job-1", Version: 7})
+	if got != "job-1\x007" {
+		t.Fatalf("workerJobVersionKeyString() = %q, want %q", got, "job-1\x007")
+	}
+}
+
+func TestVersionedJobCache_NilCacheUsesLoader(t *testing.T) {
+	t.Parallel()
+
+	var cache *tierVersionedJobCache
+	got, err := cache.Load(t.Context(), jobVersionKey{JobID: "job-1", Version: 4}, func(_ context.Context, key jobVersionKey) (*domain.Job, error) {
+		return &domain.Job{ID: key.JobID, Version: key.Version}, nil
+	})
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if got == nil || got.ID != "job-1" || got.Version != 4 {
+		t.Fatalf("Load() = %+v, want job-1 version 4", got)
+	}
+}
+
 func TestJobCache_MultipleKeys(t *testing.T) {
 	t.Parallel()
 
