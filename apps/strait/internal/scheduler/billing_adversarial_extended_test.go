@@ -14,6 +14,8 @@ import (
 	"strait/internal/domain"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Section separator.
@@ -73,15 +75,17 @@ func TestAdv_DowngradeApplier_ConcurrentApply(t *testing.T) {
 		})
 	}
 	wg.Wait()
+	assert.EqualValues(t, 10,
+		acquireCount.
+			Load())
+	assert.GreaterOrEqual(t, applyCount.
+		Load(),
+		int32(1))
 
 	// Advisory lock acquire should be called for each goroutine.
-	if acquireCount.Load() != 10 {
-		t.Errorf("expected 10 acquire calls, got %d", acquireCount.Load())
-	}
+
 	// At least some goroutines should have applied.
-	if applyCount.Load() < 1 {
-		t.Error("expected at least 1 apply call")
-	}
+
 }
 
 func TestAdv_DowngradeApplier_ApplyErrorContinues(t *testing.T) {
@@ -109,9 +113,8 @@ func TestAdv_DowngradeApplier_ApplyErrorContinues(t *testing.T) {
 			found = true
 		}
 	}
-	if !found {
-		t.Fatal("expected org-succeed to be applied despite org-fail-first error")
-	}
+	require.True(t, found)
+
 }
 
 func TestAdv_GracePeriod_ExpiredLongAgo(t *testing.T) {
@@ -127,10 +130,10 @@ func TestAdv_GracePeriod_ExpiredLongAgo(t *testing.T) {
 
 	g := NewGracePeriodEnforcer(s, nil, time.Hour)
 	g.enforce(context.Background())
+	assert.Equal(t, "restricted",
 
-	if s.updatedStatuses["org-ancient"] != "restricted" {
-		t.Errorf("expected org-ancient to be restricted, got %q", s.updatedStatuses["org-ancient"])
-	}
+		s.updatedStatuses["org-ancient"])
+
 }
 
 func TestAdv_GracePeriod_UpdateError_ContinuesOthers(t *testing.T) {
@@ -149,11 +152,12 @@ func TestAdv_GracePeriod_UpdateError_ContinuesOthers(t *testing.T) {
 
 	g := NewGracePeriodEnforcer(s, nil, time.Hour)
 	g.enforce(context.Background())
+	assert.Equal(t, "restricted",
+
+		s.updatedStatuses["org-update-ok"])
 
 	// org-update-fail should have been skipped, org-update-ok should succeed.
-	if s.updatedStatuses["org-update-ok"] != "restricted" {
-		t.Errorf("expected org-update-ok to be restricted, got %q", s.updatedStatuses["org-update-ok"])
-	}
+
 }
 
 func TestAdv_Reaper_ConcurrentReaping(t *testing.T) {
@@ -176,11 +180,11 @@ func TestAdv_Reaper_ConcurrentReaping(t *testing.T) {
 		})
 	}
 	wg.Wait()
+	assert.GreaterOrEqual(t, staleCallCount.
+		Load(), int32(5))
 
 	// All goroutines ran ReapOnce without panic or data corruption.
-	if staleCallCount.Load() < 5 {
-		t.Errorf("expected at least 5 stale run checks (one per goroutine), got %d", staleCallCount.Load())
-	}
+
 }
 
 func TestAdv_CronScheduler_MalformedCronExpression(t *testing.T) {
@@ -200,10 +204,10 @@ func TestAdv_CronScheduler_MalformedCronExpression(t *testing.T) {
 
 	cs := NewCronScheduler(ctx, s, &mockQueue{}, nil)
 	err := cs.LoadJobs(ctx)
+	require.Error(t, err)
+
 	// LoadJobs should return an error for malformed cron, not panic.
-	if err == nil {
-		t.Fatal("expected error for malformed cron expression, got nil")
-	}
+
 }
 
 func TestAdv_AnomalyMonitor_AllZeroSpend(t *testing.T) {
@@ -261,9 +265,10 @@ func TestAdv_SLOEvaluator_ZeroTargetSLO(t *testing.T) {
 
 	// SLO target = 0%, should not cause division by zero.
 	got := CalculateErrorBudget(0.95, 0.0, domain.SLOMetricSuccessRate)
-	if math.IsNaN(got) || math.IsInf(got, 0) {
-		t.Errorf("expected finite result for zero target SLO, got %v", got)
-	}
+	assert.False(t, math.
+		IsNaN(got) || math.
+		IsInf(got, 0))
+
 }
 
 func TestAdv_SLOEvaluator_100PercentSLO(t *testing.T) {
@@ -271,15 +276,14 @@ func TestAdv_SLOEvaluator_100PercentSLO(t *testing.T) {
 
 	// SLO target = 100%: any failure triggers budget depletion.
 	got := CalculateErrorBudget(0.999, 1.0, domain.SLOMetricSuccessRate)
-	if got != 0.0 {
-		t.Errorf("expected 0.0 for 99.9%% actual vs 100%% target, got %v", got)
-	}
+	assert.EqualValues(t, 0.0,
+		got)
 
 	// Perfect 100% actual should preserve full budget.
 	got = CalculateErrorBudget(1.0, 1.0, domain.SLOMetricSuccessRate)
-	if got != 1.0 {
-		t.Errorf("expected 1.0 for perfect match at 100%%, got %v", got)
-	}
+	assert.EqualValues(t, 1.0,
+		got)
+
 }
 
 func TestAdv_UsageFlusher_ConcurrentFlush(t *testing.T) {
@@ -322,9 +326,11 @@ func TestAdv_UsageFlusher_ConcurrentFlush(t *testing.T) {
 	defer mu.Unlock()
 	// 10 goroutines * 1 record per lookback day.
 	wantUpserts := 10 * usageFlusherReconcileLookbackDays
-	if upsertCount != wantUpserts {
-		t.Fatalf("expected %d upserts from concurrent flush, got %d", wantUpserts, upsertCount)
-	}
+	require.Equal(t, wantUpserts,
+
+		upsertCount,
+	)
+
 }
 
 func TestAdv_UsageReportEmailer_VeryLargeUsageValues(t *testing.T) {
@@ -340,10 +346,9 @@ func TestAdv_UsageReportEmailer_VeryLargeUsageValues(t *testing.T) {
 		999,
 		math.MaxInt64,
 	)
+	require.NotEqual(t,
+		"", html)
 
-	if html == "" {
-		t.Fatal("expected non-empty HTML output")
-	}
 }
 
 // billingAdvMockDowngradeStore is a thread-safe mock for concurrent downgrade tests.

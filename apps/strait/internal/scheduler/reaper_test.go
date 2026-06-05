@@ -10,6 +10,9 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestReaper_ReapStale_RetriesWhenAttemptsRemain(t *testing.T) {
@@ -27,12 +30,11 @@ func TestReaper_ReapStale_RetriesWhenAttemptsRemain(t *testing.T) {
 			return &domain.Job{MaxAttempts: 3}, nil
 		},
 		scheduleRetryFn: func(_ context.Context, _ string, at time.Time, attempt int) error {
-			if at.Before(time.Now()) {
-				t.Errorf("expected future retry time, got %s", at)
-			}
-			if attempt != 2 {
-				t.Errorf("expected retry attempt=2, got %d", attempt)
-			}
+			assert.False(t, at.
+				Before(time.Now()))
+			assert.EqualValues(t, 2,
+				attempt)
+
 			scheduled.Add(1)
 			return nil
 		},
@@ -43,15 +45,16 @@ func TestReaper_ReapStale_RetriesWhenAttemptsRemain(t *testing.T) {
 			return nil, nil
 		},
 		updateRunStatusFn: func(_ context.Context, _ string, from, to domain.RunStatus, fields map[string]any) error {
-			if from != domain.StatusExecuting {
-				t.Errorf("expected from=executing, got %s", from)
-			}
-			if to != domain.StatusQueued {
-				t.Errorf("expected to=queued, got %s", to)
-			}
-			if fields["attempt"] != 2 {
-				t.Errorf("expected attempt field=2, got %v", fields["attempt"])
-			}
+			assert.Equal(t, domain.
+				StatusExecuting,
+				from)
+			assert.Equal(t, domain.
+				StatusQueued,
+				to)
+			assert.EqualValues(t, 2,
+				fields["attempt"],
+			)
+
 			transitioned.Add(1)
 			return nil
 		},
@@ -59,13 +62,12 @@ func TestReaper_ReapStale_RetriesWhenAttemptsRemain(t *testing.T) {
 
 	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 	r.reapStale(context.Background())
+	require.EqualValues(t, 2,
+		transitioned.Load())
+	require.EqualValues(t, 2,
+		scheduled.Load(),
+	)
 
-	if transitioned.Load() != 2 {
-		t.Fatalf("expected 2 status transitions, got %d", transitioned.Load())
-	}
-	if scheduled.Load() != 2 {
-		t.Fatalf("expected 2 scheduled retries, got %d", scheduled.Load())
-	}
 }
 
 func TestReaper_ReapStale_CrashesWhenAttemptsExhausted(t *testing.T) {
@@ -95,12 +97,13 @@ func TestReaper_ReapStale_CrashesWhenAttemptsExhausted(t *testing.T) {
 			return nil, nil
 		},
 		updateRunStatusFn: func(_ context.Context, _ string, from, to domain.RunStatus, _ map[string]any) error {
-			if from != domain.StatusExecuting {
-				t.Fatalf("expected from=executing, got %s", from)
-			}
-			if to != domain.StatusCrashed {
-				t.Fatalf("expected to=crashed, got %s", to)
-			}
+			require.Equal(t, domain.
+				StatusExecuting,
+				from)
+			require.Equal(t, domain.
+				StatusCrashed,
+				to)
+
 			transitioned.Add(1)
 			return nil
 		},
@@ -108,10 +111,9 @@ func TestReaper_ReapStale_CrashesWhenAttemptsExhausted(t *testing.T) {
 
 	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 	r.reapStale(context.Background())
+	require.Equal(t, int32(len(runs)), transitioned.
+		Load())
 
-	if transitioned.Load() != int32(len(runs)) {
-		t.Fatalf("expected %d status transitions, got %d", len(runs), transitioned.Load())
-	}
 }
 
 func TestReaper_ReapExpired(t *testing.T) {
@@ -130,9 +132,10 @@ func TestReaper_ReapExpired(t *testing.T) {
 			return nil, nil
 		},
 		updateRunStatusFn: func(_ context.Context, _ string, _ domain.RunStatus, to domain.RunStatus, _ map[string]any) error {
-			if to != domain.StatusExpired {
-				t.Errorf("expected to=expired, got %s", to)
-			}
+			assert.Equal(t, domain.
+				StatusExpired,
+				to)
+
 			transitioned.Add(1)
 			return nil
 		},
@@ -140,10 +143,9 @@ func TestReaper_ReapExpired(t *testing.T) {
 
 	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 	r.reapExpired(context.Background())
+	require.EqualValues(t, 1,
+		transitioned.Load())
 
-	if transitioned.Load() != 1 {
-		t.Fatalf("expected 1 status transition, got %d", transitioned.Load())
-	}
 }
 
 func TestReaper_ReapStaleDequeued(t *testing.T) {
@@ -162,12 +164,13 @@ func TestReaper_ReapStaleDequeued(t *testing.T) {
 			}, nil
 		},
 		updateRunStatusFn: func(_ context.Context, _ string, from, to domain.RunStatus, _ map[string]any) error {
-			if from != domain.StatusDequeued {
-				t.Errorf("expected from=dequeued, got %s", from)
-			}
-			if to != domain.StatusQueued {
-				t.Errorf("expected to=queued, got %s", to)
-			}
+			assert.Equal(t, domain.
+				StatusDequeued,
+				from)
+			assert.Equal(t, domain.
+				StatusQueued,
+				to)
+
 			transitioned.Add(1)
 			return nil
 		},
@@ -175,10 +178,9 @@ func TestReaper_ReapStaleDequeued(t *testing.T) {
 
 	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 	r.reapStaleDequeued(context.Background())
+	require.EqualValues(t, 1,
+		transitioned.Load())
 
-	if transitioned.Load() != 1 {
-		t.Fatalf("expected 1 status transition, got %d", transitioned.Load())
-	}
 }
 
 func TestReaper_NoStaleRuns(t *testing.T) {
@@ -204,10 +206,9 @@ func TestReaper_NoStaleRuns(t *testing.T) {
 	r.reapStale(context.Background())
 	r.reapExpired(context.Background())
 	r.reapStaleDequeued(context.Background())
+	require.EqualValues(t, 0,
+		transitioned.Load())
 
-	if transitioned.Load() != 0 {
-		t.Fatalf("expected 0 status transitions, got %d", transitioned.Load())
-	}
 }
 
 func TestReaper_RunLoop(t *testing.T) {
@@ -231,10 +232,8 @@ func TestReaper_RunLoop(t *testing.T) {
 	defer cancel()
 
 	r.Run(ctx)
+	require.GreaterOrEqual(t, ticked.Load(), int32(1))
 
-	if ticked.Load() < 1 {
-		t.Fatalf("expected at least 1 tick, got %d", ticked.Load())
-	}
 }
 
 func TestReaper_ReapOldWorkflowRuns(t *testing.T) {
@@ -242,12 +241,11 @@ func TestReaper_ReapOldWorkflowRuns(t *testing.T) {
 	var deleted atomic.Int64
 	ms := &mockReaperStore{
 		deleteOldWorkflowRunsFn: func(_ context.Context, before time.Time, limit int) (int64, error) {
-			if limit <= 0 {
-				t.Fatalf("expected positive limit, got %d", limit)
-			}
-			if before.IsZero() {
-				t.Fatal("expected non-zero before timestamp")
-			}
+			require.False(t, limit <=
+				0)
+			require.False(t, before.
+				IsZero())
+
 			deleted.Store(3)
 			return 3, nil
 		},
@@ -255,10 +253,9 @@ func TestReaper_ReapOldWorkflowRuns(t *testing.T) {
 
 	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 	r.reapOldWorkflowRuns(context.Background())
+	require.EqualValues(t, 3,
+		deleted.Load())
 
-	if deleted.Load() != 3 {
-		t.Fatalf("expected deleted count 3, got %d", deleted.Load())
-	}
 }
 
 func TestReaper_ReapTimedOutWorkflows(t *testing.T) {
@@ -272,26 +269,30 @@ func TestReaper_ReapTimedOutWorkflows(t *testing.T) {
 			return []domain.WorkflowRun{{ID: "wr-1", Status: domain.WfStatusRunning}}, nil
 		},
 		updateWorkflowRunStatusFn: func(_ context.Context, id string, from, to domain.WorkflowRunStatus, _ map[string]any) error {
-			if id != "wr-1" {
-				t.Fatalf("unexpected workflow run id %q", id)
-			}
-			if from != domain.WfStatusRunning || to != domain.WfStatusTimedOut {
-				t.Fatalf("unexpected workflow transition %s -> %s", from, to)
-			}
+			require.Equal(t, "wr-1",
+				id)
+			require.False(t, from !=
+				domain.WfStatusRunning ||
+				to !=
+					domain.WfStatusTimedOut,
+			)
+
 			wfUpdates.Add(1)
 			return nil
 		},
 		cancelNonTerminalStepRunsFn: func(_ context.Context, workflowRunID string, _ time.Time, _ string) (int64, error) {
-			if workflowRunID != "wr-1" {
-				t.Fatalf("unexpected workflowRunID %q", workflowRunID)
-			}
+			require.Equal(t, "wr-1",
+				workflowRunID,
+			)
+
 			stepCancels.Add(1)
 			return 1, nil
 		},
 		cancelJobRunsByWorkflowRunFn: func(_ context.Context, workflowRunID string, _ time.Time, _ string) (int64, error) {
-			if workflowRunID != "wr-1" {
-				t.Fatalf("unexpected workflowRunID %q", workflowRunID)
-			}
+			require.Equal(t, "wr-1",
+				workflowRunID,
+			)
+
 			jobRunCancels.Add(1)
 			return 1, nil
 		},
@@ -299,16 +300,14 @@ func TestReaper_ReapTimedOutWorkflows(t *testing.T) {
 
 	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 	r.reapTimedOutWorkflows(context.Background())
+	require.EqualValues(t, 1,
+		wfUpdates.Load(),
+	)
+	require.EqualValues(t, 1,
+		stepCancels.Load())
+	require.EqualValues(t, 1,
+		jobRunCancels.Load())
 
-	if wfUpdates.Load() != 1 {
-		t.Fatalf("expected 1 workflow update, got %d", wfUpdates.Load())
-	}
-	if stepCancels.Load() != 1 {
-		t.Fatalf("expected 1 step cancel call, got %d", stepCancels.Load())
-	}
-	if jobRunCancels.Load() != 1 {
-		t.Fatalf("expected 1 job run cancel call, got %d", jobRunCancels.Load())
-	}
 }
 
 func TestReaper_ReapStale_ListError(t *testing.T) {
@@ -326,10 +325,9 @@ func TestReaper_ReapStale_ListError(t *testing.T) {
 
 	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 	r.reapStale(context.Background())
+	require.EqualValues(t, 0,
+		transitioned.Load())
 
-	if transitioned.Load() != 0 {
-		t.Fatalf("expected 0 status transitions, got %d", transitioned.Load())
-	}
 }
 
 func TestReaper_ReapStale_UpdateError(t *testing.T) {
@@ -355,13 +353,11 @@ func TestReaper_ReapStale_UpdateError(t *testing.T) {
 
 	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 	r.reapStale(context.Background())
+	require.EqualValues(t, 2,
+		updateCalls.Load())
+	require.EqualValues(t, 1,
+		transitioned.Load())
 
-	if updateCalls.Load() != 2 {
-		t.Fatalf("expected 2 update attempts, got %d", updateCalls.Load())
-	}
-	if transitioned.Load() != 1 {
-		t.Fatalf("expected 1 successful transition, got %d", transitioned.Load())
-	}
 }
 
 func TestReaper_ReapExpired_ListError(t *testing.T) {
@@ -379,10 +375,9 @@ func TestReaper_ReapExpired_ListError(t *testing.T) {
 
 	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 	r.reapExpired(context.Background())
+	require.EqualValues(t, 0,
+		transitioned.Load())
 
-	if transitioned.Load() != 0 {
-		t.Fatalf("expected 0 status transitions, got %d", transitioned.Load())
-	}
 }
 
 func TestReaper_ReapExpired_UpdateError(t *testing.T) {
@@ -408,13 +403,11 @@ func TestReaper_ReapExpired_UpdateError(t *testing.T) {
 
 	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 	r.reapExpired(context.Background())
+	require.EqualValues(t, 2,
+		updateCalls.Load())
+	require.EqualValues(t, 1,
+		transitioned.Load())
 
-	if updateCalls.Load() != 2 {
-		t.Fatalf("expected 2 update attempts, got %d", updateCalls.Load())
-	}
-	if transitioned.Load() != 1 {
-		t.Fatalf("expected 1 successful transition, got %d", transitioned.Load())
-	}
 }
 
 func TestReaper_ReapStaleDequeued_ListError(t *testing.T) {
@@ -432,10 +425,9 @@ func TestReaper_ReapStaleDequeued_ListError(t *testing.T) {
 
 	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 	r.reapStaleDequeued(context.Background())
+	require.EqualValues(t, 0,
+		transitioned.Load())
 
-	if transitioned.Load() != 0 {
-		t.Fatalf("expected 0 status transitions, got %d", transitioned.Load())
-	}
 }
 
 func TestReaper_ReapStaleDequeued_UpdateError(t *testing.T) {
@@ -461,13 +453,11 @@ func TestReaper_ReapStaleDequeued_UpdateError(t *testing.T) {
 
 	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 	r.reapStaleDequeued(context.Background())
+	require.EqualValues(t, 2,
+		updateCalls.Load())
+	require.EqualValues(t, 1,
+		transitioned.Load())
 
-	if updateCalls.Load() != 2 {
-		t.Fatalf("expected 2 update attempts, got %d", updateCalls.Load())
-	}
-	if transitioned.Load() != 1 {
-		t.Fatalf("expected 1 successful transition, got %d", transitioned.Load())
-	}
 }
 
 func TestReaper_ReapExpiredApprovals(t *testing.T) {
@@ -487,23 +477,37 @@ func TestReaper_ReapExpiredApprovals(t *testing.T) {
 				}}, nil
 			},
 			updateWorkflowApprovalFn: func(_ context.Context, id string, status string, approvedBy string, approvedAt *time.Time, errMsg string) error {
-				if id != "ap-1" || status != "timed_out" || approvedBy != "" || approvedAt != nil || errMsg != "approval timed out" {
-					t.Fatalf("unexpected approval update payload id=%s status=%s approvedBy=%s approvedAtNil=%v err=%s", id, status, approvedBy, approvedAt == nil, errMsg)
-				}
+				require.False(t, id !=
+					"ap-1" || status !=
+					"timed_out" ||
+					approvedBy !=
+						"" || approvedAt !=
+					nil || errMsg != "approval timed out",
+				)
+
 				approvalUpdates.Add(1)
 				return nil
 			},
 			updateStepRunStatusFn: func(_ context.Context, id string, status domain.StepRunStatus, _ map[string]any) error {
-				if id != "sr-1" || status != domain.StepFailed {
-					t.Fatalf("unexpected step update id=%s status=%s", id, status)
-				}
+				require.False(t, id !=
+					"sr-1" || status !=
+					domain.
+						StepFailed,
+				)
+
 				stepUpdates.Add(1)
 				return nil
 			},
 			updateWorkflowRunStatusFn: func(_ context.Context, id string, from, to domain.WorkflowRunStatus, _ map[string]any) error {
-				if id != "wr-1" || from != domain.WfStatusRunning || to != domain.WfStatusFailed {
-					t.Fatalf("unexpected workflow update id=%s %s->%s", id, from, to)
-				}
+				require.False(t, id !=
+					"wr-1" || from !=
+					domain.
+						WfStatusRunning ||
+					to !=
+						domain.
+							WfStatusFailed,
+				)
+
 				workflowUpdates.Add(1)
 				return nil
 			},
@@ -511,16 +515,15 @@ func TestReaper_ReapExpiredApprovals(t *testing.T) {
 
 		r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 		r.reapExpiredApprovals(context.Background())
+		require.EqualValues(t, 1,
+			approvalUpdates.
+				Load())
+		require.EqualValues(t, 1,
+			stepUpdates.Load())
+		require.EqualValues(t, 1,
+			workflowUpdates.
+				Load())
 
-		if approvalUpdates.Load() != 1 {
-			t.Fatalf("expected 1 approval update, got %d", approvalUpdates.Load())
-		}
-		if stepUpdates.Load() != 1 {
-			t.Fatalf("expected 1 step update, got %d", stepUpdates.Load())
-		}
-		if workflowUpdates.Load() != 1 {
-			t.Fatalf("expected 1 workflow update, got %d", workflowUpdates.Load())
-		}
 	})
 
 	t.Run("list_error", func(t *testing.T) {
@@ -549,16 +552,15 @@ func TestReaper_ReapExpiredApprovals(t *testing.T) {
 
 		r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 		r.reapExpiredApprovals(context.Background())
+		require.EqualValues(t, 0,
+			approvalUpdates.
+				Load())
+		require.EqualValues(t, 0,
+			stepUpdates.Load())
+		require.EqualValues(t, 0,
+			workflowUpdates.
+				Load())
 
-		if approvalUpdates.Load() != 0 {
-			t.Fatalf("expected 0 approval updates, got %d", approvalUpdates.Load())
-		}
-		if stepUpdates.Load() != 0 {
-			t.Fatalf("expected 0 step updates, got %d", stepUpdates.Load())
-		}
-		if workflowUpdates.Load() != 0 {
-			t.Fatalf("expected 0 workflow updates, got %d", workflowUpdates.Load())
-		}
 	})
 
 	t.Run("update_approval_error_continues", func(t *testing.T) {
@@ -580,16 +582,25 @@ func TestReaper_ReapExpiredApprovals(t *testing.T) {
 				return nil
 			},
 			updateStepRunStatusFn: func(_ context.Context, id string, status domain.StepRunStatus, _ map[string]any) error {
-				if id != "sr-2" || status != domain.StepFailed {
-					t.Fatalf("unexpected step update id=%s status=%s", id, status)
-				}
+				require.False(t, id !=
+					"sr-2" || status !=
+					domain.
+						StepFailed,
+				)
+
 				stepUpdates.Add(1)
 				return nil
 			},
 			updateWorkflowRunStatusFn: func(_ context.Context, id string, from, to domain.WorkflowRunStatus, _ map[string]any) error {
-				if id != "wr-2" || from != domain.WfStatusRunning || to != domain.WfStatusFailed {
-					t.Fatalf("unexpected workflow update id=%s %s->%s", id, from, to)
-				}
+				require.False(t, id !=
+					"wr-2" || from !=
+					domain.
+						WfStatusRunning ||
+					to !=
+						domain.
+							WfStatusFailed,
+				)
+
 				workflowUpdates.Add(1)
 				return nil
 			},
@@ -597,13 +608,12 @@ func TestReaper_ReapExpiredApprovals(t *testing.T) {
 
 		r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 		r.reapExpiredApprovals(context.Background())
+		require.EqualValues(t, 1,
+			stepUpdates.Load())
+		require.EqualValues(t, 1,
+			workflowUpdates.
+				Load())
 
-		if stepUpdates.Load() != 1 {
-			t.Fatalf("expected 1 step update, got %d", stepUpdates.Load())
-		}
-		if workflowUpdates.Load() != 1 {
-			t.Fatalf("expected 1 workflow update, got %d", workflowUpdates.Load())
-		}
 	})
 
 	t.Run("update_step_error_continues", func(t *testing.T) {
@@ -627,9 +637,12 @@ func TestReaper_ReapExpiredApprovals(t *testing.T) {
 				return errors.New("step update failed")
 			},
 			updateWorkflowRunStatusFn: func(_ context.Context, _ string, from, to domain.WorkflowRunStatus, _ map[string]any) error {
-				if from != domain.WfStatusRunning || to != domain.WfStatusFailed {
-					t.Fatalf("unexpected workflow transition %s->%s", from, to)
-				}
+				require.False(t, from !=
+					domain.WfStatusRunning ||
+					to !=
+						domain.WfStatusFailed,
+				)
+
 				workflowUpdates.Add(1)
 				return nil
 			},
@@ -637,13 +650,12 @@ func TestReaper_ReapExpiredApprovals(t *testing.T) {
 
 		r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 		r.reapExpiredApprovals(context.Background())
+		require.EqualValues(t, 1,
+			stepUpdates.Load())
+		require.EqualValues(t, 1,
+			workflowUpdates.
+				Load())
 
-		if stepUpdates.Load() != 1 {
-			t.Fatalf("expected 1 step update, got %d", stepUpdates.Load())
-		}
-		if workflowUpdates.Load() != 1 {
-			t.Fatalf("expected 1 workflow update, got %d", workflowUpdates.Load())
-		}
 	})
 
 	t.Run("workflow_running_to_failed", func(t *testing.T) {
@@ -661,9 +673,12 @@ func TestReaper_ReapExpiredApprovals(t *testing.T) {
 				return nil
 			},
 			updateWorkflowRunStatusFn: func(_ context.Context, _ string, from, to domain.WorkflowRunStatus, _ map[string]any) error {
-				if from != domain.WfStatusRunning || to != domain.WfStatusFailed {
-					t.Fatalf("unexpected workflow transition %s->%s", from, to)
-				}
+				require.False(t, from !=
+					domain.WfStatusRunning ||
+					to !=
+						domain.WfStatusFailed,
+				)
+
 				workflowUpdates.Add(1)
 				return nil
 			},
@@ -671,10 +686,10 @@ func TestReaper_ReapExpiredApprovals(t *testing.T) {
 
 		r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 		r.reapExpiredApprovals(context.Background())
+		require.EqualValues(t, 1,
+			workflowUpdates.
+				Load())
 
-		if workflowUpdates.Load() != 1 {
-			t.Fatalf("expected 1 workflow update, got %d", workflowUpdates.Load())
-		}
 	})
 
 	t.Run("workflow_paused_fallback", func(t *testing.T) {
@@ -696,19 +711,22 @@ func TestReaper_ReapExpiredApprovals(t *testing.T) {
 				if from == domain.WfStatusRunning && to == domain.WfStatusFailed {
 					return errors.New("running transition failed")
 				}
-				if from != domain.WfStatusPaused || to != domain.WfStatusFailed {
-					t.Fatalf("unexpected fallback workflow transition %s->%s", from, to)
-				}
+				require.False(t, from !=
+					domain.WfStatusPaused ||
+					to !=
+						domain.WfStatusFailed,
+				)
+
 				return nil
 			},
 		}
 
 		r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 		r.reapExpiredApprovals(context.Background())
+		require.EqualValues(t, 2,
+			workflowUpdates.
+				Load())
 
-		if workflowUpdates.Load() != 2 {
-			t.Fatalf("expected 2 workflow update attempts, got %d", workflowUpdates.Load())
-		}
 	})
 
 	t.Run("both_workflow_updates_fail", func(t *testing.T) {
@@ -733,9 +751,10 @@ func TestReaper_ReapExpiredApprovals(t *testing.T) {
 				return nil
 			},
 			updateWorkflowRunStatusFn: func(_ context.Context, id string, from, to domain.WorkflowRunStatus, _ map[string]any) error {
-				if to != domain.WfStatusFailed {
-					t.Fatalf("unexpected workflow target status %s", to)
-				}
+				require.Equal(t, domain.
+					WfStatusFailed,
+					to)
+
 				if id == "wr-1" {
 					workflowUpdates.Add(1)
 					return errors.New("workflow transition failed")
@@ -744,9 +763,9 @@ func TestReaper_ReapExpiredApprovals(t *testing.T) {
 					workflowUpdates.Add(1)
 					return nil
 				}
-				if id == "wr-2" {
-					t.Fatalf("did not expect fallback for wr-2")
-				}
+				require.NotEqual(t,
+					"wr-2", id)
+
 				workflowUpdates.Add(1)
 				return errors.New("unexpected")
 			},
@@ -754,16 +773,15 @@ func TestReaper_ReapExpiredApprovals(t *testing.T) {
 
 		r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 		r.reapExpiredApprovals(context.Background())
+		require.EqualValues(t, 2,
+			approvalUpdates.
+				Load())
+		require.EqualValues(t, 2,
+			stepUpdates.Load())
+		require.EqualValues(t, 3,
+			workflowUpdates.
+				Load())
 
-		if approvalUpdates.Load() != 2 {
-			t.Fatalf("expected 2 approval updates, got %d", approvalUpdates.Load())
-		}
-		if stepUpdates.Load() != 2 {
-			t.Fatalf("expected 2 step updates, got %d", stepUpdates.Load())
-		}
-		if workflowUpdates.Load() != 3 {
-			t.Fatalf("expected 3 workflow update attempts, got %d", workflowUpdates.Load())
-		}
 	})
 
 	t.Run("multiple_approvals", func(t *testing.T) {
@@ -785,16 +803,20 @@ func TestReaper_ReapExpiredApprovals(t *testing.T) {
 				return nil
 			},
 			updateStepRunStatusFn: func(_ context.Context, _ string, status domain.StepRunStatus, _ map[string]any) error {
-				if status != domain.StepFailed {
-					t.Fatalf("unexpected step status %s", status)
-				}
+				require.Equal(t, domain.
+					StepFailed,
+					status)
+
 				stepUpdates.Add(1)
 				return nil
 			},
 			updateWorkflowRunStatusFn: func(_ context.Context, _ string, from, to domain.WorkflowRunStatus, _ map[string]any) error {
-				if from != domain.WfStatusRunning || to != domain.WfStatusFailed {
-					t.Fatalf("unexpected workflow transition %s->%s", from, to)
-				}
+				require.False(t, from !=
+					domain.WfStatusRunning ||
+					to !=
+						domain.WfStatusFailed,
+				)
+
 				workflowUpdates.Add(1)
 				return nil
 			},
@@ -802,16 +824,15 @@ func TestReaper_ReapExpiredApprovals(t *testing.T) {
 
 		r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 		r.reapExpiredApprovals(context.Background())
+		require.EqualValues(t, 3,
+			approvalUpdates.
+				Load())
+		require.EqualValues(t, 3,
+			stepUpdates.Load())
+		require.EqualValues(t, 3,
+			workflowUpdates.
+				Load())
 
-		if approvalUpdates.Load() != 3 {
-			t.Fatalf("expected 3 approval updates, got %d", approvalUpdates.Load())
-		}
-		if stepUpdates.Load() != 3 {
-			t.Fatalf("expected 3 step updates, got %d", stepUpdates.Load())
-		}
-		if workflowUpdates.Load() != 3 {
-			t.Fatalf("expected 3 workflow updates, got %d", workflowUpdates.Load())
-		}
 	})
 }
 
@@ -830,10 +851,9 @@ func TestReaper_ReapOldWorkflowRuns_EdgeCases(t *testing.T) {
 
 		r := &Reaper{store: ms, workflowRetention: 0, deleteBatchLimit: 100}
 		r.reapOldWorkflowRuns(context.Background())
+		require.EqualValues(t, 0,
+			deleteCalls.Load())
 
-		if deleteCalls.Load() != 0 {
-			t.Fatalf("expected 0 delete calls, got %d", deleteCalls.Load())
-		}
 	})
 
 	t.Run("delete_error", func(t *testing.T) {
@@ -849,10 +869,9 @@ func TestReaper_ReapOldWorkflowRuns_EdgeCases(t *testing.T) {
 
 		r := &Reaper{store: ms, workflowRetention: time.Hour, deleteBatchLimit: 100}
 		r.reapOldWorkflowRuns(context.Background())
+		require.EqualValues(t, 1,
+			deleteCalls.Load())
 
-		if deleteCalls.Load() != 1 {
-			t.Fatalf("expected 1 delete call, got %d", deleteCalls.Load())
-		}
 	})
 
 	t.Run("delete_zero_count", func(t *testing.T) {
@@ -868,10 +887,9 @@ func TestReaper_ReapOldWorkflowRuns_EdgeCases(t *testing.T) {
 
 		r := &Reaper{store: ms, workflowRetention: time.Hour, deleteBatchLimit: 100}
 		r.reapOldWorkflowRuns(context.Background())
+		require.EqualValues(t, 1,
+			deleteCalls.Load())
 
-		if deleteCalls.Load() != 1 {
-			t.Fatalf("expected 1 delete call, got %d", deleteCalls.Load())
-		}
 	})
 
 	t.Run("negative_retention", func(t *testing.T) {
@@ -887,10 +905,9 @@ func TestReaper_ReapOldWorkflowRuns_EdgeCases(t *testing.T) {
 
 		r := &Reaper{store: ms, workflowRetention: -time.Second, deleteBatchLimit: 100}
 		r.reapOldWorkflowRuns(context.Background())
+		require.EqualValues(t, 0,
+			deleteCalls.Load())
 
-		if deleteCalls.Load() != 0 {
-			t.Fatalf("expected 0 delete calls, got %d", deleteCalls.Load())
-		}
 	})
 }
 
@@ -922,10 +939,13 @@ func TestReaper_ReapTimedOutWorkflows_EdgeCases(t *testing.T) {
 
 		r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 		r.reapTimedOutWorkflows(context.Background())
+		require.False(t, wfUpdates.
+			Load() !=
+			0 || stepCancels.
+			Load() != 0 ||
+			jobRunCancels.
+				Load() != 0)
 
-		if wfUpdates.Load() != 0 || stepCancels.Load() != 0 || jobRunCancels.Load() != 0 {
-			t.Fatalf("expected no calls after list error, got wf=%d stepCancels=%d jobRunCancels=%d", wfUpdates.Load(), stepCancels.Load(), jobRunCancels.Load())
-		}
 	})
 
 	t.Run("workflow_update_error_continues", func(t *testing.T) {
@@ -949,16 +969,18 @@ func TestReaper_ReapTimedOutWorkflows_EdgeCases(t *testing.T) {
 				return nil
 			},
 			cancelNonTerminalStepRunsFn: func(_ context.Context, workflowRunID string, _ time.Time, _ string) (int64, error) {
-				if workflowRunID != "wr-2" {
-					t.Fatalf("expected bulk cancel only for wr-2, got %s", workflowRunID)
-				}
+				require.Equal(t, "wr-2",
+					workflowRunID,
+				)
+
 				stepCancels.Add(1)
 				return 1, nil
 			},
 			cancelJobRunsByWorkflowRunFn: func(_ context.Context, workflowRunID string, _ time.Time, _ string) (int64, error) {
-				if workflowRunID != "wr-2" {
-					t.Fatalf("expected bulk cancel only for wr-2, got %s", workflowRunID)
-				}
+				require.Equal(t, "wr-2",
+					workflowRunID,
+				)
+
 				jobRunCancels.Add(1)
 				return 1, nil
 			},
@@ -966,16 +988,14 @@ func TestReaper_ReapTimedOutWorkflows_EdgeCases(t *testing.T) {
 
 		r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 		r.reapTimedOutWorkflows(context.Background())
+		require.EqualValues(t, 2,
+			wfUpdates.Load(),
+		)
+		require.EqualValues(t, 1,
+			stepCancels.Load())
+		require.EqualValues(t, 1,
+			jobRunCancels.Load())
 
-		if wfUpdates.Load() != 2 {
-			t.Fatalf("expected 2 workflow update attempts, got %d", wfUpdates.Load())
-		}
-		if stepCancels.Load() != 1 {
-			t.Fatalf("expected 1 step cancel call, got %d", stepCancels.Load())
-		}
-		if jobRunCancels.Load() != 1 {
-			t.Fatalf("expected 1 job run cancel call, got %d", jobRunCancels.Load())
-		}
 	})
 }
 
@@ -986,10 +1006,11 @@ func TestReaper_WithWorkflowRetention(t *testing.T) {
 		ms := &mockReaperStore{}
 		r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 		r.WithWorkflowRetention(7 * 24 * time.Hour)
+		require.Equal(t, 7*
+			24*time.Hour,
+			r.workflowRetention,
+		)
 
-		if r.workflowRetention != 7*24*time.Hour {
-			t.Fatalf("expected 7d retention, got %v", r.workflowRetention)
-		}
 	})
 
 	t.Run("ignores_zero_retention", func(t *testing.T) {
@@ -997,10 +1018,11 @@ func TestReaper_WithWorkflowRetention(t *testing.T) {
 		ms := &mockReaperStore{}
 		r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 		r.WithWorkflowRetention(0)
+		require.Equal(t, defaultWorkflowRetention,
 
-		if r.workflowRetention != defaultWorkflowRetention {
-			t.Fatalf("expected default retention, got %v", r.workflowRetention)
-		}
+			r.workflowRetention,
+		)
+
 	})
 
 	t.Run("ignores_negative_retention", func(t *testing.T) {
@@ -1008,10 +1030,11 @@ func TestReaper_WithWorkflowRetention(t *testing.T) {
 		ms := &mockReaperStore{}
 		r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 		r.WithWorkflowRetention(-time.Hour)
+		require.Equal(t, defaultWorkflowRetention,
 
-		if r.workflowRetention != defaultWorkflowRetention {
-			t.Fatalf("expected default retention, got %v", r.workflowRetention)
-		}
+			r.workflowRetention,
+		)
+
 	})
 
 	t.Run("custom_retention_used_in_reap", func(t *testing.T) {
@@ -1023,9 +1046,11 @@ func TestReaper_WithWorkflowRetention(t *testing.T) {
 			deleteOldWorkflowRunsFn: func(_ context.Context, before time.Time, limit int) (int64, error) {
 				deletedBefore = before
 				deleteCalls.Add(1)
-				if limit != defaultDeleteBatchLimit {
-					t.Fatalf("expected batch limit %d, got %d", defaultDeleteBatchLimit, limit)
-				}
+				require.Equal(t, defaultDeleteBatchLimit,
+
+					limit,
+				)
+
 				return 5, nil
 			},
 		}
@@ -1034,17 +1059,18 @@ func TestReaper_WithWorkflowRetention(t *testing.T) {
 		r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil).
 			WithWorkflowRetention(customRetention)
 		r.reapOldWorkflowRuns(context.Background())
-
-		if deleteCalls.Load() != 1 {
-			t.Fatalf("expected 1 delete call, got %d", deleteCalls.Load())
-		}
+		require.EqualValues(t, 1,
+			deleteCalls.Load())
 
 		// The before time should be approximately now - 3 days
 		expectedBefore := time.Now().Add(-customRetention)
 		diff := expectedBefore.Sub(deletedBefore)
-		if diff < -time.Minute || diff > time.Minute {
-			t.Fatalf("expected before time near %v, got %v (diff: %v)", expectedBefore, deletedBefore, diff)
-		}
+		require.False(t, diff <
+			-time.Minute ||
+			diff >
+				time.Minute,
+		)
+
 	})
 }
 
@@ -1053,12 +1079,15 @@ func TestReaper_ReapTerminalRetention(t *testing.T) {
 	var called atomic.Int32
 	ms := &mockReaperStore{
 		deleteRetentionFn: func(_ context.Context, shortRetention, longRetention time.Duration) (int64, error) {
-			if shortRetention != 30*24*time.Hour {
-				t.Fatalf("short retention = %v, want %v", shortRetention, 30*24*time.Hour)
-			}
-			if longRetention != 90*24*time.Hour {
-				t.Fatalf("long retention = %v, want %v", longRetention, 90*24*time.Hour)
-			}
+			require.Equal(t, 30*
+				24*time.Hour,
+				shortRetention,
+			)
+			require.Equal(t, 90*
+				24*time.Hour,
+				longRetention,
+			)
+
 			called.Add(1)
 			return 2, nil
 		},
@@ -1066,10 +1095,9 @@ func TestReaper_ReapTerminalRetention(t *testing.T) {
 
 	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, true, nil)
 	r.reapTerminalRetention(context.Background())
+	require.EqualValues(t, 1,
+		called.Load())
 
-	if called.Load() != 1 {
-		t.Fatalf("retention call count = %d, want 1", called.Load())
-	}
 }
 
 func TestReaper_RetentionDisabled_SkipsRetention(t *testing.T) {
@@ -1096,10 +1124,9 @@ func TestReaper_RetentionDisabled_SkipsRetention(t *testing.T) {
 	defer cancel()
 
 	r.Run(ctx)
+	require.EqualValues(t, 0,
+		called.Load())
 
-	if called.Load() != 0 {
-		t.Fatalf("retention should not be called when disabled, got %d calls", called.Load())
-	}
 }
 
 func TestReaper_RetentionEnabled_CallsRetention(t *testing.T) {
@@ -1126,10 +1153,8 @@ func TestReaper_RetentionEnabled_CallsRetention(t *testing.T) {
 	defer cancel()
 
 	r.Run(ctx)
+	require.GreaterOrEqual(t, called.Load(), int32(1))
 
-	if called.Load() < 1 {
-		t.Fatalf("retention should be called when enabled, got %d calls", called.Load())
-	}
 }
 
 func TestReaper_CustomRetentionPeriods(t *testing.T) {
@@ -1139,12 +1164,13 @@ func TestReaper_CustomRetentionPeriods(t *testing.T) {
 	var called atomic.Int32
 	ms := &mockReaperStore{
 		deleteRetentionFn: func(_ context.Context, shortRetention, longRetention time.Duration) (int64, error) {
-			if shortRetention != customShort {
-				t.Fatalf("short retention = %v, want %v", shortRetention, customShort)
-			}
-			if longRetention != customLong {
-				t.Fatalf("long retention = %v, want %v", longRetention, customLong)
-			}
+			require.Equal(t, customShort,
+				shortRetention,
+			)
+			require.Equal(t, customLong,
+				longRetention,
+			)
+
 			called.Add(1)
 			return 0, nil
 		},
@@ -1152,10 +1178,9 @@ func TestReaper_CustomRetentionPeriods(t *testing.T) {
 
 	r := NewReaper(ms, time.Second, 30*time.Second, customShort, customLong, true, nil)
 	r.reapTerminalRetention(context.Background())
+	require.EqualValues(t, 1,
+		called.Load())
 
-	if called.Load() != 1 {
-		t.Fatalf("retention call count = %d, want 1", called.Load())
-	}
 }
 
 func TestReaper_DefaultRetentionPeriodsWhenZero(t *testing.T) {
@@ -1163,12 +1188,15 @@ func TestReaper_DefaultRetentionPeriodsWhenZero(t *testing.T) {
 	var called atomic.Int32
 	ms := &mockReaperStore{
 		deleteRetentionFn: func(_ context.Context, shortRetention, longRetention time.Duration) (int64, error) {
-			if shortRetention != 30*24*time.Hour {
-				t.Fatalf("default short retention = %v, want %v", shortRetention, 30*24*time.Hour)
-			}
-			if longRetention != 90*24*time.Hour {
-				t.Fatalf("default long retention = %v, want %v", longRetention, 90*24*time.Hour)
-			}
+			require.Equal(t, 30*
+				24*time.Hour,
+				shortRetention,
+			)
+			require.Equal(t, 90*
+				24*time.Hour,
+				longRetention,
+			)
+
 			called.Add(1)
 			return 0, nil
 		},
@@ -1176,10 +1204,9 @@ func TestReaper_DefaultRetentionPeriodsWhenZero(t *testing.T) {
 
 	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, true, nil)
 	r.reapTerminalRetention(context.Background())
+	require.EqualValues(t, 1,
+		called.Load())
 
-	if called.Load() != 1 {
-		t.Fatalf("retention call count = %d, want 1", called.Load())
-	}
 }
 
 func TestReapExpiredEventTriggers_WorkflowStep_TimesOut(t *testing.T) {
@@ -1222,16 +1249,10 @@ func TestReapExpiredEventTriggers_WorkflowStep_TimesOut(t *testing.T) {
 
 	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 	r.reapExpiredEventTriggers(context.Background())
+	require.True(t, triggerTimedOut)
+	require.True(t, stepFailed)
+	require.True(t, workflowFailed)
 
-	if !triggerTimedOut {
-		t.Fatal("expected event trigger to be marked timed out")
-	}
-	if !stepFailed {
-		t.Fatal("expected step run to be marked failed")
-	}
-	if !workflowFailed {
-		t.Fatal("expected workflow run to be marked failed")
-	}
 }
 
 func TestReapExpiredEventTriggers_JobRun_TimesOut(t *testing.T) {
@@ -1273,13 +1294,9 @@ func TestReapExpiredEventTriggers_JobRun_TimesOut(t *testing.T) {
 
 	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 	r.reapExpiredEventTriggers(context.Background())
+	require.True(t, triggerTimedOut)
+	require.True(t, runTimedOut)
 
-	if !triggerTimedOut {
-		t.Fatal("expected event trigger to be marked timed out")
-	}
-	if !runTimedOut {
-		t.Fatal("expected job run to be marked timed out")
-	}
 }
 
 func TestReapExpiredEventTriggers_NoExpired(t *testing.T) {
@@ -1339,10 +1356,8 @@ func TestReapExpiredEventTriggers_JobRunAlreadyTerminal(t *testing.T) {
 
 	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 	r.reapExpiredEventTriggers(context.Background())
+	require.False(t, updateRunCalled)
 
-	if updateRunCalled {
-		t.Fatal("should not update already-terminal job run")
-	}
 }
 
 func TestReapExpiredEventTriggers_SleepCompletesStep(t *testing.T) {
@@ -1377,13 +1392,16 @@ func TestReapExpiredEventTriggers_SleepCompletesStep(t *testing.T) {
 
 	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 	r.ReapOnce(context.Background())
+	require.Equal(t, domain.
+		EventTriggerStatusReceived,
 
-	if updatedTriggerStatus != domain.EventTriggerStatusReceived {
-		t.Fatalf("expected trigger status=received, got %s", updatedTriggerStatus)
-	}
-	if updatedStepStatus != domain.StepCompleted {
-		t.Fatalf("expected step status=completed, got %s", updatedStepStatus)
-	}
+		updatedTriggerStatus,
+	)
+	require.Equal(t, domain.
+		StepCompleted,
+		updatedStepStatus,
+	)
+
 }
 
 func TestReapExpiredEventTriggers_SleepCallsOnStepCompleted(t *testing.T) {
@@ -1424,16 +1442,14 @@ func TestReapExpiredEventTriggers_SleepCallsOnStepCompleted(t *testing.T) {
 
 	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, cb)
 	r.ReapOnce(context.Background())
+	require.True(t, callbackCalled)
+	require.Equal(t, "wr-1",
+		callbackRunID,
+	)
+	require.Equal(t, "sr-1",
+		callbackStepID,
+	)
 
-	if !callbackCalled {
-		t.Fatal("expected OnStepCompleted callback to be called")
-	}
-	if callbackRunID != "wr-1" {
-		t.Fatalf("expected workflow run ID wr-1, got %s", callbackRunID)
-	}
-	if callbackStepID != "sr-1" {
-		t.Fatalf("expected step run ID sr-1, got %s", callbackStepID)
-	}
 }
 
 func TestReapExpiredEventTriggers_DelegatesOnStepFailed(t *testing.T) {
@@ -1474,16 +1490,14 @@ func TestReapExpiredEventTriggers_DelegatesOnStepFailed(t *testing.T) {
 
 	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, cb)
 	r.ReapOnce(context.Background())
+	require.True(t, failedCallbackCalled)
+	require.Equal(t, "wr-1",
+		failedRunID,
+	)
+	require.Equal(t, "sr-1",
+		failedStepID,
+	)
 
-	if !failedCallbackCalled {
-		t.Fatal("expected OnStepFailed callback to be called")
-	}
-	if failedRunID != "wr-1" {
-		t.Fatalf("expected workflow run ID wr-1, got %s", failedRunID)
-	}
-	if failedStepID != "sr-1" {
-		t.Fatalf("expected step run ID sr-1, got %s", failedStepID)
-	}
 }
 
 func TestReapExpiredEventTriggers_NilCallbackFallback(t *testing.T) {
@@ -1520,10 +1534,8 @@ func TestReapExpiredEventTriggers_NilCallbackFallback(t *testing.T) {
 	// nil callback → direct workflow failure
 	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 	r.ReapOnce(context.Background())
+	require.True(t, wfStatusUpdated)
 
-	if !wfStatusUpdated {
-		t.Fatal("expected direct workflow run status update when callback is nil")
-	}
 }
 
 func TestReapInconsistentEventTriggers_WorkflowStepReconciled(t *testing.T) {
@@ -1555,10 +1567,8 @@ func TestReapInconsistentEventTriggers_WorkflowStepReconciled(t *testing.T) {
 	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 	r.workflowCallback = wfCb
 	r.ReapOnce(context.Background())
+	require.True(t, onEventCalled)
 
-	if !onEventCalled {
-		t.Fatal("expected OnEventReceived to be called for inconsistent event trigger")
-	}
 }
 
 func TestReapInconsistentEventTriggers_SleepReconciled(t *testing.T) {
@@ -1589,10 +1599,8 @@ func TestReapInconsistentEventTriggers_SleepReconciled(t *testing.T) {
 	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 	r.workflowCallback = wfCb
 	r.ReapOnce(context.Background())
+	require.True(t, onStepCompletedCalled)
 
-	if !onStepCompletedCalled {
-		t.Fatal("expected OnStepCompleted for inconsistent sleep trigger")
-	}
 }
 
 func TestReapInconsistentEventTriggers_JobRunReconciled(t *testing.T) {
@@ -1618,10 +1626,10 @@ func TestReapInconsistentEventTriggers_JobRunReconciled(t *testing.T) {
 
 	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 	r.ReapOnce(context.Background())
+	require.Equal(t, "run-stale",
+		requeuedRunID,
+	)
 
-	if requeuedRunID != "run-stale" {
-		t.Fatalf("expected run-stale to be requeued, got %q", requeuedRunID)
-	}
 }
 
 func TestReapInconsistentEventTriggers_ListError(t *testing.T) {
@@ -1666,10 +1674,8 @@ func TestCompleteSleepTrigger_StepUpdateError(t *testing.T) {
 
 	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 	r.ReapOnce(context.Background())
+	require.True(t, triggerUpdated)
 
-	if !triggerUpdated {
-		t.Fatal("expected trigger status to be updated even if step update fails")
-	}
 }
 
 func TestReapOldEventTriggers_RetentionDisabled(t *testing.T) {
@@ -1722,10 +1728,8 @@ func TestCompleteSleepTrigger_NoStepRunID(t *testing.T) {
 
 	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 	r.ReapOnce(context.Background())
+	require.True(t, triggerUpdated)
 
-	if !triggerUpdated {
-		t.Fatal("expected trigger status to be updated for sleep trigger without step")
-	}
 }
 
 // completeSleepTrigger: nil callback skips OnStepCompleted call.
@@ -1759,10 +1763,8 @@ func TestCompleteSleepTrigger_NilCallback(t *testing.T) {
 	// nil callback — should not panic.
 	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 	r.ReapOnce(context.Background())
+	require.True(t, stepUpdated)
 
-	if !stepUpdated {
-		t.Fatal("expected step to be updated even with nil callback")
-	}
 }
 
 // completeSleepTrigger: trigger status update error returns early.
@@ -1794,10 +1796,8 @@ func TestCompleteSleepTrigger_TriggerUpdateError(t *testing.T) {
 
 	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 	r.ReapOnce(context.Background())
+	require.False(t, stepUpdated)
 
-	if stepUpdated {
-		t.Fatal("step should NOT be updated when trigger update fails")
-	}
 }
 
 // reapInconsistentEventTriggers: OnEventReceived error continues to next trigger.
@@ -1837,11 +1837,12 @@ func TestReapInconsistentEventTriggers_EventReceivedError(t *testing.T) {
 	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 	r.workflowCallback = wfCb
 	r.ReapOnce(context.Background())
+	require.Equal(t, "run-2",
+		requeuedRunID,
+	)
 
 	// The second trigger (job run) should still be processed despite the first failing.
-	if requeuedRunID != "run-2" {
-		t.Fatalf("expected run-2 to be requeued after first trigger error, got %q", requeuedRunID)
-	}
+
 }
 
 // reapInconsistentEventTriggers: empty job run ID is skipped.
@@ -1867,10 +1868,8 @@ func TestReapInconsistentEventTriggers_EmptyJobRunID(t *testing.T) {
 
 	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 	r.ReapOnce(context.Background())
+	require.False(t, updateCalled)
 
-	if updateCalled {
-		t.Fatal("expected empty job run ID to be skipped")
-	}
 }
 
 func TestReaper_ReapStalledWorkflows_Reconcile(t *testing.T) {
@@ -1884,9 +1883,10 @@ func TestReaper_ReapStalledWorkflows_Reconcile(t *testing.T) {
 	}
 	cb := &mockWorkflowCallback{
 		resumeWorkflowFn: func(_ context.Context, workflowRunID string) error {
-			if workflowRunID != "wr-1" {
-				t.Fatalf("workflowRunID = %s, want wr-1", workflowRunID)
-			}
+			require.Equal(t, "wr-1",
+				workflowRunID,
+			)
+
 			resumed.Add(1)
 			return nil
 		},
@@ -1894,10 +1894,9 @@ func TestReaper_ReapStalledWorkflows_Reconcile(t *testing.T) {
 
 	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, cb).WithStalledAction("reconcile")
 	r.reapStalledWorkflows(context.Background())
+	require.EqualValues(t, 1,
+		resumed.Load())
 
-	if resumed.Load() != 1 {
-		t.Fatalf("resumed count = %d, want 1", resumed.Load())
-	}
 }
 
 func TestReaper_ReapStalledWorkflows_DefaultReconciles(t *testing.T) {
@@ -1911,32 +1910,34 @@ func TestReaper_ReapStalledWorkflows_DefaultReconciles(t *testing.T) {
 	}
 	cb := &mockWorkflowCallback{
 		resumeWorkflowFn: func(_ context.Context, workflowRunID string) error {
-			if workflowRunID != "wr-1" {
-				t.Fatalf("workflowRunID = %s, want wr-1", workflowRunID)
-			}
+			require.Equal(t, "wr-1",
+				workflowRunID,
+			)
+
 			resumed.Add(1)
 			return nil
 		},
 	}
 
 	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, cb)
-	if r.stalledAction != "reconcile" {
-		t.Fatalf("default stalledAction = %q, want reconcile", r.stalledAction)
-	}
-	r.reapStalledWorkflows(context.Background())
+	require.Equal(t, "reconcile",
+		r.stalledAction,
+	)
 
-	if resumed.Load() != 1 {
-		t.Fatalf("resumed count = %d, want 1", resumed.Load())
-	}
+	r.reapStalledWorkflows(context.Background())
+	require.EqualValues(t, 1,
+		resumed.Load())
+
 }
 
 func TestReaper_WithStalledActionEmptyUsesReconcile(t *testing.T) {
 	t.Parallel()
 
 	r := NewReaper(&mockReaperStore{}, time.Second, 30*time.Second, 0, 0, false, nil).WithStalledAction("")
-	if r.stalledAction != "reconcile" {
-		t.Fatalf("stalledAction after empty override = %q, want reconcile", r.stalledAction)
-	}
+	require.Equal(t, "reconcile",
+		r.stalledAction,
+	)
+
 }
 
 func TestReaper_ReapStalledWorkflows_FailWorkflow(t *testing.T) {
@@ -1948,15 +1949,15 @@ func TestReaper_ReapStalledWorkflows_FailWorkflow(t *testing.T) {
 			return []domain.WorkflowRun{{ID: "wr-1", WorkflowID: "wf-1", Status: domain.WfStatusRunning}}, nil
 		},
 		updateWorkflowRunStatusFn: func(_ context.Context, id string, from, to domain.WorkflowRunStatus, fields map[string]any) error {
-			if id != "wr-1" {
-				t.Fatalf("id = %s, want wr-1", id)
-			}
-			if from != domain.WfStatusRunning || to != domain.WfStatusFailed {
-				t.Fatalf("unexpected transition %s -> %s", from, to)
-			}
-			if fields["finished_at"] == nil {
-				t.Fatal("expected finished_at field")
-			}
+			require.Equal(t, "wr-1",
+				id)
+			require.False(t, from !=
+				domain.WfStatusRunning ||
+				to !=
+					domain.WfStatusFailed,
+			)
+			require.NotNil(t, fields["finished_at"])
+
 			failed.Add(1)
 			return nil
 		},
@@ -1964,10 +1965,9 @@ func TestReaper_ReapStalledWorkflows_FailWorkflow(t *testing.T) {
 
 	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil).WithStalledAction("fail_workflow")
 	r.reapStalledWorkflows(context.Background())
+	require.EqualValues(t, 1,
+		failed.Load())
 
-	if failed.Load() != 1 {
-		t.Fatalf("failed transition count = %d, want 1", failed.Load())
-	}
 }
 
 // mockNotifierReaperStore composes mockReaperStore with ApprovalNotifierStore and ApprovalReminderStore.
@@ -2058,13 +2058,14 @@ func TestReaper_ReapExpiredApprovals_SendsExpiredNotification(t *testing.T) {
 
 	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 	r.reapExpiredApprovals(context.Background())
+	require.Len(t, deliveries,
+		1)
+	assert.Equal(t, domain.
+		NotificationEventApprovalExpired,
 
-	if len(deliveries) != 1 {
-		t.Fatalf("expected 1 delivery, got %d", len(deliveries))
-	}
-	if deliveries[0].EventType != domain.NotificationEventApprovalExpired {
-		t.Errorf("expected event type %s, got %s", domain.NotificationEventApprovalExpired, deliveries[0].EventType)
-	}
+		deliveries[0].EventType,
+	)
+
 }
 
 func TestReaper_ReapExpiredApprovals_NoNotificationWithoutInterface(t *testing.T) {
@@ -2090,10 +2091,8 @@ func TestReaper_ReapExpiredApprovals_NoNotificationWithoutInterface(t *testing.T
 
 	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 	r.reapExpiredApprovals(context.Background())
+	require.True(t, approvalReaped)
 
-	if !approvalReaped {
-		t.Fatal("expected approval to be reaped even without notification interface")
-	}
 }
 
 func TestReaper_ReapExpiredApprovals_IgnoresRejectedApprovals(t *testing.T) {
@@ -2117,10 +2116,8 @@ func TestReaper_ReapExpiredApprovals_IgnoresRejectedApprovals(t *testing.T) {
 
 	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 	r.reapExpiredApprovals(context.Background())
+	require.False(t, updateCalled)
 
-	if updateCalled {
-		t.Fatal("expected no updates when all approvals are rejected (filtered by query)")
-	}
 }
 
 func TestReaper_ReapExpiredApprovals_MixedApprovals(t *testing.T) {
@@ -2156,10 +2153,10 @@ func TestReaper_ReapExpiredApprovals_MixedApprovals(t *testing.T) {
 
 	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 	r.reapExpiredApprovals(context.Background())
+	require.False(t, len(reapedIDs) != 1 ||
+		reapedIDs[0] !=
+			"appr-2")
 
-	if len(reapedIDs) != 1 || reapedIDs[0] != "appr-2" {
-		t.Fatalf("expected exactly appr-2 to be reaped, got %v", reapedIDs)
-	}
 }
 
 func TestSkipThenReap_ApprovalNotReaped(t *testing.T) {
@@ -2198,10 +2195,8 @@ func TestSkipThenReap_ApprovalNotReaped(t *testing.T) {
 
 	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 	r.reapExpiredApprovals(context.Background())
+	require.False(t, updateCalled)
 
-	if updateCalled {
-		t.Fatal("rejected approval should not be reaped — WHERE status = 'pending' must exclude it")
-	}
 }
 
 func TestReaper_ReapApprovalReminders_SendsReminder(t *testing.T) {
@@ -2231,20 +2226,23 @@ func TestReaper_ReapApprovalReminders_SendsReminder(t *testing.T) {
 
 	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 	r.reapApprovalReminders(context.Background())
+	require.Len(t, deliveries,
+		1)
+	assert.Equal(t, domain.
+		NotificationEventApprovalReminder,
 
-	if len(deliveries) != 1 {
-		t.Fatalf("expected 1 delivery, got %d", len(deliveries))
-	}
-	if deliveries[0].EventType != domain.NotificationEventApprovalReminder {
-		t.Errorf("expected event type %s, got %s", domain.NotificationEventApprovalReminder, deliveries[0].EventType)
-	}
+		deliveries[0].EventType,
+	)
+
 	var payload map[string]any
-	if err := json.Unmarshal(deliveries[0].Payload, &payload); err != nil {
-		t.Fatalf("unmarshal reminder payload: %v", err)
-	}
-	if payload["approval_id"] != "appr-1" || payload["workflow_run_id"] != "wr-1" || payload["workflow_id"] != "wf-1" || payload["step_run_id"] != "sr-1" {
-		t.Fatalf("unexpected reminder payload: %v", payload)
-	}
+	require.NoError(t,
+		json.Unmarshal(deliveries[0].Payload,
+			&payload))
+	require.False(t, payload["approval_id"] != "appr-1" ||
+		payload["workflow_run_id"] != "wr-1" ||
+		payload["workflow_id"] !=
+			"wf-1" || payload["step_run_id"] != "sr-1")
+
 }
 
 func TestReaper_ReapApprovalReminders_BeforeHalfway_NoReminder(t *testing.T) {
@@ -2263,10 +2261,8 @@ func TestReaper_ReapApprovalReminders_BeforeHalfway_NoReminder(t *testing.T) {
 
 	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 	r.reapApprovalReminders(context.Background())
+	require.False(t, deliveryCalled)
 
-	if deliveryCalled {
-		t.Fatal("expected no deliveries before 50% elapsed")
-	}
 }
 
 func TestReaper_ReapApprovalReminders_ExactlyHalfway(t *testing.T) {
@@ -2295,10 +2291,9 @@ func TestReaper_ReapApprovalReminders_ExactlyHalfway(t *testing.T) {
 
 	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 	r.reapApprovalReminders(context.Background())
+	require.Len(t, deliveries,
+		1)
 
-	if len(deliveries) != 1 {
-		t.Fatalf("expected 1 delivery at exactly 50%%, got %d", len(deliveries))
-	}
 }
 
 func TestReaper_ReapApprovalReminders_ShortTimeout(t *testing.T) {
@@ -2328,10 +2323,9 @@ func TestReaper_ReapApprovalReminders_ShortTimeout(t *testing.T) {
 
 	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 	r.reapApprovalReminders(context.Background())
+	require.Len(t, deliveries,
+		1)
 
-	if len(deliveries) != 1 {
-		t.Fatalf("expected 1 delivery for short timeout, got %d", len(deliveries))
-	}
 }
 
 func TestReaper_ReapApprovalReminders_LongTimeout(t *testing.T) {
@@ -2361,10 +2355,9 @@ func TestReaper_ReapApprovalReminders_LongTimeout(t *testing.T) {
 
 	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 	r.reapApprovalReminders(context.Background())
+	require.Len(t, deliveries,
+		1)
 
-	if len(deliveries) != 1 {
-		t.Fatalf("expected 1 delivery for long timeout, got %d", len(deliveries))
-	}
 }
 
 func TestReaper_ReapApprovalReminders_StoreError(t *testing.T) {
@@ -2382,10 +2375,8 @@ func TestReaper_ReapApprovalReminders_StoreError(t *testing.T) {
 
 	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 	r.reapApprovalReminders(context.Background())
+	require.False(t, deliveryCalled)
 
-	if deliveryCalled {
-		t.Fatal("expected no deliveries on store error")
-	}
 }
 
 func TestReaper_ReapApprovalReminders_Dedup(t *testing.T) {
@@ -2413,10 +2404,9 @@ func TestReaper_ReapApprovalReminders_Dedup(t *testing.T) {
 	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 	r.reapApprovalReminders(context.Background())
 	r.reapApprovalReminders(context.Background())
+	require.EqualValues(t, 1,
+		deliveryCount)
 
-	if deliveryCount != 1 {
-		t.Fatalf("expected 1 delivery (dedup), got %d", deliveryCount)
-	}
 }
 
 func TestReaper_ReapApprovalReminders_CachesWorkflowAndChannelsPerPoll(t *testing.T) {
@@ -2435,16 +2425,17 @@ func TestReaper_ReapApprovalReminders_CachesWorkflowAndChannelsPerPoll(t *testin
 			return approvals, nil
 		},
 		getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
-			if id != "wr-1" {
-				t.Fatalf("unexpected workflow run lookup for %q", id)
-			}
+			require.Equal(t, "wr-1",
+				id)
+
 			workflowLookups.Add(1)
 			return &domain.WorkflowRun{ID: "wr-1", ProjectID: "proj-1", WorkflowID: "wf-1"}, nil
 		},
 		listEnabledNotificationChannelsFn: func(_ context.Context, projectID string) ([]domain.NotificationChannel, error) {
-			if projectID != "proj-1" {
-				t.Fatalf("unexpected channel lookup for project %q", projectID)
-			}
+			require.Equal(t, "proj-1",
+				projectID,
+			)
+
 			channelLookups.Add(1)
 			return []domain.NotificationChannel{{ID: "ch-1", ProjectID: "proj-1"}}, nil
 		},
@@ -2456,16 +2447,14 @@ func TestReaper_ReapApprovalReminders_CachesWorkflowAndChannelsPerPoll(t *testin
 
 	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 	r.reapApprovalReminders(context.Background())
+	require.Equal(t, int32(len(approvals)), deliveries.
+		Load())
+	require.EqualValues(t, 1,
+		workflowLookups.
+			Load())
+	require.EqualValues(t, 1,
+		channelLookups.Load())
 
-	if deliveries.Load() != int32(len(approvals)) {
-		t.Fatalf("expected %d deliveries, got %d", len(approvals), deliveries.Load())
-	}
-	if workflowLookups.Load() != 1 {
-		t.Fatalf("expected 1 workflow lookup, got %d", workflowLookups.Load())
-	}
-	if channelLookups.Load() != 1 {
-		t.Fatalf("expected 1 channel lookup, got %d", channelLookups.Load())
-	}
 }
 
 func TestReaper_ReapApprovalReminders_BulkListsChannelsForMultipleProjects(t *testing.T) {
@@ -2492,9 +2481,9 @@ func TestReaper_ReapApprovalReminders_BulkListsChannelsForMultipleProjects(t *te
 		},
 		listEnabledNotificationChannelsByProjectIDsFn: func(_ context.Context, projectIDs []string) (map[string][]domain.NotificationChannel, error) {
 			bulkLookups.Add(1)
-			if len(projectIDs) != 3 {
-				t.Fatalf("bulk project count = %d, want 3", len(projectIDs))
-			}
+			require.Len(t, projectIDs,
+				3)
+
 			result := make(map[string][]domain.NotificationChannel, len(projectIDs))
 			for _, projectID := range projectIDs {
 				result[projectID] = []domain.NotificationChannel{{ID: "ch-" + projectID, ProjectID: projectID}}
@@ -2509,16 +2498,13 @@ func TestReaper_ReapApprovalReminders_BulkListsChannelsForMultipleProjects(t *te
 
 	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 	r.reapApprovalReminders(context.Background())
+	require.Equal(t, int32(len(approvals)), deliveries.
+		Load())
+	require.EqualValues(t, 1,
+		bulkLookups.Load())
+	require.EqualValues(t, 0,
+		singleLookups.Load())
 
-	if deliveries.Load() != int32(len(approvals)) {
-		t.Fatalf("expected %d deliveries, got %d", len(approvals), deliveries.Load())
-	}
-	if bulkLookups.Load() != 1 {
-		t.Fatalf("expected 1 bulk channel lookup, got %d", bulkLookups.Load())
-	}
-	if singleLookups.Load() != 0 {
-		t.Fatalf("expected no single channel lookups, got %d", singleLookups.Load())
-	}
 }
 
 func TestReaper_ReapApprovalReminders_NoApprovals(t *testing.T) {
@@ -2536,10 +2522,8 @@ func TestReaper_ReapApprovalReminders_NoApprovals(t *testing.T) {
 
 	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 	r.reapApprovalReminders(context.Background())
+	require.False(t, deliveryCalled)
 
-	if deliveryCalled {
-		t.Fatal("expected no deliveries when no approvals nearing expiry")
-	}
 }
 
 func BenchmarkReaper_ReapApprovalReminders_ManyProjects(b *testing.B) {

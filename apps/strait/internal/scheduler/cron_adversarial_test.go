@@ -10,6 +10,8 @@ import (
 	"strait/internal/domain"
 
 	"github.com/robfig/cron/v3"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // FuzzCronExpressionReDoS fuzzes cron expression parsing for ReDoS or panics.
@@ -38,9 +40,8 @@ func TestCron_ExtremelyLong(t *testing.T) {
 	long := strings.Repeat("* ", 5000)
 	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
 	_, err := parser.Parse(long)
-	if err == nil {
-		t.Fatal("expected error for 10KB cron expression, got nil")
-	}
+	require.Error(t, err)
+
 }
 
 // TestCron_ExtremeFrequency verifies that an every-minute expression parses and
@@ -50,16 +51,18 @@ func TestCron_ExtremeFrequency(t *testing.T) {
 
 	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
 	sched, err := parser.Parse("* * * * *")
-	if err != nil {
-		t.Fatalf("every-minute cron should parse: %v", err)
-	}
+	require.NoError(t,
+		err)
 
 	now := time.Now()
 	next := sched.Next(now)
 	delta := next.Sub(now)
-	if delta > 60*time.Second || delta < 0 {
-		t.Fatalf("expected next fire within 60s, got %v", delta)
-	}
+	require.False(t, delta >
+		60*
+			time.Second ||
+		delta <
+			0)
+
 }
 
 // TestCron_InvalidFields verifies that non-numeric and special characters are rejected.
@@ -77,9 +80,8 @@ func TestCron_InvalidFields(t *testing.T) {
 	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
 	for _, expr := range invalids {
 		_, err := parser.Parse(expr)
-		if err == nil {
-			t.Errorf("expected error for invalid cron %q, got nil", expr)
-		}
+		assert.Error(t, err)
+
 	}
 }
 
@@ -115,9 +117,8 @@ func TestCron_UnicodeDigits(t *testing.T) {
 	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
 	for _, expr := range expressions {
 		_, err := parser.Parse(expr)
-		if err == nil {
-			t.Errorf("expected error for unicode digit cron %q, got nil", expr)
-		}
+		assert.Error(t, err)
+
 	}
 }
 
@@ -127,21 +128,22 @@ func TestSLOEvaluator_BoundaryThreshold(t *testing.T) {
 
 	// Exactly at target for success rate: budget should be 0.
 	budget := CalculateErrorBudget(0.99, 0.99, domain.SLOMetricSuccessRate)
-	if budget != 0.0 {
-		t.Errorf("budget at exact target should be 0.0, got %v", budget)
-	}
+	assert.EqualValues(t, 0.0,
+		budget,
+	)
 
 	// Exactly at target for latency: budget should be 0.
 	budget = CalculateErrorBudget(1.0, 1.0, domain.SLOMetricP95LatencySecs)
-	if budget != 0.0 {
-		t.Errorf("latency budget at exact target should be 0.0, got %v", budget)
-	}
+	assert.EqualValues(t, 0.0,
+		budget,
+	)
 
 	// Epsilon better than target should yield a tiny positive budget.
 	budget = CalculateErrorBudget(0.99+1e-10, 0.99, domain.SLOMetricSuccessRate)
-	if budget <= 0.0 {
-		t.Errorf("budget slightly above target should be positive, got %v", budget)
-	}
+	assert.False(t, budget <=
+		0.0,
+	)
+
 }
 
 // TestSLOEvaluator_ZeroSamples tests CalculateErrorBudget with zero-value inputs.
@@ -150,21 +152,24 @@ func TestSLOEvaluator_ZeroSamples(t *testing.T) {
 
 	// Zero current, zero target for success rate.
 	budget := CalculateErrorBudget(0.0, 0.0, domain.SLOMetricSuccessRate)
-	if budget < 0 || budget > 1 {
-		t.Fatalf("budget out of [0,1] for zero/zero success: %v", budget)
-	}
+	require.False(t, budget <
+		0 ||
+		budget >
+			1)
 
 	// Zero current, zero target for latency.
 	budget = CalculateErrorBudget(0.0, 0.0, domain.SLOMetricP95LatencySecs)
-	if budget < 0 || budget > 1 {
-		t.Fatalf("budget out of [0,1] for zero/zero latency: %v", budget)
-	}
+	require.False(t, budget <
+		0 ||
+		budget >
+			1)
 
 	// Unknown metric always returns 1.0.
 	budget = CalculateErrorBudget(0.0, 0.0, "unknown_metric")
-	if budget != 1.0 {
-		t.Errorf("unknown metric budget should be 1.0, got %v", budget)
-	}
+	assert.EqualValues(t, 1.0,
+		budget,
+	)
+
 }
 
 // TestSLOEvaluator_NegativeLatency tests that negative latency values produce a clamped budget.
@@ -172,20 +177,22 @@ func TestSLOEvaluator_NegativeLatency(t *testing.T) {
 	t.Parallel()
 
 	budget := CalculateErrorBudget(-5.0, 1.0, domain.SLOMetricP95LatencySecs)
-	if budget < 0 || budget > 1 {
-		t.Fatalf("budget out of [0,1] for negative latency: %v", budget)
-	}
+	require.False(t, budget <
+		0 ||
+		budget >
+			1)
 
 	budget = CalculateErrorBudget(-1.0, 0.99, domain.SLOMetricSuccessRate)
-	if budget < 0 || budget > 1 {
-		t.Fatalf("budget out of [0,1] for negative success rate: %v", budget)
-	}
+	require.False(t, budget <
+		0 ||
+		budget >
+			1)
 
 	// NaN and Inf should not appear.
 	budget = CalculateErrorBudget(math.Inf(1), 1.0, domain.SLOMetricP95LatencySecs)
-	if math.IsNaN(budget) {
-		t.Fatal("budget should not be NaN for Inf latency")
-	}
+	require.False(t, math.
+		IsNaN(budget))
+
 }
 
 // TestReaper_ZeroRetention verifies that NewReaper clamps zero retention to defaults.
@@ -194,14 +201,19 @@ func TestReaper_ZeroRetention(t *testing.T) {
 
 	rs := &mockReaperStore{}
 	r := NewReaper(rs, time.Minute, time.Hour, 0, 0, true, nil)
+	assert.Equal(t, 30*
+		24*time.
+		Hour, r.
+		shortRetention,
+	)
+	assert.Equal(t, 90*
+		24*time.
+		Hour, r.
+		longRetention,
+	)
 
 	// Zero values should be clamped to 30d and 90d respectively.
-	if r.shortRetention != 30*24*time.Hour {
-		t.Errorf("expected short retention clamped to 30d, got %v", r.shortRetention)
-	}
-	if r.longRetention != 90*24*time.Hour {
-		t.Errorf("expected long retention clamped to 90d, got %v", r.longRetention)
-	}
+
 }
 
 // TestReaper_NegativeRetention verifies that negative retention is clamped to defaults.
@@ -210,13 +222,17 @@ func TestReaper_NegativeRetention(t *testing.T) {
 
 	rs := &mockReaperStore{}
 	r := NewReaper(rs, time.Minute, time.Hour, -time.Hour, -time.Hour, true, nil)
+	assert.Equal(t, 30*
+		24*time.
+		Hour, r.
+		shortRetention,
+	)
+	assert.Equal(t, 90*
+		24*time.
+		Hour, r.
+		longRetention,
+	)
 
-	if r.shortRetention != 30*24*time.Hour {
-		t.Errorf("expected negative short retention clamped to 30d, got %v", r.shortRetention)
-	}
-	if r.longRetention != 90*24*time.Hour {
-		t.Errorf("expected negative long retention clamped to 90d, got %v", r.longRetention)
-	}
 }
 
 // TestReaper_MaxRetention verifies that math.MaxInt64 duration does not panic.
@@ -225,13 +241,17 @@ func TestReaper_MaxRetention(t *testing.T) {
 
 	rs := &mockReaperStore{}
 	r := NewReaper(rs, time.Minute, time.Hour, math.MaxInt64, math.MaxInt64, true, nil)
+	assert.Equal(t, time.Duration(math.
+		MaxInt64,
+	),
+		r.shortRetention,
+	)
+	assert.Equal(t, time.Duration(math.
+		MaxInt64,
+	),
+		r.longRetention,
+	)
 
-	if r.shortRetention != math.MaxInt64 {
-		t.Errorf("expected MaxInt64 short retention, got %v", r.shortRetention)
-	}
-	if r.longRetention != math.MaxInt64 {
-		t.Errorf("expected MaxInt64 long retention, got %v", r.longRetention)
-	}
 }
 
 // TestDebouncePoller_ZeroInterval verifies that a zero interval is clamped to 1 second.
@@ -241,10 +261,11 @@ func TestDebouncePoller_ZeroInterval(t *testing.T) {
 	ds := &mockDebounceStore{}
 	q := &mockQueue{}
 	p := NewDebouncePoller(ds, q, 0)
+	assert.Equal(t, time.
+		Second,
+		p.interval,
+	)
 
-	if p.interval != time.Second {
-		t.Errorf("expected zero interval clamped to 1s, got %v", p.interval)
-	}
 }
 
 // TestDebouncePoller_SubMillisecond verifies that sub-millisecond intervals are clamped.
@@ -256,15 +277,18 @@ func TestDebouncePoller_SubMillisecond(t *testing.T) {
 
 	// Negative interval should be clamped.
 	p := NewDebouncePoller(ds, q, -time.Microsecond)
-	if p.interval != time.Second {
-		t.Errorf("expected negative interval clamped to 1s, got %v", p.interval)
-	}
+	assert.Equal(t, time.
+		Second,
+		p.interval,
+	)
 
 	// Valid sub-millisecond positive interval should be accepted as-is.
 	p = NewDebouncePoller(ds, q, 500*time.Microsecond)
-	if p.interval != 500*time.Microsecond {
-		t.Errorf("expected 500us interval preserved, got %v", p.interval)
-	}
+	assert.Equal(t, 500*
+		time.
+			Microsecond,
+		p.interval,
+	)
 
 	// Verify Run does not panic with a sub-millisecond interval by running briefly.
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Millisecond)

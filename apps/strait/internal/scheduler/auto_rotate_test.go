@@ -11,6 +11,8 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/require"
 )
 
 type mockAutoRotateStore struct {
@@ -93,9 +95,10 @@ func TestAutoRotateAPIKeys_RotatesExpiredKey(t *testing.T) {
 	var auditAction string
 	var webhookPayload map[string]any
 	webhookServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if err := json.NewDecoder(r.Body).Decode(&webhookPayload); err != nil {
-			t.Fatalf("decode webhook payload: %v", err)
-		}
+		require.NoError(t,
+			json.NewDecoder(r.
+				Body).Decode(&webhookPayload))
+
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer webhookServer.Close()
@@ -136,52 +139,53 @@ func TestAutoRotateAPIKeys_RotatesExpiredKey(t *testing.T) {
 	r := newSignedAutoRotateReaper(ms)
 	r.rotationWebhookClient = webhookServer.Client()
 	r.autoRotateAPIKeys(context.Background())
+	require.NotNil(t, createdKey)
+	require.Equal(t, "proj-1",
+		createdKey.
+			ProjectID)
+	require.Equal(t, "org-1",
+		createdKey.
+			OrgID)
+	require.Equal(t, "env-prod",
+		createdKey.
+			EnvironmentID,
+	)
+	require.False(t, len(createdKey.Scopes) != 2 ||
+		createdKey.Scopes[0] !=
+			"jobs:read")
+	require.NotNil(t, createdKey.
+		NextRotationAt,
+	)
+	require.NotNil(t, createdKey.
+		ExpiresAt,
+	)
+	require.False(t, createdKey.
+		ExpiresAt.
+		After(time.
+			Now().Add(91*24*
+			time.Hour)))
+	require.False(t, createdKey.
+		KeyPrefix ==
+		"" || len(createdKey.KeyPrefix) != 12)
+	require.NotEqual(t,
+		"", createdKey.KeyHash,
+	)
+	require.Equal(t, "old-key-1",
+		markedOldID,
+	)
+	require.Equal(t, "new-key-1",
+		markedNewID,
+	)
+	require.Equal(t, "api_key.auto_rotated",
 
-	if createdKey == nil {
-		t.Fatal("expected new key to be created")
-	}
-	if createdKey.ProjectID != "proj-1" {
-		t.Fatalf("new key project = %q, want proj-1", createdKey.ProjectID)
-	}
-	if createdKey.OrgID != "org-1" {
-		t.Fatalf("new key org = %q, want org-1", createdKey.OrgID)
-	}
-	if createdKey.EnvironmentID != "env-prod" {
-		t.Fatalf("new key env = %q, want env-prod", createdKey.EnvironmentID)
-	}
-	if len(createdKey.Scopes) != 2 || createdKey.Scopes[0] != "jobs:read" {
-		t.Fatalf("new key scopes = %v, want [jobs:read jobs:write]", createdKey.Scopes)
-	}
-	if createdKey.NextRotationAt == nil {
-		t.Fatal("new key should have next_rotation_at set")
-	}
-	if createdKey.ExpiresAt == nil {
-		t.Fatal("new key should have policy-capped expires_at")
-	}
-	if createdKey.ExpiresAt.After(time.Now().Add(91 * 24 * time.Hour)) {
-		t.Fatalf("new key expires_at = %v, want within default project policy", createdKey.ExpiresAt)
-	}
-	if createdKey.KeyPrefix == "" || len(createdKey.KeyPrefix) != 12 {
-		t.Fatalf("new key prefix = %q, want 12-char prefix", createdKey.KeyPrefix)
-	}
-	if createdKey.KeyHash == "" {
-		t.Fatal("new key hash should be set")
-	}
-	if markedOldID != "old-key-1" {
-		t.Fatalf("marked old key = %q, want old-key-1", markedOldID)
-	}
-	if markedNewID != "new-key-1" {
-		t.Fatalf("marked new key = %q, want new-key-1", markedNewID)
-	}
-	if auditAction != "api_key.auto_rotated" {
-		t.Fatalf("audit action = %q, want api_key.auto_rotated", auditAction)
-	}
-	if webhookPayload["new_key"] == "" {
-		t.Fatalf("rotation webhook payload did not include new_key: %+v", webhookPayload)
-	}
-	if webhookPayload["new_key_prefix"] != createdKey.KeyPrefix {
-		t.Fatalf("webhook prefix = %v, want %s", webhookPayload["new_key_prefix"], createdKey.KeyPrefix)
-	}
+		auditAction,
+	)
+	require.NotEqual(t,
+		"", webhookPayload["new_key"])
+	require.Equal(t, createdKey.
+		KeyPrefix,
+		webhookPayload["new_key_prefix"])
+
 }
 
 func TestAutoRotateAPIKeys_SkipsKeyWithoutWebhook(t *testing.T) {
@@ -212,13 +216,12 @@ func TestAutoRotateAPIKeys_SkipsKeyWithoutWebhook(t *testing.T) {
 	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil).WithAllowPrivateEndpoints(true)
 	r.rotationWebhookClient = successfulRotationWebhookClient()
 	r.autoRotateAPIKeys(context.Background())
+	require.EqualValues(t, 0,
+		created.Load())
+	require.Equal(t, "old-key-1",
+		disabledID,
+	)
 
-	if created.Load() != 0 {
-		t.Fatalf("created keys = %d, want 0 without rotation webhook", created.Load())
-	}
-	if disabledID != "old-key-1" {
-		t.Fatalf("disabled key id = %q, want old-key-1", disabledID)
-	}
 }
 
 func TestAutoRotateAPIKeys_SkipsKeyWithoutSigningSecret(t *testing.T) {
@@ -246,10 +249,9 @@ func TestAutoRotateAPIKeys_SkipsKeyWithoutSigningSecret(t *testing.T) {
 	r := newSignedAutoRotateReaper(ms)
 	r.rotationWebhookClient = successfulRotationWebhookClient()
 	r.autoRotateAPIKeys(context.Background())
+	require.EqualValues(t, 0,
+		created.Load())
 
-	if created.Load() != 0 {
-		t.Fatalf("created keys = %d, want 0 without rotation webhook signing secret", created.Load())
-	}
 }
 
 func TestAutoRotateAPIKeys_SkipsNoExpiryWhenNoLifetimePolicy(t *testing.T) {
@@ -281,10 +283,9 @@ func TestAutoRotateAPIKeys_SkipsNoExpiryWhenNoLifetimePolicy(t *testing.T) {
 	r := newSignedAutoRotateReaper(ms)
 	r.rotationWebhookClient = successfulRotationWebhookClient()
 	r.autoRotateAPIKeys(context.Background())
+	require.EqualValues(t, 0,
+		created.Load())
 
-	if created.Load() != 0 {
-		t.Fatalf("created keys = %d, want 0 when no-expiry key violates lifetime policy", created.Load())
-	}
 }
 
 func TestAutoRotateAPIKeys_SkipsOverlongExpiry(t *testing.T) {
@@ -318,10 +319,9 @@ func TestAutoRotateAPIKeys_SkipsOverlongExpiry(t *testing.T) {
 	r := newSignedAutoRotateReaper(ms)
 	r.rotationWebhookClient = successfulRotationWebhookClient()
 	r.autoRotateAPIKeys(context.Background())
+	require.EqualValues(t, 0,
+		created.Load())
 
-	if created.Load() != 0 {
-		t.Fatalf("created keys = %d, want 0 when old key expiry exceeds project policy", created.Load())
-	}
 }
 
 func TestReaperMaintenanceCycleRunsAutoRotate(t *testing.T) {
@@ -337,10 +337,9 @@ func TestReaperMaintenanceCycleRunsAutoRotate(t *testing.T) {
 	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 
 	r.runMaintenanceCycle(context.Background())
+	require.EqualValues(t, 1,
+		listed.Load())
 
-	if listed.Load() != 1 {
-		t.Fatalf("auto-rotation listed due keys %d times, want 1", listed.Load())
-	}
 }
 
 func TestAutoRotateAPIKeys_NoDueKeys(t *testing.T) {
@@ -358,10 +357,9 @@ func TestAutoRotateAPIKeys_NoDueKeys(t *testing.T) {
 
 	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 	r.autoRotateAPIKeys(context.Background())
+	require.EqualValues(t, 0,
+		created.Load())
 
-	if created.Load() != 0 {
-		t.Fatalf("expected no keys created, got %d", created.Load())
-	}
 }
 
 func TestAutoRotateAPIKeys_CreateFails_SkipsKey(t *testing.T) {
@@ -386,10 +384,9 @@ func TestAutoRotateAPIKeys_CreateFails_SkipsKey(t *testing.T) {
 
 	r := newSignedAutoRotateReaper(ms)
 	r.autoRotateAPIKeys(context.Background())
+	require.EqualValues(t, 0,
+		markCalled.Load())
 
-	if markCalled.Load() != 0 {
-		t.Fatal("should not mark rotated when create fails")
-	}
 }
 
 func TestAutoRotateAPIKeys_MarkRotatedFailsRevokesStandaloneKey(t *testing.T) {
@@ -431,16 +428,13 @@ func TestAutoRotateAPIKeys_MarkRotatedFailsRevokesStandaloneKey(t *testing.T) {
 	r := newSignedAutoRotateReaper(ms)
 	r.rotationWebhookClient = successfulRotationWebhookClient()
 	r.autoRotateAPIKeys(context.Background())
+	require.EqualValues(t, 1,
+		created.Load())
+	require.EqualValues(t, 1,
+		revokeCalled.Load())
+	require.EqualValues(t, 0,
+		auditCalled.Load())
 
-	if created.Load() != 1 {
-		t.Fatalf("CreateAPIKey calls = %d, want 1", created.Load())
-	}
-	if revokeCalled.Load() != 1 {
-		t.Fatalf("RevokeAPIKey calls = %d, want 1 for the standalone new key", revokeCalled.Load())
-	}
-	if auditCalled.Load() != 0 {
-		t.Fatal("audit event emitted despite failed rotation link")
-	}
 }
 
 func TestAutoRotateAPIKeys_MultipleKeys(t *testing.T) {
@@ -472,13 +466,11 @@ func TestAutoRotateAPIKeys_MultipleKeys(t *testing.T) {
 	r := newSignedAutoRotateReaper(ms)
 	r.rotationWebhookClient = successfulRotationWebhookClient()
 	r.autoRotateAPIKeys(context.Background())
+	require.EqualValues(t, 3,
+		created.Load())
+	require.EqualValues(t, 3,
+		marked.Load())
 
-	if created.Load() != 3 {
-		t.Fatalf("created = %d, want 3", created.Load())
-	}
-	if marked.Load() != 3 {
-		t.Fatalf("marked = %d, want 3", marked.Load())
-	}
 }
 
 func TestAutoRotateAPIKeys_NilRotationDays_NoNextRotation(t *testing.T) {
@@ -503,10 +495,8 @@ func TestAutoRotateAPIKeys_NilRotationDays_NoNextRotation(t *testing.T) {
 	r := newSignedAutoRotateReaper(ms)
 	r.rotationWebhookClient = successfulRotationWebhookClient()
 	r.autoRotateAPIKeys(context.Background())
+	require.Nil(t, createdKey.NextRotationAt)
 
-	if createdKey.NextRotationAt != nil {
-		t.Fatal("NextRotationAt should be nil when RotationIntervalDays is nil")
-	}
 }
 
 func rotationWebhookURLForTest(t *testing.T) string {
@@ -560,13 +550,18 @@ func TestNotifyRotationWebhook_BlocksPrivateURL(t *testing.T) {
 	defer server.Close()
 
 	r := NewReaper(&mockReaperStore{}, time.Second, 30*time.Second, 0, 0, false, nil)
-	if err := r.notifyRotationWebhook(context.Background(), server.URL, nil, "old-key", "new-key", "strait_secret", "strait_secre", "proj-1"); err == nil {
-		t.Fatal("expected private plaintext rotation webhook to be blocked")
-	}
+	require.Error(t, r.
+		notifyRotationWebhook(context.
+			Background(), server.
+			URL, nil, "old-key",
+			"new-key",
+			"strait_secret",
 
-	if called.Load() != 0 {
-		t.Fatalf("private rotation webhook was called %d times, want 0", called.Load())
-	}
+			"strait_secre",
+			"proj-1"))
+	require.EqualValues(t, 0,
+		called.Load())
+
 }
 
 func TestNotifyRotationWebhook_BlocksPlaintextEvenWithPrivateEndpoints(t *testing.T) {
@@ -580,13 +575,18 @@ func TestNotifyRotationWebhook_BlocksPlaintextEvenWithPrivateEndpoints(t *testin
 	defer server.Close()
 
 	r := NewReaper(&mockReaperStore{}, time.Second, 30*time.Second, 0, 0, false, nil).WithAllowPrivateEndpoints(true)
-	if err := r.notifyRotationWebhook(context.Background(), server.URL, nil, "old-key", "new-key", "strait_secret", "strait_secre", "proj-1"); err == nil {
-		t.Fatal("expected plaintext rotation webhook to be blocked")
-	}
+	require.Error(t, r.
+		notifyRotationWebhook(context.
+			Background(), server.
+			URL, nil, "old-key",
+			"new-key",
+			"strait_secret",
 
-	if called.Load() != 0 {
-		t.Fatalf("rotation webhook was called %d times, want 0", called.Load())
-	}
+			"strait_secre",
+			"proj-1"))
+	require.EqualValues(t, 0,
+		called.Load())
+
 }
 
 func TestAutoRotateAPIKeys_WebhookFailureRevokesNewKeyKeepsOldActive(t *testing.T) {
@@ -614,9 +614,9 @@ func TestAutoRotateAPIKeys_WebhookFailureRevokesNewKeyKeepsOldActive(t *testing.
 			}}, nil
 		},
 		createAPIKeyFn: func(_ context.Context, key *domain.APIKey) error {
-			if key.OrgID != "org-1" {
-				t.Fatalf("new key org = %q, want org-1", key.OrgID)
-			}
+			require.Equal(t, "org-1",
+				key.OrgID)
+
 			created.Add(1)
 			return nil
 		},
@@ -633,16 +633,13 @@ func TestAutoRotateAPIKeys_WebhookFailureRevokesNewKeyKeepsOldActive(t *testing.
 	r := newSignedAutoRotateReaper(ms)
 	r.rotationWebhookClient = server.Client()
 	r.autoRotateAPIKeys(context.Background())
+	require.EqualValues(t, 0,
+		marked.Load())
+	require.EqualValues(t, 1,
+		created.Load())
+	require.EqualValues(t, 1,
+		revoked.Load())
 
-	if marked.Load() != 0 {
-		t.Fatalf("marked old key rotated %d times, want 0 when delivery fails", marked.Load())
-	}
-	if created.Load() != 1 {
-		t.Fatalf("created rotated keys = %d, want 1 because the key is persisted before webhook delivery", created.Load())
-	}
-	if revoked.Load() != 1 {
-		t.Fatalf("revoked rotated keys = %d, want 1 because delivery failed after persistence", revoked.Load())
-	}
 }
 
 func TestAutoRotateAPIKeys_MarksOldKeyOnlyAfterWebhookDelivery(t *testing.T) {
@@ -673,9 +670,10 @@ func TestAutoRotateAPIKeys_MarksOldKeyOnlyAfterWebhookDelivery(t *testing.T) {
 			return nil
 		},
 		markRotatedFn: func(context.Context, string, string, time.Time) error {
-			if delivered.Load() != 1 {
-				t.Fatal("old key was marked rotated before webhook delivery")
-			}
+			require.EqualValues(t, 1,
+				delivered.Load(),
+			)
+
 			marked.Add(1)
 			return nil
 		},
@@ -685,8 +683,7 @@ func TestAutoRotateAPIKeys_MarksOldKeyOnlyAfterWebhookDelivery(t *testing.T) {
 	r := newSignedAutoRotateReaper(ms)
 	r.rotationWebhookClient = server.Client()
 	r.autoRotateAPIKeys(context.Background())
+	require.EqualValues(t, 1,
+		marked.Load())
 
-	if marked.Load() != 1 {
-		t.Fatalf("marked old key rotated %d times, want 1", marked.Load())
-	}
 }

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/require"
 )
 
 // TestComponentTracker_WaitWithTimeout exercises the table-driven fast-exit,
@@ -64,17 +65,14 @@ func TestComponentTracker_WaitWithTimeout(t *testing.T) {
 			start := time.Now()
 			got := tracker.waitWithTimeout(context.Background(), tc.timeout)
 			elapsed := time.Since(start)
-			if got != tc.wantTimedOut {
-				t.Fatalf("waitWithTimeout timed_out=%d, want %d", got, tc.wantTimedOut)
-			}
+			require.Equal(t, tc.
+				wantTimedOut,
+				got)
 
 			// Wall-clock must be bounded by a single timeout window, not
 			// len(components)*timeout. Allow a generous slack for CI.
 			maxAllowed := tc.timeout + 150*time.Millisecond
-			if elapsed > maxAllowed {
-				t.Fatalf("waitWithTimeout elapsed=%v exceeds single-deadline envelope %v (components=%d)",
-					elapsed, maxAllowed, len(tc.components))
-			}
+			require.LessOrEqual(t, elapsed, maxAllowed)
 
 			// Always wait for the aggregate WaitGroup so no goroutines leak
 			// into the next subtest or the test harness.
@@ -96,13 +94,13 @@ func TestComponentTracker_TrackCountsInvocations(t *testing.T) {
 	}
 
 	wg.Wait()
-	if got := ran.Load(); got != 5 {
-		t.Fatalf("ran=%d, want 5", got)
-	}
+	require.EqualValues(t, 5,
+		ran.Load())
+
 	tracker.mu.Lock()
 	items := len(tracker.items)
 	tracker.mu.Unlock()
-	if items != 5 {
-		t.Fatalf("items=%d, want 5", items)
-	}
+	require.EqualValues(t, 5,
+		items)
+
 }

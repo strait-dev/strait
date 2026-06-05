@@ -7,6 +7,9 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestDelayedPoller_ActivatesDueRuns(t *testing.T) {
@@ -14,9 +17,9 @@ func TestDelayedPoller_ActivatesDueRuns(t *testing.T) {
 	var totalActivated atomic.Int64
 	ms := &mockPollerStore{
 		activateDueRunsFn: func(_ context.Context, limit int) (int64, error) {
-			if limit != 1000 {
-				t.Errorf("expected limit=1000, got %d", limit)
-			}
+			assert.EqualValues(t, 1000,
+				limit)
+
 			totalActivated.Add(2)
 			return 2, nil
 		},
@@ -27,10 +30,9 @@ func TestDelayedPoller_ActivatesDueRuns(t *testing.T) {
 	defer cancel()
 
 	p.Run(ctx)
+	require.GreaterOrEqual(t, totalActivated.
+		Load(), int64(2))
 
-	if totalActivated.Load() < 2 {
-		t.Fatalf("expected at least 2 activated runs, got %d", totalActivated.Load())
-	}
 }
 
 func TestDelayedPoller_NoDueRuns(t *testing.T) {
@@ -48,10 +50,10 @@ func TestDelayedPoller_NoDueRuns(t *testing.T) {
 	defer cancel()
 
 	p.Run(ctx)
+	require.NotEqual(t,
+		0, calls.
+			Load())
 
-	if calls.Load() == 0 {
-		t.Fatal("expected at least one call to ActivateDueRuns")
-	}
 }
 
 func TestDelayedPoller_ActivateError(t *testing.T) {
@@ -69,10 +71,10 @@ func TestDelayedPoller_ActivateError(t *testing.T) {
 	defer cancel()
 
 	p.Run(ctx)
+	require.GreaterOrEqual(t, calls.
+		Load(), int32(2),
+	)
 
-	if calls.Load() < 2 {
-		t.Fatalf("expected poller to continue after errors, got %d calls", calls.Load())
-	}
 }
 
 func TestDelayedPoller_UsesPromoterWhenConfigured(t *testing.T) {
@@ -87,9 +89,9 @@ func TestDelayedPoller_UsesPromoterWhenConfigured(t *testing.T) {
 	}
 	promoter := &mockPollerStore{
 		activateDueRunsFn: func(_ context.Context, limit int) (int64, error) {
-			if limit != 4 {
-				t.Errorf("limit = %d, want 4", limit)
-			}
+			assert.EqualValues(t, 4,
+				limit)
+
 			promoterCalls.Add(1)
 			return 0, nil
 		},
@@ -99,13 +101,13 @@ func TestDelayedPoller_UsesPromoterWhenConfigured(t *testing.T) {
 		WithPromoter(promoter).
 		WithBatchLimit(4).
 		poll(context.Background())
+	require.EqualValues(t, 1,
+		promoterCalls.
+			Load())
+	require.EqualValues(t, 0,
+		storeCalls.
+			Load())
 
-	if promoterCalls.Load() != 1 {
-		t.Fatalf("promoter calls = %d, want 1", promoterCalls.Load())
-	}
-	if storeCalls.Load() != 0 {
-		t.Fatalf("store calls = %d, want 0 when promoter is configured", storeCalls.Load())
-	}
 }
 
 func TestDelayedPoller_DrainsBoundedPagesPerTick(t *testing.T) {
@@ -114,9 +116,9 @@ func TestDelayedPoller_DrainsBoundedPagesPerTick(t *testing.T) {
 	var totalActivated atomic.Int64
 	ms := &mockPollerStore{
 		activateDueRunsFn: func(_ context.Context, limit int) (int64, error) {
-			if limit != 3 {
-				t.Errorf("expected limit=3, got %d", limit)
-			}
+			assert.EqualValues(t, 3,
+				limit)
+
 			call := calls.Add(1)
 			if call <= 2 {
 				totalActivated.Add(3)
@@ -134,13 +136,13 @@ func TestDelayedPoller_DrainsBoundedPagesPerTick(t *testing.T) {
 
 	p.poll(context.Background())
 	p.Run(ctx)
+	require.EqualValues(t, 3,
+		calls.Load())
+	require.EqualValues(t, 6,
+		totalActivated.
+			Load(),
+	)
 
-	if calls.Load() != 3 {
-		t.Fatalf("calls = %d, want 3", calls.Load())
-	}
-	if totalActivated.Load() != 6 {
-		t.Fatalf("total activated = %d, want 6", totalActivated.Load())
-	}
 }
 
 func TestDelayedPoller_StopsAfterMaxBatchesPerTick(t *testing.T) {
@@ -158,26 +160,26 @@ func TestDelayedPoller_StopsAfterMaxBatchesPerTick(t *testing.T) {
 		WithMaxBatchesPerTick(3)
 
 	p.poll(context.Background())
+	require.EqualValues(t, 3,
+		calls.Load())
 
-	if calls.Load() != 3 {
-		t.Fatalf("calls = %d, want bounded 3", calls.Load())
-	}
 }
 
 func TestDelayedPoller_ClampsUnsafeDefaults(t *testing.T) {
 	t.Parallel()
 	p := NewDelayedPoller(&mockPollerStore{}, nil, 0)
+	require.False(t, p.
+		interval <=
+		0)
+	require.NotNil(t, p.
+		logger)
+	require.Equal(t, defaultDelayedPollerBatchLimit,
 
-	if p.interval <= 0 {
-		t.Fatalf("interval = %v, want positive default", p.interval)
-	}
-	if p.logger == nil {
-		t.Fatal("logger should default when nil")
-	}
-	if p.batchLimit != defaultDelayedPollerBatchLimit {
-		t.Fatalf("batchLimit = %d, want %d", p.batchLimit, defaultDelayedPollerBatchLimit)
-	}
-	if p.maxBatchesPerTick != defaultDelayedPollerMaxBatchesPerTick {
-		t.Fatalf("maxBatchesPerTick = %d, want %d", p.maxBatchesPerTick, defaultDelayedPollerMaxBatchesPerTick)
-	}
+		p.batchLimit,
+	)
+	require.Equal(t, defaultDelayedPollerMaxBatchesPerTick,
+
+		p.maxBatchesPerTick,
+	)
+
 }

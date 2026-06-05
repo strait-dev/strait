@@ -16,6 +16,8 @@ import (
 	"strait/internal/store"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Grace period enforcer: Run loop, WithAdvisoryLocker, deeper enforce paths
@@ -44,7 +46,7 @@ func TestGraceEnforcer_Run_StopsOnCancel(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(2 * time.Second):
-		t.Fatal("Run did not stop on context cancel")
+		require.Fail(t, "Run did not stop on context cancel")
 	}
 }
 
@@ -64,10 +66,9 @@ func TestGraceEnforcer_WithAdvisoryLocker_Acquired(t *testing.T) {
 	}
 	g := NewGracePeriodEnforcer(s, nil, time.Minute).WithAdvisoryLocker(locker)
 	g.enforce(context.Background())
+	assert.Equal(t, "restricted",
+		s.updatedStatuses["org-1"])
 
-	if s.updatedStatuses["org-1"] != "restricted" {
-		t.Errorf("expected restricted status, got %q", s.updatedStatuses["org-1"])
-	}
 }
 
 func TestGraceEnforcer_WithAdvisoryLocker_NotAcquired(t *testing.T) {
@@ -86,10 +87,9 @@ func TestGraceEnforcer_WithAdvisoryLocker_NotAcquired(t *testing.T) {
 	}
 	g := NewGracePeriodEnforcer(s, nil, time.Minute).WithAdvisoryLocker(locker)
 	g.enforce(context.Background())
+	assert.Len(t, s.updatedStatuses,
+		0)
 
-	if len(s.updatedStatuses) != 0 {
-		t.Error("expected no status updates when lock not acquired")
-	}
 }
 
 func TestGraceEnforcer_WithAdvisoryLocker_Error(t *testing.T) {
@@ -108,10 +108,9 @@ func TestGraceEnforcer_WithAdvisoryLocker_Error(t *testing.T) {
 	}
 	g := NewGracePeriodEnforcer(s, nil, time.Minute).WithAdvisoryLocker(locker)
 	g.enforce(context.Background())
+	assert.Len(t, s.updatedStatuses,
+		0)
 
-	if len(s.updatedStatuses) != 0 {
-		t.Error("expected no status updates on locker error")
-	}
 }
 
 func TestGraceEnforcer_ListError(t *testing.T) {
@@ -136,10 +135,9 @@ func TestGraceEnforcer_GetOrgSubscriptionError(t *testing.T) {
 	}
 	g := NewGracePeriodEnforcer(s, nil, time.Minute)
 	g.enforce(context.Background())
+	assert.Len(t, s.updatedStatuses,
+		0)
 
-	if len(s.updatedStatuses) != 0 {
-		t.Error("expected no updates when GetOrgSubscription fails")
-	}
 }
 
 // covMockGraceStoreWithGetError returns an error from GetOrgSubscription.
@@ -227,10 +225,9 @@ func TestGraceEnforcer_ConcurrentlyResolved(t *testing.T) {
 	}
 	g := NewGracePeriodEnforcer(s, nil, time.Minute)
 	g.enforce(context.Background())
+	assert.Len(t, s.updatedStatuses,
+		0)
 
-	if len(s.updatedStatuses) != 0 {
-		t.Error("expected no updates when org was concurrently resolved")
-	}
 }
 
 func TestGraceEnforcer_UpdatePlanError(t *testing.T) {
@@ -247,10 +244,9 @@ func TestGraceEnforcer_UpdatePlanError(t *testing.T) {
 	}
 	g := NewGracePeriodEnforcer(s, nil, time.Minute)
 	g.enforce(context.Background())
+	assert.Len(t, s.updatedStatuses,
+		0)
 
-	if len(s.updatedStatuses) != 0 {
-		t.Error("expected atomic restriction failure to leave status unchanged")
-	}
 }
 
 func TestGraceEnforcer_WithEnforcer(t *testing.T) {
@@ -265,13 +261,11 @@ func TestGraceEnforcer_WithEnforcer(t *testing.T) {
 	enforcer := newTestEnforcer(t)
 	g := NewGracePeriodEnforcer(s, enforcer, time.Minute)
 	g.enforce(context.Background())
+	assert.Equal(t, "restricted",
+		s.updatedStatuses["org-enforcer"])
+	assert.Equal(t, "free",
+		s.updatedPlans["org-enforcer"])
 
-	if s.updatedStatuses["org-enforcer"] != "restricted" {
-		t.Error("expected restricted status with enforcer")
-	}
-	if s.updatedPlans["org-enforcer"] != "free" {
-		t.Error("expected free plan with enforcer")
-	}
 }
 
 // Usage flusher: Run loop, advisory locker paths, upsert errors
@@ -295,7 +289,7 @@ func TestUsageFlusher_Run_StopsOnCancel(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(2 * time.Second):
-		t.Fatal("Run did not stop on context cancel")
+		require.Fail(t, "Run did not stop on context cancel")
 	}
 }
 
@@ -316,10 +310,8 @@ func TestUsageFlusher_AdvisoryLocker_NotAcquired(t *testing.T) {
 	}
 	uf := NewUsageFlusher(s, time.Minute).WithAdvisoryLocker(locker)
 	uf.flush(context.Background())
+	require.False(t, flushed)
 
-	if flushed {
-		t.Fatal("expected flush to be skipped when lock not acquired")
-	}
 }
 
 func TestUsageFlusher_AdvisoryLocker_Error(t *testing.T) {
@@ -339,10 +331,8 @@ func TestUsageFlusher_AdvisoryLocker_Error(t *testing.T) {
 	}
 	uf := NewUsageFlusher(s, time.Minute).WithAdvisoryLocker(locker)
 	uf.flush(context.Background())
+	require.False(t, flushed)
 
-	if flushed {
-		t.Fatal("expected flush to be skipped on locker error")
-	}
 }
 
 func TestUsageFlusher_AdvisoryLocker_Acquired(t *testing.T) {
@@ -373,10 +363,11 @@ func TestUsageFlusher_AdvisoryLocker_Acquired(t *testing.T) {
 	}
 	uf := NewUsageFlusher(s, time.Minute).WithAdvisoryLocker(locker)
 	uf.flush(context.Background())
+	require.EqualValues(t, usageFlusherReconcileLookbackDays,
 
-	if upsertCount.Load() != usageFlusherReconcileLookbackDays {
-		t.Fatalf("expected %d upserts across lookback, got %d", usageFlusherReconcileLookbackDays, upsertCount.Load())
-	}
+		upsertCount.
+			Load())
+
 }
 
 func TestUsageFlusher_ListOrgsError(t *testing.T) {
@@ -426,9 +417,8 @@ func TestUsageFlusher_UpsertError_ContinuesOtherRecords(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if !upsertedProjects["proj-ok"] {
-		t.Error("expected proj-ok to be upserted despite proj-fail error")
-	}
+	assert.True(t, upsertedProjects["proj-ok"])
+
 }
 
 // Downgrade applier: Run loop, SuspendExcessProjects path
@@ -456,7 +446,7 @@ func TestDowngradeApplier_Run_StopsOnCancel(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(2 * time.Second):
-		t.Fatal("Run did not stop on context cancel")
+		require.Fail(t, "Run did not stop on context cancel")
 	}
 }
 
@@ -478,10 +468,8 @@ func TestDowngradeApplier_SuspendExcessProjects(t *testing.T) {
 	}
 	d := NewDowngradeApplier(store, nil, time.Minute)
 	d.apply(context.Background())
+	assert.True(t, suspended)
 
-	if !suspended {
-		t.Error("expected SuspendExcessProjects to be called")
-	}
 }
 
 func TestDowngradeApplier_SuspendExcessProjects_Error(t *testing.T) {
@@ -625,13 +613,11 @@ func TestBudgetMonitor_WithRunLimitNotifications(t *testing.T) {
 	}
 	enforcer := newTestEnforcer(t)
 	bm := NewBudgetMonitor(struct{}{}, &mockEnqueuer{}, time.Minute).WithRunLimitNotifications(rl, enforcer)
+	require.NotNil(t, bm.
+		runLimitStore)
+	require.NotNil(t, bm.
+		enforcer)
 
-	if bm.runLimitStore == nil {
-		t.Fatal("expected runLimitStore to be set")
-	}
-	if bm.enforcer == nil {
-		t.Fatal("expected enforcer to be set")
-	}
 }
 
 func TestBudgetMonitor_CheckRunLimitWarnings_ListOrgsError(t *testing.T) {
@@ -670,12 +656,12 @@ func TestBudgetMonitor_CheckRunLimitWarnings_NoWarning(t *testing.T) {
 	enforcer := newTestEnforcer(t)
 	bm := NewBudgetMonitor(struct{}{}, &mockEnqueuer{}, time.Minute).WithRunLimitNotifications(rl, enforcer)
 	bm.check(context.Background())
+	require.Len(t, deliveries,
+		0)
 
 	// The enforcer will return false for Check80PercentMonthlyWarning with the mock store,
 	// so no notifications should be sent.
-	if len(deliveries) != 0 {
-		t.Fatalf("expected no deliveries when run limit is not near, got %d", len(deliveries))
-	}
+
 }
 
 func TestBudgetMonitor_CheckRunLimitWarnings_Dedup(t *testing.T) {
@@ -721,7 +707,7 @@ func TestConcurrentReconciler_Run_StopsOnCancel(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(2 * time.Second):
-		t.Fatal("Run did not stop on context cancel")
+		require.Fail(t, "Run did not stop on context cancel")
 	}
 }
 
@@ -778,10 +764,9 @@ func TestCronScheduler_ConcurrentTriggerSameJob(t *testing.T) {
 		})
 	}
 	wg.Wait()
+	require.EqualValues(t, 1,
+		enqueued.Load())
 
-	if enqueued.Load() != 1 {
-		t.Fatalf("expected one durable cron fire enqueue, got %d", enqueued.Load())
-	}
 }
 
 func TestCronScheduler_DurableFireKeySkipsWorkflowAfterLockRelease(t *testing.T) {
@@ -799,10 +784,10 @@ func TestCronScheduler_DurableFireKeySkipsWorkflowAfterLockRelease(t *testing.T)
 	wf := domain.Workflow{ID: "wf-race", ProjectID: "p1", Cron: "* * * * *"}
 	NewCronScheduler(context.Background(), ms, &mockQueue{}, wt).triggerWorkflow(context.Background(), wf)
 	NewCronScheduler(context.Background(), ms, &mockQueue{}, wt).triggerWorkflow(context.Background(), wf)
+	require.EqualValues(t, 1,
+		triggered.Load(),
+	)
 
-	if triggered.Load() != 1 {
-		t.Fatalf("expected one durable cron workflow fire, got %d", triggered.Load())
-	}
 }
 
 func TestCronScheduler_TriggerJob_NoTTL_NilExpiresAt(t *testing.T) {
@@ -825,13 +810,9 @@ func TestCronScheduler_TriggerJob_NoTTL_NilExpiresAt(t *testing.T) {
 		Cron:       "* * * * *",
 	}
 	cs.triggerJob(context.Background(), job)
+	require.NotNil(t, capturedRun)
+	assert.Nil(t, capturedRun.ExpiresAt)
 
-	if capturedRun == nil {
-		t.Fatal("expected run to be enqueued")
-	}
-	if capturedRun.ExpiresAt != nil {
-		t.Error("expected nil ExpiresAt when no TTL configured")
-	}
 }
 
 func TestCronScheduler_TriggerWorkflow_WithTimezone(t *testing.T) {
@@ -853,9 +834,9 @@ func TestCronScheduler_TriggerWorkflow_WithTimezone(t *testing.T) {
 	}
 	cs := NewCronScheduler(context.Background(), ms, &mockQueue{}, wt)
 	err := cs.LoadJobs(context.Background())
-	if err != nil {
-		t.Fatalf("expected LoadJobs to succeed with timezone, got: %v", err)
-	}
+	require.NoError(t,
+		err)
+
 }
 
 func TestCronScheduler_TriggerWorkflow_SkipIfRunning_ActiveRuns(t *testing.T) {
@@ -882,10 +863,10 @@ func TestCronScheduler_TriggerWorkflow_SkipIfRunning_ActiveRuns(t *testing.T) {
 		SkipIfRunning: true,
 	}
 	cs.triggerWorkflow(context.Background(), wf)
+	require.EqualValues(t, 0,
+		triggered.Load(),
+	)
 
-	if triggered.Load() != 0 {
-		t.Fatal("expected SkipIfRunning to prevent trigger when runs are active")
-	}
 }
 
 func TestCronScheduler_LoadJobs_ListJobsError(t *testing.T) {
@@ -898,9 +879,8 @@ func TestCronScheduler_LoadJobs_ListJobsError(t *testing.T) {
 	}
 	cs := NewCronScheduler(context.Background(), ms, &mockQueue{}, nil)
 	err := cs.LoadJobs(context.Background())
-	if err == nil {
-		t.Fatal("expected error when ListCronJobs fails")
-	}
+	require.Error(t, err)
+
 }
 
 // Batch flusher: GetJob error, enqueue error during flush, advisory lock races
@@ -922,10 +902,9 @@ func TestBatchFlusher_GetJobReturnsError(t *testing.T) {
 	}
 	flusher := NewBatchFlusher(bs, q, time.Second)
 	flusher.poll(context.Background())
+	require.EqualValues(t, 0,
+		enqueued.Load())
 
-	if enqueued.Load() != 0 {
-		t.Fatal("expected no enqueue when job lookup returns error")
-	}
 }
 
 // covMockBatchStoreWithJobError is a batch store that returns an error from GetJob.
@@ -992,11 +971,11 @@ func TestBatchFlusher_EnqueueError_Continues(t *testing.T) {
 	}
 	flusher := NewBatchFlusher(bs, q, time.Second)
 	flusher.poll(context.Background())
+	require.EqualValues(t, 1,
+		successCount.Load())
 
 	// First batch should fail, second should succeed.
-	if successCount.Load() != 1 {
-		t.Fatalf("expected 1 successful enqueue after 1 error, got %d", successCount.Load())
-	}
+
 }
 
 func TestBatchFlusher_LargeBatch(t *testing.T) {
@@ -1031,18 +1010,20 @@ func TestBatchFlusher_LargeBatch(t *testing.T) {
 	}
 	flusher := NewBatchFlusher(bs, q, time.Second)
 	flusher.poll(context.Background())
+	require.NotNil(t, capturedRun)
 
-	if capturedRun == nil {
-		t.Fatal("expected run to be enqueued")
-	}
 	var payload map[string]any
-	if err := json.Unmarshal(capturedRun.Payload, &payload); err != nil {
-		t.Fatalf("invalid payload: %v", err)
-	}
+	require.NoError(t,
+		json.Unmarshal(capturedRun.
+			Payload,
+			&payload,
+		))
+
 	payloadItems := payload["items"].([]any)
-	if len(payloadItems) != batchSize {
-		t.Fatalf("expected %d items in payload, got %d", batchSize, len(payloadItems))
-	}
+	require.Len(t, payloadItems,
+		batchSize,
+	)
+
 }
 
 // Debounce poller: TTL edge cases
@@ -1076,15 +1057,22 @@ func TestDebouncePoller_CustomTTL(t *testing.T) {
 	}
 	poller := NewDebouncePoller(ds, q, time.Second)
 	poller.poll(context.Background())
+	require.False(t, capturedRun ==
+		nil ||
+		capturedRun.
+			ExpiresAt ==
+			nil)
 
-	if capturedRun == nil || capturedRun.ExpiresAt == nil {
-		t.Fatal("expected run with ExpiresAt")
-	}
 	delta := time.Until(*capturedRun.ExpiresAt)
+	require.False(t, delta <
+		100*time.Second ||
+		delta >
+			140*
+				time.
+					Second)
+
 	// TTLSecs=120, so ExpiresAt should be roughly 2 minutes from now.
-	if delta < 100*time.Second || delta > 140*time.Second {
-		t.Fatalf("expected ExpiresAt ~2m from now, got %v", delta)
-	}
+
 }
 
 func TestDebouncePoller_JobTTL_Fallback(t *testing.T) {
@@ -1115,15 +1103,22 @@ func TestDebouncePoller_JobTTL_Fallback(t *testing.T) {
 	}
 	poller := NewDebouncePoller(ds, q, time.Second)
 	poller.poll(context.Background())
+	require.False(t, capturedRun ==
+		nil ||
+		capturedRun.
+			ExpiresAt ==
+			nil)
 
-	if capturedRun == nil || capturedRun.ExpiresAt == nil {
-		t.Fatal("expected run with ExpiresAt")
-	}
 	delta := time.Until(*capturedRun.ExpiresAt)
+	require.False(t, delta <
+		9*time.Minute ||
+		delta >
+			11*
+				time.Minute,
+	)
+
 	// RunTTLSecs=600, so ExpiresAt should be roughly 10 minutes from now.
-	if delta < 9*time.Minute || delta > 11*time.Minute {
-		t.Fatalf("expected ExpiresAt ~10m from now, got %v", delta)
-	}
+
 }
 
 func TestDebouncePoller_TimeoutFallback(t *testing.T) {
@@ -1154,15 +1149,22 @@ func TestDebouncePoller_TimeoutFallback(t *testing.T) {
 	}
 	poller := NewDebouncePoller(ds, q, time.Second)
 	poller.poll(context.Background())
+	require.False(t, capturedRun ==
+		nil ||
+		capturedRun.
+			ExpiresAt ==
+			nil)
 
-	if capturedRun == nil || capturedRun.ExpiresAt == nil {
-		t.Fatal("expected run with ExpiresAt")
-	}
 	delta := time.Until(*capturedRun.ExpiresAt)
+	require.False(t, delta <
+		2*time.Minute ||
+		delta >
+			4*time.
+				Minute,
+	)
+
 	// TimeoutSecs=120 + 60 = 180s = 3 minutes.
-	if delta < 2*time.Minute || delta > 4*time.Minute {
-		t.Fatalf("expected ExpiresAt ~3m from now, got %v", delta)
-	}
+
 }
 
 func TestDebouncePoller_WithTags(t *testing.T) {
@@ -1193,13 +1195,13 @@ func TestDebouncePoller_WithTags(t *testing.T) {
 	}
 	poller := NewDebouncePoller(ds, q, time.Second)
 	poller.poll(context.Background())
+	require.NotNil(t, capturedRun)
+	require.False(t, capturedRun.
+		Tags["env"] != "prod" ||
+		capturedRun.
+			Tags["region"] !=
+			"us")
 
-	if capturedRun == nil {
-		t.Fatal("expected run to be enqueued")
-	}
-	if capturedRun.Tags["env"] != "prod" || capturedRun.Tags["region"] != "us" {
-		t.Fatalf("expected tags {env:prod, region:us}, got %v", capturedRun.Tags)
-	}
 }
 
 func TestDebouncePoller_Run_StopsOnCancel(t *testing.T) {
@@ -1222,7 +1224,7 @@ func TestDebouncePoller_Run_StopsOnCancel(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(2 * time.Second):
-		t.Fatal("Run did not stop on context cancel")
+		require.Fail(t, "Run did not stop on context cancel")
 	}
 }
 
@@ -1244,9 +1246,8 @@ func TestStaleSubscriptionChecker_Check_LockerError(t *testing.T) {
 	}
 	c := NewStaleSubscriptionChecker(s, time.Minute).WithAdvisoryLocker(locker)
 	c.check(context.Background())
-	if checked {
-		t.Fatal("expected check skipped on locker error")
-	}
+	require.False(t, checked)
+
 }
 
 // SLO error budget: adversarial float inputs
@@ -1276,13 +1277,15 @@ func TestCalculateErrorBudget_ExtremeValues(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			budget := CalculateErrorBudget(tt.current, tt.target, tt.metric)
-			if math.IsInf(budget, 0) {
-				t.Errorf("budget should not be Inf for %s", tt.name)
-			}
+			assert.False(t, math.
+				IsInf(budget, 0))
+
 			if budget < 0 || budget > 1 {
-				if tt.metric != "custom_metric_xyz" {
-					t.Errorf("budget out of [0,1] for %s: %v", tt.name, budget)
-				}
+				assert.Equal(t, "custom_metric_xyz",
+
+					tt.metric,
+				)
+
 			}
 		})
 	}
@@ -1334,7 +1337,7 @@ func TestAnomalyMonitor_Run_StopsOnCancel(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(2 * time.Second):
-		t.Fatal("Run did not stop on context cancel")
+		require.Fail(t, "Run did not stop on context cancel")
 	}
 }
 
@@ -1377,11 +1380,11 @@ func TestBudgetMonitor_SpendingLimit_NilPeriodStart_FallbackToNow(t *testing.T) 
 
 	bm := NewBudgetMonitor(struct{}{}, &mockEnqueuer{}, time.Minute).WithSpendingLimitStore(ss)
 	bm.check(context.Background())
+	require.NotEmpty(t,
+		deliveries)
 
 	// With nil period start, it should use time.Now() as fallback and still alert.
-	if len(deliveries) == 0 {
-		t.Fatal("expected at least one delivery with nil period start")
-	}
+
 }
 
 func TestBudgetMonitor_SpendingLimit_SubError(t *testing.T) {
@@ -1496,13 +1499,10 @@ func TestSafeGo_RecoversPanic(t *testing.T) {
 		panic("test panic in safeGo")
 	})
 	wg.Wait()
+	require.True(t, exitCalled)
+	require.EqualValues(t, 1,
+		exitCode)
 
-	if !exitCalled {
-		t.Fatal("expected exitFunc to be called on panic")
-	}
-	if exitCode != 1 {
-		t.Fatalf("expected exit code 1, got %d", exitCode)
-	}
 }
 
 // Memory cleanup: Run loop
@@ -1526,7 +1526,7 @@ func TestMemoryCleanup_Run_StopsOnCancel(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(2 * time.Second):
-		t.Fatal("Run did not stop on context cancel")
+		require.Fail(t, "Run did not stop on context cancel")
 	}
 }
 
@@ -1599,13 +1599,13 @@ func TestBudgetMonitor_SpendingLimit_100Then80_DedupCheck(t *testing.T) {
 	// First check: 100% alert fires.
 	bm.check(context.Background())
 	firstCount := len(deliveries)
-	if firstCount == 0 {
-		t.Fatal("expected at least one delivery for 100% spending limit")
-	}
+	require.NotEqual(t,
+		0, firstCount)
 
 	// Second check: should be deduped.
 	bm.check(context.Background())
-	if len(deliveries) != firstCount {
-		t.Fatalf("expected dedup on second check, got %d deliveries", len(deliveries))
-	}
+	require.Len(t, deliveries,
+		firstCount,
+	)
+
 }

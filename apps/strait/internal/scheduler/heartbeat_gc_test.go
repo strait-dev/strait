@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type fakeGCStore struct {
@@ -82,24 +84,33 @@ func (f *fakeGCStore) CompactSupersededRunCacheVersions(_ context.Context, _ int
 
 func TestHeartbeatGC_Defaults(t *testing.T) {
 	g := NewHeartbeatGC(&fakeGCStore{}, HeartbeatGCConfig{})
-	if g.interval != time.Hour {
-		t.Errorf("interval = %v", g.interval)
-	}
-	if g.batchLimit != 10000 {
-		t.Errorf("batchLimit = %d", g.batchLimit)
-	}
+	assert.Equal(t, time.
+		Hour, g.
+		interval)
+	assert.EqualValues(t, 10000,
+		g.batchLimit,
+	)
+
 }
 
 func TestHeartbeatGC_RunOnceAccumulates(t *testing.T) {
 	s := &fakeGCStore{deleted: 17, compacted: 23, compactedRetries: 11, deletedClaims: 5, deletedReady: 7, compactedPriority: 13, compactedVisible: 17, compactedCache: 19}
 	g := NewHeartbeatGC(s, HeartbeatGCConfig{})
 	_ = g.runOnce(context.Background())
-	if g.TotalDeleted() != 112 {
-		t.Errorf("total = %d, want 112", g.TotalDeleted())
-	}
-	if s.calls != 1 || s.compactCalls != 1 || s.retryCompactCalls != 1 || s.claimCalls != 1 || s.readyCalls != 1 || s.priorityCalls != 1 || s.visibilityCalls != 1 || s.cacheCalls != 1 {
-		t.Errorf("calls = %d compactCalls = %d retryCompactCalls = %d claimCalls = %d readyCalls = %d priorityCalls = %d visibilityCalls = %d cacheCalls = %d", s.calls, s.compactCalls, s.retryCompactCalls, s.claimCalls, s.readyCalls, s.priorityCalls, s.visibilityCalls, s.cacheCalls)
-	}
+	assert.EqualValues(t, 112,
+		g.TotalDeleted())
+	assert.False(t, s.calls !=
+		1 ||
+		s.compactCalls !=
+
+			1 || s.retryCompactCalls != 1 ||
+
+		s.claimCalls != 1 || s.readyCalls !=
+		1 || s.priorityCalls !=
+		1 || s.visibilityCalls !=
+		1 || s.cacheCalls !=
+		1)
+
 }
 
 func TestHeartbeatGC_LockNotAcquired(t *testing.T) {
@@ -107,9 +118,9 @@ func TestHeartbeatGC_LockNotAcquired(t *testing.T) {
 	locker := &fakeLocker{acquireOK: false}
 	g := NewHeartbeatGC(s, HeartbeatGCConfig{}).WithAdvisoryLocker(locker)
 	_ = g.runOnce(context.Background())
-	if s.calls != 0 {
-		t.Errorf("store should not be called when lock not acquired, got %d", s.calls)
-	}
+	assert.EqualValues(t, 0,
+		s.calls)
+
 }
 
 func TestHeartbeatGC_LockAcquired(t *testing.T) {
@@ -117,85 +128,88 @@ func TestHeartbeatGC_LockAcquired(t *testing.T) {
 	locker := &fakeLocker{acquireOK: true}
 	g := NewHeartbeatGC(s, HeartbeatGCConfig{}).WithAdvisoryLocker(locker)
 	_ = g.runOnce(context.Background())
-	if s.calls != 1 || !locker.acquired || !locker.released {
-		t.Errorf("lock workflow broken: calls=%d acquired=%v released=%v",
-			s.calls, locker.acquired, locker.released)
-	}
+	assert.False(t, s.calls !=
+		1 ||
+		!locker.
+			acquired ||
+		!locker.released)
+
 }
 
 func TestHeartbeatGC_DeleteError(t *testing.T) {
 	s := &fakeGCStore{err: errors.New("oops")}
 	g := NewHeartbeatGC(s, HeartbeatGCConfig{})
-	if err := g.runOnce(context.Background()); err == nil {
-		t.Error("expected error propagation")
-	}
+	assert.Error(t, g.runOnce(context.
+		Background()))
+
 }
 
 func TestHeartbeatGC_CompactError(t *testing.T) {
 	s := &fakeGCStore{compactErr: errors.New("oops")}
 	g := NewHeartbeatGC(s, HeartbeatGCConfig{})
-	if err := g.runOnce(context.Background()); err == nil {
-		t.Error("expected compact error propagation")
-	}
+	assert.Error(t, g.runOnce(context.
+		Background()))
+
 }
 
 func TestHeartbeatGC_RetryCompactError(t *testing.T) {
 	s := &fakeGCStore{retryCompactErr: errors.New("oops")}
 	g := NewHeartbeatGC(s, HeartbeatGCConfig{})
-	if err := g.runOnce(context.Background()); err == nil {
-		t.Error("expected retry compact error propagation")
-	}
+	assert.Error(t, g.runOnce(context.
+		Background()))
+
 }
 
 func TestHeartbeatGC_ActiveClaimError(t *testing.T) {
 	s := &fakeGCStore{claimErr: errors.New("oops")}
 	g := NewHeartbeatGC(s, HeartbeatGCConfig{})
-	if err := g.runOnce(context.Background()); err == nil {
-		t.Error("expected active claim error propagation")
-	}
+	assert.Error(t, g.runOnce(context.
+		Background()))
+
 }
 
 func TestHeartbeatGC_ReadyEventError(t *testing.T) {
 	s := &fakeGCStore{readyErr: errors.New("oops")}
 	g := NewHeartbeatGC(s, HeartbeatGCConfig{})
-	if err := g.runOnce(context.Background()); err == nil {
-		t.Error("expected ready event error propagation")
-	}
+	assert.Error(t, g.runOnce(context.
+		Background()))
+
 }
 
 func TestHeartbeatGC_PriorityEventCompactError(t *testing.T) {
 	s := &fakeGCStore{priorityErr: errors.New("oops")}
 	g := NewHeartbeatGC(s, HeartbeatGCConfig{})
-	if err := g.runOnce(context.Background()); err == nil {
-		t.Error("expected priority event compact error propagation")
-	}
+	assert.Error(t, g.runOnce(context.
+		Background()))
+
 }
 
 func TestHeartbeatGC_VisibilityEventCompactError(t *testing.T) {
 	s := &fakeGCStore{visibilityErr: errors.New("oops")}
 	g := NewHeartbeatGC(s, HeartbeatGCConfig{})
-	if err := g.runOnce(context.Background()); err == nil {
-		t.Error("expected visibility event compact error propagation")
-	}
+	assert.Error(t, g.runOnce(context.
+		Background()))
+
 }
 
 func TestHeartbeatGC_RunCacheVersionCompactError(t *testing.T) {
 	s := &fakeGCStore{cacheErr: errors.New("oops")}
 	g := NewHeartbeatGC(s, HeartbeatGCConfig{})
-	if err := g.runOnce(context.Background()); err == nil {
-		t.Error("expected run cache version compact error propagation")
-	}
+	assert.Error(t, g.runOnce(context.
+		Background()))
+
 }
 
 func TestHeartbeatGC_PanicReturnsError(t *testing.T) {
 	s := &fakeGCStore{panicRun: true}
 	g := NewHeartbeatGC(s, HeartbeatGCConfig{})
-	if err := g.runOnce(context.Background()); err == nil {
-		t.Fatal("runOnce error = nil, want recovered panic error")
-	}
-	if g.Iterations() != 1 {
-		t.Fatalf("iterations = %d, want 1", g.Iterations())
-	}
+	require.Error(t, g.
+		runOnce(context.
+			Background()),
+	)
+	require.EqualValues(t, 1,
+		g.Iterations())
+
 }
 
 func TestHeartbeatGC_RunExitsOnCancel(t *testing.T) {
@@ -214,9 +228,9 @@ func TestHeartbeatGC_RunExitsOnCancel(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(time.Second):
-		t.Fatal("did not exit on cancel")
+		require.Fail(t, "did not exit on cancel")
 	}
-	if g.Iterations() < 2 {
-		t.Errorf("iterations = %d", g.Iterations())
-	}
+	assert.GreaterOrEqual(t, g.Iterations(),
+		int64(2))
+
 }

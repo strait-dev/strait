@@ -8,6 +8,9 @@ import (
 
 	"strait/internal/billing"
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // recordingBillingDispatcher captures every billing webhook event the
@@ -74,9 +77,10 @@ func TestDowngradeApplier_DispatchesScheduleSuspended_OnCronTrim(t *testing.T) {
 			cronEvents++
 		}
 	}
-	if cronEvents != 3 {
-		t.Fatalf("expected 3 schedule.suspended events, got %d", cronEvents)
-	}
+	require.EqualValues(t, 3,
+		cronEvents,
+	)
+
 }
 
 // TestDowngradeApplier_NoDispatch_WhenNoIDsReturned guards the fast-path: if
@@ -99,9 +103,11 @@ func TestDowngradeApplier_NoDispatch_WhenNoIDsReturned(t *testing.T) {
 	applier.apply(context.Background())
 
 	for _, e := range disp.snapshot() {
-		if e.eventType == domain.WebhookEventScheduleSuspended {
-			t.Errorf("expected no schedule.suspended dispatch, got %+v", e)
-		}
+		assert.NotEqual(t,
+			domain.WebhookEventScheduleSuspended,
+
+			e.eventType)
+
 	}
 }
 

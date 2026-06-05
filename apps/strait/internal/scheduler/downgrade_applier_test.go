@@ -13,6 +13,8 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type mockDowngradeStore struct {
@@ -366,13 +368,15 @@ func TestDowngradeApplier_AppliesPastDueDowngrades(t *testing.T) {
 	enforcer := newTestEnforcer(t)
 	applier := NewDowngradeApplier(store, enforcer, time.Minute)
 	applier.apply(context.Background())
+	require.Len(t, store.
+		appliedOrgIDs,
+		2)
+	assert.False(t, store.
+		appliedOrgIDs[0] != "org-1" ||
+		store.
+			appliedOrgIDs[1] !=
+			"org-2")
 
-	if len(store.appliedOrgIDs) != 2 {
-		t.Fatalf("expected 2 downgrades applied, got %d", len(store.appliedOrgIDs))
-	}
-	if store.appliedOrgIDs[0] != "org-1" || store.appliedOrgIDs[1] != "org-2" {
-		t.Errorf("unexpected org IDs: %v", store.appliedOrgIDs)
-	}
 }
 
 func TestDowngradeApplier_SkipsOrgsNotYetDue(t *testing.T) {
@@ -384,10 +388,10 @@ func TestDowngradeApplier_SkipsOrgsNotYetDue(t *testing.T) {
 
 	applier := NewDowngradeApplier(store, nil, time.Minute)
 	applier.apply(context.Background())
+	require.Len(t, store.
+		appliedOrgIDs,
+		0)
 
-	if len(store.appliedOrgIDs) != 0 {
-		t.Fatalf("expected 0 downgrades applied, got %d", len(store.appliedOrgIDs))
-	}
 }
 
 func TestDowngradeApplier_ContinuesOnSingleOrgError(t *testing.T) {
@@ -407,13 +411,12 @@ func TestDowngradeApplier_ContinuesOnSingleOrgError(t *testing.T) {
 
 	applier := NewDowngradeApplier(store, nil, time.Minute)
 	applier.apply(context.Background())
+	require.Len(t, store.
+		appliedOrgIDs,
+		1)
+	assert.Equal(t, "org-ok",
+		store.appliedOrgIDs[0])
 
-	if len(store.appliedOrgIDs) != 1 {
-		t.Fatalf("expected 1 successful downgrade, got %d", len(store.appliedOrgIDs))
-	}
-	if store.appliedOrgIDs[0] != "org-ok" {
-		t.Errorf("expected org-ok to succeed, got %q", store.appliedOrgIDs[0])
-	}
 }
 
 func TestDowngradeApplier_DoesNotApplyWhenPendingTierChanged(t *testing.T) {
@@ -426,19 +429,21 @@ func TestDowngradeApplier_DoesNotApplyWhenPendingTierChanged(t *testing.T) {
 			{OrgID: "org-raced", PlanTier: "pro", PendingPlanTier: &free, CurrentPeriodEnd: &pastEnd},
 		},
 		applyIfTierFn: func(_ context.Context, orgID, pendingTier string) (bool, error) {
-			if orgID != "org-raced" || pendingTier != "free" {
-				t.Fatalf("conditional apply got org=%q tier=%q", orgID, pendingTier)
-			}
+			require.False(t, orgID !=
+				"org-raced" ||
+				pendingTier !=
+					"free")
+
 			return false, nil
 		},
 	}
 
 	applier := NewDowngradeApplier(store, nil, time.Minute)
 	applier.apply(context.Background())
+	require.Len(t, store.
+		appliedOrgIDs,
+		0)
 
-	if len(store.appliedOrgIDs) != 0 {
-		t.Fatalf("expected stale pending tier to skip apply, got %v", store.appliedOrgIDs)
-	}
 }
 
 func TestDowngradeApplier_RetainsPendingTierWhenLimitEnforcementFails(t *testing.T) {
@@ -455,19 +460,21 @@ func TestDowngradeApplier_RetainsPendingTierWhenLimitEnforcementFails(t *testing
 
 	applier := NewDowngradeApplier(store, nil, time.Minute)
 	applier.apply(context.Background())
+	require.False(t, len(store.appliedOrgIDs) !=
+		1 || store.
+		appliedOrgIDs[0] !=
 
-	if len(store.appliedOrgIDs) != 1 || store.appliedOrgIDs[0] != "org-fail-enforce" {
-		t.Fatalf("pending downgrade should apply before enforcement, got %v", store.appliedOrgIDs)
-	}
-	if len(store.operations) < 2 {
-		t.Fatalf("expected apply and enforcement operations, got %v", store.operations)
-	}
-	if store.operations[0] != "apply:org-fail-enforce" {
-		t.Fatalf("first operation = %q, want apply before enforcement; operations=%v", store.operations[0], store.operations)
-	}
-	if len(store.clearedOrgIDs) != 0 {
-		t.Fatalf("pending tier should stay set for retry after enforcement failure, cleared=%v operations=%v", store.clearedOrgIDs, store.operations)
-	}
+		"org-fail-enforce")
+	require.GreaterOrEqual(t, len(store.
+		operations,
+	), 2)
+	require.Equal(t, "apply:org-fail-enforce",
+
+		store.operations[0])
+	require.Len(t, store.
+		clearedOrgIDs,
+		0)
+
 }
 
 func TestDowngradeApplier_InvalidatesOrgCacheAfterTierTransitionBeforeCleanup(t *testing.T) {
@@ -488,12 +495,12 @@ func TestDowngradeApplier_InvalidatesOrgCacheAfterTierTransitionBeforeCleanup(t 
 	enforcer := billing.NewEnforcer(enforcerStore, rdb, slog.Default())
 
 	primed, err := enforcer.GetOrgPlanLimits(ctx, orgID)
-	if err != nil {
-		t.Fatalf("prime plan limits: %v", err)
-	}
-	if primed.PlanTier != domain.PlanPro {
-		t.Fatalf("primed plan tier = %s, want %s", primed.PlanTier, domain.PlanPro)
-	}
+	require.NoError(t,
+		err)
+	require.Equal(t, domain.
+		PlanPro, primed.
+		PlanTier,
+	)
 
 	store := &mockDowngradeStore{
 		pendingOrgs: []billing.OrgSubscription{
@@ -501,9 +508,12 @@ func TestDowngradeApplier_InvalidatesOrgCacheAfterTierTransitionBeforeCleanup(t 
 		},
 		cronErr: fmt.Errorf("cleanup failed after tier transition"),
 		applyIfTierFn: func(_ context.Context, gotOrgID, pendingTier string) (bool, error) {
-			if gotOrgID != orgID || pendingTier != free {
-				t.Fatalf("conditional apply got org=%q tier=%q", gotOrgID, pendingTier)
-			}
+			require.False(t, gotOrgID !=
+				orgID ||
+				pendingTier !=
+					free,
+			)
+
 			enforcerStore.subscriptions[orgID] = &billing.OrgSubscription{OrgID: orgID, PlanTier: free, Status: "active"}
 			sub := enforcerStore.subscriptions[orgID]
 			entitlements := billing.GetPlanLimits(domain.PlanFree)
@@ -514,17 +524,18 @@ func TestDowngradeApplier_InvalidatesOrgCacheAfterTierTransitionBeforeCleanup(t 
 
 	applier := NewDowngradeApplier(store, enforcer, time.Minute)
 	applier.apply(ctx)
+	require.Len(t, store.
+		clearedOrgIDs,
+		0)
 
-	if len(store.clearedOrgIDs) != 0 {
-		t.Fatalf("cleanup failure should retain pending tier for retry, cleared=%v", store.clearedOrgIDs)
-	}
 	after, err := enforcer.GetOrgPlanLimits(ctx, orgID)
-	if err != nil {
-		t.Fatalf("plan limits after failed cleanup: %v", err)
-	}
-	if after.PlanTier != domain.PlanFree {
-		t.Fatalf("plan tier after failed cleanup = %s, want %s", after.PlanTier, domain.PlanFree)
-	}
+	require.NoError(t,
+		err)
+	require.Equal(t, domain.
+		PlanFree, after.
+		PlanTier,
+	)
+
 }
 
 func TestDowngradeApplier_NilEnforcer(t *testing.T) {
@@ -539,11 +550,13 @@ func TestDowngradeApplier_NilEnforcer(t *testing.T) {
 	}
 
 	applier := NewDowngradeApplier(store, nil, time.Minute)
-	applier.apply(context.Background()) // should not panic
+	applier.apply(context.Background())
+	require.Len(t, store.
+		appliedOrgIDs,
+		1)
 
-	if len(store.appliedOrgIDs) != 1 {
-		t.Fatalf("expected 1 downgrade, got %d", len(store.appliedOrgIDs))
-	}
+	// should not panic
+
 }
 
 func TestDowngradeApplier_SkipsHTTPPauseWhenNewPlanAllows(t *testing.T) {
@@ -561,13 +574,13 @@ func TestDowngradeApplier_SkipsHTTPPauseWhenNewPlanAllows(t *testing.T) {
 	enforcer := newTestEnforcer(t)
 	applier := NewDowngradeApplier(store, enforcer, time.Minute)
 	applier.apply(context.Background())
+	require.Len(t, store.
+		appliedOrgIDs,
+		1)
+	assert.Len(t, store.
+		pauseHTTPCalls,
+		0)
 
-	if len(store.appliedOrgIDs) != 1 {
-		t.Fatalf("expected 1 downgrade applied, got %d", len(store.appliedOrgIDs))
-	}
-	if len(store.pauseHTTPCalls) != 0 {
-		t.Errorf("expected 0 PauseHTTPJobsByOrg calls, got %d", len(store.pauseHTTPCalls))
-	}
 }
 
 // TestDowngradeApplier_DeactivatesExcessLogDrains confirms the Pro→Free
@@ -589,13 +602,15 @@ func TestDowngradeApplier_DeactivatesExcessLogDrains(t *testing.T) {
 	enforcer := newTestEnforcer(t)
 	applier := NewDowngradeApplier(store, enforcer, time.Minute)
 	applier.apply(context.Background())
+	require.Len(t, store.
+		logDrainCalls,
+		1)
 
-	if len(store.logDrainCalls) != 1 {
-		t.Fatalf("expected 1 DeactivateExcessLogDrains call, got %d", len(store.logDrainCalls))
-	}
 	freeLimits := billing.GetPlanLimits("free")
 	if got, want := store.logDrainCalls[0].max, freeLimits.MaxLogDrainsPerOrg; got != want {
-		t.Errorf("DeactivateExcessLogDrains called with max=%d, want %d (Free tier cap)", got, want)
+		assert.Failf(t, "test failure",
+
+			"DeactivateExcessLogDrains called with max=%d, want %d (Free tier cap)", got, want)
 	}
 }
 
@@ -618,24 +633,26 @@ func TestDowngradeApplier_DeactivatesExcessNotificationChannelsPerProject(t *tes
 	enforcer := newTestEnforcer(t)
 	applier := NewDowngradeApplier(store, enforcer, time.Minute)
 	applier.apply(context.Background())
+	require.Len(t, store.
+		notifChannelCalls,
+		3)
 
-	if len(store.notifChannelCalls) != 3 {
-		t.Fatalf("expected 1 DeactivateExcessNotificationChannelsByProject call per project (3 total), got %d", len(store.notifChannelCalls))
-	}
 	freeLimits := billing.GetPlanLimits("free")
 	for _, call := range store.notifChannelCalls {
-		if call.max != freeLimits.MaxNotificationChannels {
-			t.Errorf("call max=%d, want %d (Free tier cap)", call.max, freeLimits.MaxNotificationChannels)
-		}
+		assert.Equal(t, freeLimits.
+			MaxNotificationChannels,
+
+			call.
+				max)
+
 	}
 	seen := map[string]bool{}
 	for _, call := range store.notifChannelCalls {
 		seen[call.orgID] = true // mock stores projectID in orgID field
 	}
 	for _, p := range store.projectIDs {
-		if !seen[p] {
-			t.Errorf("project %q was not visited by the cleanup loop", p)
-		}
+		assert.True(t, seen[p])
+
 	}
 }
 
@@ -658,10 +675,10 @@ func TestDowngradeApplier_SkipsLogDrainCleanupForUnlimitedTier(t *testing.T) {
 	enforcer := newTestEnforcer(t)
 	applier := NewDowngradeApplier(store, enforcer, time.Minute)
 	applier.apply(context.Background())
+	assert.Len(t, store.
+		logDrainCalls, 0,
+	)
 
-	if len(store.logDrainCalls) != 0 {
-		t.Errorf("expected 0 DeactivateExcessLogDrains calls for unlimited tier, got %d", len(store.logDrainCalls))
-	}
 }
 
 // TestDowngradeApplier_EmitsMemberOverageEventOnDowngrade pins the documented
@@ -684,14 +701,15 @@ func TestDowngradeApplier_EmitsMemberOverageEventOnDowngrade(t *testing.T) {
 	enforcer := newTestEnforcer(t)
 	applier := NewDowngradeApplier(store, enforcer, time.Minute)
 	applier.apply(context.Background())
+	require.Len(t, store.
+		appliedOrgIDs,
+		1)
+
 	// We can't easily intercept the ClickHouse exporter from this test, but
 	// the apply path must not panic and must succeed. The integration test
 	// covers the actual ClickHouse emission path. This test pins that the
 	// applier reaches the overage branch (count > cap) without erroring.
 
-	if len(store.appliedOrgIDs) != 1 {
-		t.Fatalf("expected 1 downgrade, got %d", len(store.appliedOrgIDs))
-	}
 }
 
 // TestDowngradeApplier_NoMemberOverageWhenUnderCap confirms the overage path
@@ -712,11 +730,12 @@ func TestDowngradeApplier_NoMemberOverageWhenUnderCap(t *testing.T) {
 	enforcer := newTestEnforcer(t)
 	applier := NewDowngradeApplier(store, enforcer, time.Minute)
 	applier.apply(context.Background())
+	require.Len(t, store.
+		appliedOrgIDs,
+		1)
+
 	// No assertion on the chExporter here; the integration test covers the
 	// non-emission case. This test pins the under-cap branch is reached
 	// without error.
 
-	if len(store.appliedOrgIDs) != 1 {
-		t.Fatalf("expected 1 downgrade, got %d", len(store.appliedOrgIDs))
-	}
 }

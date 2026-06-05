@@ -10,6 +10,7 @@ import (
 	"strait/internal/store"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/require"
 )
 
 // Section separator.
@@ -36,7 +37,7 @@ func TestWebhookMessageCleanup_Run_StopsOnCancel(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(2 * time.Second):
-		t.Fatal("Run did not stop on context cancel")
+		require.Fail(t, "Run did not stop on context cancel")
 	}
 }
 
@@ -44,9 +45,11 @@ func TestWebhookMessageCleanup_DefaultInterval(t *testing.T) {
 	t.Parallel()
 
 	c := NewWebhookMessageCleanup(&rcMockWebhookCleanupStore{}, nil)
-	if c.interval != 6*time.Hour {
-		t.Fatalf("expected default interval 6h, got %v", c.interval)
-	}
+	require.Equal(t, 6*
+		time.Hour,
+		c.interval,
+	)
+
 }
 
 func TestMemoryCleanup_Run_StopsOnCancel_RC(t *testing.T) {
@@ -69,7 +72,7 @@ func TestMemoryCleanup_Run_StopsOnCancel_RC(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(2 * time.Second):
-		t.Fatal("Run did not stop on context cancel")
+		require.Fail(t, "Run did not stop on context cancel")
 	}
 }
 
@@ -107,7 +110,7 @@ func TestIndexMaintainer_Run_StopsOnCancel(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(2 * time.Second):
-		t.Fatal("Run did not stop on context cancel")
+		require.Fail(t, "Run did not stop on context cancel")
 	}
 }
 
@@ -136,7 +139,7 @@ func TestDebouncePoller_Run_StopsOnCancel_RC(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(2 * time.Second):
-		t.Fatal("Run did not stop on context cancel")
+		require.Fail(t, "Run did not stop on context cancel")
 	}
 }
 
@@ -165,7 +168,7 @@ func TestBatchFlusher_Run_StopsOnCancel(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(2 * time.Second):
-		t.Fatal("Run did not stop on context cancel")
+		require.Fail(t, "Run did not stop on context cancel")
 	}
 }
 

@@ -9,6 +9,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Unit tests for the counter reconciler.
@@ -51,36 +53,38 @@ func (r *fakeRow) Scan(dest ...any) error {
 
 func TestCounterReconciler_Defaults(t *testing.T) {
 	r := NewCounterReconciler(&reconFakeDB{}, CounterReconcilerConfig{})
-	if r.interval != time.Hour {
-		t.Errorf("interval = %v", r.interval)
-	}
-	if r.logger == nil {
-		t.Error("logger should default")
-	}
+	assert.Equal(t, time.
+		Hour, r.
+		interval)
+	assert.NotNil(t, r.
+		logger)
+
 }
 
 func TestCounterReconciler_RunOnce_NoLock(t *testing.T) {
 	db := &reconFakeDB{delta: 0}
 	r := NewCounterReconciler(db, CounterReconcilerConfig{})
-	if err := r.runOnce(context.Background()); err != nil {
-		t.Fatalf("runOnce: %v", err)
-	}
-	if db.queryCalls != 2 {
-		t.Errorf("query calls = %d, want 2 (active + dlq)", db.queryCalls)
-	}
-	if r.Iterations() != 1 {
-		t.Errorf("iterations = %d, want 1", r.Iterations())
-	}
+	require.NoError(t,
+		r.runOnce(
+			context.Background(),
+		))
+	assert.EqualValues(t, 2,
+		db.queryCalls,
+	)
+	assert.EqualValues(t, 1,
+		r.Iterations())
+
 }
 
 func TestCounterReconciler_RunOnce_AccumulatesDrift(t *testing.T) {
 	db := &reconFakeDB{delta: 7}
 	r := NewCounterReconciler(db, CounterReconcilerConfig{})
 	_ = r.runOnce(context.Background())
+	assert.EqualValues(t, 14,
+		r.TotalDrift())
+
 	// Each query returns delta=7, two queries run → total 14.
-	if r.TotalDrift() != 14 {
-		t.Errorf("total drift = %d, want 14", r.TotalDrift())
-	}
+
 }
 
 func TestCounterReconciler_LockAcquireFailure(t *testing.T) {
@@ -88,12 +92,11 @@ func TestCounterReconciler_LockAcquireFailure(t *testing.T) {
 	locker := &fakeLocker{err: errors.New("lock down")}
 	r := NewCounterReconciler(db, CounterReconcilerConfig{}).WithAdvisoryLocker(locker)
 	err := r.runOnce(context.Background())
-	if err == nil {
-		t.Error("expected lock error")
-	}
-	if db.queryCalls != 0 {
-		t.Errorf("no queries should run on lock failure, got %d", db.queryCalls)
-	}
+	assert.Error(t, err)
+	assert.EqualValues(t, 0,
+		db.queryCalls,
+	)
+
 }
 
 func TestCounterReconciler_LockNotAcquired(t *testing.T) {
@@ -101,12 +104,13 @@ func TestCounterReconciler_LockNotAcquired(t *testing.T) {
 	locker := &fakeLocker{acquireOK: false}
 	r := NewCounterReconciler(db, CounterReconcilerConfig{}).WithAdvisoryLocker(locker)
 	_ = r.runOnce(context.Background())
-	if db.queryCalls != 0 {
-		t.Errorf("no queries should run when lock not acquired, got %d", db.queryCalls)
-	}
-	if locker.released {
-		t.Error("locker should not release when not acquired")
-	}
+	assert.EqualValues(t, 0,
+		db.queryCalls,
+	)
+	assert.False(t, locker.
+		released,
+	)
+
 }
 
 func TestCounterReconciler_LockAcquiredAndReleased(t *testing.T) {
@@ -114,34 +118,40 @@ func TestCounterReconciler_LockAcquiredAndReleased(t *testing.T) {
 	locker := &fakeLocker{acquireOK: true}
 	r := NewCounterReconciler(db, CounterReconcilerConfig{}).WithAdvisoryLocker(locker)
 	_ = r.runOnce(context.Background())
-	if !locker.acquired || !locker.released {
-		t.Errorf("lock not used correctly acquired=%v released=%v", locker.acquired, locker.released)
-	}
-	if db.queryCalls != 2 {
-		t.Errorf("queries = %d, want 2", db.queryCalls)
-	}
+	assert.False(t, !locker.
+		acquired ||
+		!locker.
+			released,
+	)
+	assert.EqualValues(t, 2,
+		db.queryCalls,
+	)
+
 }
 
 func TestCounterReconciler_QueryErrorLogsButContinues(t *testing.T) {
 	db := &reconFakeDB{forcedErr: errors.New("deadlock")}
 	r := NewCounterReconciler(db, CounterReconcilerConfig{})
-	if err := r.runOnce(context.Background()); err != nil {
-		t.Errorf("runOnce should not propagate per-query errors: %v", err)
-	}
-	if r.Iterations() != 1 {
-		t.Errorf("iterations = %d", r.Iterations())
-	}
+	assert.NoError(t, r.
+		runOnce(context.
+			Background(),
+		),
+	)
+	assert.EqualValues(t, 1,
+		r.Iterations())
+
 }
 
 func TestCounterReconciler_PanicReturnsError(t *testing.T) {
 	db := &reconFakeDB{panicRun: true}
 	r := NewCounterReconciler(db, CounterReconcilerConfig{})
-	if err := r.runOnce(context.Background()); err == nil {
-		t.Fatal("runOnce error = nil, want recovered panic error")
-	}
-	if r.Iterations() != 1 {
-		t.Fatalf("iterations = %d, want 1", r.Iterations())
-	}
+	require.Error(t, r.
+		runOnce(context.
+			Background()),
+	)
+	require.EqualValues(t, 1,
+		r.Iterations())
+
 }
 
 func TestCounterReconciler_RunExitsOnCancel(t *testing.T) {
@@ -160,9 +170,9 @@ func TestCounterReconciler_RunExitsOnCancel(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(time.Second):
-		t.Fatal("Run did not exit on cancel")
+		require.Fail(t, "Run did not exit on cancel")
 	}
-	if r.Iterations() < 2 {
-		t.Errorf("iterations = %d, want >= 2", r.Iterations())
-	}
+	assert.GreaterOrEqual(t, r.Iterations(),
+		int64(2))
+
 }

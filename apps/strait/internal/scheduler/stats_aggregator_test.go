@@ -6,6 +6,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 type mockStatsStore struct {
@@ -26,16 +28,12 @@ func (m *mockStatsStore) AggregateCostStatsHourly(_ context.Context, _ time.Time
 func TestStatsAggregator_New(t *testing.T) {
 	t.Parallel()
 	a := NewStatsAggregator(&mockStatsStore{})
-	if a == nil {
-		t.Fatal("expected non-nil aggregator")
-		return
-	}
-	if a.store == nil {
-		t.Fatal("expected store to be set")
-	}
-	if a.logger == nil {
-		t.Fatal("expected logger to be set")
-	}
+	require.NotNil(t, a)
+	require.NotNil(t, a.
+		store)
+	require.NotNil(t, a.
+		logger)
+
 }
 
 func TestStatsAggregator_WithAdvisoryLocker(t *testing.T) {
@@ -43,12 +41,12 @@ func TestStatsAggregator_WithAdvisoryLocker(t *testing.T) {
 	a := NewStatsAggregator(&mockStatsStore{})
 	locker := &mockAdvisoryLocker{acquireFn: func(context.Context, int64) (bool, error) { return true, nil }}
 	result := a.WithAdvisoryLocker(locker)
-	if result != a {
-		t.Fatal("WithAdvisoryLocker should return same instance")
-	}
-	if a.advisoryLocker == nil {
-		t.Fatal("expected advisory locker to be set")
-	}
+	require.Equal(t, a,
+		result)
+	require.NotNil(t, a.
+		advisoryLocker,
+	)
+
 }
 
 type mockAdvisoryLocker struct {
@@ -88,20 +86,20 @@ func TestStatsAggregator_AggregatesPreviousHour(t *testing.T) {
 
 	// Simulate what the maintenance loop callback does.
 	previousHour := time.Now().Add(-time.Hour).Truncate(time.Hour)
-	if err := a.store.AggregateHourlyStats(context.Background(), previousHour); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t,
+		a.store.AggregateHourlyStats(context.
+			Background(), previousHour))
+	require.EqualValues(t, 1,
+		called.Load())
+	require.True(t, aggregatedHour.
+		Equal(previousHour))
+	require.False(t, aggregatedHour.
+		Minute() !=
+		0 || aggregatedHour.
+		Second() != 0)
 
-	if called.Load() != 1 {
-		t.Fatalf("expected 1 call, got %d", called.Load())
-	}
-	if !aggregatedHour.Equal(previousHour) {
-		t.Fatalf("aggregated hour = %v, want %v", aggregatedHour, previousHour)
-	}
 	// Verify hour is truncated.
-	if aggregatedHour.Minute() != 0 || aggregatedHour.Second() != 0 {
-		t.Fatalf("hour should be truncated, got %v", aggregatedHour)
-	}
+
 }
 
 func TestStatsAggregator_LockNotAcquired_Skips(t *testing.T) {
@@ -124,11 +122,12 @@ func TestStatsAggregator_LockNotAcquired_Skips(t *testing.T) {
 	// Run with a context that cancels after one tick.
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
+	require.Equal(t, int64(0x5374726169745361),
+
+		statsAggregatorLockID,
+	)
 
 	// We can't easily test Run() because it blocks, but we can verify the lock ID is correct.
-	if statsAggregatorLockID != 0x5374726169745361 {
-		t.Fatalf("lock ID = %x, want 0x5374726169745361", statsAggregatorLockID)
-	}
 
 	_ = ctx
 	_ = a
@@ -159,19 +158,21 @@ func TestStatsAggregator_RetriesFailedHourAfterClockAdvances(t *testing.T) {
 		}
 		return secondTick
 	}
+	require.NoError(t,
+		aggregator.
+			runLocked(context.
+				Background()))
 
-	if err := aggregator.runLocked(context.Background()); err != nil {
-		t.Fatalf("first runLocked() error = %v", err)
-	}
 	tick.Store(1)
-	if err := aggregator.runLocked(context.Background()); err != nil {
-		t.Fatalf("second runLocked() error = %v", err)
-	}
+	require.NoError(t,
+		aggregator.
+			runLocked(context.
+				Background()))
+	require.Len(t, calls,
+		3)
+	require.False(t, !calls[0].Equal(firstHour) ||
+		!calls[1].Equal(
+			firstHour,
+		) || !calls[2].Equal(secondHour))
 
-	if len(calls) != 3 {
-		t.Fatalf("aggregate calls = %v, want failed hour retried before new hour", calls)
-	}
-	if !calls[0].Equal(firstHour) || !calls[1].Equal(firstHour) || !calls[2].Equal(secondHour) {
-		t.Fatalf("aggregate calls = %v, want [%v %v %v]", calls, firstHour, firstHour, secondHour)
-	}
 }

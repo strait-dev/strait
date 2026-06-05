@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type fakeDLQAgeOutStore struct {
@@ -28,29 +30,32 @@ func (f *fakeDLQAgeOutStore) MaskOldDLQRows(_ context.Context, _ time.Duration, 
 
 func TestDLQAgeOut_Defaults(t *testing.T) {
 	a := NewDLQAgeOut(&fakeDLQAgeOutStore{}, DLQAgeOutConfig{})
-	if a.interval != 24*time.Hour {
-		t.Errorf("interval = %v", a.interval)
-	}
-	if a.retention != 30*24*time.Hour {
-		t.Errorf("retention = %v", a.retention)
-	}
-	if a.batchLimit != 1000 {
-		t.Errorf("batchLimit = %d", a.batchLimit)
-	}
+	assert.Equal(t, 24*
+		time.Hour,
+		a.interval,
+	)
+	assert.Equal(t, 30*
+		24*time.
+		Hour,
+		a.retention)
+	assert.EqualValues(t, 1000,
+		a.batchLimit,
+	)
+
 }
 
 func TestDLQAgeOut_RunOnceMasksRows(t *testing.T) {
 	s := &fakeDLQAgeOutStore{masked: 7}
 	a := NewDLQAgeOut(s, DLQAgeOutConfig{Retention: time.Hour, BatchLimit: 100})
-	if err := a.runOnce(context.Background()); err != nil {
-		t.Fatalf("runOnce: %v", err)
-	}
-	if s.calls != 1 {
-		t.Errorf("calls = %d", s.calls)
-	}
-	if a.TotalMasked() != 7 {
-		t.Errorf("masked = %d", a.TotalMasked())
-	}
+	require.NoError(t,
+		a.runOnce(
+			context.
+				Background()))
+	assert.EqualValues(t, 1,
+		s.calls)
+	assert.EqualValues(t, 7,
+		a.TotalMasked())
+
 }
 
 func TestDLQAgeOut_AccumulatesAcrossCycles(t *testing.T) {
@@ -58,28 +63,28 @@ func TestDLQAgeOut_AccumulatesAcrossCycles(t *testing.T) {
 	a := NewDLQAgeOut(s, DLQAgeOutConfig{})
 	_ = a.runOnce(context.Background())
 	_ = a.runOnce(context.Background())
-	if a.TotalMasked() != 6 {
-		t.Errorf("total = %d, want 6", a.TotalMasked())
-	}
+	assert.EqualValues(t, 6,
+		a.TotalMasked())
+
 }
 
 func TestDLQAgeOut_StoreErrorPropagates(t *testing.T) {
 	s := &fakeDLQAgeOutStore{err: errors.New("locked")}
 	a := NewDLQAgeOut(s, DLQAgeOutConfig{})
-	if err := a.runOnce(context.Background()); err == nil {
-		t.Error("expected error")
-	}
+	assert.Error(t, a.runOnce(context.
+		Background()))
+
 }
 
 func TestDLQAgeOut_PanicReturnsError(t *testing.T) {
 	s := &fakeDLQAgeOutStore{panicRun: true}
 	a := NewDLQAgeOut(s, DLQAgeOutConfig{})
-	if err := a.runOnce(context.Background()); err == nil {
-		t.Fatal("runOnce error = nil, want recovered panic error")
-	}
-	if a.Iterations() != 1 {
-		t.Fatalf("iterations = %d, want 1", a.Iterations())
-	}
+	require.Error(t, a.
+		runOnce(context.
+			Background()))
+	require.EqualValues(t, 1,
+		a.Iterations())
+
 }
 
 func TestDLQAgeOut_LockNotAcquired(t *testing.T) {
@@ -87,9 +92,9 @@ func TestDLQAgeOut_LockNotAcquired(t *testing.T) {
 	locker := &fakeLocker{acquireOK: false}
 	a := NewDLQAgeOut(s, DLQAgeOutConfig{}).WithAdvisoryLocker(locker)
 	_ = a.runOnce(context.Background())
-	if s.calls != 0 {
-		t.Errorf("should not call store without lock, got %d", s.calls)
-	}
+	assert.EqualValues(t, 0,
+		s.calls)
+
 }
 
 func TestDLQAgeOut_LockAcquiredAndReleased(t *testing.T) {
@@ -97,9 +102,11 @@ func TestDLQAgeOut_LockAcquiredAndReleased(t *testing.T) {
 	locker := &fakeLocker{acquireOK: true}
 	a := NewDLQAgeOut(s, DLQAgeOutConfig{}).WithAdvisoryLocker(locker)
 	_ = a.runOnce(context.Background())
-	if !locker.acquired || !locker.released {
-		t.Errorf("lock workflow broken")
-	}
+	assert.False(t, !locker.
+		acquired ||
+		!locker.released,
+	)
+
 }
 
 // scanningDLQStore implements DLQAgeOutStore and DLQPartitionScanner to
@@ -153,35 +160,45 @@ func TestDLQAgeOut_ParallelPartitionScan(t *testing.T) {
 	s := &scanningDLQStore{partitions: parts, masked: 3, scanDelay: 10 * time.Millisecond}
 	a := NewDLQAgeOut(s, DLQAgeOutConfig{})
 	start := time.Now()
-	if err := a.runOnce(context.Background()); err != nil {
-		t.Fatalf("runOnce: %v", err)
-	}
+	require.NoError(t,
+		a.runOnce(
+			context.
+				Background()))
+
 	elapsed := time.Since(start)
+	assert.LessOrEqual(
+		t, elapsed,
+		70*time.
+			Millisecond,
+	)
+	assert.GreaterOrEqual(t, s.peak.
+		Load(), int32(2))
+	assert.LessOrEqual(
+		t, s.peak.
+			Load(),
+		int32(dlqAgeOutScanPoolSize),
+	)
+
 	// Serial = 80ms, parallel (pool 4) ~= 20ms + slack.
-	if elapsed > 70*time.Millisecond {
-		t.Errorf("expected parallel scans, elapsed=%v", elapsed)
-	}
-	if peak := s.peak.Load(); peak < 2 {
-		t.Errorf("expected concurrent scans, peak=%d", peak)
-	}
-	if peak := s.peak.Load(); peak > dlqAgeOutScanPoolSize {
-		t.Errorf("peak=%d exceeds pool %d", peak, dlqAgeOutScanPoolSize)
-	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if len(s.scannedPartitions) != len(parts) {
-		t.Errorf("scanned %d partitions, want %d", len(s.scannedPartitions), len(parts))
-	}
-	if s.maskCalls != 1 {
-		t.Errorf("mask calls = %d, want 1", s.maskCalls)
-	}
+	assert.Len(t, s.scannedPartitions,
+
+		len(parts))
+	assert.EqualValues(t, 1,
+		s.maskCalls,
+	)
+	assert.False(t, !s.
+		maskCalledAt.
+		After(s.scansFinishedAt) && !s.
+		maskCalledAt.
+		Equal(s.scansFinishedAt))
+	assert.EqualValues(t, 3,
+		a.TotalMasked())
+
 	// Scans should finish before the serial mask.
-	if !s.maskCalledAt.After(s.scansFinishedAt) && !s.maskCalledAt.Equal(s.scansFinishedAt) {
-		t.Errorf("mask (%v) ran before scans finished (%v)", s.maskCalledAt, s.scansFinishedAt)
-	}
-	if a.TotalMasked() != 3 {
-		t.Errorf("masked = %d, want 3", a.TotalMasked())
-	}
+
 }
 
 func TestDLQAgeOut_RunExitsOnCancel(t *testing.T) {
@@ -200,6 +217,6 @@ func TestDLQAgeOut_RunExitsOnCancel(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(time.Second):
-		t.Fatal("did not exit")
+		require.Fail(t, "did not exit")
 	}
 }

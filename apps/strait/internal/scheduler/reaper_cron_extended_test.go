@@ -13,6 +13,8 @@ import (
 	"strait/internal/domain"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Section separator.
@@ -63,13 +65,13 @@ func TestReaper_OrgRetention_PrunesRunsByOrg(t *testing.T) {
 	// reapPerOrgRetention is only called from Run (maintenance loop), not ReapOnce.
 	// Call it directly since we are in the same package.
 	r.reapPerOrgRetention(context.Background())
+	assert.EqualValues(t, 1,
+		deleteRunsCalled.
+			Load())
+	assert.EqualValues(t, 1,
+		deleteWfRunsCalled.
+			Load())
 
-	if deleteRunsCalled.Load() != 1 {
-		t.Errorf("expected deleteRunsByOrg called once, got %d", deleteRunsCalled.Load())
-	}
-	if deleteWfRunsCalled.Load() != 1 {
-		t.Errorf("expected deleteWfRunsByOrg called once, got %d", deleteWfRunsCalled.Load())
-	}
 }
 
 func TestReaper_OrgRetention_ResolverError_Continues(t *testing.T) {
@@ -110,10 +112,11 @@ func TestReaper_OrgRetention_RetentionLookupErrorSkipsDeletes(t *testing.T) {
 	r := NewReaper(store, time.Second, 5*time.Minute, 0, 0, true, nil).
 		WithOrgRetention(resolver)
 	r.reapPerOrgRetention(context.Background())
+	require.False(t, deleteRunsCalled.
+		Load() || deleteWfRunsCalled.
+		Load(),
+	)
 
-	if deleteRunsCalled.Load() || deleteWfRunsCalled.Load() {
-		t.Fatal("retention deletes must be skipped when plan retention cannot be resolved")
-	}
 }
 
 func TestReaper_OrgRetention_NilResolver_SkipsOrgRetention(t *testing.T) {
@@ -138,10 +141,8 @@ func TestReaper_DeleteTerminalRuns_RetentionDisabled(t *testing.T) {
 
 	r := NewReaper(ms, time.Second, 5*time.Minute, 30*24*time.Hour, 90*24*time.Hour, false, nil)
 	r.ReapOnce(context.Background())
+	require.False(t, retentionCalled)
 
-	if retentionCalled {
-		t.Fatal("retention should not be called when disabled")
-	}
 }
 
 func TestReaper_ReapOldEventTriggers_DeletesFinished(t *testing.T) {
@@ -158,10 +159,9 @@ func TestReaper_ReapOldEventTriggers_DeletesFinished(t *testing.T) {
 	r := NewReaper(ms, time.Second, 5*time.Minute, 0, 0, false, nil).
 		WithEventTriggerRetention(30 * 24 * time.Hour)
 	r.ReapOnce(context.Background())
+	require.True(t, deleteCalled.
+		Load())
 
-	if !deleteCalled.Load() {
-		t.Fatal("expected old event triggers to be deleted")
-	}
 }
 
 func TestReaper_ReapOldEventTriggers_DeleteError_NoPanic(t *testing.T) {
@@ -205,10 +205,9 @@ func TestReaper_ReapExpiredEventTriggers_MultipleExpired(t *testing.T) {
 
 	r := NewReaper(ms, time.Second, 5*time.Minute, 0, 0, false, nil)
 	r.ReapOnce(context.Background())
+	require.EqualValues(t, 2,
+		updateCalls.Load())
 
-	if updateCalls.Load() != 2 {
-		t.Fatalf("expected 2 timed_out updates, got %d", updateCalls.Load())
-	}
 }
 
 func TestReaper_ReapExpiredEventTriggers_ListError(t *testing.T) {
@@ -247,9 +246,8 @@ func TestCronScheduler_LoadJobs_WorkflowsAndJobs(t *testing.T) {
 
 	wt := &extMockWorkflowTrigger{}
 	cs := NewCronScheduler(ctx, s, &mockQueue{}, wt)
-	if err := cs.LoadJobs(ctx); err != nil {
-		t.Fatalf("LoadJobs() error = %v", err)
-	}
+	require.NoError(t,
+		cs.LoadJobs(ctx))
 
 	cs.Start()
 	stopCtx := cs.Stop()
@@ -277,17 +275,16 @@ func TestCronScheduler_TriggerJob_DefaultRunTTL(t *testing.T) {
 		Cron:      "* * * * *",
 	}
 	cs.triggerJob(ctx, job)
+	require.NotNil(t, enqueuedRun)
+	require.NotNil(t, enqueuedRun.
+		ExpiresAt,
+	)
 
-	if enqueuedRun == nil {
-		t.Fatal("expected run to be enqueued")
-	}
-	if enqueuedRun.ExpiresAt == nil {
-		t.Fatal("expected ExpiresAt to be set from default TTL")
-	}
 	expectedMin := time.Now().Add(3590 * time.Second)
-	if enqueuedRun.ExpiresAt.Before(expectedMin) {
-		t.Errorf("ExpiresAt too early: %v", enqueuedRun.ExpiresAt)
-	}
+	assert.False(t, enqueuedRun.
+		ExpiresAt.
+		Before(expectedMin))
+
 }
 
 func TestCronScheduler_TriggerJob_JobTTLOverridesDefault(t *testing.T) {
@@ -312,18 +309,18 @@ func TestCronScheduler_TriggerJob_JobTTLOverridesDefault(t *testing.T) {
 		RunTTLSecs: 60, // 1 minute
 	}
 	cs.triggerJob(ctx, job)
+	require.NotNil(t, enqueuedRun)
+	require.NotNil(t, enqueuedRun.
+		ExpiresAt,
+	)
 
-	if enqueuedRun == nil {
-		t.Fatal("expected run to be enqueued")
-	}
-	if enqueuedRun.ExpiresAt == nil {
-		t.Fatal("expected ExpiresAt to be set")
-	}
 	// Job-level TTL (60s) should take precedence over default (3600s).
 	maxExpiry := time.Now().Add(70 * time.Second)
-	if enqueuedRun.ExpiresAt.After(maxExpiry) {
-		t.Errorf("ExpiresAt too far in future: %v (expected ~60s from now)", enqueuedRun.ExpiresAt)
-	}
+	assert.False(t, enqueuedRun.
+		ExpiresAt.
+		After(maxExpiry),
+	)
+
 }
 
 func TestCronScheduler_TriggerWorkflow_AlreadyRunning_Skips(t *testing.T) {
@@ -353,10 +350,9 @@ func TestCronScheduler_TriggerWorkflow_AlreadyRunning_Skips(t *testing.T) {
 		SkipIfRunning: true,
 	}
 	cs.triggerWorkflow(ctx, wf)
+	require.False(t, triggerCalled.
+		Load())
 
-	if triggerCalled.Load() {
-		t.Fatal("expected workflow trigger to be skipped when already running")
-	}
 }
 
 func TestCronScheduler_TriggerWorkflow_CountError_Aborts(t *testing.T) {
@@ -386,10 +382,9 @@ func TestCronScheduler_TriggerWorkflow_CountError_Aborts(t *testing.T) {
 		SkipIfRunning: true,
 	}
 	cs.triggerWorkflow(ctx, wf)
+	require.False(t, triggerCalled.
+		Load())
 
-	if triggerCalled.Load() {
-		t.Fatal("expected workflow trigger to be aborted on count error")
-	}
 }
 
 func TestCronScheduler_TriggerWorkflow_TriggerError_NoPanic(t *testing.T) {
@@ -463,9 +458,8 @@ func TestCronScheduler_TriggerWorkflow_WithTimezone_Ext(t *testing.T) {
 
 	ctx := context.Background()
 	cs := NewCronScheduler(ctx, s, &mockQueue{}, wt)
-	if err := cs.LoadJobs(ctx); err != nil {
-		t.Fatalf("LoadJobs() error = %v", err)
-	}
+	require.NoError(t,
+		cs.LoadJobs(ctx))
 
 	// Just verify it loads without error; timezone processing is handled by the cron library.
 	cs.Start()
@@ -496,10 +490,9 @@ func TestUsageFlusher_WithAdvisoryLock_NotAcquired(t *testing.T) {
 
 	uf := NewUsageFlusher(s, time.Minute).WithAdvisoryLocker(locker)
 	uf.flush(context.Background())
+	require.False(t, listCalled.
+		Load())
 
-	if listCalled.Load() {
-		t.Fatal("expected flush to be skipped when lock not acquired")
-	}
 }
 
 func TestUsageFlusher_WithAdvisoryLock_AcquireError(t *testing.T) {
@@ -521,10 +514,9 @@ func TestUsageFlusher_WithAdvisoryLock_AcquireError(t *testing.T) {
 
 	uf := NewUsageFlusher(s, time.Minute).WithAdvisoryLocker(locker)
 	uf.flush(context.Background())
+	require.False(t, listCalled.
+		Load())
 
-	if listCalled.Load() {
-		t.Fatal("expected flush to be skipped on lock error")
-	}
 }
 
 func TestUsageFlusher_ListOrgsError_Ext(t *testing.T) {
@@ -543,10 +535,10 @@ func TestUsageFlusher_ListOrgsError_Ext(t *testing.T) {
 
 	uf := NewUsageFlusher(s, time.Minute)
 	uf.flush(context.Background())
+	require.False(t, upsertCalled.
+		Load(),
+	)
 
-	if upsertCalled.Load() {
-		t.Fatal("expected no upsert when list orgs fails")
-	}
 }
 
 func TestUsageFlusher_UpsertError_ContinuesOtherRecords_Ext(t *testing.T) {
@@ -585,18 +577,21 @@ func TestUsageFlusher_UpsertError_ContinuesOtherRecords_Ext(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 	wantCalls := usageFlusherReconcileLookbackDays * 2
-	if upsertCalls != wantCalls {
-		t.Fatalf("expected %d upsert calls across lookback (one fails, one succeeds per day), got %d", wantCalls, upsertCalls)
-	}
+	require.Equal(t, wantCalls,
+		upsertCalls,
+	)
+
 }
 
 func TestUsageFlusher_DefaultInterval(t *testing.T) {
 	t.Parallel()
 
 	uf := NewUsageFlusher(&mockUsageFlusherStore{}, 0)
-	if uf.interval != 60*time.Second {
-		t.Fatalf("expected default interval 60s, got %v", uf.interval)
-	}
+	require.Equal(t, 60*
+		time.Second, uf.
+		interval,
+	)
+
 }
 
 func TestUsageFlusher_Run_StopsOnContextCancel(t *testing.T) {
@@ -618,7 +613,7 @@ func TestUsageFlusher_Run_StopsOnContextCancel(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(2 * time.Second):
-		t.Fatal("Run did not stop on context cancel")
+		require.Fail(t, "Run did not stop on context cancel")
 	}
 }
 
@@ -645,7 +640,7 @@ func TestUsageReportEmailer_Run_StopsOnContextCancel(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(2 * time.Second):
-		t.Fatal("Run did not stop on context cancel")
+		require.Fail(t, "Run did not stop on context cancel")
 	}
 }
 
@@ -653,18 +648,22 @@ func TestUsageReportEmailer_DefaultFromEmail(t *testing.T) {
 	t.Parallel()
 
 	emailer := NewUsageReportEmailer(nil, nil, "", time.Hour)
-	if emailer.fromEmail != "billing@strait.dev" {
-		t.Fatalf("expected default from email, got %q", emailer.fromEmail)
-	}
+	require.Equal(t, "billing@strait.dev",
+
+		emailer.
+			fromEmail,
+	)
+
 }
 
 func TestUsageReportEmailer_DefaultInterval(t *testing.T) {
 	t.Parallel()
 
 	emailer := NewUsageReportEmailer(nil, nil, "", 0)
-	if emailer.interval != time.Hour {
-		t.Fatalf("expected default interval 1h, got %v", emailer.interval)
-	}
+	require.Equal(t, time.
+		Hour, emailer.
+		interval)
+
 }
 
 func TestUsageReportEmailer_SameDayDedup(t *testing.T) {

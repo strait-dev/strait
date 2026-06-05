@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"strait/internal/billing"
+
+	"github.com/stretchr/testify/require"
 )
 
 type mockQuotaResumeStore struct {
@@ -51,16 +53,14 @@ func TestQuotaResumeEnforcer_DoesNotRepeatSamePeriod(t *testing.T) {
 		},
 	}
 	enforcer := NewQuotaResumeEnforcer(store, nil, time.Minute)
+	require.NoError(t,
+		enforcer.enforceLocked(context.Background()))
+	require.NoError(t,
+		enforcer.enforceLocked(context.Background()))
+	require.EqualValues(t, 1,
+		store.unpauseCalls,
+	)
 
-	if err := enforcer.enforceLocked(context.Background()); err != nil {
-		t.Fatalf("first enforceLocked() error = %v", err)
-	}
-	if err := enforcer.enforceLocked(context.Background()); err != nil {
-		t.Fatalf("second enforceLocked() error = %v", err)
-	}
-	if store.unpauseCalls != 1 {
-		t.Fatalf("unpause calls = %d, want 1", store.unpauseCalls)
-	}
 }
 
 func TestQuotaResumeEnforcer_UsesBillingBoundaryForUnpause(t *testing.T) {
@@ -74,12 +74,12 @@ func TestQuotaResumeEnforcer_UsesBillingBoundaryForUnpause(t *testing.T) {
 		},
 	}
 	enforcer := NewQuotaResumeEnforcer(store, nil, time.Minute)
-	if err := enforcer.enforceLocked(context.Background()); err != nil {
-		t.Fatalf("enforceLocked() error = %v", err)
-	}
-	if len(store.boundaries) != 1 || !store.boundaries[0].Equal(periodEnd) {
-		t.Fatalf("unpause boundary = %v, want %v", store.boundaries, periodEnd)
-	}
+	require.NoError(t,
+		enforcer.enforceLocked(context.Background()))
+	require.False(t, len(store.boundaries) !=
+		1 || !store.boundaries[0].
+		Equal(periodEnd))
+
 }
 
 func TestQuotaResumeEnforcer_NewPeriodCanResumeAgain(t *testing.T) {
@@ -93,18 +93,17 @@ func TestQuotaResumeEnforcer_NewPeriodCanResumeAgain(t *testing.T) {
 		},
 	}
 	enforcer := NewQuotaResumeEnforcer(store, nil, time.Minute)
+	require.NoError(t,
+		enforcer.enforceLocked(context.Background()))
 
-	if err := enforcer.enforceLocked(context.Background()); err != nil {
-		t.Fatalf("first enforceLocked() error = %v", err)
-	}
 	nextPeriodEnd := time.Now().UTC().Add(-time.Minute)
 	store.subs["org-1"].CurrentPeriodEnd = &nextPeriodEnd
-	if err := enforcer.enforceLocked(context.Background()); err != nil {
-		t.Fatalf("second enforceLocked() error = %v", err)
-	}
-	if store.unpauseCalls != 2 {
-		t.Fatalf("unpause calls = %d, want 2", store.unpauseCalls)
-	}
+	require.NoError(t,
+		enforcer.enforceLocked(context.Background()))
+	require.EqualValues(t, 2,
+		store.unpauseCalls,
+	)
+
 }
 
 func TestDeepSecQuotaResumeEnforcer_FreeTierCatchesUpAfterFirstOfMonth(t *testing.T) {
@@ -114,16 +113,15 @@ func TestDeepSecQuotaResumeEnforcer_FreeTierCatchesUpAfterFirstOfMonth(t *testin
 	now := time.Date(2026, 5, 3, 12, 0, 0, 0, time.UTC)
 
 	periodKey, boundary, ok := enforcer.resumePeriodKey(now, &billing.OrgSubscription{OrgID: "org-free"})
-	if !ok {
-		t.Fatal("expected free-tier resume boundary after missed first-of-month tick")
-	}
-	if periodKey != "2026-05" {
-		t.Fatalf("periodKey = %q, want 2026-05", periodKey)
-	}
+	require.True(t, ok)
+	require.Equal(t, "2026-05",
+		periodKey,
+	)
+
 	wantBoundary := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
-	if !boundary.Equal(wantBoundary) {
-		t.Fatalf("boundary = %v, want %v", boundary, wantBoundary)
-	}
+	require.True(t, boundary.
+		Equal(wantBoundary))
+
 }
 
 func TestQuotaResumeEnforcer_DoesNotMarkPeriodResumedWhenNoRowsMatched(t *testing.T) {
@@ -138,17 +136,15 @@ func TestQuotaResumeEnforcer_DoesNotMarkPeriodResumedWhenNoRowsMatched(t *testin
 		resumeResults: []int64{0, 1},
 	}
 	enforcer := NewQuotaResumeEnforcer(store, nil, time.Minute)
+	require.NoError(t,
+		enforcer.enforceLocked(context.Background()))
+	require.NoError(t,
+		enforcer.enforceLocked(context.Background()))
+	require.EqualValues(t, 2,
+		store.unpauseCalls,
+	)
+	require.False(t, len(store.boundaries) !=
+		2 || !store.boundaries[0].
+		Equal(periodEnd) || !store.boundaries[1].Equal(periodEnd))
 
-	if err := enforcer.enforceLocked(context.Background()); err != nil {
-		t.Fatalf("first enforceLocked() error = %v", err)
-	}
-	if err := enforcer.enforceLocked(context.Background()); err != nil {
-		t.Fatalf("second enforceLocked() error = %v", err)
-	}
-	if store.unpauseCalls != 2 {
-		t.Fatalf("unpause calls = %d, want retry after empty boundary pass", store.unpauseCalls)
-	}
-	if len(store.boundaries) != 2 || !store.boundaries[0].Equal(periodEnd) || !store.boundaries[1].Equal(periodEnd) {
-		t.Fatalf("unpause boundaries = %v, want two attempts at %v", store.boundaries, periodEnd)
-	}
 }

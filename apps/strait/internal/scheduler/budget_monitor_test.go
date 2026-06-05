@@ -14,6 +14,8 @@ import (
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type mockEnqueuer struct {
@@ -54,7 +56,7 @@ func TestBudgetMonitor_Run_StopsOnContextCancel(t *testing.T) {
 	case <-done:
 		// OK
 	case <-time.After(2 * time.Second):
-		t.Fatal("Run did not stop on context cancel")
+		require.Fail(t, "Run did not stop on context cancel")
 	}
 }
 
@@ -63,9 +65,9 @@ func TestFormatBudgetAlertKey(t *testing.T) {
 	date := time.Date(2026, 3, 16, 14, 30, 0, 0, time.UTC)
 	key := FormatBudgetAlertKey("proj-1", date)
 	expected := "proj-1:2026-03-16"
-	if key != expected {
-		t.Fatalf("expected %q, got %q", expected, key)
-	}
+	require.Equal(t, expected,
+		key)
+
 }
 
 func TestBudgetMonitor_PruneAlertedForPeriods_DropsOldKeys(t *testing.T) {
@@ -82,17 +84,16 @@ func TestBudgetMonitor_PruneAlertedForPeriods_DropsOldKeys(t *testing.T) {
 	bm.alertedDate = "2026-04-14"
 
 	bm.pruneAlertedForPeriods("2026-04-15", "2026-04")
+	require.Equal(t, "2026-04-15",
+		bm.alertedDate,
+	)
+	require.Len(t, bm.alerted,
+		2)
 
-	if bm.alertedDate != "2026-04-15" {
-		t.Fatalf("alertedDate = %q, want 2026-04-15", bm.alertedDate)
-	}
-	if len(bm.alerted) != 2 {
-		t.Fatalf("alerted keys = %v, want 2 current-period keys", bm.alerted)
-	}
 	for _, key := range []string{"spending:org-1:100:2026-04-15", "runlimit:org-2:80:2026-04"} {
-		if !bm.alerted[key] {
-			t.Fatalf("expected key %q to remain after prune", key)
-		}
+		require.True(t, bm.
+			alerted[key])
+
 	}
 }
 
@@ -216,20 +217,22 @@ func TestBudgetMonitor_80Percent_TriggersWebhook(t *testing.T) {
 
 	bm := NewBudgetMonitor(struct{}{}, &mockEnqueuer{}, time.Minute).WithSpendingLimitStore(ss)
 	bm.check(context.Background())
+	require.Len(t, deliveries,
+		1)
+	assert.Equal(t, "ch-webhook",
+		deliveries[0].ChannelID,
+	)
+	assert.Equal(t, domain.
+		NotificationEventSpendingLimitWarning,
+
+		deliveries[0].EventType,
+	)
+	require.NotEqual(t,
+		"", deliveries[0].DedupeKey,
+	)
 
 	// At 80%: only webhook should fire, not email.
-	if len(deliveries) != 1 {
-		t.Fatalf("expected 1 delivery (webhook only), got %d", len(deliveries))
-	}
-	if deliveries[0].ChannelID != "ch-webhook" {
-		t.Errorf("expected webhook channel, got %s", deliveries[0].ChannelID)
-	}
-	if deliveries[0].EventType != domain.NotificationEventSpendingLimitWarning {
-		t.Errorf("expected event %s, got %s", domain.NotificationEventSpendingLimitWarning, deliveries[0].EventType)
-	}
-	if deliveries[0].DedupeKey == "" {
-		t.Fatal("expected budget notification delivery to carry a durable dedupe key")
-	}
+
 	assertProjectScopedBudgetPayload(t, deliveries[0].Payload)
 }
 
@@ -265,21 +268,24 @@ func TestBudgetMonitor_100Percent_TriggersWebhookAndEmail(t *testing.T) {
 
 	bm := NewBudgetMonitor(struct{}{}, &mockEnqueuer{}, time.Minute).WithSpendingLimitStore(ss)
 	bm.check(context.Background())
+	require.Len(t, deliveries,
+		2)
 
 	// At 100%: both webhook and email should fire.
-	if len(deliveries) != 2 {
-		t.Fatalf("expected 2 deliveries (webhook + email), got %d", len(deliveries))
-	}
+
 	channelTypes := map[string]bool{}
 	for _, d := range deliveries {
 		channelTypes[d.ChannelID] = true
-		if d.EventType != domain.NotificationEventSpendingLimitReached {
-			t.Errorf("expected event %s, got %s", domain.NotificationEventSpendingLimitReached, d.EventType)
-		}
+		assert.Equal(t, domain.
+			NotificationEventSpendingLimitReached,
+
+			d.EventType,
+		)
+
 	}
-	if !channelTypes["ch-webhook"] || !channelTypes["ch-email"] {
-		t.Error("expected both webhook and email channel deliveries")
-	}
+	assert.False(t, !channelTypes["ch-webhook"] ||
+		!channelTypes["ch-email"])
+
 	for _, d := range deliveries {
 		assertProjectScopedBudgetPayload(t, d.Payload)
 	}
@@ -303,9 +309,9 @@ func TestBudgetMonitor_RunLimitWarningUsesMonthlyAllowance(t *testing.T) {
 	limits := billing.GetPlanLimits(domain.PlanFree)
 	limits.MaxRunsPerMonth = 10
 	entitlements, err := json.Marshal(limits)
-	if err != nil {
-		t.Fatalf("marshal entitlements: %v", err)
-	}
+	require.NoError(t,
+		err)
+
 	enforcer := billing.NewEnforcer(&monthlyWarningBillingStore{
 		sub: &billing.OrgSubscription{
 			OrgID:        "org-1",
@@ -316,9 +322,11 @@ func TestBudgetMonitor_RunLimitWarningUsesMonthlyAllowance(t *testing.T) {
 	}, rdb, slog.Default())
 
 	for range 8 {
-		if err := enforcer.CheckMonthlyRunLimit(context.Background(), "org-1"); err != nil {
-			t.Fatalf("seed monthly usage: %v", err)
-		}
+		require.NoError(t,
+			enforcer.CheckMonthlyRunLimit(context.Background(),
+				"org-1",
+			))
+
 	}
 
 	var deliveries []*domain.NotificationDelivery
@@ -341,33 +349,36 @@ func TestBudgetMonitor_RunLimitWarningUsesMonthlyAllowance(t *testing.T) {
 	bm := NewBudgetMonitor(struct{}{}, &mockEnqueuer{}, time.Minute).
 		WithRunLimitNotifications(store, enforcer)
 	bm.check(context.Background())
+	require.Len(t, deliveries,
+		1)
+	require.Equal(t, domain.
+		NotificationEventRunLimitApproaching,
 
-	if len(deliveries) != 1 {
-		t.Fatalf("deliveries = %d, want 1 monthly run allowance warning", len(deliveries))
-	}
-	if deliveries[0].EventType != domain.NotificationEventRunLimitApproaching {
-		t.Fatalf("event type = %s, want %s", deliveries[0].EventType, domain.NotificationEventRunLimitApproaching)
-	}
+		deliveries[0].EventType,
+	)
+
 	assertProjectScopedBudgetPayload(t, deliveries[0].Payload)
 }
 
 func assertProjectScopedBudgetPayload(t *testing.T, payload json.RawMessage) {
 	t.Helper()
 	var decoded map[string]any
-	if err := json.Unmarshal(payload, &decoded); err != nil {
-		t.Fatalf("unmarshal payload: %v", err)
-	}
+	require.NoError(t,
+		json.Unmarshal(payload,
+			&decoded,
+		))
+
 	for _, key := range []string{"org_id", "overage_pct", "spending_limit_usd", "current_spend_usd"} {
 		if _, ok := decoded[key]; ok {
-			t.Fatalf("project-scoped budget payload leaked %q: %s", key, string(payload))
+			require.Failf(t, "test failure",
+
+				"project-scoped budget payload leaked %q: %s", key, string(payload))
 		}
 	}
-	if decoded["event"] == "" {
-		t.Fatalf("payload missing event: %s", string(payload))
-	}
-	if decoded["threshold_pct"] == nil {
-		t.Fatalf("payload missing threshold_pct: %s", string(payload))
-	}
+	require.NotEqual(t,
+		"", decoded["event"])
+	require.NotNil(t, decoded["threshold_pct"])
+
 }
 
 func TestBudgetMonitor_SpendingAlertRetriesAfterDeliveryFailure(t *testing.T) {
@@ -402,10 +413,9 @@ func TestBudgetMonitor_SpendingAlertRetriesAfterDeliveryFailure(t *testing.T) {
 	bm := NewBudgetMonitor(struct{}{}, &mockEnqueuer{}, time.Minute).WithSpendingLimitStore(ss)
 	bm.check(context.Background())
 	bm.check(context.Background())
+	require.EqualValues(t, 2,
+		attempts)
 
-	if attempts != 2 {
-		t.Fatalf("delivery attempts = %d, want retry after first failure", attempts)
-	}
 }
 
 func TestBudgetMonitor_Below80_NoAlert(t *testing.T) {
@@ -431,10 +441,8 @@ func TestBudgetMonitor_Below80_NoAlert(t *testing.T) {
 
 	bm := NewBudgetMonitor(struct{}{}, &mockEnqueuer{}, time.Minute).WithSpendingLimitStore(ss)
 	bm.check(context.Background())
+	require.False(t, deliveryCalled)
 
-	if deliveryCalled {
-		t.Fatal("expected no spending alert below 80%")
-	}
 }
 
 func TestBudgetMonitor_NoSpendingLimit_Skipped(t *testing.T) {
@@ -456,10 +464,8 @@ func TestBudgetMonitor_NoSpendingLimit_Skipped(t *testing.T) {
 
 	bm := NewBudgetMonitor(struct{}{}, &mockEnqueuer{}, time.Minute).WithSpendingLimitStore(ss)
 	bm.check(context.Background())
+	require.False(t, deliveryCalled)
 
-	if deliveryCalled {
-		t.Fatal("expected no alert when spending limit is -1 (disabled)")
-	}
 }
 
 func TestBudgetMonitor_FreeOrgHardCapped_NoSpendingAlert(t *testing.T) {
@@ -481,8 +487,6 @@ func TestBudgetMonitor_FreeOrgHardCapped_NoSpendingAlert(t *testing.T) {
 
 	bm := NewBudgetMonitor(struct{}{}, &mockEnqueuer{}, time.Minute).WithSpendingLimitStore(ss)
 	bm.check(context.Background())
+	require.False(t, deliveryCalled)
 
-	if deliveryCalled {
-		t.Fatal("expected no spending alert for free org with hard cap (limit=0)")
-	}
 }

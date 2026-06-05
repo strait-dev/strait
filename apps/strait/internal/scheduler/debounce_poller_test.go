@@ -13,6 +13,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/stretchr/testify/require"
 )
 
 type mockDebounceStore struct {
@@ -236,52 +237,49 @@ func TestDebouncePoller_FiresDuePending(t *testing.T) {
 	}
 	poller := NewDebouncePoller(ds, q, time.Second)
 	poller.poll(context.Background())
-
-	if len(enqueued) != 1 {
-		t.Fatalf("expected 1 enqueued run, got %d", len(enqueued))
-	}
+	require.Len(t, enqueued,
+		1)
 
 	run := enqueued[0]
-	if run.JobID != "job-1" {
-		t.Fatalf("expected job_id=job-1, got %s", run.JobID)
-	}
-	if run.ID != "dp-1" {
-		t.Fatalf("expected durable debounce run ID dp-1, got %s", run.ID)
-	}
-	if run.TriggeredBy != domain.TriggerDebounce {
-		t.Fatalf("expected triggered_by=debounce, got %s", run.TriggeredBy)
-	}
-	if run.Priority != 5 {
-		t.Fatalf("expected priority=5, got %d", run.Priority)
-	}
-	if run.CreatedBy != "user-1" {
-		t.Fatalf("expected created_by=user-1, got %s", run.CreatedBy)
-	}
-	if string(run.Payload) != `{"action":"reindex"}` {
-		t.Fatalf("expected payload preserved, got %s", string(run.Payload))
-	}
-	if run.ExecutionMode != domain.ExecutionModeWorker {
-		t.Fatalf("expected execution_mode worker, got %q", run.ExecutionMode)
-	}
-	if run.QueueName != "priority" {
-		t.Fatalf("expected queue_name priority, got %q", run.QueueName)
-	}
+	require.Equal(t, "job-1",
+		run.JobID)
+	require.Equal(t, "dp-1",
+		run.ID)
+	require.Equal(t, domain.
+		TriggerDebounce,
+		run.TriggeredBy,
+	)
+	require.EqualValues(t, 5,
+		run.Priority)
+	require.Equal(t, "user-1",
+		run.CreatedBy,
+	)
+	require.Equal(t, `{"action":"reindex"}`,
 
-	if len(ds.claimed) != 1 || ds.claimed[0] != "dp-1" {
-		t.Fatalf("expected dp-1 to be claimed, got %v", ds.claimed)
-	}
-	if len(ds.completed) != 1 || ds.completed[0] != "dp-1" {
-		t.Fatalf("expected dp-1 to be completed after enqueue, got %v", ds.completed)
-	}
-	if len(ds.restored) != 0 {
-		t.Fatalf("expected successful fire to avoid restore, got %v", ds.restored)
-	}
-	if ds.txCalls != 1 {
-		t.Fatalf("expected debounce fire to use transactional admission guard, got %d tx calls", ds.txCalls)
-	}
-	if len(ds.txLockIDs) != 1 || ds.txLockIDs[0] != cronAdmissionLockID("proj-1") {
-		t.Fatalf("expected project trigger-limit lock %d, got %v", cronAdmissionLockID("proj-1"), ds.txLockIDs)
-	}
+		string(run.Payload))
+	require.Equal(t, domain.
+		ExecutionModeWorker,
+		run.
+			ExecutionMode,
+	)
+	require.Equal(t, "priority",
+		run.QueueName,
+	)
+	require.False(t, len(ds.claimed) !=
+		1 || ds.claimed[0] !=
+		"dp-1")
+	require.False(t, len(ds.completed) !=
+		1 || ds.
+		completed[0] != "dp-1",
+	)
+	require.Len(t, ds.restored,
+		0)
+	require.EqualValues(t, 1,
+		ds.txCalls)
+	require.False(t, len(ds.txLockIDs) !=
+		1 || ds.
+		txLockIDs[0] != cronAdmissionLockID("proj-1"))
+
 }
 
 func TestDebouncePoller_SkipsDisabledJob(t *testing.T) {
@@ -305,16 +303,13 @@ func TestDebouncePoller_SkipsDisabledJob(t *testing.T) {
 	}
 	poller := NewDebouncePoller(ds, q, time.Second)
 	poller.poll(context.Background())
+	require.Len(t, enqueued,
+		0)
+	require.Len(t, ds.claimed,
+		1)
+	require.Len(t, ds.completed,
+		1)
 
-	if len(enqueued) != 0 {
-		t.Fatalf("expected no runs for disabled job, got %d", len(enqueued))
-	}
-	if len(ds.claimed) != 1 {
-		t.Fatalf("expected pending claimed even for disabled job, got %d claimed", len(ds.claimed))
-	}
-	if len(ds.completed) != 1 {
-		t.Fatalf("expected disabled job pending to complete, got %d completed", len(ds.completed))
-	}
 }
 
 func TestDebouncePoller_SkipsPausedJob(t *testing.T) {
@@ -338,16 +333,13 @@ func TestDebouncePoller_SkipsPausedJob(t *testing.T) {
 	}
 	poller := NewDebouncePoller(ds, q, time.Second)
 	poller.poll(context.Background())
+	require.Len(t, enqueued,
+		0)
+	require.Len(t, ds.claimed,
+		1)
+	require.Len(t, ds.completed,
+		1)
 
-	if len(enqueued) != 0 {
-		t.Fatalf("expected no runs for paused job, got %d", len(enqueued))
-	}
-	if len(ds.claimed) != 1 {
-		t.Fatalf("expected pending claimed for paused job, got %d claimed", len(ds.claimed))
-	}
-	if len(ds.completed) != 1 {
-		t.Fatalf("expected paused job pending to complete, got %d completed", len(ds.completed))
-	}
 }
 
 func TestDebouncePoller_UsesPendingIDAsIdempotencyKey(t *testing.T) {
@@ -371,10 +363,10 @@ func TestDebouncePoller_UsesPendingIDAsIdempotencyKey(t *testing.T) {
 	}
 	poller := NewDebouncePoller(ds, q, time.Second)
 	poller.poll(context.Background())
+	require.Equal(t, "debounce:dp-1",
+		key,
+	)
 
-	if key != "debounce:dp-1" {
-		t.Fatalf("idempotency key = %q, want debounce:dp-1", key)
-	}
 }
 
 func TestDebouncePoller_DeletesPendingWhenRunAlreadyExists(t *testing.T) {
@@ -399,10 +391,9 @@ func TestDebouncePoller_DeletesPendingWhenRunAlreadyExists(t *testing.T) {
 	}
 	poller := NewDebouncePoller(ds, q, time.Second)
 	poller.poll(context.Background())
+	require.Len(t, ds.restored,
+		0)
 
-	if len(ds.restored) != 0 {
-		t.Fatalf("expected existing durable debounce run to avoid pending restore, got %v", ds.restored)
-	}
 }
 
 func TestDebouncePoller_ReschedulesPendingWhenFireTimeProjectQuotaExceeded(t *testing.T) {
@@ -427,25 +418,31 @@ func TestDebouncePoller_ReschedulesPendingWhenFireTimeProjectQuotaExceeded(t *te
 	}}
 	poller := NewDebouncePoller(ds, q, time.Second)
 	poller.poll(context.Background())
+	require.EqualValues(t, 0,
+		enqueued)
+	require.Len(t, ds.completed,
+		0)
+	require.False(t, len(ds.rescheduled) !=
+		1 || ds.
+		rescheduled[0].id !=
+		"dp-1",
+	)
+	require.True(t, ds.
+		rescheduled[0].oldFireAt.
+		Equal(originalFireAt),
+	)
+	require.True(t, ds.
+		rescheduled[0].nextFireAt.
+		After(time.
+			Now().UTC()))
+	require.False(t, len(ds.duePending) !=
+		1 || ds.
+		duePending[0].ID !=
+		"dp-1" ||
+		!ds.duePending[0].FireAt.
+			After(time.Now().UTC()),
+	)
 
-	if enqueued != 0 {
-		t.Fatalf("enqueued = %d, want 0 while quota exceeded", enqueued)
-	}
-	if len(ds.completed) != 0 {
-		t.Fatalf("pending completed despite fire-time quota failure: %v", ds.completed)
-	}
-	if len(ds.rescheduled) != 1 || ds.rescheduled[0].id != "dp-1" {
-		t.Fatalf("pending was not rescheduled after fire-time quota failure: %v", ds.rescheduled)
-	}
-	if !ds.rescheduled[0].oldFireAt.Equal(originalFireAt) {
-		t.Fatalf("reschedule used old_fire_at %s, want %s", ds.rescheduled[0].oldFireAt, originalFireAt)
-	}
-	if !ds.rescheduled[0].nextFireAt.After(time.Now().UTC()) {
-		t.Fatalf("reschedule next fire_at is not in the future: %s", ds.rescheduled[0].nextFireAt)
-	}
-	if len(ds.duePending) != 1 || ds.duePending[0].ID != "dp-1" || !ds.duePending[0].FireAt.After(time.Now().UTC()) {
-		t.Fatalf("pending was not retained in future after fire-time quota failure: %v", ds.duePending)
-	}
 }
 
 func TestDebouncePoller_ReschedulesPendingWhenFireTimeRateLimitExceeded(t *testing.T) {
@@ -476,25 +473,31 @@ func TestDebouncePoller_ReschedulesPendingWhenFireTimeRateLimitExceeded(t *testi
 	}}
 	poller := NewDebouncePoller(ds, q, time.Second)
 	poller.poll(context.Background())
+	require.EqualValues(t, 0,
+		enqueued)
+	require.Len(t, ds.completed,
+		0)
+	require.False(t, len(ds.rescheduled) !=
+		1 || ds.
+		rescheduled[0].id !=
+		"dp-1",
+	)
+	require.True(t, ds.
+		rescheduled[0].oldFireAt.
+		Equal(originalFireAt),
+	)
+	require.True(t, ds.
+		rescheduled[0].nextFireAt.
+		After(time.
+			Now().UTC()))
+	require.False(t, len(ds.duePending) !=
+		1 || ds.
+		duePending[0].ID !=
+		"dp-1" ||
+		!ds.duePending[0].FireAt.
+			After(time.Now().UTC()),
+	)
 
-	if enqueued != 0 {
-		t.Fatalf("enqueued = %d, want 0 while job rate limit exceeded", enqueued)
-	}
-	if len(ds.completed) != 0 {
-		t.Fatalf("pending completed despite fire-time rate limit failure: %v", ds.completed)
-	}
-	if len(ds.rescheduled) != 1 || ds.rescheduled[0].id != "dp-1" {
-		t.Fatalf("pending was not rescheduled after fire-time rate limit failure: %v", ds.rescheduled)
-	}
-	if !ds.rescheduled[0].oldFireAt.Equal(originalFireAt) {
-		t.Fatalf("reschedule used old_fire_at %s, want %s", ds.rescheduled[0].oldFireAt, originalFireAt)
-	}
-	if !ds.rescheduled[0].nextFireAt.After(time.Now().UTC()) {
-		t.Fatalf("reschedule next fire_at is not in the future: %s", ds.rescheduled[0].nextFireAt)
-	}
-	if len(ds.duePending) != 1 || ds.duePending[0].ID != "dp-1" || !ds.duePending[0].FireAt.After(time.Now().UTC()) {
-		t.Fatalf("pending was not retained in future after fire-time rate limit failure: %v", ds.duePending)
-	}
 }
 
 func TestDebouncePoller_SkipsPendingExtendedAfterDueList(t *testing.T) {
@@ -515,16 +518,13 @@ func TestDebouncePoller_SkipsPendingExtendedAfterDueList(t *testing.T) {
 		return nil
 	}}
 	poller := NewDebouncePoller(ds, q, time.Second)
-	if err := poller.pollLocked(context.Background()); err != nil {
-		t.Fatalf("pollLocked: %v", err)
-	}
+	require.NoError(t,
+		poller.pollLocked(context.Background()))
+	require.EqualValues(t, 0,
+		enqueued)
+	require.Len(t, ds.claimed,
+		0)
 
-	if enqueued != 0 {
-		t.Fatalf("enqueued = %d, want 0 for pending row extended into the future", enqueued)
-	}
-	if len(ds.claimed) != 0 {
-		t.Fatalf("future pending was claimed: %v", ds.claimed)
-	}
 }
 
 func TestDebouncePoller_RestoreDoesNotOverwriteNewerPending(t *testing.T) {
@@ -549,16 +549,17 @@ func TestDebouncePoller_RestoreDoesNotOverwriteNewerPending(t *testing.T) {
 	}}
 	poller := NewDebouncePoller(ds, q, time.Second)
 	poller.poll(context.Background())
+	require.Len(t, ds.restored,
+		0)
+	require.Len(t, ds.completed,
+		0)
+	require.False(t, len(ds.duePending) !=
+		1 || ds.
+		duePending[0].ID !=
+		"dp-old" ||
+		!ds.duePending[0].FireAt.
+			Equal(future))
 
-	if len(ds.restored) != 0 {
-		t.Fatalf("old pending restored over newer pending: %v", ds.restored)
-	}
-	if len(ds.completed) != 0 {
-		t.Fatalf("updated pending completed after enqueue failure: %v", ds.completed)
-	}
-	if len(ds.duePending) != 1 || ds.duePending[0].ID != "dp-old" || !ds.duePending[0].FireAt.Equal(future) {
-		t.Fatalf("newer pending was not preserved: %+v", ds.duePending)
-	}
 }
 
 func TestDebouncePoller_SkipsWhenLockNotAcquired(t *testing.T) {
@@ -582,10 +583,9 @@ func TestDebouncePoller_SkipsWhenLockNotAcquired(t *testing.T) {
 	}
 	poller := NewDebouncePoller(ds, q, time.Second)
 	poller.poll(context.Background())
+	require.Len(t, enqueued,
+		0)
 
-	if len(enqueued) != 0 {
-		t.Fatal("expected no runs when lock not acquired")
-	}
 }
 
 func TestDebouncePoller_NoDuePending(t *testing.T) {
@@ -601,8 +601,7 @@ func TestDebouncePoller_NoDuePending(t *testing.T) {
 	}
 	poller := NewDebouncePoller(ds, q, time.Second)
 	poller.poll(context.Background())
+	require.Len(t, enqueued,
+		0)
 
-	if len(enqueued) != 0 {
-		t.Fatal("expected no runs when nothing due")
-	}
 }

@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/require"
 )
 
 type mockIndexMaintenanceStore struct {
@@ -41,13 +43,12 @@ func TestIndexMaintainer_MissingIndexDoesNotAbortCycle(t *testing.T) {
 		},
 	}
 	maintainer := NewIndexMaintainer(s, time.Second)
+	require.NoError(t,
+		maintainer.
+			runLocked(context.
+				Background()))
+	require.Equal(t, len(defaultReindexTargets), s.callCount())
 
-	if err := maintainer.runLocked(context.Background()); err != nil {
-		t.Fatalf("runLocked() error = %v", err)
-	}
-	if s.callCount() != len(defaultReindexTargets) {
-		t.Fatalf("reindex calls = %d, want %d", s.callCount(), len(defaultReindexTargets))
-	}
 }
 
 func TestIndexMaintainer_ReindexErrorStillContinues(t *testing.T) {
@@ -59,13 +60,12 @@ func TestIndexMaintainer_ReindexErrorStillContinues(t *testing.T) {
 		},
 	}
 	maintainer := NewIndexMaintainer(s, time.Second)
+	require.NoError(t,
+		maintainer.
+			runLocked(context.
+				Background()))
+	require.Equal(t, len(defaultReindexTargets), s.callCount())
 
-	if err := maintainer.runLocked(context.Background()); err != nil {
-		t.Fatalf("runLocked() error = %v", err)
-	}
-	if s.callCount() != len(defaultReindexTargets) {
-		t.Fatalf("reindex calls = %d, want %d", s.callCount(), len(defaultReindexTargets))
-	}
 }
 
 func TestIndexMaintainer_Run_RespectsInterval(t *testing.T) {
@@ -78,19 +78,20 @@ func TestIndexMaintainer_Run_RespectsInterval(t *testing.T) {
 	defer cancel()
 
 	maintainer.Run(ctx)
+	require.GreaterOrEqual(t, store.
+		callCount(), len(defaultReindexTargets))
 
-	if store.callCount() < len(defaultReindexTargets) {
-		t.Fatalf("reindex calls = %d, want at least %d", store.callCount(), len(defaultReindexTargets))
-	}
 }
 
 func TestIndexMaintainer_DefaultInterval(t *testing.T) {
 	t.Parallel()
 
 	maintainer := NewIndexMaintainer(&mockIndexMaintenanceStore{}, 0)
-	if maintainer.interval != defaultIndexMaintenanceInterval {
-		t.Fatalf("interval = %v, want %v", maintainer.interval, defaultIndexMaintenanceInterval)
-	}
+	require.Equal(t, defaultIndexMaintenanceInterval,
+
+		maintainer.
+			interval)
+
 }
 
 func TestIndexMaintainer_AdvisoryLock_Acquired(t *testing.T) {
@@ -122,20 +123,20 @@ func TestIndexMaintainer_AdvisoryLock_Acquired(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 95*time.Millisecond)
 	defer cancel()
 	maintainer.Run(ctx)
+	require.GreaterOrEqual(t, store.
+		callCount(), len(defaultReindexTargets))
 
-	if store.callCount() < len(defaultReindexTargets) {
-		t.Fatalf("reindex calls = %d, want at least %d", store.callCount(), len(defaultReindexTargets))
-	}
 	mu.Lock()
 	finalTry := tryCalls
 	finalRelease := releaseCalls
 	mu.Unlock()
-	if finalTry == 0 {
-		t.Fatal("advisory lock was never attempted")
-	}
-	if finalRelease != finalTry {
-		t.Fatalf("releaseCalls = %d, want %d", finalRelease, finalTry)
-	}
+	require.NotEqual(t,
+		0, finalTry,
+	)
+	require.Equal(t, finalTry,
+		finalRelease,
+	)
+
 }
 
 func TestIndexMaintainer_AdvisoryLock_NotAcquired(t *testing.T) {
@@ -163,14 +164,15 @@ func TestIndexMaintainer_AdvisoryLock_NotAcquired(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 95*time.Millisecond)
 	defer cancel()
 	maintainer.Run(ctx)
+	require.EqualValues(t, 0,
+		store.callCount(),
+	)
 
-	if store.callCount() != 0 {
-		t.Fatalf("reindex calls = %d, want 0 (lock not acquired)", store.callCount())
-	}
 	mu.Lock()
 	finalRelease := releaseCalls
 	mu.Unlock()
-	if finalRelease != 0 {
-		t.Fatalf("releaseCalls = %d, want 0 (lock never held)", finalRelease)
-	}
+	require.EqualValues(t, 0,
+		finalRelease,
+	)
+
 }

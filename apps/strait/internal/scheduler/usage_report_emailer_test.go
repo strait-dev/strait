@@ -10,6 +10,8 @@ import (
 	"strait/internal/billing"
 
 	"github.com/resend/resend-go/v2"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type mockReportStore struct {
@@ -318,21 +320,21 @@ func TestUsageReportEmailer_SendsForEndedPeriod(t *testing.T) {
 	emailAPI := &mockResendAPI{}
 	emailer := NewUsageReportEmailer(store, emailAPI, "billing@test.dev", time.Hour)
 	emailer.checkAndSend(context.Background())
-
-	if len(emailAPI.sent) != 1 {
-		t.Fatalf("expected 1 email sent, got %d", len(emailAPI.sent))
-	}
+	require.Len(t, emailAPI.
+		sent,
+		1)
 
 	msg := emailAPI.sent[0]
-	if msg.To[0] != "admin@example.com" {
-		t.Errorf("expected recipient admin@example.com, got %s", msg.To[0])
-	}
-	if len(msg.Attachments) != 1 {
-		t.Fatalf("expected 1 attachment, got %d", len(msg.Attachments))
-	}
-	if msg.Attachments[0].Filename == "" {
-		t.Error("attachment filename should not be empty")
-	}
+	assert.Equal(t, "admin@example.com",
+
+		msg.
+			To[0])
+	require.Len(t, msg.
+		Attachments,
+		1)
+	assert.NotEqual(t,
+		"", msg.Attachments[0].Filename)
+
 }
 
 func TestDeepSecUsageReportEmailer_CatchesUpMissedEndedPeriod(t *testing.T) {
@@ -361,10 +363,10 @@ func TestDeepSecUsageReportEmailer_CatchesUpMissedEndedPeriod(t *testing.T) {
 	emailAPI := &mockResendAPI{}
 	emailer := NewUsageReportEmailer(store, emailAPI, "billing@test.dev", time.Hour)
 	emailer.checkAndSend(context.Background())
+	require.Len(t, emailAPI.
+		sent,
+		1)
 
-	if len(emailAPI.sent) != 1 {
-		t.Fatalf("expected catch-up email for missed period, got %d", len(emailAPI.sent))
-	}
 }
 
 func TestUsageReportEmailer_SkipsFreePlan(t *testing.T) {
@@ -392,10 +394,10 @@ func TestUsageReportEmailer_SkipsFreePlan(t *testing.T) {
 	emailAPI := &mockResendAPI{}
 	emailer := NewUsageReportEmailer(store, emailAPI, "billing@test.dev", time.Hour)
 	emailer.checkAndSend(context.Background())
+	require.Len(t, emailAPI.
+		sent,
+		0)
 
-	if len(emailAPI.sent) != 0 {
-		t.Fatalf("expected 0 emails for free plan, got %d", len(emailAPI.sent))
-	}
 }
 
 func TestUsageReportEmailer_SkipsFuturePeriodEnd(t *testing.T) {
@@ -420,10 +422,10 @@ func TestUsageReportEmailer_SkipsFuturePeriodEnd(t *testing.T) {
 	emailAPI := &mockResendAPI{}
 	emailer := NewUsageReportEmailer(store, emailAPI, "billing@test.dev", time.Hour)
 	emailer.checkAndSend(context.Background())
+	require.Len(t, emailAPI.
+		sent,
+		0)
 
-	if len(emailAPI.sent) != 0 {
-		t.Fatalf("expected 0 emails for future period end, got %d", len(emailAPI.sent))
-	}
 }
 
 func TestUsageReportEmailer_SkipsOptedOut(t *testing.T) {
@@ -452,10 +454,10 @@ func TestUsageReportEmailer_SkipsOptedOut(t *testing.T) {
 	emailAPI := &mockResendAPI{}
 	emailer := NewUsageReportEmailer(store, emailAPI, "billing@test.dev", time.Hour)
 	emailer.checkAndSend(context.Background())
+	require.Len(t, emailAPI.
+		sent,
+		0)
 
-	if len(emailAPI.sent) != 0 {
-		t.Fatalf("expected 0 emails when MonthlyUsageEmail is false, got %d", len(emailAPI.sent))
-	}
 }
 
 func TestUsageReportEmailer_DeduplicatesOnRestart(t *testing.T) {
@@ -486,24 +488,23 @@ func TestUsageReportEmailer_DeduplicatesOnRestart(t *testing.T) {
 	// First run: should send email and record dedup.
 	emailer1 := NewUsageReportEmailer(store, emailAPI, "billing@test.dev", time.Hour)
 	emailer1.checkAndSend(context.Background())
-
-	if len(emailAPI.sent) != 1 {
-		t.Fatalf("first run: expected 1 email, got %d", len(emailAPI.sent))
-	}
-	if len(store.recordSentCalls) != 1 {
-		t.Fatalf("first run: expected 1 RecordSentUsageReport call, got %d", len(store.recordSentCalls))
-	}
+	require.Len(t, emailAPI.
+		sent,
+		1)
+	require.Len(t, store.
+		recordSentCalls,
+		1)
 
 	// Second run (simulating restart with a fresh emailer): should skip because dedup record exists.
 	emailer2 := NewUsageReportEmailer(store, emailAPI, "billing@test.dev", time.Hour)
 	emailer2.checkAndSend(context.Background())
+	require.Len(t, emailAPI.
+		sent,
+		1)
+	require.Len(t, store.
+		recordSentCalls,
+		1)
 
-	if len(emailAPI.sent) != 1 {
-		t.Fatalf("second run: expected still 1 email total, got %d", len(emailAPI.sent))
-	}
-	if len(store.recordSentCalls) != 1 {
-		t.Fatalf("second run: expected still 1 RecordSentUsageReport call total, got %d", len(store.recordSentCalls))
-	}
 }
 
 func TestUsageReportEmailer_RecordsDedupOnEmptyRecipients(t *testing.T) {
@@ -532,19 +533,20 @@ func TestUsageReportEmailer_RecordsDedupOnEmptyRecipients(t *testing.T) {
 	emailAPI := &mockResendAPI{}
 	emailer := NewUsageReportEmailer(store, emailAPI, "billing@test.dev", time.Hour)
 	emailer.checkAndSend(context.Background())
+	require.Len(t, emailAPI.
+		sent,
+		0)
+	require.Len(t, store.
+		recordSentCalls,
+		1)
+	assert.Equal(t, "org-noadmin",
+
+		store.recordSentCalls[0])
 
 	// No email should be sent.
-	if len(emailAPI.sent) != 0 {
-		t.Fatalf("expected 0 emails for org with no admin emails, got %d", len(emailAPI.sent))
-	}
 
 	// RecordSentUsageReport should still be called to prevent infinite retry.
-	if len(store.recordSentCalls) != 1 {
-		t.Fatalf("expected 1 RecordSentUsageReport call to prevent retry, got %d", len(store.recordSentCalls))
-	}
-	if store.recordSentCalls[0] != "org-noadmin" {
-		t.Errorf("RecordSentUsageReport called for %q, want org-noadmin", store.recordSentCalls[0])
-	}
+
 }
 
 func TestUsageReportEmailer_RetriesSameDayAfterSendFailure(t *testing.T) {
@@ -572,10 +574,10 @@ func TestUsageReportEmailer_RetriesSameDayAfterSendFailure(t *testing.T) {
 	emailer.checkAndSend(context.Background())
 	emailAPI.err = nil
 	emailer.checkAndSend(context.Background())
+	require.Len(t, emailAPI.
+		sent,
+		2)
 
-	if len(emailAPI.sent) != 2 {
-		t.Fatalf("send attempts = %d, want retry on same day after failure", len(emailAPI.sent))
-	}
 }
 
 func TestUsageReportEmailer_ClaimPreventsDuplicateEmailSideEffect(t *testing.T) {
@@ -603,10 +605,10 @@ func TestUsageReportEmailer_ClaimPreventsDuplicateEmailSideEffect(t *testing.T) 
 	emailer2 := NewUsageReportEmailer(store, emailAPI, "billing@test.dev", time.Hour)
 	emailer1.checkAndSend(context.Background())
 	emailer2.checkAndSend(context.Background())
+	require.Len(t, emailAPI.
+		sent,
+		1)
 
-	if len(emailAPI.sent) != 1 {
-		t.Fatalf("emails sent = %d, want pre-send claim to allow only one side effect", len(emailAPI.sent))
-	}
 }
 
 func TestUsageReportEmailer_FinalizesClaimOnlyAfterSuccessfulSend(t *testing.T) {
@@ -632,16 +634,16 @@ func TestUsageReportEmailer_FinalizesClaimOnlyAfterSuccessfulSend(t *testing.T) 
 	emailAPI := &mockResendAPI{}
 	emailer := NewUsageReportEmailer(store, emailAPI, "billing@test.dev", time.Hour)
 	emailer.checkAndSend(context.Background())
+	require.Len(t, emailAPI.
+		sent,
+		1)
+	require.False(t, len(store.finalizeCalls) != 1 || store.
+		finalizeCalls[0] != "org-finalize",
+	)
+	require.Len(t, store.
+		releaseCalls,
+		0)
 
-	if len(emailAPI.sent) != 1 {
-		t.Fatalf("emails sent = %d, want 1", len(emailAPI.sent))
-	}
-	if len(store.finalizeCalls) != 1 || store.finalizeCalls[0] != "org-finalize" {
-		t.Fatalf("finalizeCalls = %v, want successful send finalized", store.finalizeCalls)
-	}
-	if len(store.releaseCalls) != 0 {
-		t.Fatalf("releaseCalls = %v, want no release after successful send", store.releaseCalls)
-	}
 }
 
 func TestUsageReportEmailer_UsesBoundedPeriodTotals(t *testing.T) {
@@ -681,23 +683,21 @@ func TestUsageReportEmailer_UsesBoundedPeriodTotals(t *testing.T) {
 	emailAPI := &mockResendAPI{}
 	emailer := NewUsageReportEmailer(store, emailAPI, "billing@test.dev", time.Hour)
 	emailer.checkAndSend(context.Background())
+	require.Len(t, emailAPI.
+		sent,
+		1)
 
-	if len(emailAPI.sent) != 1 {
-		t.Fatalf("emails sent = %d, want 1", len(emailAPI.sent))
-	}
 	html := emailAPI.sent[0].Html
-	if !strings.Contains(html, "$1.00") {
-		t.Fatalf("email HTML = %q, want in-period overage total", html)
-	}
-	if strings.Contains(html, "$10.00") || strings.Contains(html, "$9.00") {
-		t.Fatalf("email HTML = %q, contains out-of-period usage", html)
-	}
-	if len(store.usagePeriodCalls) < 2 {
-		t.Fatalf("usagePeriodCalls = %v, want PDF and HTML total period queries", store.usagePeriodCalls)
-	}
+	require.True(t, strings.Contains(html, "$1.00"))
+	require.False(t, strings.Contains(html,
+		"$10.00") ||
+		strings.Contains(html, "$9.00"))
+	require.GreaterOrEqual(t, len(store.usagePeriodCalls), 2)
+
 	for _, call := range store.usagePeriodCalls {
-		if !call.from.Equal(periodStart) || !call.to.Equal(periodEnd) {
-			t.Fatalf("usage period call = %+v, want %v to %v", call, periodStart, periodEnd)
-		}
+		require.False(t, !call.
+			from.Equal(periodStart) || !call.to.
+			Equal(periodEnd))
+
 	}
 }

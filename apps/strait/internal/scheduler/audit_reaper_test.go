@@ -9,6 +9,9 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // fakeAuditReclaimerStore is a minimal ReaperStore implementation that
@@ -163,10 +166,10 @@ func TestReclaimAuditDeadletter_UsesConfiguredBatchSize(t *testing.T) {
 		WithAuditDLQReclaimBatch(137)
 
 	r.reclaimAuditDeadletter(ctx)
+	require.EqualValues(t, 137,
+		fake.listLimit.
+			Load())
 
-	if got := fake.listLimit.Load(); got != 137 {
-		t.Fatalf("list limit = %d, want 137", got)
-	}
 }
 
 func TestReclaimAuditDeadletter_DefaultBatchWhenUnset(t *testing.T) {
@@ -174,9 +177,11 @@ func TestReclaimAuditDeadletter_DefaultBatchWhenUnset(t *testing.T) {
 	fake := &fakeAuditReclaimerStore{}
 	r := NewReaper(fake, time.Second, time.Minute, 0, 0, false, nil)
 	r.reclaimAuditDeadletter(ctx)
-	if got := fake.listLimit.Load(); got != defaultAuditDLQReclaimBatch {
-		t.Fatalf("list limit = %d, want %d", got, defaultAuditDLQReclaimBatch)
-	}
+	require.EqualValues(t, defaultAuditDLQReclaimBatch,
+
+		fake.listLimit.
+			Load())
+
 }
 
 func TestReclaimAuditDeadletter_DeletesFromDLQAfterChainInsert(t *testing.T) {
@@ -193,17 +198,18 @@ func TestReclaimAuditDeadletter_DeletesFromDLQAfterChainInsert(t *testing.T) {
 
 	r := NewReaper(fake, time.Second, time.Minute, 0, 0, false, nil)
 	r.reclaimAuditDeadletter(ctx)
+	require.EqualValues(t, 3,
+		fake.createCalls.
+			Load())
+	require.EqualValues(t, 3,
+		fake.deleteCalls.
+			Load())
+	require.EqualValues(t, 3,
+		fake.markCalls.
+			Load())
 
-	if got := fake.createCalls.Load(); got != 3 {
-		t.Fatalf("CreateAuditEvent calls = %d, want 3", got)
-	}
-	if got := fake.deleteCalls.Load(); got != 3 {
-		t.Fatalf("DeleteAuditEventDeadletter calls = %d, want 3", got)
-	}
 	// Idempotency marker is written on every successful insert.
-	if got := fake.markCalls.Load(); got != 3 {
-		t.Fatalf("MarkAuditDeadletterReclaimed calls = %d, want 3", got)
-	}
+
 }
 
 func TestReclaimAuditDeadletter_ChainInsertFailure_SkipsDelete(t *testing.T) {
@@ -223,19 +229,21 @@ func TestReclaimAuditDeadletter_ChainInsertFailure_SkipsDelete(t *testing.T) {
 
 	r := NewReaper(fake, time.Second, time.Minute, 0, 0, false, nil)
 	r.reclaimAuditDeadletter(ctx)
+	require.EqualValues(t, 2,
+		fake.createCalls.
+			Load())
+	require.EqualValues(t, 0,
+		fake.deleteCalls.
+			Load())
+	require.EqualValues(t, 2,
+		fake.incCalls.
+			Load())
 
-	if got := fake.createCalls.Load(); got != 2 {
-		t.Fatalf("CreateAuditEvent calls = %d, want 2", got)
-	}
 	// Row must stay in DLQ when chain insert fails.
-	if got := fake.deleteCalls.Load(); got != 0 {
-		t.Fatalf("DeleteAuditEventDeadletter calls = %d, want 0 on chain failure", got)
-	}
+
 	// And attempt count must be incremented for both rows so the
 	// max-attempts cap eventually fires.
-	if got := fake.incCalls.Load(); got != 2 {
-		t.Fatalf("IncrementAuditDeadletterAttempt calls = %d, want 2", got)
-	}
+
 }
 
 func TestReclaimAuditDeadletter_ListError_RecordsOperation(t *testing.T) {
@@ -269,15 +277,16 @@ func TestReclaimAuditDeadletter_RespectsMaxAttempts(t *testing.T) {
 	r := NewReaper(fake, time.Second, time.Minute, 0, 0, false, nil).
 		WithAuditDLQMaxReclaimAttempts(5)
 	r.reclaimAuditDeadletter(ctx)
+	require.EqualValues(t, 1,
+		fake.createCalls.
+			Load())
+	require.EqualValues(t, 1,
+		fake.deleteCalls.
+			Load())
 
 	// Only one row should be inserted (the fresh one); the other two
 	// should be abandoned and skipped.
-	if got := fake.createCalls.Load(); got != 1 {
-		t.Fatalf("CreateAuditEvent calls = %d, want 1 (others abandoned)", got)
-	}
-	if got := fake.deleteCalls.Load(); got != 1 {
-		t.Fatalf("DeleteAuditEventDeadletter calls = %d, want 1", got)
-	}
+
 }
 
 // TestReclaimAuditDeadletter_IdempotentWhenAlreadyReclaimed asserts that
@@ -299,15 +308,16 @@ func TestReclaimAuditDeadletter_IdempotentWhenAlreadyReclaimed(t *testing.T) {
 	}
 	r := NewReaper(fake, time.Second, time.Minute, 0, 0, false, nil)
 	r.reclaimAuditDeadletter(ctx)
+	require.EqualValues(t, 1,
+		fake.createCalls.
+			Load())
+	require.EqualValues(t, 2,
+		fake.deleteCalls.
+			Load())
 
 	// Only the fresh row triggers a chain insert; the previously-reclaimed
 	// row only triggers a delete.
-	if got := fake.createCalls.Load(); got != 1 {
-		t.Fatalf("CreateAuditEvent calls = %d, want 1 (idempotency must skip the marked row)", got)
-	}
-	if got := fake.deleteCalls.Load(); got != 2 {
-		t.Fatalf("DeleteAuditEventDeadletter calls = %d, want 2", got)
-	}
+
 }
 
 // TestReapDeadletter_DropsAgedRows_CallsDelete asserts the retention reaper
@@ -317,21 +327,22 @@ func TestReapDeadletter_DropsAgedRows_CallsDelete(t *testing.T) {
 	ctx := context.Background()
 	fake := &fakeAuditReclaimerStore{}
 	fake.deleteAgedWithAuditFn = func(_ context.Context, _ time.Time, maxAgeDays int) (map[string]int64, error) {
-		if maxAgeDays != 30 {
-			t.Fatalf("maxAgeDays = %d, want 30", maxAgeDays)
-		}
+		require.EqualValues(t, 30,
+			maxAgeDays,
+		)
+
 		return map[string]int64{"proj-a": 7, "proj-b": 3}, nil
 	}
 	r := NewReaper(fake, time.Second, time.Minute, 0, 0, false, nil).
 		WithAuditDLQMaxAgeDays(30)
 	r.reapDeadletter(ctx)
+	require.EqualValues(t, 1,
+		fake.deleteAgedHits.
+			Load())
+	require.EqualValues(t, 0,
+		fake.createCalls.
+			Load())
 
-	if got := fake.deleteAgedHits.Load(); got != 1 {
-		t.Fatalf("DeleteAuditDeadletterOlderThanWithAudit calls = %d, want 1", got)
-	}
-	if got := fake.createCalls.Load(); got != 0 {
-		t.Fatalf("CreateAuditEvent calls = %d, want 0 (audit marker is written inside the atomic store call)", got)
-	}
 }
 
 // TestReapDeadletter_DisabledByZero asserts the sweep is opt-in.
@@ -341,9 +352,10 @@ func TestReapDeadletter_DisabledByZero(t *testing.T) {
 	r := NewReaper(fake, time.Second, time.Minute, 0, 0, false, nil)
 	// Default is zero — sweep disabled.
 	r.reapDeadletter(ctx)
-	if got := fake.deleteAgedHits.Load(); got != 0 {
-		t.Fatalf("retention sweep ran with max_age_days=0: hits=%d", got)
-	}
+	require.EqualValues(t, 0,
+		fake.deleteAgedHits.
+			Load())
+
 }
 
 // fakeAuditRetentionStore captures DeleteAuditEventsBefore calls per project
@@ -392,20 +404,18 @@ func TestReapAuditEvents_CallsPerProjectOverrides(t *testing.T) {
 	r := NewReaper(fake, time.Second, time.Minute, 0, 0, false, nil).
 		WithAuditRetention(365)
 	r.reapAuditEvents(ctx)
+	assert.EqualValues(t, 1,
+		fake.perProjectCalls["proj-a"])
+	assert.EqualValues(t, 1,
+		fake.perProjectCalls["proj-b"])
+	require.Len(t, fake.
+		excludingCalls,
+		1)
 
-	if got := fake.perProjectCalls["proj-a"]; got != 1 {
-		t.Errorf("DeleteAuditEventsBefore(proj-a) calls = %d, want 1", got)
-	}
-	if got := fake.perProjectCalls["proj-b"]; got != 1 {
-		t.Errorf("DeleteAuditEventsBefore(proj-b) calls = %d, want 1", got)
-	}
-	if len(fake.excludingCalls) != 1 {
-		t.Fatalf("DeleteAuditEventsBeforeExcluding calls = %d, want 1", len(fake.excludingCalls))
-	}
 	excluded := fake.excludingCalls[0].excluded
-	if len(excluded) != 2 {
-		t.Fatalf("excluded projects = %v, want both override projects", excluded)
-	}
+	require.Len(t, excluded,
+		2)
+
 }
 
 func TestReapAuditEvents_ZeroDaysSkipsTrim(t *testing.T) {
@@ -418,16 +428,14 @@ func TestReapAuditEvents_ZeroDaysSkipsTrim(t *testing.T) {
 	r := NewReaper(fake, time.Second, time.Minute, 0, 0, false, nil).
 		WithAuditRetention(365)
 	r.reapAuditEvents(ctx)
+	assert.EqualValues(t, 0,
+		fake.perProjectCalls["proj-disabled"])
+	assert.EqualValues(t, 1,
+		fake.perProjectCalls["proj-active"])
+	require.Len(t, fake.
+		excludingCalls,
+		1)
 
-	if got := fake.perProjectCalls["proj-disabled"]; got != 0 {
-		t.Errorf("disabled project should not be trimmed, got %d calls", got)
-	}
-	if got := fake.perProjectCalls["proj-active"]; got != 1 {
-		t.Errorf("active project trim calls = %d, want 1", got)
-	}
-	if len(fake.excludingCalls) != 1 {
-		t.Fatalf("default sweep must still run once, got %d", len(fake.excludingCalls))
-	}
 	// The disabled project must still be excluded from the default sweep so
 	// it is not silently trimmed by the global default.
 	excluded := fake.excludingCalls[0].excluded
@@ -437,9 +445,8 @@ func TestReapAuditEvents_ZeroDaysSkipsTrim(t *testing.T) {
 			seenDisabled = true
 		}
 	}
-	if !seenDisabled {
-		t.Errorf("default sweep excluded = %v, want to contain proj-disabled", excluded)
-	}
+	assert.True(t, seenDisabled)
+
 }
 
 func TestReapAuditEvents_RejectsOverflowRetentionDays(t *testing.T) {
@@ -451,13 +458,12 @@ func TestReapAuditEvents_RejectsOverflowRetentionDays(t *testing.T) {
 	r := NewReaper(fake, time.Second, time.Minute, 0, 0, false, nil).
 		WithAuditRetention(365)
 	r.reapAuditEvents(ctx)
+	assert.EqualValues(t, 0,
+		fake.perProjectCalls["proj-overflow"])
+	require.Len(t, fake.
+		excludingCalls,
+		1)
 
-	if got := fake.perProjectCalls["proj-overflow"]; got != 0 {
-		t.Errorf("overflow override delete calls = %d, want 0", got)
-	}
-	if len(fake.excludingCalls) != 1 {
-		t.Fatalf("default sweep calls = %d, want 1", len(fake.excludingCalls))
-	}
 }
 
 func TestReapAuditEvents_RejectsOverflowDefaultRetentionDays(t *testing.T) {
@@ -467,10 +473,10 @@ func TestReapAuditEvents_RejectsOverflowDefaultRetentionDays(t *testing.T) {
 	r := NewReaper(fake, time.Second, time.Minute, 0, 0, false, nil).
 		WithAuditRetention(domain.MaxAuditRetentionDays + 1)
 	r.reapAuditEvents(ctx)
+	require.Len(t, fake.
+		excludingCalls,
+		0)
 
-	if len(fake.excludingCalls) != 0 {
-		t.Fatalf("default sweep calls = %d, want 0 for overflow default", len(fake.excludingCalls))
-	}
 }
 
 // TestReclaimAuditDeadletter_PerEventTimeout asserts that a single wedged
@@ -505,18 +511,19 @@ func TestReclaimAuditDeadletter_PerEventTimeout(t *testing.T) {
 	start := time.Now()
 	r.reclaimAuditDeadletter(context.Background())
 	elapsed := time.Since(start)
+	require.LessOrEqual(t, elapsed,
+		2*time.Second,
+	)
+	assert.EqualValues(t, 2,
+		fake.createCalls.
+			Load())
+	assert.EqualValues(t, 2,
+		fake.incCalls.
+			Load())
 
 	// Both rows hit the per-event deadline; total elapsed ~2 * timeout.
 	// Generous upper bound catches regressions where the timeout is not
 	// applied per-event (would wedge indefinitely under any parent ctx
 	// longer than the bound).
-	if elapsed > 2*time.Second {
-		t.Fatalf("reclaim did not honor per-event timeout: elapsed %v, want < 2s", elapsed)
-	}
-	if got := fake.createCalls.Load(); got != 2 {
-		t.Errorf("CreateAuditEvent calls = %d, want 2", got)
-	}
-	if got := fake.incCalls.Load(); got != 2 {
-		t.Errorf("IncrementAuditDeadletterAttempt calls = %d, want 2 (one per timed-out insert)", got)
-	}
+
 }

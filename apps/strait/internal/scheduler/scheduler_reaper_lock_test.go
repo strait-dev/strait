@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/require"
 )
 
 func TestWithReaperAdvisoryLocker_WiresReaper(t *testing.T) {
@@ -16,10 +17,12 @@ func TestWithReaperAdvisoryLocker_WiresReaper(t *testing.T) {
 	locker := &mockAdvisoryLocker{}
 
 	WithReaperAdvisoryLocker(locker)(sched)
+	require.Equal(t, locker,
+		sched.
+			reaper.
+			advisoryLocker,
+	)
 
-	if sched.reaper.advisoryLocker != locker {
-		t.Fatal("reaper advisory locker was not wired")
-	}
 }
 
 func TestReaperRun_UsesPinnedAdvisoryLockRunner(t *testing.T) {
@@ -45,21 +48,21 @@ func TestReaperRun_UsesPinnedAdvisoryLockRunner(t *testing.T) {
 	select {
 	case <-runner.called:
 	case <-time.After(time.Second):
-		t.Fatal("reaper did not use advisory lock runner")
+		require.Fail(t, "reaper did not use advisory lock runner")
 	}
 
 	select {
 	case <-done:
 	case <-time.After(5 * time.Second):
-		t.Fatal("reaper did not stop after context cancellation")
+		require.Fail(t, "reaper did not stop after context cancellation")
 	}
+	require.Equal(t, reaperAdvisoryLockID,
 
-	if runner.lockID != reaperAdvisoryLockID {
-		t.Fatalf("lockID = %d, want %d", runner.lockID, reaperAdvisoryLockID)
-	}
-	if runner.fnCalls == 0 {
-		t.Fatal("fnCalls = 0, want at least one advisory-locked cycle")
-	}
+		runner.lockID)
+	require.NotEqual(t,
+		0, runner.
+			fnCalls)
+
 }
 
 func TestReaperRun_SkipsWhenPinnedRunnerDoesNotAcquire(t *testing.T) {
@@ -85,18 +88,18 @@ func TestReaperRun_SkipsWhenPinnedRunnerDoesNotAcquire(t *testing.T) {
 	select {
 	case <-runner.called:
 	case <-time.After(time.Second):
-		t.Fatal("reaper did not call advisory lock runner")
+		require.Fail(t, "reaper did not call advisory lock runner")
 	}
 
 	select {
 	case <-done:
 	case <-time.After(time.Second):
-		t.Fatal("reaper did not stop after context cancellation")
+		require.Fail(t, "reaper did not stop after context cancellation")
 	}
+	require.EqualValues(t, 0,
+		runner.fnCalls,
+	)
 
-	if runner.fnCalls != 0 {
-		t.Fatalf("fnCalls = %d, want 0 when lock is not acquired", runner.fnCalls)
-	}
 }
 
 type mockAdvisoryLockRunner struct {

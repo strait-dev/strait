@@ -12,12 +12,15 @@ import (
 	"strait/internal/domain"
 	"strait/internal/scheduler"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // seedDLQ inserts n deadletter audit events for the given project.
 func seedDLQ(t *testing.T, ctx context.Context, q *store.Queries, projectID string, n int) {
 	t.Helper()
-	for i := range n {
+	for range n {
 		ev := &domain.AuditEvent{
 			ProjectID:    projectID,
 			ActorID:      "actor-dlq",
@@ -28,9 +31,10 @@ func seedDLQ(t *testing.T, ctx context.Context, q *store.Queries, projectID stri
 			Details:      json.RawMessage(`{}`),
 			CreatedAt:    time.Now().UTC().Truncate(time.Microsecond),
 		}
-		if err := q.CreateAuditEventDeadletter(ctx, ev, "seed", 0); err != nil {
-			t.Fatalf("seed DLQ %d: %v", i, err)
-		}
+		require.NoError(t, q.CreateAuditEventDeadletter(
+			ctx, ev, "seed",
+			0))
+
 	}
 }
 
@@ -50,23 +54,14 @@ func TestReclaimAuditDeadletter_ReplaysIntoChain(t *testing.T) {
 	r.ReapOnce(ctx)
 
 	count, err := q.CountAuditEventsDeadletter(ctx)
-	if err != nil {
-		t.Fatalf("CountAuditEventsDeadletter: %v", err)
-	}
-	if count != 0 {
-		t.Errorf("DLQ count after reclaim = %d, want 0", count)
-	}
+	require.NoError(t, err)
+	assert.EqualValues(t, 0, count)
 
 	vc, err := q.VerifyAuditChain(ctx, projectID)
-	if err != nil {
-		t.Fatalf("VerifyAuditChain: %v", err)
-	}
-	if !vc.Valid {
-		t.Errorf("chain invalid after reclaim: %s", vc.Error)
-	}
-	if vc.EventsChecked != 5 {
-		t.Errorf("events_checked = %d, want 5", vc.EventsChecked)
-	}
+	require.NoError(t, err)
+	assert.True(t, vc.Valid)
+	assert.EqualValues(t, 5, vc.EventsChecked)
+
 }
 
 func TestReclaimAuditDeadletter_RespectsBatchCap(t *testing.T) {
@@ -87,12 +82,9 @@ func TestReclaimAuditDeadletter_RespectsBatchCap(t *testing.T) {
 	r.ReapOnce(ctx)
 
 	count, err := q.CountAuditEventsDeadletter(ctx)
-	if err != nil {
-		t.Fatalf("CountAuditEventsDeadletter: %v", err)
-	}
-	if count != 400 {
-		t.Fatalf("DLQ remaining = %d, want 400 after single capped tick", count)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 400, count)
+
 }
 
 type failingReplayStore struct {
@@ -119,10 +111,7 @@ func TestReclaimAuditDeadletter_PermanentFailure_LeavesInDLQ(t *testing.T) {
 	r.ReapOnce(ctx)
 
 	count, err := q.CountAuditEventsDeadletter(ctx)
-	if err != nil {
-		t.Fatalf("CountAuditEventsDeadletter: %v", err)
-	}
-	if count != 3 {
-		t.Fatalf("DLQ count after failed reclaim = %d, want 3 (rows must remain)", count)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 3, count)
+
 }

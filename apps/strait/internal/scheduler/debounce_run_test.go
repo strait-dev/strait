@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewDebounceRun_MapsPendingAndJobFields(t *testing.T) {
@@ -33,38 +35,51 @@ func TestNewDebounceRun_MapsPendingAndJobFields(t *testing.T) {
 	}
 
 	run := newDebounceRun(pending, job, now)
+	require.Equal(t, pending.
+		ID, run.ID)
+	require.Equal(t, "debounce:pending-1",
 
-	if run.ID != pending.ID {
-		t.Fatalf("ID = %q, want pending ID %q", run.ID, pending.ID)
-	}
-	if run.IdempotencyKey != "debounce:pending-1" {
-		t.Fatalf("IdempotencyKey = %q, want debounce:pending-1", run.IdempotencyKey)
-	}
-	if run.JobID != pending.JobID || run.ProjectID != pending.ProjectID {
-		t.Fatalf("job/project mismatch: got %s/%s", run.JobID, run.ProjectID)
-	}
-	if string(run.Payload) != string(pending.Payload) {
-		t.Fatalf("Payload = %s, want %s", run.Payload, pending.Payload)
-	}
-	if run.Tags["tenant"] != "acme" {
-		t.Fatalf("Tags = %v, want tenant=acme", run.Tags)
-	}
-	if run.Status != domain.StatusQueued || run.Attempt != 1 || run.TriggeredBy != domain.TriggerDebounce {
-		t.Fatalf("run state = status %s attempt %d trigger %s", run.Status, run.Attempt, run.TriggeredBy)
-	}
-	if run.Priority != pending.Priority || run.ConcurrencyKey != pending.ConcurrencyKey || run.CreatedBy != pending.CreatedBy {
-		t.Fatalf("pending fields not preserved: %+v", run)
-	}
-	if run.JobVersion != job.Version || run.JobVersionID != job.VersionID {
-		t.Fatalf("job version = %d/%s, want %d/%s", run.JobVersion, run.JobVersionID, job.Version, job.VersionID)
-	}
-	if run.ExecutionMode != job.ExecutionMode || run.QueueName != job.Queue {
-		t.Fatalf("dispatch fields = %s/%s, want %s/%s", run.ExecutionMode, run.QueueName, job.ExecutionMode, job.Queue)
-	}
+		run.IdempotencyKey,
+	)
+	require.False(t, run.JobID !=
+		pending.
+			JobID ||
+		run.ProjectID != pending.
+			ProjectID,
+	)
+	require.Equal(t, string(pending.
+		Payload,
+	), string(run.Payload))
+	require.Equal(t, "acme",
+		run.Tags["tenant"])
+	require.False(t, run.Status !=
+		domain.
+			StatusQueued ||
+		run.Attempt != 1 ||
+
+		run.TriggeredBy != domain.TriggerDebounce)
+	require.False(t, run.Priority !=
+		pending.
+			Priority ||
+		run.ConcurrencyKey !=
+
+			pending.ConcurrencyKey || run.CreatedBy != pending.CreatedBy)
+	require.False(t, run.JobVersion !=
+		job.
+			Version ||
+		run.JobVersionID != job.
+			VersionID)
+	require.False(t, run.ExecutionMode !=
+		job.ExecutionMode ||
+		run.QueueName !=
+			job.Queue)
+
 	wantExpiresAt := now.Add(90 * time.Second)
-	if run.ExpiresAt == nil || !run.ExpiresAt.Equal(wantExpiresAt) {
-		t.Fatalf("ExpiresAt = %v, want %s", run.ExpiresAt, wantExpiresAt)
-	}
+	require.False(t, run.ExpiresAt ==
+		nil ||
+		!run.
+			ExpiresAt.Equal(wantExpiresAt))
+
 }
 
 func TestDebounceRunExpiresAt_Precedence(t *testing.T) {
@@ -103,9 +118,8 @@ func TestDebounceRunExpiresAt_Precedence(t *testing.T) {
 			t.Parallel()
 
 			got := debounceRunExpiresAt(tc.pending, tc.job, now)
-			if !got.Equal(tc.want) {
-				t.Fatalf("expiresAt = %s, want %s", got, tc.want)
-			}
+			require.True(t, got.Equal(tc.want))
+
 		})
 	}
 }
@@ -114,19 +128,15 @@ func TestDebounceRunTags_InvalidJSONReturnsNil(t *testing.T) {
 	t.Parallel()
 
 	tags := debounceRunTags(domain.DebouncePending{Tags: json.RawMessage(`{"broken"`)})
-	if tags != nil {
-		t.Fatalf("tags = %v, want nil for invalid JSON", tags)
-	}
+	require.Nil(t, tags)
+
 }
 
 func TestDebounceRunID_GeneratesWhenPendingIDEmpty(t *testing.T) {
 	t.Parallel()
 
 	id := debounceRunID("")
-	if id == "" {
-		t.Fatal("expected generated debounce run ID")
-	}
-	if id == debounceRunID("") {
-		t.Fatal("expected distinct generated debounce run IDs")
-	}
+	require.NotEqual(t, "", id)
+	require.NotEqual(t, debounceRunID(""), id)
+
 }

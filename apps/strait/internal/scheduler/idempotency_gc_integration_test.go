@@ -11,6 +11,8 @@ import (
 	"strait/internal/testutil"
 
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func setupIdempotencyGC(t *testing.T) (*testutil.TestDB, *store.Queries) {
@@ -27,9 +29,8 @@ func insertIdempotencyRow(t *testing.T, tdb *testutil.TestDB, ctx context.Contex
 		INSERT INTO job_run_idempotency (job_id, idempotency_key, run_id, created_at, expires_at)
 		VALUES ($1, $2, $3, NOW(), `+expiresExpr+`)
 	`, jobID, key, uuid.Must(uuid.NewV7()).String())
-	if err != nil {
-		t.Fatalf("insert idempotency row: %v", err)
-	}
+	require.NoError(t, err)
+
 }
 
 // TestIdempotencyGC_DeletesExpiredPreservesLive verifies the GC only
@@ -48,34 +49,31 @@ func TestIdempotencyGC_DeletesExpiredPreservesLive(t *testing.T) {
 	insertIdempotencyRow(t, tdb, ctx, jobID, farFutureKey, "NOW() + INTERVAL '24 hours'")
 
 	gc := scheduler.NewIdempotencyGC(st, scheduler.IdempotencyGCConfig{})
-	if err := gc.RunOnceForTest(ctx); err != nil {
-		t.Fatalf("runOnce: %v", err)
-	}
-	if gc.TotalDeleted() != 1 {
-		t.Errorf("deleted = %d, want 1", gc.TotalDeleted())
-	}
+	require.NoError(t, gc.RunOnceForTest(
+		ctx))
+	assert.EqualValues(t, 1, gc.TotalDeleted())
 
 	var present bool
-	if err := tdb.Pool.QueryRow(ctx,
-		`SELECT EXISTS (SELECT 1 FROM job_run_idempotency WHERE job_id = $1 AND idempotency_key = $2)`,
-		jobID, expiredKey,
-	).Scan(&present); err != nil {
-		t.Fatalf("query expired: %v", err)
-	}
-	if present {
-		t.Error("expired idempotency row must be deleted")
-	}
+	require.NoError(t, tdb.Pool.
+		QueryRow(
+			ctx, `SELECT EXISTS (SELECT 1 FROM job_run_idempotency WHERE job_id = $1 AND idempotency_key = $2)`,
+
+			jobID,
+
+			expiredKey).Scan(&present),
+	)
+	assert.False(t, present)
 
 	for _, k := range []string{liveKey, farFutureKey} {
-		if err := tdb.Pool.QueryRow(ctx,
-			`SELECT EXISTS (SELECT 1 FROM job_run_idempotency WHERE job_id = $1 AND idempotency_key = $2)`,
-			jobID, k,
-		).Scan(&present); err != nil {
-			t.Fatalf("query live %s: %v", k, err)
-		}
-		if !present {
-			t.Errorf("live idempotency row %s must be retained", k)
-		}
+		require.NoError(t, tdb.Pool.
+			QueryRow(
+				ctx, `SELECT EXISTS (SELECT 1 FROM job_run_idempotency WHERE job_id = $1 AND idempotency_key = $2)`,
+
+				jobID,
+
+				k).Scan(&present))
+		assert.True(t, present)
+
 	}
 }
 
@@ -94,28 +92,23 @@ func TestIdempotencyGC_PreservesNullExpiresAt(t *testing.T) {
 		INSERT INTO job_run_idempotency (job_id, idempotency_key, run_id, created_at, expires_at)
 		VALUES ($1, $2, $3, NOW() - INTERVAL '5 days', NULL)
 	`, jobID, key, uuid.Must(uuid.NewV7()).String())
-	if err != nil {
-		t.Fatalf("insert null-expiry row: %v", err)
-	}
+	require.NoError(t, err)
 
 	gc := scheduler.NewIdempotencyGC(st, scheduler.IdempotencyGCConfig{})
-	if err := gc.RunOnceForTest(ctx); err != nil {
-		t.Fatalf("runOnce: %v", err)
-	}
-	if gc.TotalDeleted() != 0 {
-		t.Errorf("deleted = %d, want 0 for NULL-expires_at rows", gc.TotalDeleted())
-	}
+	require.NoError(t, gc.RunOnceForTest(
+		ctx))
+	assert.EqualValues(t, 0, gc.TotalDeleted())
 
 	var present bool
-	if err := tdb.Pool.QueryRow(ctx,
-		`SELECT EXISTS (SELECT 1 FROM job_run_idempotency WHERE job_id = $1 AND idempotency_key = $2)`,
-		jobID, key,
-	).Scan(&present); err != nil {
-		t.Fatalf("query: %v", err)
-	}
-	if !present {
-		t.Error("NULL-expires_at idempotency row must be retained")
-	}
+	require.NoError(t, tdb.Pool.
+		QueryRow(
+			ctx, `SELECT EXISTS (SELECT 1 FROM job_run_idempotency WHERE job_id = $1 AND idempotency_key = $2)`,
+
+			jobID,
+
+			key).Scan(&present))
+	assert.True(t, present)
+
 }
 
 // TestIdempotencyGC_BatchLimitRespected verifies that the BatchLimit cap
@@ -132,24 +125,16 @@ func TestIdempotencyGC_BatchLimitRespected(t *testing.T) {
 	}
 
 	gc := scheduler.NewIdempotencyGC(st, scheduler.IdempotencyGCConfig{BatchLimit: 4})
-	if err := gc.RunOnceForTest(ctx); err != nil {
-		t.Fatalf("first tick: %v", err)
-	}
-	if gc.TotalDeleted() != 4 {
-		t.Errorf("first tick deleted = %d, want 4", gc.TotalDeleted())
-	}
-	if err := gc.RunOnceForTest(ctx); err != nil {
-		t.Fatalf("second tick: %v", err)
-	}
-	if gc.TotalDeleted() != 8 {
-		t.Errorf("after two ticks total = %d, want 8", gc.TotalDeleted())
-	}
-	if err := gc.RunOnceForTest(ctx); err != nil {
-		t.Fatalf("third tick: %v", err)
-	}
-	if gc.TotalDeleted() != 10 {
-		t.Errorf("after three ticks total = %d, want 10", gc.TotalDeleted())
-	}
+	require.NoError(t, gc.RunOnceForTest(
+		ctx))
+	assert.EqualValues(t, 4, gc.TotalDeleted())
+	require.NoError(t, gc.RunOnceForTest(
+		ctx))
+	assert.EqualValues(t, 8, gc.TotalDeleted())
+	require.NoError(t, gc.RunOnceForTest(
+		ctx))
+	assert.EqualValues(t, 10, gc.TotalDeleted())
+
 }
 
 // TestMigration_BackfillIdempotencyExpires verifies migration 000256
@@ -167,23 +152,21 @@ func TestMigration_BackfillIdempotencyExpires(t *testing.T) {
 		INSERT INTO job_run_idempotency (job_id, idempotency_key, run_id, created_at, expires_at)
 		VALUES ($1, $2, $3, NOW() - INTERVAL '40 days', NULL)
 	`, jobID, key, uuid.Must(uuid.NewV7()).String())
-	if err != nil {
-		t.Fatalf("seed null-expiry: %v", err)
-	}
+	require.NoError(t, err)
 
 	if _, err := tdb.Pool.Exec(ctx,
 		`UPDATE job_run_idempotency SET expires_at = created_at + INTERVAL '24 hours' WHERE expires_at IS NULL`,
 	); err != nil {
-		t.Fatalf("manual backfill (mirroring migration 000256): %v", err)
+		require.Failf(t, "test failure",
+
+			"manual backfill (mirroring migration 000256): %v", err)
 	}
 
 	var nullCount int
-	if err := tdb.Pool.QueryRow(ctx,
-		`SELECT COUNT(*) FROM job_run_idempotency WHERE expires_at IS NULL`,
-	).Scan(&nullCount); err != nil {
-		t.Fatalf("count nulls: %v", err)
-	}
-	if nullCount != 0 {
-		t.Errorf("expected zero NULL-expires rows after backfill, got %d", nullCount)
-	}
+	require.NoError(t, tdb.Pool.
+		QueryRow(
+			ctx, `SELECT COUNT(*) FROM job_run_idempotency WHERE expires_at IS NULL`,
+		).Scan(&nullCount))
+	assert.EqualValues(t, 0, nullCount)
+
 }

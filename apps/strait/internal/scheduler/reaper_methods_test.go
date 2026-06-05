@@ -8,6 +8,9 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // handleCostGateTimeout tests.
@@ -43,9 +46,10 @@ func TestReaper_HandleCostGateTimeout_AutoApprove(t *testing.T) {
 		approveStepFn: func(_ context.Context, workflowRunID, stepRef, approver string) error {
 			approvedWorkflowRunID = workflowRunID
 			approvedStepRef = stepRef
-			if approver != "system:cost-gate-timeout" {
-				t.Errorf("approver = %q, want %q", approver, "system:cost-gate-timeout")
-			}
+			assert.Equal(t, "system:cost-gate-timeout",
+
+				approver)
+
 			return nil
 		},
 	}
@@ -71,15 +75,15 @@ func TestReaper_HandleCostGateTimeout_AutoApprove(t *testing.T) {
 	}
 
 	handled := r.handleCostGateTimeout(context.Background(), approval)
-	if !handled {
-		t.Fatal("expected handleCostGateTimeout to return true for auto-approve")
-	}
-	if approvedWorkflowRunID != "wr-1" {
-		t.Errorf("workflow_run_id = %q, want %q", approvedWorkflowRunID, "wr-1")
-	}
-	if approvedStepRef != "deploy-step" {
-		t.Errorf("step_ref = %q, want %q", approvedStepRef, "deploy-step")
-	}
+	require.True(t, handled)
+	assert.Equal(t, "wr-1",
+		approvedWorkflowRunID,
+	)
+	assert.Equal(t, "deploy-step",
+
+		approvedStepRef,
+	)
+
 }
 
 func TestReaper_HandleCostGateTimeout_AutoReject(t *testing.T) {
@@ -108,12 +112,9 @@ func TestReaper_HandleCostGateTimeout_AutoReject(t *testing.T) {
 	}
 
 	handled := r.handleCostGateTimeout(context.Background(), approval)
-	if handled {
-		t.Fatal("expected handleCostGateTimeout to return false for reject action")
-	}
-	if approveCalled {
-		t.Fatal("ApproveStep should not be called for reject action")
-	}
+	require.False(t, handled)
+	require.False(t, approveCalled)
+
 }
 
 func TestReaper_HandleCostGateTimeout_NilCallback(t *testing.T) {
@@ -129,9 +130,8 @@ func TestReaper_HandleCostGateTimeout_NilCallback(t *testing.T) {
 	}
 
 	handled := r.handleCostGateTimeout(context.Background(), approval)
-	if handled {
-		t.Fatal("expected false when workflowCallback is nil")
-	}
+	require.False(t, handled)
+
 }
 
 func TestReaper_HandleCostGateTimeout_NoCostGateStore(t *testing.T) {
@@ -149,9 +149,8 @@ func TestReaper_HandleCostGateTimeout_NoCostGateStore(t *testing.T) {
 	}
 
 	handled := r.handleCostGateTimeout(context.Background(), approval)
-	if handled {
-		t.Fatal("expected false when store does not implement CostGateDefaultActionStore")
-	}
+	require.False(t, handled)
+
 }
 
 func TestReaper_HandleCostGateTimeout_StoreError(t *testing.T) {
@@ -173,9 +172,8 @@ func TestReaper_HandleCostGateTimeout_StoreError(t *testing.T) {
 	}
 
 	handled := r.handleCostGateTimeout(context.Background(), approval)
-	if handled {
-		t.Fatal("expected false when GetCostGateDefaultAction returns error")
-	}
+	require.False(t, handled)
+
 }
 
 func TestReaper_HandleCostGateTimeout_StepRunNotFound(t *testing.T) {
@@ -207,12 +205,9 @@ func TestReaper_HandleCostGateTimeout_StepRunNotFound(t *testing.T) {
 	}
 
 	handled := r.handleCostGateTimeout(context.Background(), approval)
-	if handled {
-		t.Fatal("expected false when step run lookup fails")
-	}
-	if approveCalled {
-		t.Fatal("ApproveStep should not be called when step run not found")
-	}
+	require.False(t, handled)
+	require.False(t, approveCalled)
+
 }
 
 func TestReaper_HandleCostGateTimeout_ApproveStepError(t *testing.T) {
@@ -242,9 +237,8 @@ func TestReaper_HandleCostGateTimeout_ApproveStepError(t *testing.T) {
 	}
 
 	handled := r.handleCostGateTimeout(context.Background(), approval)
-	if handled {
-		t.Fatal("expected false when ApproveStep returns error")
-	}
+	require.False(t, handled)
+
 }
 
 // reapApprovalReminders dedup cleanup tests.
@@ -277,24 +271,25 @@ func TestReaper_ReapApprovalReminders_DedupCleanupAfterExpiry(t *testing.T) {
 
 	// First call: should send reminder and add to reminderSent.
 	r.reapApprovalReminders(context.Background())
-	if callCount != 1 {
-		t.Fatalf("first call: expected 1 delivery, got %d", callCount)
-	}
+	require.EqualValues(t, 1,
+		callCount,
+	)
 
 	// Second call: dedup suppresses the delivery (expiry is in the future).
 	r.reapApprovalReminders(context.Background())
-	if callCount != 1 {
-		t.Fatalf("second call: expected still 1 delivery (dedup), got %d", callCount)
-	}
+	require.EqualValues(t, 1,
+		callCount,
+	)
 
 	// Now manually set the dedup entry to a past time to simulate expiry.
 	r.reminderSent["appr-1"] = time.Now().Add(-1 * time.Minute)
 
 	// Third call: cleanup removes the expired entry, allowing the reminder to fire again.
 	r.reapApprovalReminders(context.Background())
-	if callCount != 2 {
-		t.Fatalf("third call after expiry cleanup: expected 2 deliveries, got %d", callCount)
-	}
+	require.EqualValues(t, 2,
+		callCount,
+	)
+
 }
 
 func TestReaper_ReapApprovalReminders_NoExpiresAt_DefaultTTL(t *testing.T) {
@@ -321,16 +316,16 @@ func TestReaper_ReapApprovalReminders_NoExpiresAt_DefaultTTL(t *testing.T) {
 
 	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 	r.reapApprovalReminders(context.Background())
-
-	if deliveryCount != 1 {
-		t.Fatalf("expected 1 delivery, got %d", deliveryCount)
-	}
+	require.EqualValues(t, 1,
+		deliveryCount,
+	)
 
 	// Second call should be deduped even without ExpiresAt (default 1h TTL).
 	r.reapApprovalReminders(context.Background())
-	if deliveryCount != 1 {
-		t.Fatalf("expected 1 delivery (dedup), got %d", deliveryCount)
-	}
+	require.EqualValues(t, 1,
+		deliveryCount,
+	)
+
 }
 
 func TestReaper_ReapApprovalReminders_MultipleChannels(t *testing.T) {
@@ -362,19 +357,16 @@ func TestReaper_ReapApprovalReminders_MultipleChannels(t *testing.T) {
 
 	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 	r.reapApprovalReminders(context.Background())
-
-	if len(deliveries) != 3 {
-		t.Fatalf("expected 3 deliveries (one per channel), got %d", len(deliveries))
-	}
+	require.Len(t, deliveries,
+		3)
 
 	channelIDs := map[string]bool{}
 	for _, d := range deliveries {
 		channelIDs[d.ChannelID] = true
 	}
 	for _, id := range []string{"ch-1", "ch-2", "ch-3"} {
-		if !channelIDs[id] {
-			t.Errorf("missing delivery for channel %s", id)
-		}
+		assert.True(t, channelIDs[id])
+
 	}
 }
 
@@ -413,14 +405,16 @@ func TestReaper_OrgRetention_MultipleOrgs_PartialErrors(t *testing.T) {
 	r := NewReaper(ms, time.Second, 5*time.Minute, 0, 0, true, nil).
 		WithOrgRetention(resolver)
 	r.reapPerOrgRetention(context.Background())
+	require.Len(t, deletedOrgs,
+		2,
+	)
+	assert.False(t, deletedOrgs[0] != "org-1" ||
+		deletedOrgs[1] !=
+			"org-2",
+	)
 
 	// org-1 and org-2 should be processed; org-fail should be skipped.
-	if len(deletedOrgs) != 2 {
-		t.Fatalf("expected 2 successful deletes, got %d: %v", len(deletedOrgs), deletedOrgs)
-	}
-	if deletedOrgs[0] != "org-1" || deletedOrgs[1] != "org-2" {
-		t.Errorf("unexpected org order: %v", deletedOrgs)
-	}
+
 }
 
 func TestReaper_OrgRetention_ZeroRetentionDays_Skipped(t *testing.T) {
@@ -448,10 +442,10 @@ func TestReaper_OrgRetention_ZeroRetentionDays_Skipped(t *testing.T) {
 	r := NewReaper(ms, time.Second, 5*time.Minute, 0, 0, true, nil).
 		WithOrgRetention(resolver)
 	r.reapPerOrgRetention(context.Background())
+	require.EqualValues(t, 0,
+		deleteRunsCalled.
+			Load())
 
-	if deleteRunsCalled.Load() != 0 {
-		t.Fatalf("expected no delete calls for zero retention days, got %d", deleteRunsCalled.Load())
-	}
 }
 
 func TestReaper_OrgRetention_NegativeRetentionDays_Skipped(t *testing.T) {
@@ -479,8 +473,8 @@ func TestReaper_OrgRetention_NegativeRetentionDays_Skipped(t *testing.T) {
 	r := NewReaper(ms, time.Second, 5*time.Minute, 0, 0, true, nil).
 		WithOrgRetention(resolver)
 	r.reapPerOrgRetention(context.Background())
+	require.EqualValues(t, 0,
+		deleteRunsCalled.
+			Load())
 
-	if deleteRunsCalled.Load() != 0 {
-		t.Fatalf("expected no delete calls for negative retention days, got %d", deleteRunsCalled.Load())
-	}
 }

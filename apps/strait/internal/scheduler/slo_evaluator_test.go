@@ -8,6 +8,9 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestCalculateErrorBudget_SuccessRate(t *testing.T) {
@@ -65,10 +68,11 @@ func TestCalculateErrorBudget_SuccessRate(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			got := CalculateErrorBudget(tt.current, tt.target, domain.SLOMetricSuccessRate)
-			if got < tt.wantMin || got > tt.wantMax {
-				t.Errorf("CalculateErrorBudget(%v, %v) = %v, want [%v, %v]",
-					tt.current, tt.target, got, tt.wantMin, tt.wantMax)
-			}
+			assert.False(t, got <
+				tt.wantMin ||
+				got > tt.
+					wantMax)
+
 		})
 	}
 }
@@ -113,10 +117,11 @@ func TestCalculateErrorBudget_Latency(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			got := CalculateErrorBudget(tt.current, tt.target, domain.SLOMetricP95LatencySecs)
-			if got < tt.wantMin || got > tt.wantMax {
-				t.Errorf("CalculateErrorBudget(%v, %v) = %v, want [%v, %v]",
-					tt.current, tt.target, got, tt.wantMin, tt.wantMax)
-			}
+			assert.False(t, got <
+				tt.wantMin ||
+				got > tt.
+					wantMax)
+
 		})
 	}
 }
@@ -124,9 +129,9 @@ func TestCalculateErrorBudget_Latency(t *testing.T) {
 func TestCalculateErrorBudget_UnknownMetric(t *testing.T) {
 	t.Parallel()
 	got := CalculateErrorBudget(0.5, 0.99, "unknown_metric")
-	if got != 1.0 {
-		t.Errorf("unknown metric should return 1.0, got %v", got)
-	}
+	assert.EqualValues(t, 1.0,
+		got)
+
 }
 
 func TestCalculateErrorBudget_BudgetClamping(t *testing.T) {
@@ -138,10 +143,10 @@ func TestCalculateErrorBudget_BudgetClamping(t *testing.T) {
 			for current := 0.0; current <= 1.0; current += 0.1 {
 				for target := 0.0; target <= 1.0; target += 0.1 {
 					budget := CalculateErrorBudget(current, target, metric)
-					if budget < 0 || budget > 1 {
-						t.Errorf("budget %v out of range for current=%v target=%v metric=%s",
-							budget, current, target, metric)
-					}
+					assert.False(t, budget <
+						0 || budget >
+						1)
+
 				}
 			}
 		})
@@ -158,13 +163,12 @@ func TestJobSLOStatus_Fields(t *testing.T) {
 		Target:      0.99,
 		WindowHours: 24,
 	}
+	assert.Equal(t, "success_rate",
+		slo.
+			Metric)
+	assert.EqualValues(t, 24,
+		slo.WindowHours)
 
-	if slo.Metric != "success_rate" {
-		t.Errorf("Metric = %q, want %q", slo.Metric, "success_rate")
-	}
-	if slo.WindowHours != 24 {
-		t.Errorf("WindowHours = %d, want %d", slo.WindowHours, 24)
-	}
 }
 
 func TestSLOMetricConstants(t *testing.T) {
@@ -181,9 +185,10 @@ func TestSLOMetricConstants(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.expected, func(t *testing.T) {
 			t.Parallel()
-			if tt.constant != tt.expected {
-				t.Errorf("got %q, want %q", tt.constant, tt.expected)
-			}
+			assert.Equal(t, tt.
+				expected, tt.constant,
+			)
+
 		})
 	}
 }
@@ -211,21 +216,19 @@ func TestSLOEvaluator_WebhookFiredWhenBudgetLow(t *testing.T) {
 	notifier := &mockSLOWebhookNotifier{}
 
 	budget := CalculateErrorBudget(0.90, 0.99, domain.SLOMetricSuccessRate)
-	if budget >= 0.2 {
-		t.Fatalf("test setup: expected budget < 0.2, got %v", budget)
-	}
+	require.False(t, budget >=
+		0.2)
 
 	// Verify the notifier interface works by calling it directly
 	err := notifier.NotifySLOBudgetWarning(context.Background(), "proj-1", json.RawMessage(`{}`))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(notifier.calls) != 1 {
-		t.Fatalf("expected 1 call, got %d", len(notifier.calls))
-	}
-	if notifier.calls[0].projectID != "proj-1" {
-		t.Errorf("projectID = %q, want %q", notifier.calls[0].projectID, "proj-1")
-	}
+	require.NoError(t,
+		err)
+	require.Len(t, notifier.
+		calls, 1)
+	assert.Equal(t, "proj-1",
+		notifier.calls[0].
+			projectID)
+
 }
 
 func TestSLOEvaluator_WebhookNotFiredWhenBudgetHealthy(t *testing.T) {
@@ -233,9 +236,8 @@ func TestSLOEvaluator_WebhookNotFiredWhenBudgetHealthy(t *testing.T) {
 
 	// current=1.0, target=0.99 => budget=1.0 (fully within budget)
 	budget := CalculateErrorBudget(1.0, 0.99, domain.SLOMetricSuccessRate)
-	if budget < 0.2 {
-		t.Fatalf("test setup: expected budget >= 0.2, got %v", budget)
-	}
+	require.GreaterOrEqual(t, budget, 0.2)
+
 }
 
 func TestMetricValue(t *testing.T) {
@@ -261,24 +263,26 @@ func TestMetricValue(t *testing.T) {
 		t.Run(fmt.Sprintf("metric_%s", tt.metric), func(t *testing.T) {
 			t.Parallel()
 			got := metricValue(tt.metric, stats)
-			if got != tt.expected {
-				t.Errorf("metricValue(%q) = %v, want %v", tt.metric, got, tt.expected)
-			}
+			assert.Equal(t, tt.
+				expected, got)
+
 		})
 	}
 }
 
 func TestHasSLOData_SkipsIdleWindows(t *testing.T) {
 	t.Parallel()
-	if hasSLOData(domain.SLOMetricSuccessRate, &store.JobHealthStats{}) {
-		t.Fatal("idle success-rate SLO windows must be treated as no-data")
-	}
-	if !hasSLOData(domain.SLOMetricSuccessRate, &store.JobHealthStats{TotalRuns: 1}) {
-		t.Fatal("non-empty success-rate SLO window should be evaluated")
-	}
-	if hasSLOData("unknown", &store.JobHealthStats{TotalRuns: 1}) {
-		t.Fatal("unknown SLO metric should not be evaluated")
-	}
+	require.False(t, hasSLOData(domain.SLOMetricSuccessRate,
+
+		&store.JobHealthStats{}),
+	)
+	require.True(t, hasSLOData(domain.SLOMetricSuccessRate,
+
+		&store.JobHealthStats{TotalRuns: 1}))
+	require.False(t, hasSLOData("unknown",
+		&store.
+			JobHealthStats{TotalRuns: 1}))
+
 }
 
 func TestSLOEvaluator_AdvisoryLockerNotAcquiredSkipsEvaluation(t *testing.T) {
@@ -288,16 +292,13 @@ func TestSLOEvaluator_AdvisoryLockerNotAcquiredSkipsEvaluation(t *testing.T) {
 	evaluator := NewSLOEvaluator(nil, nil).WithAdvisoryLocker(locker)
 
 	acquired, err := evaluator.evaluateWithOptionalLeader(context.Background())
-	if err != nil {
-		t.Fatalf("evaluateWithOptionalLeader() error = %v", err)
-	}
-	if acquired {
-		t.Fatal("evaluateWithOptionalLeader() acquired lock, want false")
-	}
-	if locker.tryCalls != 1 {
-		t.Fatalf("tryCalls = %d, want 1", locker.tryCalls)
-	}
-	if locker.releaseCalls != 0 {
-		t.Fatalf("releaseCalls = %d, want 0 for unacquired lock", locker.releaseCalls)
-	}
+	require.NoError(t,
+		err)
+	require.False(t, acquired)
+	require.EqualValues(t, 1,
+		locker.tryCalls)
+	require.EqualValues(t, 0,
+		locker.releaseCalls,
+	)
+
 }

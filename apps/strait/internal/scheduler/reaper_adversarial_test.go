@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestReaper_ReapStale_TransientDBFailure_ContinuesOnNextTick verifies that
@@ -44,21 +46,20 @@ func TestReaper_ReapStale_TransientDBFailure_ContinuesOnNextTick(t *testing.T) {
 
 	// First tick: DB fails — must not panic, must return cleanly.
 	r.reapStale(context.Background())
-
-	if callCount.Load() != 1 {
-		t.Fatalf("expected 1 ListStaleRuns call after first tick, got %d", callCount.Load())
-	}
-	if transitioned.Load() != 0 {
-		t.Fatalf("expected 0 transitions after DB failure, got %d", transitioned.Load())
-	}
+	require.EqualValues(t, 1,
+		callCount.
+			Load())
+	require.EqualValues(t, 0,
+		transitioned.
+			Load())
 
 	// Second tick: DB succeeds — run must be processed.
 	r.reapStale(context.Background())
+	require.EqualValues(t, 2,
+		callCount.
+			Load())
+	require.EqualValues(t, 1,
+		transitioned.
+			Load())
 
-	if callCount.Load() != 2 {
-		t.Fatalf("expected 2 total ListStaleRuns calls, got %d", callCount.Load())
-	}
-	if transitioned.Load() != 1 {
-		t.Fatalf("expected 1 crash transition after recovery, got %d", transitioned.Load())
-	}
 }

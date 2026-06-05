@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type fakePartitionStore struct {
@@ -29,29 +31,31 @@ func (f *fakePartitionStore) EnsureOutboxHistoryPartitions(_ context.Context, _ 
 
 func TestPartitionEnsurer_Defaults(t *testing.T) {
 	p := NewPartitionEnsurer(&fakePartitionStore{}, PartitionEnsurerConfig{})
-	if p.interval != 24*time.Hour {
-		t.Errorf("interval = %v", p.interval)
-	}
-	if p.monthsAhead != 2 {
-		t.Errorf("months = %d", p.monthsAhead)
-	}
+	assert.Equal(t, 24*
+		time.Hour,
+		p.interval,
+	)
+	assert.EqualValues(t, 2,
+		p.monthsAhead,
+	)
+
 }
 
 func TestPartitionEnsurer_RunOnceHappyPath(t *testing.T) {
 	s := &fakePartitionStore{}
 	p := NewPartitionEnsurer(s, PartitionEnsurerConfig{MonthsAhead: 3})
-	if err := p.runOnce(context.Background()); err != nil {
-		t.Fatalf("runOnce: %v", err)
-	}
-	if s.calls != 1 {
-		t.Errorf("calls = %d", s.calls)
-	}
-	if p.Iterations() != 1 {
-		t.Errorf("iterations = %d", p.Iterations())
-	}
-	if p.Errors() != 0 {
-		t.Errorf("errors = %d", p.Errors())
-	}
+	require.NoError(t,
+		p.runOnce(
+			context.Background(),
+		))
+	assert.EqualValues(t, 1,
+		s.calls)
+	assert.EqualValues(t, 1,
+		p.Iterations())
+	assert.EqualValues(t, 0,
+		p.Errors(),
+	)
+
 }
 
 func TestPartitionEnsurer_StoreErrorAccumulates(t *testing.T) {
@@ -59,34 +63,35 @@ func TestPartitionEnsurer_StoreErrorAccumulates(t *testing.T) {
 	p := NewPartitionEnsurer(s, PartitionEnsurerConfig{})
 	_ = p.runOnce(context.Background())
 	_ = p.runOnce(context.Background())
-	if p.Errors() != 2 {
-		t.Errorf("errors = %d", p.Errors())
-	}
+	assert.EqualValues(t, 2,
+		p.Errors(),
+	)
+
 }
 
 func TestPartitionEnsurer_PanicReturnsError(t *testing.T) {
 	s := &fakePartitionStore{panicRun: true}
 	p := NewPartitionEnsurer(s, PartitionEnsurerConfig{})
-	if err := p.runOnce(context.Background()); err == nil {
-		t.Fatal("runOnce error = nil, want recovered panic error")
-	}
-	if p.Errors() != 1 {
-		t.Fatalf("errors = %d, want 1", p.Errors())
-	}
+	require.Error(t, p.
+		runOnce(context.
+			Background()),
+	)
+	require.EqualValues(t, 1,
+		p.Errors())
+
 }
 
 func TestPartitionEnsurer_RunOnceForTestPropagatesRecoveredPanic(t *testing.T) {
 	s := &fakePartitionStore{panicRun: true}
 	p := NewPartitionEnsurer(s, PartitionEnsurerConfig{})
-	if err := p.RunOnceForTest(context.Background()); err == nil {
-		t.Fatal("RunOnceForTest error = nil, want recovered panic error")
-	}
-	if p.Iterations() != 1 {
-		t.Fatalf("iterations = %d, want 1", p.Iterations())
-	}
-	if p.Errors() != 1 {
-		t.Fatalf("errors = %d, want 1", p.Errors())
-	}
+	require.Error(t, p.
+		RunOnceForTest(context.
+			Background()))
+	require.EqualValues(t, 1,
+		p.Iterations())
+	require.EqualValues(t, 1,
+		p.Errors())
+
 }
 
 func TestPartitionEnsurer_LockNotAcquired(t *testing.T) {
@@ -94,9 +99,9 @@ func TestPartitionEnsurer_LockNotAcquired(t *testing.T) {
 	locker := &fakeLocker{acquireOK: false}
 	p := NewPartitionEnsurer(s, PartitionEnsurerConfig{}).WithAdvisoryLocker(locker)
 	_ = p.runOnce(context.Background())
-	if s.calls != 0 {
-		t.Errorf("store called despite missing lock: %d", s.calls)
-	}
+	assert.EqualValues(t, 0,
+		s.calls)
+
 }
 
 func TestPartitionEnsurer_LockAcquiredAndReleased(t *testing.T) {
@@ -104,9 +109,12 @@ func TestPartitionEnsurer_LockAcquiredAndReleased(t *testing.T) {
 	locker := &fakeLocker{acquireOK: true}
 	p := NewPartitionEnsurer(s, PartitionEnsurerConfig{}).WithAdvisoryLocker(locker)
 	_ = p.runOnce(context.Background())
-	if !locker.acquired || !locker.released {
-		t.Errorf("lock not used: acquired=%v released=%v", locker.acquired, locker.released)
-	}
+	assert.False(t, !locker.
+		acquired ||
+		!locker.
+			released,
+	)
+
 }
 
 func TestPartitionEnsurer_RunExitsOnCancel(t *testing.T) {
@@ -125,9 +133,9 @@ func TestPartitionEnsurer_RunExitsOnCancel(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(time.Second):
-		t.Fatal("did not exit on cancel")
+		require.Fail(t, "did not exit on cancel")
 	}
-	if p.Iterations() < 2 {
-		t.Errorf("iterations = %d", p.Iterations())
-	}
+	assert.GreaterOrEqual(t, p.Iterations(),
+		int64(2))
+
 }
