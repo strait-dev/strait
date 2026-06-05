@@ -545,6 +545,11 @@ func TestClientSinkConsumerHealth(t *testing.T) {
 			body:       `{"name":"consumer-1","status":"active","health":{"status":"healthy"}}`,
 		},
 		{
+			name:       "active waiting sink",
+			statusCode: http.StatusOK,
+			body:       `{"name":"consumer-1","status":"active","health":{"status":"waiting"}}`,
+		},
+		{
 			name:        "management api rejects token",
 			statusCode:  http.StatusUnauthorized,
 			body:        `bad token`,

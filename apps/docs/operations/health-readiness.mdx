@@ -93,7 +93,7 @@ Each subsystem check is either critical or non-critical. A failing critical chec
 |---|---|---|
 | `database` | Critical | PostgreSQL is unreachable. Readiness fails. |
 | `redis` | Critical | Redis is unreachable. Readiness fails. |
-| `sequin_cdc` | Critical | Sequin CDC is unreachable, unauthenticated, inactive, or unhealthy. Readiness fails. |
+| `sequin_cdc` | Critical | Sequin CDC is unreachable, unauthenticated, inactive, or unhealthy. A newly provisioned active sink that is waiting for first traffic is ready. |
 | `worker_pool` | Critical | The executor pool is exhausted with no available slots. |
 | `queue_depth` | Critical | Pending work exceeds the configured threshold. |
 
