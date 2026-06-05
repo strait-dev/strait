@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -63,7 +64,8 @@ func (s *Server) handleCreateEnvironment(ctx context.Context, input *CreateEnvir
 		return nil, huma.Error403Forbidden("environment-scoped credentials cannot create environments")
 	}
 
-	if err := s.checkEnvironmentLimit(ctx, req.ProjectID); err != nil {
+	orgID, maxEnvironments, displayName, err := s.resolveEnvironmentCreateLimit(ctx, req.ProjectID)
+	if err != nil {
 		return nil, err
 	}
 	if err := s.validateEnvironmentParent(ctx, req.ProjectID, "", req.ParentID); err != nil {
@@ -83,7 +85,21 @@ func (s *Server) handleCreateEnvironment(ctx context.Context, input *CreateEnvir
 		Variables: req.Variables,
 	}
 
-	if err := s.store.CreateEnvironment(ctx, env); err != nil {
+	var createErr error
+	if creator, ok := s.store.(environmentOrgLimitCreator); ok {
+		createErr = creator.CreateEnvironmentWithOrgLimit(ctx, env, orgID, maxEnvironments)
+	} else {
+		if err := s.checkEnvironmentLimit(ctx, req.ProjectID); err != nil {
+			return nil, err
+		}
+		createErr = s.store.CreateEnvironment(ctx, env)
+	}
+	if createErr != nil {
+		if errors.Is(createErr, store.ErrEnvironmentLimitExceeded) {
+			return nil, huma.Error400BadRequest(
+				fmt.Sprintf("Your %s plan allows %d environments. Upgrade at /settings/billing", displayName, maxEnvironments),
+			)
+		}
 		return nil, huma.Error500InternalServerError("failed to create environment")
 	}
 

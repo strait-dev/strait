@@ -5,13 +5,14 @@
  * active addon quantities from the usage API response.
  */
 
+import { ACTIVE_ADDONS, formatPrice } from "@strait/billing/products";
 import type { AddonSummary } from "@/hooks/billing/org-usage";
-import type { AddonTypeSlug } from "./types";
+import type { ActiveAddonTypeSlug, PlanTierSlug } from "./types";
 
 /** A single addon product in the catalog with pricing and checkout info. */
 export type AddonCatalogItem = {
   /** Addon type identifier matching the Go backend. */
-  type: AddonTypeSlug;
+  type: ActiveAddonTypeSlug;
   /** Human-readable addon name. */
   name: string;
   /** Short description of what the addon provides. */
@@ -22,58 +23,62 @@ export type AddonCatalogItem = {
   packUnit: string;
   /** Formatted monthly price string (e.g. "$10/mo"). */
   price: string;
-  /** Stripe checkout slug for addon purchase. */
-  checkoutSlug: string;
+  /** Plans that can buy this add-on. */
+  availableOn: PlanTierSlug[];
+};
+
+const addonDescription = (type: string): string => {
+  switch (type) {
+    case "concurrency_100":
+      return "Increase the number of orchestration runs that can execute simultaneously.";
+    case "history_30d":
+      return "Extend run-history retention by 30 days, up to the launch catalog cap.";
+    default:
+      return "Add five active environments to Pro or Scale plans.";
+  }
+};
+
+const addonPackUnit = (type: string): string => {
+  switch (type) {
+    case "concurrency_100":
+      return "concurrent runs";
+    case "history_30d":
+      return "days";
+    default:
+      return "environments";
+  }
 };
 
 /** The complete addon product catalog with pricing and checkout slugs. */
-export const ADDON_CATALOG: AddonCatalogItem[] = [
-  {
-    type: "concurrent_runs",
-    name: "Concurrent Runs",
-    description: "Increase the number of jobs that can execute simultaneously.",
-    packSize: 50,
-    packUnit: "concurrent runs",
-    price: "$10/mo",
-    checkoutSlug: "addon-concurrent-runs",
-  },
-  {
-    type: "members",
-    name: "Team Members",
-    description: "Add more team members to your organization.",
-    packSize: 1,
-    packUnit: "seat",
-    price: "$5/mo",
-    checkoutSlug: "addon-members",
-  },
-  {
-    type: "cron_schedules",
-    name: "Cron Schedules",
-    description: "Add more scheduled job definitions.",
-    packSize: 25,
-    packUnit: "schedules",
-    price: "$5/mo",
-    checkoutSlug: "addon-cron-schedules",
-  },
-  {
-    type: "data_retention",
-    name: "Data Retention",
-    description: "Extend how long job logs and run history are stored.",
-    packSize: 30,
-    packUnit: "days",
-    price: "$10/mo",
-    checkoutSlug: "addon-data-retention",
-  },
-  {
-    type: "webhook_endpoints",
-    name: "Webhook Endpoints",
-    description: "Add more webhook endpoints for real-time notifications.",
-    packSize: 5,
-    packUnit: "endpoints",
-    price: "$5/mo",
-    checkoutSlug: "addon-webhook-endpoints",
-  },
-];
+export const ADDON_CATALOG: AddonCatalogItem[] = ACTIVE_ADDONS.map((addon) => ({
+  type: addon.type,
+  name: addon.displayName,
+  description: addonDescription(addon.type),
+  packSize: addon.packSize,
+  packUnit: addonPackUnit(addon.type),
+  price: `${formatPrice(addon.priceCents)}/mo`,
+  availableOn: addon.availableOn,
+}));
+
+export const getAddonCatalogItem = (
+  addonType: string
+): AddonCatalogItem | undefined =>
+  ADDON_CATALOG.find((addon) => addon.type === addonType);
+
+export const isAddonAvailableOnPlan = (
+  addonType: string,
+  plan: string | undefined
+): boolean => {
+  const addon = getAddonCatalogItem(addonType);
+  return addon?.availableOn.includes((plan ?? "free") as PlanTierSlug) ?? false;
+};
+
+export const getAvailableAddonCatalog = (
+  plan: string | undefined
+): AddonCatalogItem[] =>
+  ADDON_CATALOG.filter((addon) =>
+    addon.availableOn.includes((plan ?? "free") as PlanTierSlug)
+  );
 
 /**
  * Returns the total active pack count for a specific addon type.

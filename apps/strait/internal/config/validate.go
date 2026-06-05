@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -33,14 +34,35 @@ func (c *Config) Validate() error {
 	if c.RedisURL == "" && (c.RedisSentinelMaster == "" || len(c.RedisSentinelAddrs) == 0) {
 		errs = append(errs, fmt.Errorf("REDIS_URL is required unless REDIS_SENTINEL_MASTER and REDIS_SENTINEL_ADDRS are configured"))
 	}
+	if c.RedisURL != "" {
+		u, parseErr := url.Parse(c.RedisURL)
+		if parseErr != nil || (u.Scheme != "redis" && u.Scheme != "rediss") {
+			errs = append(errs, fmt.Errorf("REDIS_URL must be a valid redis:// or rediss:// URL"))
+		}
+	}
 	if c.SequinBaseURL == "" {
 		errs = append(errs, fmt.Errorf("SEQUIN_BASE_URL is required"))
+	}
+	if c.SequinBaseURL != "" {
+		u, parseErr := url.Parse(c.SequinBaseURL)
+		if parseErr != nil || (u.Scheme != "http" && u.Scheme != "https") {
+			errs = append(errs, fmt.Errorf("SEQUIN_BASE_URL must be a valid HTTP(S) URL"))
+		}
 	}
 	if c.SequinConsumerName == "" {
 		errs = append(errs, fmt.Errorf("SEQUIN_CONSUMER_NAME is required"))
 	}
 	if c.SequinAPIToken == "" {
 		errs = append(errs, fmt.Errorf("SEQUIN_API_TOKEN is required"))
+	}
+	if c.SequinBatchSize <= 0 {
+		errs = append(errs, fmt.Errorf("SEQUIN_BATCH_SIZE must be > 0, got %d", c.SequinBatchSize))
+	}
+	if c.SequinWaitTimeMs <= 0 {
+		errs = append(errs, fmt.Errorf("SEQUIN_WAIT_TIME_MS must be > 0, got %d", c.SequinWaitTimeMs))
+	}
+	if c.SequinWebhookSecret == "" && c.SentryEnvironment != "development" && c.SentryEnvironment != "test" {
+		errs = append(errs, fmt.Errorf("SEQUIN_WEBHOOK_SECRET is required in non-development environments"))
 	}
 
 	// Positive-required durations.

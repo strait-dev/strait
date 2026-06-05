@@ -1,3 +1,7 @@
+import {
+  ACTIVE_ADDON_KEYS,
+  ROADMAP_ADDON_KEYS,
+} from "@strait/billing/products";
 import { Either, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import {
@@ -11,19 +15,15 @@ const validOrgUsage = {
   plan: "starter",
   period: { start: "2026-03-01", end: "2026-03-31" },
   usage: {
+    monthly_runs: { used: 10, limit: 50_000, percent: 0.02 },
     runs_today: { used: 10, limit: 100, percent: 10 },
     concurrent_runs: { used: 1, limit: 5, percent: 20 },
-    compute_credit: { used: 0, limit: 1_000_000, percent: 0 },
     projects: { used: 1, limit: 5, percent: 20 },
     members: { used: 2, limit: 10, percent: 20 },
     retention_days: 7,
-    regions_available: 6,
   },
-  included_credit_microusd: 19_990_000,
   period_spend_microusd: 0,
   overage_microusd: 0,
-  credit_used_percent: 0,
-  credit_remaining_microusd: 19_990_000,
   alerts: [],
 };
 
@@ -58,13 +58,13 @@ describe("OrgUsageResponseSchema", () => {
       ...validOrgUsage,
       enterprise_tier: "enterprise_starter",
       contract_end_date: "2027-03-31",
-      compute_discount_pct: 10,
+      overage_discount_pct: 10,
       sla_uptime_pct: 99.9,
     });
     expect(Either.isRight(result)).toBe(true);
     if (Either.isRight(result)) {
       expect(result.right.enterprise_tier).toBe("enterprise_starter");
-      expect(result.right.compute_discount_pct).toBe(10);
+      expect(result.right.overage_discount_pct).toBe(10);
     }
   });
 
@@ -82,9 +82,9 @@ describe("OrgUsageResponseSchema", () => {
       alerts: [
         {
           type: "approaching_limit",
-          dimension: "runs_today",
+          dimension: "monthly_runs",
           threshold: 80,
-          message: "You've used 80% of daily runs",
+          message: "You've used 80% of monthly runs",
         },
       ],
     });
@@ -95,14 +95,35 @@ describe("OrgUsageResponseSchema", () => {
     }
   });
 
-  it("decodes active_addons when present", () => {
+  it("decodes every launch-active addon type when present", () => {
+    for (const addonType of ACTIVE_ADDON_KEYS) {
+      const result = decode({
+        ...validOrgUsage,
+        active_addons: [{ type: addonType, quantity: 2 }],
+      });
+      expect(Either.isRight(result)).toBe(true);
+      if (Either.isRight(result)) {
+        expect(result.right.active_addons).toHaveLength(1);
+        expect(result.right.active_addons?.[0]?.type).toBe(addonType);
+      }
+    }
+  });
+
+  it("rejects legacy addon types in active_addons", () => {
     const result = decode({
       ...validOrgUsage,
       active_addons: [{ type: "members", quantity: 2 }],
     });
-    expect(Either.isRight(result)).toBe(true);
-    if (Either.isRight(result)) {
-      expect(result.right.active_addons).toHaveLength(1);
+    expect(Either.isLeft(result)).toBe(true);
+  });
+
+  it("rejects every roadmap-only addon type in active_addons", () => {
+    for (const addonType of ROADMAP_ADDON_KEYS) {
+      const result = decode({
+        ...validOrgUsage,
+        active_addons: [{ type: addonType, quantity: 1 }],
+      });
+      expect(Either.isLeft(result)).toBe(true);
     }
   });
 });
@@ -114,10 +135,10 @@ describe("SpendingLimitSchema", () => {
     const result = decode({
       org_id: "org-1",
       plan_tier: "pro",
+      overage_enabled: true,
       spending_limit_usd: 500,
       limit_action: "reject",
       current_spend_usd: 100,
-      included_credit_usd: 49.99,
       overage_spend_usd: 50.01,
       is_hard_capped: false,
     });
@@ -128,10 +149,10 @@ describe("SpendingLimitSchema", () => {
     const result = decode({
       org_id: "org-1",
       plan_tier: "pro",
+      overage_enabled: true,
       spending_limit_usd: 500,
       limit_action: "reject",
       current_spend_usd: 100,
-      included_credit_usd: 49.99,
       overage_spend_usd: 50.01,
       is_hard_capped: "yes",
     });
@@ -145,8 +166,7 @@ describe("UsageForecastSchema", () => {
   it("decodes a valid payload", () => {
     const result = decode({
       projected_monthly_runs: 50_000,
-      projected_monthly_compute_usd: 25.5,
-      projected_monthly_ai_cost_usd: 0.5,
+      projected_monthly_spend_usd: 25.5,
       recommended_plan: "pro",
       days_until_limit: 15,
       projected_overage_microusd: 5_000_000,

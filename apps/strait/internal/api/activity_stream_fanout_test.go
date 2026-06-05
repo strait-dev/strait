@@ -22,6 +22,7 @@ import (
 // own return and tear down the subscriptions while they were still in use.
 func TestProjectActivityStream_FanoutDrains(t *testing.T) {
 	baseline := goleak.IgnoreCurrent()
+	ignoreCacheCleanup := goleak.IgnoreTopFunction("github.com/maypok86/otter/v2.(*cache[...]).periodicCleanUp")
 
 	subscribed := make(chan struct{}, 8)
 	pub := &mockPublisher{
@@ -70,6 +71,5 @@ func TestProjectActivityStream_FanoutDrains(t *testing.T) {
 	srv.Close()
 
 	// All fanout goroutines must be gone now that the handler has returned.
-	srv.Close()
-	goleak.VerifyNone(t, baseline)
+	goleak.VerifyNone(t, baseline, ignoreCacheCleanup)
 }

@@ -124,9 +124,9 @@ func TestWithBillingTx_NilPool_Panics(t *testing.T) {
 
 func TestStripeUsageReporter_EmptySecretKey_Noop(t *testing.T) {
 	t.Parallel()
-	// Empty secret key causes IngestComputeUsage to silently return nil.
+	// Empty secret key causes IngestRunOverage to silently return nil.
 	reporter := NewStripeUsageReporter("", slog.Default())
-	err := reporter.IngestComputeUsage(context.Background(), "cust-1", "run-1", 1000)
+	err := reporter.IngestRunOverage(context.Background(), "cust-1", "run-1")
 	if err != nil {
 		t.Fatalf("expected nil for empty secret key, got: %v", err)
 	}
@@ -134,9 +134,9 @@ func TestStripeUsageReporter_EmptySecretKey_Noop(t *testing.T) {
 
 func TestStripeUsageReporter_EmptyCustomerID_Noop(t *testing.T) {
 	t.Parallel()
-	// Empty customer ID causes IngestComputeUsage to silently return nil.
+	// Empty customer ID causes IngestRunOverage to silently return nil.
 	reporter := NewStripeUsageReporter("sk_test_key", slog.Default())
-	err := reporter.IngestComputeUsage(context.Background(), "", "run-1", 1000)
+	err := reporter.IngestRunOverage(context.Background(), "", "run-1")
 	if err != nil {
 		t.Fatalf("expected nil for empty customer ID, got: %v", err)
 	}
@@ -443,15 +443,20 @@ func TestEnforcer_OverrideRunLimits(t *testing.T) {
 	enforcer := NewEnforcer(store, rdb, slog.Default())
 	ctx := context.Background()
 
-	// Daily override: 10 runs.
-	for range 10 {
+	// Legacy daily overrides are inert for launch. Billing is monthly
+	// orchestration runs, so stale support metadata must not reactivate
+	// a daily quota.
+	for range 11 {
 		if err := enforcer.CheckDailyRunLimit(ctx, "org-override"); err != nil {
-			t.Fatalf("should allow up to override limit: %v", err)
+			t.Fatalf("legacy daily override should not reject launch runs: %v", err)
 		}
 	}
-	err := enforcer.CheckDailyRunLimit(ctx, "org-override")
-	if err == nil {
-		t.Fatal("expected rejection at override limit+1")
+	limits, err := enforcer.GetOrgPlanLimits(ctx, "org-override")
+	if err != nil {
+		t.Fatalf("GetOrgPlanLimits: %v", err)
+	}
+	if limits.MaxRunsPerDay != -1 {
+		t.Fatalf("legacy daily override changed MaxRunsPerDay: got %d, want -1", limits.MaxRunsPerDay)
 	}
 
 	// Concurrent override: 2 runs.

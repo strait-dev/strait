@@ -77,12 +77,12 @@ func TestStaticRegistry_AllowsFeature(t *testing.T) {
 		{domain.PlanPro, FeatureAuditLogs, false},
 		{domain.PlanScale, FeatureAuditLogs, true},
 		{domain.PlanEnterprise, FeatureAuditLogs, true},
-		// SSO: Enterprise only.
+		// SSO: roadmap/contact-sales only at launch.
 		{domain.PlanFree, FeatureSSO, false},
 		{domain.PlanStarter, FeatureSSO, false},
 		{domain.PlanPro, FeatureSSO, false},
 		{domain.PlanScale, FeatureSSO, false},
-		{domain.PlanEnterprise, FeatureSSO, true},
+		{domain.PlanEnterprise, FeatureSSO, false},
 		// SLA: Enterprise only.
 		{domain.PlanPro, FeatureSLA, false},
 		{domain.PlanScale, FeatureSLA, false},
@@ -166,6 +166,20 @@ func TestStaticRegistry_MaxForLimit(t *testing.T) {
 		{domain.PlanFree, LimitAPIRateLimit, 60},
 		{domain.PlanScale, LimitAPIRateLimit, 3000},
 		{domain.PlanEnterprise, LimitAPIRateLimit, -1},
+
+		{domain.PlanFree, LimitWorkerConnections, WorkerConnectionsFree},
+		{domain.PlanStarter, LimitWorkerConnections, WorkerConnectionsStarter},
+		{domain.PlanPro, LimitWorkerConnections, WorkerConnectionsPro},
+		{domain.PlanScale, LimitWorkerConnections, WorkerConnectionsScale},
+		{domain.PlanBusiness, LimitWorkerConnections, WorkerConnectionsBusiness},
+		{domain.PlanEnterprise, LimitWorkerConnections, WorkerConnectionsEnterprise},
+
+		{domain.PlanFree, LimitMaxDispatchPriority, MaxDispatchPriorityFree},
+		{domain.PlanStarter, LimitMaxDispatchPriority, MaxDispatchPriorityStarter},
+		{domain.PlanPro, LimitMaxDispatchPriority, MaxDispatchPriorityPro},
+		{domain.PlanScale, LimitMaxDispatchPriority, MaxDispatchPriorityScale},
+		{domain.PlanBusiness, LimitMaxDispatchPriority, MaxDispatchPriorityBusiness},
+		{domain.PlanEnterprise, LimitMaxDispatchPriority, MaxDispatchPriorityEnterprise},
 	}
 
 	for _, tt := range tests {
@@ -223,7 +237,15 @@ func TestStaticRegistry_FeatureGating_Exhaustive(t *testing.T) {
 		}
 	}
 
-	enterpriseFeatures := []Feature{FeatureSSO, FeatureSLA}
+	for _, f := range roadmapEnterpriseFeatures {
+		for _, tier := range domain.AllPlanTiers() {
+			if reg.AllowsFeature(tier, f) {
+				t.Errorf("%s should not have launch-roadmap feature %q", tier, f)
+			}
+		}
+	}
+
+	enterpriseFeatures := []Feature{FeatureSLA}
 	for _, f := range enterpriseFeatures {
 		for _, tier := range []domain.PlanTier{domain.PlanFree, domain.PlanStarter, domain.PlanPro, domain.PlanScale} {
 			if reg.AllowsFeature(tier, f) {
@@ -241,7 +263,8 @@ func TestStaticRegistry_LimitsMonotonicallyIncrease(t *testing.T) {
 	limits := []LimitKey{
 		LimitMaxProjectsPerOrg, LimitMaxMembersPerOrg, LimitMaxConcurrentRuns,
 		LimitRetentionDays, LimitMaxWorkflowDAGSteps, LimitMaxScheduledJobs,
-		LimitMaxWebhookEndpoints, LimitAPIRateLimit,
+		LimitMaxWebhookEndpoints, LimitAPIRateLimit, LimitWorkerConnections,
+		LimitMaxDispatchPriority,
 	}
 
 	tiers := domain.AllPlanTiers()
@@ -287,12 +310,12 @@ func TestStaticRegistry_RequiredPlanForFeature(t *testing.T) {
 		// Scale features.
 		{FeatureAuditLogs, domain.PlanScale},
 		{FeatureCanaryDeployments, domain.PlanScale},
-		// Business features (Business is the lowest tier with these now).
-		{FeatureSSO, domain.PlanBusiness},
+		// Business features.
 		{FeatureSLA, domain.PlanBusiness},
-		{FeatureSCIM, domain.PlanBusiness},
-		// Enterprise-only features.
-		{FeatureDedicatedCompute, domain.PlanEnterprise},
+		// Roadmap/contact-sales features have no launch upgrade tier.
+		{FeatureSSO, ""},
+		{FeatureSCIM, ""},
+		{FeatureDedicatedCompute, ""},
 		// Unknown feature defaults to enterprise.
 		{Feature("nonexistent"), domain.PlanEnterprise},
 	}

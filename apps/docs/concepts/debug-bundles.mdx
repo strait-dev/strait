@@ -6,7 +6,7 @@ icon: 'bug'
 
 ## When to use
 
-A job is failing intermittently and logs alone don't explain why. Enable debug mode to capture everything: events, checkpoints, token usage, tool calls, and resource utilization. Once the run completes, retrieve the bundle and inspect what happened.
+A job is failing intermittently and logs alone don't explain why. Enable debug mode to capture events, checkpoints, progress, outputs, and resource utilization. Once the run completes, retrieve the bundle and inspect what happened.
 
 ## Enabling debug mode
 
@@ -17,7 +17,7 @@ Two ways to turn it on:
 ```bash
 curl -X POST https://api.strait.dev/v1/jobs/{jobID}/trigger \
   -H "Authorization: Bearer $STRAIT_API_KEY" \
-  -d '{"payload": {"prompt": "summarize Q4"}, "debug_mode": true}'
+  -d '{"payload": {"order_id": "ord_123"}, "debug_mode": true}'
 ```
 
 **After the run starts**: call the debug endpoint on an existing run.
@@ -36,8 +36,6 @@ The second approach is useful when a run is already in progress and you want to 
 |---|---|
 | Events | State changes and events emitted during the run |
 | Checkpoints | Snapshots of run state at each step boundary |
-| Usage records | Token counts and cost per model call |
-| Tool calls | Input, output, and duration of each tool invocation |
 | Outputs | Final and intermediate outputs from the run |
 | Resource snapshots | CPU, memory, and other resource metrics during execution |
 
@@ -59,12 +57,6 @@ curl https://api.strait.dev/v1/runs/{runID}/debug-bundle \
   ],
   "checkpoints": [
     {"step": 1, "state": "executing", "at": "2026-01-15T10:00:01Z"}
-  ],
-  "usage": [
-    {"model": "gpt-4o", "input_tokens": 1200, "output_tokens": 350, "cost_usd": 0.018}
-  ],
-  "tool_calls": [
-    {"name": "search", "input": {"query": "Q4 results"}, "output": "...", "duration_ms": 340}
   ],
   "outputs": [
     {"step": 2, "value": "Q4 revenue grew 12% year-over-year..."}

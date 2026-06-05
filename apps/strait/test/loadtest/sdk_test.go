@@ -204,74 +204,6 @@ func TestSDK_Checkpoint(t *testing.T) {
 	})
 }
 
-// SDK Usage
-
-func TestSDK_Usage(t *testing.T) {
-	mustClean(t)
-	projectID := "proj-sdk-usage-" + newID()
-	jobID := seedJob(t, projectID)
-	runID, runToken := seedExecutingRun(t, jobID)
-
-	var counter atomic.Int64
-	tgt := newSDKTargeter("POST", "/sdk/v1/runs/"+runID+"/usage", runToken, func() []byte {
-		n := counter.Add(1)
-		return fmt.Appendf(nil,
-			`{"provider":"openai","model":"gpt-4","prompt_tokens":%d,"completion_tokens":%d,"cost_microusd":%d}`,
-			100+n%500, 50+n%200, 10+n%100,
-		)
-	})
-
-	t.Run("baseline", func(t *testing.T) {
-		m := runBaseline(t, "sdk-usage", tgt)
-		assertLatencySLA(t, m)
-		assertSuccessRate(t, m, 0.99)
-	})
-	t.Run("stress", func(t *testing.T) {
-		m := runStress(t, "sdk-usage", tgt)
-		assertSuccessRate(t, m, 0.95)
-		assertNoServerErrors(t, m)
-	})
-	t.Run("spike", func(t *testing.T) {
-		m := runSpike(t, "sdk-usage", tgt)
-		assertSuccessRate(t, m, 0.90)
-		assertNoServerErrors(t, m)
-	})
-}
-
-// SDK Tool Call
-
-func TestSDK_ToolCall(t *testing.T) {
-	mustClean(t)
-	projectID := "proj-sdk-tc-" + newID()
-	jobID := seedJob(t, projectID)
-	runID, runToken := seedExecutingRun(t, jobID)
-
-	var counter atomic.Int64
-	tgt := newSDKTargeter("POST", "/sdk/v1/runs/"+runID+"/tool-call", runToken, func() []byte {
-		n := counter.Add(1)
-		return fmt.Appendf(nil,
-			`{"tool_name":"search-%d","input":{"query":"test %d"},"output":{"results":%d},"duration_ms":%d,"status":"success"}`,
-			n%10, n, n%100, 50+n%500,
-		)
-	})
-
-	t.Run("baseline", func(t *testing.T) {
-		m := runBaseline(t, "sdk-tool-call", tgt)
-		assertLatencySLA(t, m)
-		assertSuccessRate(t, m, 0.99)
-	})
-	t.Run("stress", func(t *testing.T) {
-		m := runStress(t, "sdk-tool-call", tgt)
-		assertSuccessRate(t, m, 0.95)
-		assertNoServerErrors(t, m)
-	})
-	t.Run("spike", func(t *testing.T) {
-		m := runSpike(t, "sdk-tool-call", tgt)
-		assertSuccessRate(t, m, 0.90)
-		assertNoServerErrors(t, m)
-	})
-}
-
 // SDK Output
 
 func TestSDK_Output(t *testing.T) {
@@ -487,8 +419,6 @@ func TestSDK_ConcurrentMixedOperations(t *testing.T) {
 		{"/sdk/v1/runs/" + runID + "/heartbeat", ""},
 		{"/sdk/v1/runs/" + runID + "/progress", `{"percent":50,"message":"halfway"}`},
 		{"/sdk/v1/runs/" + runID + "/checkpoint", `{"state":{"cursor":1}}`},
-		{"/sdk/v1/runs/" + runID + "/usage", `{"provider":"openai","model":"gpt-4","prompt_tokens":10,"completion_tokens":5}`},
-		{"/sdk/v1/runs/" + runID + "/tool-call", `{"tool_name":"search","input":{"q":"test"}}`},
 		{"/sdk/v1/runs/" + runID + "/output", `{"output_key":"mixed","value":{"ok":true}}`},
 		{"/sdk/v1/runs/" + runID + "/annotate", `{"annotations":{"env":"test"}}`},
 	}

@@ -52,7 +52,7 @@ func newAuditVerifyMetricsServer(t *testing.T, ms *APIStoreMock, h *auditMetrics
 		Config:  cfg,
 		Store:   ms,
 		Metrics: h.metrics,
-		Edition: domain.EditionCloud,
+		Edition: domain.EditionCommunity,
 	})
 	t.Cleanup(srv.Close)
 	return srv

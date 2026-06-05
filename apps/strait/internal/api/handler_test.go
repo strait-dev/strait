@@ -53,7 +53,7 @@ func newTestServer(t *testing.T, s APIStore, q *mockQueue, pub *mockPublisher) *
 		Store:   s,
 		Queue:   q,
 		PubSub:  p,
-		Edition: domain.EditionCloud,
+		Edition: domain.EditionCommunity,
 	})
 	t.Cleanup(srv.Close)
 	return srv
@@ -2419,8 +2419,6 @@ func TestHandleGetDebugBundle_Success(t *testing.T) {
 				Run:         &domain.JobRun{ID: "run-1", Status: domain.StatusCompleted},
 				Events:      []domain.RunEvent{{ID: "evt-1", RunID: "run-1", Message: "started"}},
 				Checkpoints: []domain.RunCheckpoint{{ID: "cp-1", RunID: "run-1", Sequence: 1}},
-				Usage:       []domain.RunUsage{},
-				ToolCalls:   []domain.RunToolCall{},
 				Outputs:     []domain.RunOutput{},
 			}, nil
 		},

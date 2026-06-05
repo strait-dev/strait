@@ -69,6 +69,7 @@ type Enforcer struct {
 	sentryMode      string
 	sentryRegion    string
 	sentryVersion   string
+	requireRedis    bool
 	bgWG            conc.WaitGroup
 	// entitlementsAuthoritative controls whether GetOrgPlanLimits reads the
 	// persisted snapshot directly when present. When false, it always recomputes
@@ -132,6 +133,13 @@ func (e *Enforcer) failClosedPlanLimitLookup(ctx context.Context, orgID, checkTy
 		Code:    "billing_plan_unavailable",
 		Message: "Billing enforcement is temporarily unavailable. Please retry shortly.",
 		Plan:    string(domain.PlanFree),
+	}
+}
+
+func serviceDegradedLimitError() *LimitError {
+	return &LimitError{
+		Code:    "service_degraded",
+		Message: "Billing enforcement is temporarily unavailable. Please retry shortly.",
 	}
 }
 
@@ -292,6 +300,16 @@ func WithClickHouse(exporter billingEventEnqueuer) EnforcerOption {
 // WithEnforcerBillingEmails attaches a billing email sender for spending alerts.
 func WithEnforcerBillingEmails(sender *BillingEmailSender) EnforcerOption {
 	return func(e *Enforcer) { e.billingEmails = sender }
+}
+
+// WithRequireRedis makes Redis-backed limit gates fail closed when the
+// enforcer has no Redis client. Use this when cloud billing enforcement is
+// enabled; community and webhook-only paths can keep the default no-op
+// behavior for Redis-backed counters.
+func WithRequireRedis() EnforcerOption {
+	return func(e *Enforcer) {
+		e.requireRedis = true
+	}
 }
 
 // WithEntitlementsAuthoritative toggles whether the Enforcer reads the
@@ -557,7 +575,10 @@ func (e *Enforcer) GetOrgPlanLimits(ctx context.Context, orgID string) (limits O
 
 	// Otherwise, result is the OrgSubscription — build limits from it.
 	sub := result.(*OrgSubscription)
-	resolution := e.resolveOrgPlanLimits(ctx, orgID, sub)
+	resolution, err := e.resolveOrgPlanLimits(ctx, orgID, sub)
+	if err != nil {
+		return OrgPlanLimits{}, err
+	}
 
 	cached := &cachedOrgLimits{
 		tier:            resolution.tier,
@@ -586,7 +607,7 @@ func (e *Enforcer) checkPaymentStatus(ctx context.Context, orgID string) error {
 			return nil // free tier, no payment status
 		}
 		e.logger.Warn("failed to get org subscription for payment check", "org_id", orgID, "error", err)
-		return e.boundedFailOpen(ctx, orgID, "payment_status", "db_error")
+		return serviceDegradedLimitError()
 	}
 
 	switch sub.PaymentStatus {
@@ -631,7 +652,7 @@ func (e *Enforcer) CheckDailyRunLimit(ctx context.Context, orgID string) error {
 	limits, err := e.GetOrgPlanLimits(ctx, orgID)
 	if err != nil {
 		e.logger.Warn("failed to get org plan limits for run check", "org_id", orgID, "error", err)
-		return e.boundedFailOpen(ctx, orgID, "daily_run", "db_error")
+		return e.failClosedPlanLimitLookup(ctx, orgID, "daily_run", err)
 	}
 	e.resetFailOpen(orgID, "daily_run")
 
@@ -649,13 +670,13 @@ func (e *Enforcer) CheckDailyRunLimit(ctx context.Context, orgID string) error {
 		limits.MaxRunsPerDay, int(48*time.Hour/time.Second)).Result()
 	if err != nil {
 		e.logger.Warn("failed to run atomic daily run check", "org_id", orgID, "error", err)
-		return e.boundedFailOpen(ctx, orgID, "daily_run", "redis_error")
+		return serviceDegradedLimitError()
 	}
 
 	vals, ok := result.([]any)
 	if !ok || len(vals) < 2 {
 		e.logger.Warn("unexpected result from atomic daily run check", "org_id", orgID)
-		return e.boundedFailOpen(ctx, orgID, "daily_run", "redis_error")
+		return serviceDegradedLimitError()
 	}
 
 	allowed, _ := vals[0].(int64)
@@ -707,98 +728,6 @@ func (e *Enforcer) DecrDailyRunCount(ctx context.Context, orgID string) {
 	}
 }
 
-// dailyAIModelCallKey returns the Redis key for the org's daily AI model call counter.
-// Key is scoped to the calendar day (UTC) and expires after 48 hours.
-func dailyAIModelCallKey(orgID string, t time.Time) string {
-	return fmt.Sprintf("strait:org_ai_calls:%s:%s", orgID, t.UTC().Format("2006-01-02"))
-}
-
-// CheckDailyAIModelCallLimit checks if the org has exceeded its daily AI model
-// call quota. Mirrors CheckDailyRunLimit: Free tier hard-rejects when over;
-// paid plans log overage (counted but not blocked) and let the call through.
-// Uses the same atomic INCR Lua script as the daily run check so the counter
-// is never incremented above the cap.
-func (e *Enforcer) CheckDailyAIModelCallLimit(ctx context.Context, orgID string) error {
-	if orgID == "" || e.rdb == nil {
-		return nil
-	}
-
-	if err := e.checkPaymentStatus(ctx, orgID); err != nil {
-		return err
-	}
-
-	limits, err := e.GetOrgPlanLimits(ctx, orgID)
-	if err != nil {
-		e.logger.Warn("failed to get org plan limits for ai call check", "org_id", orgID, "error", err)
-		return e.boundedFailOpen(ctx, orgID, "daily_ai_call", "db_error")
-	}
-	e.resetFailOpen(orgID, "daily_ai_call")
-
-	if e.checkEnforcementMode(ctx, orgID, "daily_ai_call") {
-		return nil
-	}
-
-	if limits.MaxAIModelCallsPerDay == -1 {
-		return nil // unlimited
-	}
-
-	key := dailyAIModelCallKey(orgID, time.Now())
-	result, err := atomicIncrCheckScript.Run(ctx, e.rdb, []string{key},
-		limits.MaxAIModelCallsPerDay, int(48*time.Hour/time.Second)).Result()
-	if err != nil {
-		e.logger.Warn("failed to run atomic ai call check", "org_id", orgID, "error", err)
-		return e.boundedFailOpen(ctx, orgID, "daily_ai_call", "redis_error")
-	}
-
-	vals, ok := result.([]any)
-	if !ok || len(vals) < 2 {
-		e.logger.Warn("unexpected result from atomic ai call check", "org_id", orgID)
-		return e.boundedFailOpen(ctx, orgID, "daily_ai_call", "redis_error")
-	}
-
-	allowed, _ := vals[0].(int64)
-	currentCount, _ := vals[1].(int64)
-
-	if allowed == 0 {
-		// Paid plans allow overage (logged for billing, not rejected).
-		if limits.PlanTier != domain.PlanFree {
-			e.logger.Info("daily ai call limit exceeded on paid plan (overage allowed)",
-				"org_id", orgID,
-				"plan", limits.DisplayName,
-				"limit", limits.MaxAIModelCallsPerDay,
-				"current", currentCount,
-			)
-			recordBillingOverageEntered(ctx, string(limits.PlanTier))
-			return nil
-		}
-
-		// Free tier: hard reject.
-		e.recordRejection(ctx, "daily_ai_call_limit", limits.PlanTier)
-		return &LimitError{
-			Code:         "org_daily_ai_call_limit_exceeded",
-			Message:      fmt.Sprintf("Your %s plan allows %d AI model calls per day. You've used %d.", limits.DisplayName, limits.MaxAIModelCallsPerDay, currentCount),
-			CurrentUsage: currentCount,
-			Limit:        int64(limits.MaxAIModelCallsPerDay),
-			Plan:         string(limits.PlanTier),
-			UpgradeURL:   "/upgrade",
-		}
-	}
-
-	return nil
-}
-
-// DecrDailyAIModelCallCount decrements the daily AI call counter (for rollback
-// on failure after a successful CheckDailyAIModelCallLimit increment).
-func (e *Enforcer) DecrDailyAIModelCallCount(ctx context.Context, orgID string) {
-	if orgID == "" || e.rdb == nil {
-		return
-	}
-	key := dailyAIModelCallKey(orgID, time.Now())
-	if err := decrFloorScript.Run(ctx, e.rdb, []string{key}).Err(); err != nil {
-		e.logger.Warn("failed to decrement org ai call counter", "org_id", orgID, "error", err)
-	}
-}
-
 // monthlyRunKey returns the Redis key for the org's monthly run counter.
 // Key is scoped to the calendar month (UTC) and expires after 62 days.
 func monthlyRunKey(orgID string, t time.Time) string {
@@ -822,10 +751,29 @@ func (e *Enforcer) DecrMonthlyRunCount(ctx context.Context, orgID string) {
 const monthlyRunCounterTTLSecs = int(62 * 24 * time.Hour / time.Second)
 
 // CheckMonthlyRunLimit checks if the org has exceeded its monthly run quota.
-// Free-tier orgs are hard-capped; paid plans enter overage (counted but not rejected).
+// Orgs with overage enabled enter metered overage; orgs with overage disabled
+// are hard-capped at the included monthly allowance.
 // Returns a *LimitError with code "plan_cap_reached" when the free cap is hit.
 func (e *Enforcer) CheckMonthlyRunLimit(ctx context.Context, orgID string) error {
-	if orgID == "" || e.rdb == nil {
+	return e.checkMonthlyRunLimit(ctx, orgID, "")
+}
+
+// CheckMonthlyRunLimitForRun checks the monthly quota and records whether this
+// specific run is billable overage. Stripe metering consumes that marker after
+// the run completes so included-allowance runs are never reported as overage.
+func (e *Enforcer) CheckMonthlyRunLimitForRun(ctx context.Context, orgID, runID string) error {
+	return e.checkMonthlyRunLimit(ctx, orgID, runID)
+}
+
+func (e *Enforcer) checkMonthlyRunLimit(ctx context.Context, orgID, runID string) error {
+	if orgID == "" {
+		return nil
+	}
+	if e.rdb == nil {
+		if e.requireRedis {
+			e.logger.Warn("monthly run limit unavailable: Redis client not configured", "org_id", orgID)
+			return serviceDegradedLimitError()
+		}
 		return nil
 	}
 
@@ -836,7 +784,7 @@ func (e *Enforcer) CheckMonthlyRunLimit(ctx context.Context, orgID string) error
 	limits, err := e.GetOrgPlanLimits(ctx, orgID)
 	if err != nil {
 		e.logger.Warn("failed to get org plan limits for monthly run check", "org_id", orgID, "error", err)
-		return e.boundedFailOpen(ctx, orgID, "monthly_run", "db_error")
+		return e.failClosedPlanLimitLookup(ctx, orgID, "monthly_run", err)
 	}
 	e.resetFailOpen(orgID, "monthly_run")
 
@@ -854,13 +802,13 @@ func (e *Enforcer) CheckMonthlyRunLimit(ctx context.Context, orgID string) error
 		int64(limits.MaxRunsPerMonth), int64(monthlyRunCounterTTLSecs)).Result()
 	if err != nil {
 		e.logger.Warn("failed to run atomic monthly run check", "org_id", orgID, "error", err)
-		return e.boundedFailOpen(ctx, orgID, "monthly_run", "redis_error")
+		return serviceDegradedLimitError()
 	}
 
 	vals, ok := result.([]any)
 	if !ok || len(vals) < 2 {
 		e.logger.Warn("unexpected result from atomic monthly run check", "org_id", orgID)
-		return e.boundedFailOpen(ctx, orgID, "monthly_run", "redis_error")
+		return serviceDegradedLimitError()
 	}
 
 	allowed, _ := vals[0].(int64)
@@ -871,9 +819,8 @@ func (e *Enforcer) CheckMonthlyRunLimit(ctx context.Context, orgID string) error
 		currentCount, int64(limits.MaxRunsPerMonth))
 
 	if allowed == 0 {
-		// Paid plans allow overage — track but don't reject.
-		if limits.PlanTier != domain.PlanFree {
-			e.logger.Info("monthly run cap exceeded on paid plan (overage allowed)",
+		if e.orgAllowsOverage(ctx, orgID, limits.PlanTier) {
+			e.logger.Info("monthly run cap exceeded with overage enabled",
 				"org_id", orgID,
 				"plan", limits.DisplayName,
 				"limit", limits.MaxRunsPerMonth,
@@ -881,14 +828,28 @@ func (e *Enforcer) CheckMonthlyRunLimit(ctx context.Context, orgID string) error
 			)
 			e.emitBillingEvent(orgID, "monthly_run_overage", string(limits.PlanTier))
 			recordBillingOverageRun(ctx, "monthly_runs", string(limits.PlanTier))
+			if err := e.markRunOverage(ctx, runID); err != nil {
+				e.logger.Warn("failed to mark monthly run overage, failing closed",
+					"org_id", orgID,
+					"run_id", runID,
+					"error", err,
+				)
+				return serviceDegradedLimitError()
+			}
 			return nil
 		}
 
-		// Free tier: hard reject.
 		e.recordRejection(ctx, "monthly_run_limit", limits.PlanTier)
+		if err := e.PauseJobsForQuotaExceeded(ctx, orgID); err != nil {
+			e.logger.Warn("failed to pause jobs after monthly run cap reached", "org_id", orgID, "error", err)
+		}
+		message := fmt.Sprintf("Your %s plan allows %d runs per month. You've used %d. Upgrade to continue.", limits.DisplayName, limits.MaxRunsPerMonth, currentCount)
+		if limits.PlanTier != domain.PlanFree {
+			message = fmt.Sprintf("Your %s plan allows %d included runs per month and overage is disabled. You've used %d. Enable overage or upgrade to continue.", limits.DisplayName, limits.MaxRunsPerMonth, currentCount)
+		}
 		return &LimitError{
 			Code:         "plan_cap_reached",
-			Message:      fmt.Sprintf("Your %s plan allows %d runs per month. You've used %d. Upgrade to continue.", limits.DisplayName, limits.MaxRunsPerMonth, currentCount),
+			Message:      message,
 			CurrentUsage: currentCount,
 			Limit:        int64(limits.MaxRunsPerMonth),
 			Plan:         string(limits.PlanTier),
@@ -897,6 +858,43 @@ func (e *Enforcer) CheckMonthlyRunLimit(ctx context.Context, orgID string) error
 	}
 
 	return nil
+}
+
+func (e *Enforcer) orgAllowsOverage(ctx context.Context, orgID string, tier domain.PlanTier) bool {
+	if e.store == nil {
+		return tier != domain.PlanFree
+	}
+	sub, err := e.store.GetOrgSubscription(ctx, orgID)
+	if err != nil || sub == nil {
+		return tier != domain.PlanFree
+	}
+	return !sub.OverageDisabled
+}
+
+func (e *Enforcer) markRunOverage(ctx context.Context, runID string) error {
+	if runID == "" || e.rdb == nil {
+		return nil
+	}
+	if err := e.rdb.Set(ctx, runOverageKey(runID), "1", time.Duration(monthlyRunCounterTTLSecs)*time.Second).Err(); err != nil {
+		return fmt.Errorf("mark run overage: %w", err)
+	}
+	return nil
+}
+
+func (e *Enforcer) IsRunOverage(ctx context.Context, runID string) bool {
+	if runID == "" || e.rdb == nil {
+		return false
+	}
+	ok, err := e.rdb.Exists(ctx, runOverageKey(runID)).Result()
+	if err != nil {
+		e.logger.Warn("failed to read run overage marker", "run_id", runID, "error", err)
+		return false
+	}
+	return ok > 0
+}
+
+func runOverageKey(runID string) string {
+	return "billing:run_overage:" + runID
 }
 
 // GetMonthlyRunCount returns the current monthly run count for an org from Redis.
@@ -1045,7 +1043,14 @@ return count
 // CheckConcurrentRunLimit checks if the org has exceeded its concurrent run limit.
 // Uses a Lua script for atomic increment+check. Call DecrConcurrentRunCount when the run finishes.
 func (e *Enforcer) CheckConcurrentRunLimit(ctx context.Context, orgID string) error {
-	if orgID == "" || e.rdb == nil {
+	if orgID == "" {
+		return nil
+	}
+	if e.rdb == nil {
+		if e.requireRedis {
+			e.logger.Warn("concurrent run limit unavailable: Redis client not configured", "org_id", orgID)
+			return serviceDegradedLimitError()
+		}
 		return nil
 	}
 
@@ -1070,7 +1075,7 @@ func (e *Enforcer) CheckConcurrentRunLimit(ctx context.Context, orgID string) er
 	).Int64()
 	if err != nil {
 		e.logger.Warn("failed to run concurrent check script", "org_id", orgID, "error", err)
-		return e.boundedFailOpen(ctx, orgID, "concurrent_run", "redis_error")
+		return serviceDegradedLimitError()
 	}
 
 	if result == -1 {
@@ -1130,17 +1135,17 @@ func (e *Enforcer) DecrConcurrentRunCount(ctx context.Context, orgID string) {
 	}
 }
 
-// CheckMaxDispatchPriority checks whether requestedPriority is within the cap
-// allowed by the org's current plan. Call this at enqueue time before writing
-// the run to the queue.
+// CheckMaxDispatchPriority checks whether requestedPriority is within the
+// launch platform cap resolved from the org's current plan. Priority is not a
+// paid launch entitlement; every active plan uses the same bounded range.
 //
 // MaxDispatchPriority semantics:
-//   - -1  unlimited (Enterprise)
-//   - 0   only the default priority (Free, Starter)
-//   - N>0 priorities 0..N are allowed (Pro: 10, Scale: 50)
+//   - -1  unlimited
+//   - 0   only the default priority
+//   - N>0 priorities 0..N are allowed
 //
 // projectID is used to resolve the org. Returns a *LimitError when the
-// requested priority exceeds the cap; nil on success or fail-open.
+// requested priority exceeds the cap; nil on success.
 func (e *Enforcer) CheckMaxDispatchPriority(ctx context.Context, projectID string, requestedPriority int) error {
 	if e == nil || projectID == "" || requestedPriority <= 0 {
 		return nil // priority 0 is always valid
@@ -1161,12 +1166,11 @@ func (e *Enforcer) CheckMaxDispatchPriority(ctx context.Context, projectID strin
 	if err != nil {
 		e.logger.Warn("failed to get org plan limits for dispatch priority check",
 			"org_id", orgID, "error", err)
-		// Fail closed with the most-restrictive default (Free tier: cap = 0).
-		// Any non-zero requestedPriority is rejected.
+		// Fail closed: a lookup failure must not grant elevated priority.
 		return &LimitError{
 			Code: "dispatch_priority_exceeded",
 			Message: fmt.Sprintf(
-				"could not verify plan limits: %v. Requested priority %d exceeds the default cap of 0.",
+				"could not verify plan limits: %v. Requested priority %d was rejected.",
 				err, requestedPriority,
 			),
 		}
@@ -1181,13 +1185,12 @@ func (e *Enforcer) CheckMaxDispatchPriority(ctx context.Context, projectID strin
 		return &LimitError{
 			Code: "dispatch_priority_exceeded",
 			Message: fmt.Sprintf(
-				"Your %s plan allows a maximum dispatch priority of %d. Requested: %d. Upgrade to use higher priority values.",
-				limits.DisplayName, limits.MaxDispatchPriority, requestedPriority,
+				"Dispatch priority must be at most %d. Requested: %d.",
+				limits.MaxDispatchPriority, requestedPriority,
 			),
 			CurrentUsage: int64(requestedPriority),
 			Limit:        int64(limits.MaxDispatchPriority),
 			Plan:         string(limits.PlanTier),
-			UpgradeURL:   "/upgrade",
 		}
 	}
 
@@ -1212,7 +1215,8 @@ func (e *Enforcer) CheckProjectLimit(ctx context.Context, orgID string) error {
 
 	count, err := e.store.CountProjectsByOrg(ctx, orgID)
 	if err != nil {
-		return e.boundedFailOpen(ctx, orgID, "project_limit", "db_error")
+		e.logger.Warn("failed to count org projects for project limit check", "org_id", orgID, "error", err)
+		return serviceDegradedLimitError()
 	}
 	e.resetFailOpen(orgID, "project_limit")
 
@@ -1244,7 +1248,8 @@ func (e *Enforcer) CheckSpendingLimit(ctx context.Context, orgID string) error {
 		if errors.Is(err, ErrSubscriptionNotFound) {
 			return e.checkFreeTierIncludedCredit(ctx, orgID, nil)
 		}
-		return e.boundedFailOpen(ctx, orgID, "spending_limit", "db_error")
+		e.logger.Warn("failed to get org subscription for spending check", "org_id", orgID, "error", err)
+		return serviceDegradedLimitError()
 	}
 
 	limits := GetPlanLimits(domain.PlanTier(sub.PlanTier))
@@ -1269,7 +1274,7 @@ func (e *Enforcer) CheckSpendingLimit(ctx context.Context, orgID string) error {
 	periodSpend, err := e.store.SumOrgPeriodSpend(ctx, orgID, periodStart)
 	if err != nil {
 		e.logger.Warn("failed to sum org period spend", "org_id", orgID, "error", err)
-		return e.boundedFailOpen(ctx, orgID, "spending_limit", "db_spend_error")
+		return serviceDegradedLimitError()
 	}
 
 	overageSpend := computeOverageSpend(periodSpend, 0)
@@ -1340,6 +1345,9 @@ func (e *Enforcer) CheckSpendingLimit(ctx context.Context, orgID string) error {
 		}
 
 		if spendingLimitActionBlocks(sub.LimitAction) {
+			if pauseErr := e.PauseJobsForQuotaExceeded(ctx, orgID); pauseErr != nil {
+				e.logger.Warn("failed to pause jobs after spending limit reached", "org_id", orgID, "error", pauseErr)
+			}
 			return &LimitError{
 				Code:         "spending_limit_reached",
 				Message:      fmt.Sprintf("Your monthly spending limit of $%.2f has been reached.", float64(sub.SpendingLimitMicrousd)/1000000),
@@ -1368,7 +1376,7 @@ func (e *Enforcer) checkFreeTierIncludedCredit(ctx context.Context, orgID string
 	periodSpend, err := e.store.SumOrgPeriodSpend(ctx, orgID, periodStart)
 	if err != nil {
 		e.logger.Warn("failed to sum free-tier period spend", "org_id", orgID, "error", err)
-		return nil
+		return serviceDegradedLimitError()
 	}
 
 	// Free tier has no included compute credit; any spend is overage.
@@ -1403,10 +1411,7 @@ func (e *Enforcer) CheckProjectBudgetLimit(ctx context.Context, projectID string
 	budget, action, err := e.store.GetProjectBudget(ctx, projectID)
 	if err != nil {
 		e.logger.Warn("failed to read project budget", "project_id", projectID, "error", err)
-		// Fail-open here matches the spending-check posture: a transient DB
-		// error must not block the entire dispatch path. The org-level
-		// CheckSpendingLimit (which is fail-closed) still gates abuse.
-		return nil
+		return serviceDegradedLimitError()
 	}
 
 	// budget_action="notify" or unset means the budget is informational only.
@@ -1423,7 +1428,7 @@ func (e *Enforcer) CheckProjectBudgetLimit(ctx context.Context, projectID string
 	if err != nil {
 		e.logger.Warn("failed to resolve org for project budget check",
 			"project_id", projectID, "error", err)
-		return nil
+		return serviceDegradedLimitError()
 	}
 
 	var sub *OrgSubscription
@@ -1440,7 +1445,7 @@ func (e *Enforcer) CheckProjectBudgetLimit(ctx context.Context, projectID string
 	if err != nil {
 		e.logger.Warn("failed to read project period spend",
 			"project_id", projectID, "error", err)
-		return nil
+		return serviceDegradedLimitError()
 	}
 
 	if !isOverageLimitReached(budget, spend) {
@@ -1514,15 +1519,19 @@ func normalizeWorkerConnectionLease(lease time.Duration) time.Duration {
 // expiry so long-lived streams remain counted across API replicas.
 func (e *Enforcer) ReserveWorkerConnection(ctx context.Context, orgID, reservationID string, lease time.Duration) (func(), error) {
 	releaseNoop := func() {}
-	if e == nil || orgID == "" || reservationID == "" || e.rdb == nil {
+	if e == nil || orgID == "" || reservationID == "" {
 		return releaseNoop, nil
+	}
+	if e.rdb == nil {
+		e.logger.Warn("worker connection reservation unavailable: Redis client not configured", "org_id", orgID)
+		return releaseNoop, serviceDegradedLimitError()
 	}
 
 	limits, err := e.GetOrgPlanLimits(ctx, orgID)
 	if err != nil {
 		e.logger.Warn("failed to get org plan limits for worker connection reservation",
 			"org_id", orgID, "error", err)
-		return releaseNoop, nil
+		return releaseNoop, e.failClosedPlanLimitLookup(ctx, orgID, "worker_connections", err)
 	}
 	if limits.WorkerConnections == -1 {
 		return releaseNoop, nil
@@ -1540,13 +1549,13 @@ func (e *Enforcer) ReserveWorkerConnection(ctx context.Context, orgID, reservati
 	).Result()
 	if err != nil {
 		e.logger.Warn("failed to reserve worker connection", "org_id", orgID, "error", err)
-		return releaseNoop, e.boundedFailOpen(ctx, orgID, "worker_connections", "redis_error")
+		return releaseNoop, serviceDegradedLimitError()
 	}
 
 	vals, ok := result.([]any)
 	if !ok || len(vals) < 2 {
 		e.logger.Warn("unexpected worker connection reservation result", "org_id", orgID)
-		return releaseNoop, e.boundedFailOpen(ctx, orgID, "worker_connections", "redis_error")
+		return releaseNoop, serviceDegradedLimitError()
 	}
 	allowed, _ := vals[0].(int64)
 	current, _ := vals[1].(int64)
@@ -1616,11 +1625,9 @@ func (e *Enforcer) CheckWorkerConnectionLimit(ctx context.Context, orgID string,
 
 	limits, err := e.GetOrgPlanLimits(ctx, orgID)
 	if err != nil {
-		e.logger.Warn("failed to get org plan limits for worker connection check",
+		e.logger.Error("failed to get org plan limits for worker connection check",
 			"org_id", orgID, "error", err)
-		// Fail-open on plan-limit lookup error: a transient DB hiccup must
-		// not lock customers out of their worker plane.
-		return nil
+		return fmt.Errorf("resolve worker connection plan limit: %w", err)
 	}
 
 	if limits.WorkerConnections == -1 {
@@ -1751,70 +1758,6 @@ func (e *Enforcer) ReconcileAllConcurrentCounts(ctx context.Context, counter Exe
 	return nil
 }
 
-// DailyRunCounter provides ground-truth daily run counts from the database.
-type DailyRunCounter interface {
-	CountDailyRunsByOrg(ctx context.Context, orgID string, date time.Time) (int64, error)
-}
-
-// ReconcileDailyRunCounts compares Redis daily run counters with actual DB counts
-// for all subscribed orgs. Unlike concurrent reconciliation, daily counters have
-// a 48h TTL and reset naturally, so this only logs drift metrics for observability
-// rather than correcting the values.
-func (e *Enforcer) ReconcileDailyRunCounts(ctx context.Context, counter DailyRunCounter) error {
-	if e.rdb == nil {
-		return nil
-	}
-
-	orgIDs, err := e.store.ListAllSubscribedOrgIDs(ctx)
-	if err != nil {
-		return fmt.Errorf("listing subscribed org IDs for daily reconciliation: %w", err)
-	}
-
-	today := time.Now().UTC().Format("2006-01-02")
-	todayDate := time.Now().UTC().Truncate(24 * time.Hour)
-	var driftCount int
-
-	for _, orgID := range orgIDs {
-		key := fmt.Sprintf("strait:org_runs:%s:%s", orgID, today)
-		redisCount, err := e.rdb.Get(ctx, key).Int64()
-		if err != nil {
-			if errors.Is(err, redis.Nil) {
-				continue // no Redis key means no runs today, nothing to reconcile
-			}
-			e.logger.Warn("daily run reconciliation: failed to read Redis counter",
-				"org_id", orgID, "error", err)
-			continue
-		}
-
-		dbCount, err := counter.CountDailyRunsByOrg(ctx, orgID, todayDate)
-		if err != nil {
-			e.logger.Warn("daily run reconciliation: failed to query DB count",
-				"org_id", orgID, "error", err)
-			continue
-		}
-
-		drift := redisCount - dbCount
-		if drift != 0 {
-			driftCount++
-			e.logger.Warn("daily run counter drift detected",
-				"org_id", orgID,
-				"redis_count", redisCount,
-				"db_count", dbCount,
-				"drift", drift,
-			)
-		}
-	}
-
-	if driftCount > 0 {
-		e.logger.Info("daily run reconciliation complete",
-			"orgs_checked", len(orgIDs),
-			"orgs_with_drift", driftCount,
-		)
-	}
-
-	return nil
-}
-
 // concurrentCounterTTL is the TTL for concurrent run counters.
 // The reconciler runs every 5 minutes to correct drift; 24h is a backstop
 // for total Redis failure. Runs can last many hours, so shorter
@@ -1904,7 +1847,8 @@ func (e *Enforcer) CheckMemberLimit(ctx context.Context, orgID string) error {
 
 	count, err := e.store.CountMembersByOrg(ctx, orgID)
 	if err != nil {
-		return e.boundedFailOpen(ctx, orgID, "member_limit", "db_error")
+		e.logger.Warn("failed to count org members for member limit check", "org_id", orgID, "error", err)
+		return serviceDegradedLimitError()
 	}
 	e.resetFailOpen(orgID, "member_limit")
 
@@ -1937,7 +1881,8 @@ func (e *Enforcer) CheckOrgCreationLimit(ctx context.Context, userID string, pla
 
 	count, err := e.store.CountOrgsByUser(ctx, userID)
 	if err != nil {
-		return e.boundedFailOpen(ctx, userID, "org_creation_limit", "db_error")
+		e.logger.Warn("failed to count user organizations for org creation limit check", "user_id", userID, "error", err)
+		return serviceDegradedLimitError()
 	}
 	e.resetFailOpen(userID, "org_creation_limit")
 
@@ -2016,7 +1961,7 @@ func (e *Enforcer) CheckProjectSuspended(ctx context.Context, projectID string) 
 	if err != nil {
 		e.logger.Warn("failed to check project suspended status",
 			"project_id", projectID, "error", err)
-		return e.boundedFailOpen(ctx, projectID, "project_suspended", "db_error")
+		return serviceDegradedLimitError()
 	}
 
 	// Cache the result.
@@ -2127,40 +2072,19 @@ func MaxSpendingLimit(tier domain.PlanTier) int64 {
 
 // SpendingLimitResponse is the API response for spending limit queries.
 type SpendingLimitResponse struct {
-	OrgID             string  `json:"org_id"`
-	PlanTier          string  `json:"plan_tier"`
-	SpendingLimitUsd  float64 `json:"spending_limit_usd"`
-	LimitAction       string  `json:"limit_action"`
-	CurrentSpendUsd   float64 `json:"current_spend_usd"`
-	IncludedCreditUsd float64 `json:"included_credit_usd"`
-	OverageSpendUsd   float64 `json:"overage_spend_usd"`
-	IsHardCapped      bool    `json:"is_hard_capped"`
+	OrgID            string  `json:"org_id"`
+	PlanTier         string  `json:"plan_tier"`
+	OverageEnabled   bool    `json:"overage_enabled"`
+	SpendingLimitUsd float64 `json:"spending_limit_usd"`
+	LimitAction      string  `json:"limit_action"`
+	CurrentSpendUsd  float64 `json:"current_spend_usd"`
+	OverageSpendUsd  float64 `json:"overage_spend_usd"`
+	IsHardCapped     bool    `json:"is_hard_capped"`
 }
 
-// prioritySlotPackIncrement is the number of additional MaxDispatchPriority levels
-// granted per priority_slot_pack unit.
-const prioritySlotPackIncrement = 10
-
-// ApplySubscriptionAddOns extends a base OrgPlanLimits using the subscription-level
-// add-ons stored in the add_ons JSONB column. Enforcement points for limits that
-// are not enforced yet are called out at the relevant field branch.
-func ApplySubscriptionAddOns(base OrgPlanLimits, addOns SubscriptionAddOns) OrgPlanLimits {
-	result := base
-
-	// Extra data retention: each pack adds retentionPackDays days.
-	if addOns.RetentionPack > 0 && result.RetentionDays > 0 {
-		result.RetentionDays += addOns.RetentionPack * retentionPackDays
-	}
-
-	// Priority slot packs: each pack extends MaxDispatchPriority by prioritySlotPackIncrement.
-	if addOns.PrioritySlotPack > 0 && result.MaxDispatchPriority != -1 {
-		result.MaxDispatchPriority += addOns.PrioritySlotPack * prioritySlotPackIncrement
-	}
-
-	// Additional worker connections: extends WorkerConnections limit.
-	if addOns.WorkerConnections > 0 && result.WorkerConnections != -1 {
-		result.WorkerConnections += addOns.WorkerConnections
-	}
-
-	return result
+// ApplySubscriptionAddOns is kept as an inert compatibility step for legacy
+// organization_subscriptions.add_ons rows. Launch add-ons are represented by
+// organization_addons and applied by EffectiveLimits.
+func ApplySubscriptionAddOns(base OrgPlanLimits, _ SubscriptionAddOns) OrgPlanLimits {
+	return base
 }

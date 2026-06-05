@@ -293,6 +293,33 @@ func retrySleep(ctx context.Context, attempt int) error {
 	}
 }
 
+type cdcHandlerRegistrar interface {
+	RegisterHandler(cdc.Handler)
+	RegisterAdditionalHandler(cdc.Handler)
+}
+
+func registerCDCDeliveryHandlers(registrar cdcHandlerRegistrar, pub pubsub.Publisher, queries *store.Queries, chExporter *clickhouse.Exporter, cacheHandlers cdc.CacheReadModelHandlers, cacheBus *straitcache.Bus, sharedDedupe *cdc.SharedDedupeStore) {
+	for _, handler := range cdc.NewRuntimeFanoutHandlers(pub, slog.Default()) {
+		registrar.RegisterHandler(handler)
+	}
+
+	// CDC-driven observers: execution-critical side effects are written through
+	// transactional stores, not CDC redelivery.
+	registrar.RegisterAdditionalHandler(cdc.NewNotificationTriggerHandler(queries, slog.Default()))
+	registrar.RegisterAdditionalHandler(cdc.NewSLOHandler(queries, slog.Default()).WithSharedDedupe(sharedDedupe))
+	if chExporter != nil {
+		registrar.RegisterAdditionalHandler(cdc.NewAnalyticsHandler(chExporter, slog.Default()).WithSharedDedupe(sharedDedupe))
+	}
+	if cacheHandlers.JobRuns != nil {
+		registrar.RegisterAdditionalHandler(cacheHandlers.JobRuns)
+		registrar.RegisterAdditionalHandler(cacheHandlers.WorkflowRuns)
+		registrar.RegisterAdditionalHandler(cacheHandlers.WorkflowStepRuns)
+	}
+	for _, h := range cdc.NewCacheInvalidationHandlers(cacheBus, slog.Default()) {
+		registrar.RegisterAdditionalHandler(h)
+	}
+}
+
 // startCDCConsumer registers and starts the required Sequin CDC consumer.
 func startCDCConsumer(ctx context.Context, g *pool.ContextPool, cfg *config.Config, pub pubsub.Publisher, queries *store.Queries, chExporter *clickhouse.Exporter, rdb *redis.Client, cacheBus *straitcache.Bus) (*cdc.WebhookReceiver, error) {
 	cdcClient := cdc.NewClient(
@@ -306,14 +333,7 @@ func startCDCConsumer(ctx context.Context, g *pool.ContextPool, cfg *config.Conf
 	}
 
 	// Auto-provision the Sequin consumer if it does not exist.
-	cdcTables := []string{
-		"public.api_keys", "public.project_roles", "public.project_member_roles",
-		"public.resource_policies", "public.tag_policies", "public.project_quotas",
-		"public.organization_subscriptions", "public.jobs", "public.job_dependencies",
-		"public.job_runs", "public.workflow_runs", "public.workflow_step_runs",
-		"public.event_triggers",
-	}
-	if err := cdcClient.EnsureConsumer(ctx, cdcTables); err != nil {
+	if err := cdcClient.EnsureConsumer(ctx, cdc.RequiredConsumerTables()); err != nil {
 		return nil, fmt.Errorf("ensure sequin consumer %q: %w", cfg.SequinConsumerName, err)
 	}
 
@@ -325,24 +345,8 @@ func startCDCConsumer(ctx context.Context, g *pool.ContextPool, cfg *config.Conf
 		WaitTimeMs:   cfg.CDCWaitTimeMs,
 	}, slog.Default())
 	sharedDedupe := cdc.NewSharedDedupeStore(rdb, cfg.SharedDedupeTTL)
-
-	cdcConsumer.RegisterHandler(cdc.NewJobRunHandler(pub, slog.Default()))
-	cdcConsumer.RegisterHandler(cdc.NewWorkflowRunHandler(pub, slog.Default()))
-	cdcConsumer.RegisterHandler(cdc.NewEventTriggerHandler(pub, slog.Default()))
-	cdcConsumer.RegisterAdditionalHandler(cdc.NewNotificationTriggerHandler(queries, slog.Default()))
-	cdcConsumer.RegisterAdditionalHandler(cdc.NewSLOHandler(queries, slog.Default()).WithSharedDedupe(sharedDedupe))
-	if chExporter != nil {
-		cdcConsumer.RegisterAdditionalHandler(cdc.NewAnalyticsHandler(chExporter, slog.Default()).WithSharedDedupe(sharedDedupe))
-	}
 	cacheHandlers := cdc.NewCacheReadModelHandlers(rdb, cfg.StatusReadModelTTL, slog.Default())
-	if cacheHandlers.JobRuns != nil {
-		cdcConsumer.RegisterAdditionalHandler(cacheHandlers.JobRuns)
-		cdcConsumer.RegisterAdditionalHandler(cacheHandlers.WorkflowRuns)
-		cdcConsumer.RegisterAdditionalHandler(cacheHandlers.WorkflowStepRuns)
-	}
-	for _, h := range cdc.NewCacheInvalidationHandlers(cacheBus, slog.Default()) {
-		cdcConsumer.RegisterAdditionalHandler(h)
-	}
+	registerCDCDeliveryHandlers(cdcConsumer, pub, queries, chExporter, cacheHandlers, cacheBus, sharedDedupe)
 
 	g.Go(func(ctx context.Context) error {
 		cdcConsumer.Run(ctx)
@@ -370,25 +374,7 @@ func startCDCConsumer(ctx context.Context, g *pool.ContextPool, cfg *config.Conf
 	}
 	receiverOpts = append(receiverOpts, cdc.WithWebhookSharedDedupe(sharedDedupe))
 	webhookReceiver := cdc.NewWebhookReceiver(pub, slog.Default(), receiverOpts...)
-	webhookReceiver.RegisterHandler(cdc.NewJobRunHandler(pub, slog.Default()))
-	webhookReceiver.RegisterHandler(cdc.NewWorkflowRunHandler(pub, slog.Default()))
-	webhookReceiver.RegisterHandler(cdc.NewEventTriggerHandler(pub, slog.Default()))
-
-	// CDC-driven observers: execution-critical side effects are written through
-	// transactional stores, not CDC redelivery.
-	webhookReceiver.RegisterAdditionalHandler(cdc.NewNotificationTriggerHandler(queries, slog.Default()))
-	webhookReceiver.RegisterAdditionalHandler(cdc.NewSLOHandler(queries, slog.Default()).WithSharedDedupe(sharedDedupe))
-	if chExporter != nil {
-		webhookReceiver.RegisterAdditionalHandler(cdc.NewAnalyticsHandler(chExporter, slog.Default()).WithSharedDedupe(sharedDedupe))
-	}
-	if cacheHandlers.JobRuns != nil {
-		webhookReceiver.RegisterAdditionalHandler(cacheHandlers.JobRuns)
-		webhookReceiver.RegisterAdditionalHandler(cacheHandlers.WorkflowRuns)
-		webhookReceiver.RegisterAdditionalHandler(cacheHandlers.WorkflowStepRuns)
-	}
-	for _, h := range cdc.NewCacheInvalidationHandlers(cacheBus, slog.Default()) {
-		webhookReceiver.RegisterAdditionalHandler(h)
-	}
+	registerCDCDeliveryHandlers(webhookReceiver, pub, queries, chExporter, cacheHandlers, cacheBus, sharedDedupe)
 
 	slog.Info("cdc consumer enabled",
 		"base_url", httputil.RedactURLForLog(cfg.SequinBaseURL),
@@ -1322,8 +1308,14 @@ func buildExecutorConfig(
 		DefaultRegion:            cfg.DefaultRegion,
 		Mode:                     cfg.Mode,
 		Version:                  version,
+		Edition:                  domain.ParseEdition(cfg.Edition),
 		EventChannelSize:         cfg.WorkerEventChannelSize,
 		SecretDecryptor:          deps.encryptor,
+		DLQCapEnforcer: worker.NewDLQCapEnforcer(deps.queries, worker.DLQCapConfig{
+			MaxPerJob:     cfg.DLQMaxPerJob,
+			MaxPerProject: cfg.DLQMaxPerProject,
+			Policy:        worker.DLQOverflowPolicy(cfg.DLQOverflowPolicy),
+		}, slog.Default()),
 	}
 	applyWorkerPlaneToExecutorConfig(&execCfg, deps.workerPlane, cfg.JWTSigningKey)
 	return execCfg
@@ -1362,9 +1354,7 @@ func registerWorkerSubscribers(
 		exec.Subscribe(worker.PubSubSubscriber(pub))
 	}
 	if chExporter != nil {
-		exec.Subscribe(worker.ClickHouseSubscriber(chExporter, queries, worker.ClickHouseSubscriberDeps{
-			UsageLister: queries,
-		}))
+		exec.Subscribe(worker.ClickHouseSubscriber(chExporter, queries))
 	}
 }
 

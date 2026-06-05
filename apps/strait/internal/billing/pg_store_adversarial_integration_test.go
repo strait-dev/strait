@@ -28,33 +28,36 @@ func TestAdversarial_CrossOrgIsolation(t *testing.T) {
 	pA := createProject(t, ctx, q, orgA, "PA")
 	pB := createProject(t, ctx, q, orgB, "PB")
 
-	jobA := createJob(t, ctx, q, pA.ID)
-	jobB := createJob(t, ctx, q, pB.ID)
+	now := time.Now().UTC()
+	for _, rec := range []*billing.UsageRecord{
+		{
+			ID:               newID(),
+			OrgID:            orgA,
+			ProjectID:        pA.ID,
+			PeriodDate:       now,
+			RunsCount:        1,
+			ComputeCostMicro: 500_000,
+			CreatedAt:        now,
+			UpdatedAt:        now,
+		},
+		{
+			ID:               newID(),
+			OrgID:            orgB,
+			ProjectID:        pB.ID,
+			PeriodDate:       now,
+			RunsCount:        1,
+			ComputeCostMicro: 1_000_000,
+			CreatedAt:        now,
+			UpdatedAt:        now,
+		},
+	} {
+		if err := pgStore.UpsertUsageRecord(ctx, rec); err != nil {
+			t.Fatalf("seed usage record: %v", err)
+		}
+	}
 
-	runA := createRun(t, ctx, q, jobA, domain.StatusCompleted)
-	runB := createRun(t, ctx, q, jobB, domain.StatusCompleted)
-
-	aiA := &domain.RunUsage{
-		ID: newID(), RunID: runA.ID,
-		Provider: "openai", Model: "gpt-4",
-		PromptTokens: 100, CompletionTokens: 50, TotalTokens: 150,
-		CostMicrousd: 500_000,
-	}
-	aiB := &domain.RunUsage{
-		ID: newID(), RunID: runB.ID,
-		Provider: "openai", Model: "gpt-4",
-		PromptTokens: 200, CompletionTokens: 100, TotalTokens: 300,
-		CostMicrousd: 1_000_000,
-	}
-	if err := q.CreateRunUsage(ctx, aiA); err != nil {
-		t.Fatalf("create ai A: %v", err)
-	}
-	if err := q.CreateRunUsage(ctx, aiB); err != nil {
-		t.Fatalf("create ai B: %v", err)
-	}
-
-	from := time.Now().UTC().Add(-1 * time.Hour)
-	to := time.Now().UTC().Add(1 * time.Hour)
+	from := now.Add(-1 * time.Hour)
+	to := now.Add(1 * time.Hour)
 
 	recsA, err := pgStore.GetOrgUsageForPeriod(ctx, orgA, from, to)
 	if err != nil {
@@ -69,13 +72,6 @@ func TestAdversarial_CrossOrgIsolation(t *testing.T) {
 		}
 	}
 
-	countA, err := pgStore.CountAIModelCallsByOrg(ctx, orgA, from, to)
-	if err != nil {
-		t.Fatalf("CountAIModelCallsByOrg A: %v", err)
-	}
-	if countA != 1 {
-		t.Errorf("CountAIModelCallsByOrg A = %d, want 1", countA)
-	}
 }
 
 // A2: Deleted projects ignored in suspension
@@ -377,19 +373,18 @@ func TestAdversarial_ConcurrentContractUpsert(t *testing.T) {
 	orgID := "org-conc-contract-" + newID()
 	subID := "sub_conc"
 	base := &billing.EnterpriseContract{
-		ID:                     "contract_conc",
-		OrgID:                  orgID,
-		EnterpriseTier:         billing.EnterpriseTierStarter,
-		AnnualCommitmentCents:  1800000,
-		IncludedCreditMicrousd: 1000000000,
-		ComputeDiscountPct:     10,
-		ContractStartDate:      time.Now().Add(-30 * 24 * time.Hour),
-		ContractEndDate:        time.Now().Add(335 * 24 * time.Hour),
-		AutoRenew:              true,
-		BillingCadence:         "annual",
-		StripeSubscriptionID:   &subID,
-		CreatedAt:              time.Now(),
-		UpdatedAt:              time.Now(),
+		ID:                    "contract_conc",
+		OrgID:                 orgID,
+		EnterpriseTier:        billing.EnterpriseTierStarter,
+		AnnualCommitmentCents: 1800000,
+		OverageDiscountPct:    10,
+		ContractStartDate:     time.Now().Add(-30 * 24 * time.Hour),
+		ContractEndDate:       time.Now().Add(335 * 24 * time.Hour),
+		AutoRenew:             true,
+		BillingCadence:        "annual",
+		StripeSubscriptionID:  &subID,
+		CreatedAt:             time.Now(),
+		UpdatedAt:             time.Now(),
 	}
 
 	// First insert so conflict path is exercised.
@@ -404,7 +399,7 @@ func TestAdversarial_ConcurrentContractUpsert(t *testing.T) {
 		wg.Go(func() {
 			c := *base
 			c.ID = fmt.Sprintf("contract_conc_%d", idx)
-			c.ComputeDiscountPct = idx
+			c.OverageDiscountPct = idx
 			c.Notes = fmt.Sprintf("writer_%d", idx)
 			errs[idx] = pgStore.UpsertEnterpriseContract(ctx, &c)
 		})
@@ -442,9 +437,9 @@ func TestAdversarial_OneContractPerOrg(t *testing.T) {
 	c1 := &billing.EnterpriseContract{
 		ID: "contract_u1", OrgID: orgID,
 		EnterpriseTier:        billing.EnterpriseTierStarter,
-		AnnualCommitmentCents: 1800000, IncludedCreditMicrousd: 1000000000,
-		ComputeDiscountPct: 10,
-		ContractStartDate:  time.Now(), ContractEndDate: time.Now().Add(365 * 24 * time.Hour),
+		AnnualCommitmentCents: 1800000,
+		OverageDiscountPct:    10,
+		ContractStartDate:     time.Now(), ContractEndDate: time.Now().Add(365 * 24 * time.Hour),
 		AutoRenew: true, BillingCadence: "annual",
 		StripeSubscriptionID: &subID,
 		CreatedAt:            time.Now(), UpdatedAt: time.Now(),
@@ -490,11 +485,11 @@ func TestAdversarial_ExpiringContractBoundaries(t *testing.T) {
 		c := &billing.EnterpriseContract{
 			ID: "contract_" + orgSuffix, OrgID: orgID,
 			EnterpriseTier:        billing.EnterpriseTierStarter,
-			AnnualCommitmentCents: 1800000, IncludedCreditMicrousd: 1000000000,
-			ComputeDiscountPct: 10,
-			ContractStartDate:  time.Now().Add(-365 * 24 * time.Hour),
-			ContractEndDate:    time.Now().Add(endOffset),
-			AutoRenew:          true, BillingCadence: "annual",
+			AnnualCommitmentCents: 1800000,
+			OverageDiscountPct:    10,
+			ContractStartDate:     time.Now().Add(-365 * 24 * time.Hour),
+			ContractEndDate:       time.Now().Add(endOffset),
+			AutoRenew:             true, BillingCadence: "annual",
 			StripeSubscriptionID: &subID,
 			CreatedAt:            time.Now(), UpdatedAt: time.Now(),
 		}
@@ -556,19 +551,18 @@ func TestPgStore_ListEnterpriseContractsOverlappingPeriod_IncludesMidPeriodLapse
 		t.Helper()
 		orgID := "org-sla-overlap-" + suffix + "-" + newID()
 		c := &billing.EnterpriseContract{
-			ID:                     "contract_sla_overlap_" + suffix,
-			OrgID:                  orgID,
-			EnterpriseTier:         billing.EnterpriseTierStarter,
-			AnnualCommitmentCents:  1_800_000,
-			IncludedCreditMicrousd: 1_000_000_000,
-			ComputeDiscountPct:     10,
-			ContractStartDate:      start,
-			ContractEndDate:        end,
-			AutoRenew:              true,
-			BillingCadence:         "annual",
-			StripeSubscriptionID:   &subID,
-			CreatedAt:              time.Now().UTC(),
-			UpdatedAt:              time.Now().UTC(),
+			ID:                    "contract_sla_overlap_" + suffix,
+			OrgID:                 orgID,
+			EnterpriseTier:        billing.EnterpriseTierStarter,
+			AnnualCommitmentCents: 1_800_000,
+			OverageDiscountPct:    10,
+			ContractStartDate:     start,
+			ContractEndDate:       end,
+			AutoRenew:             true,
+			BillingCadence:        "annual",
+			StripeSubscriptionID:  &subID,
+			CreatedAt:             time.Now().UTC(),
+			UpdatedAt:             time.Now().UTC(),
 		}
 		if err := pgStore.UpsertEnterpriseContract(ctx, c); err != nil {
 			t.Fatalf("UpsertEnterpriseContract(%s): %v", suffix, err)

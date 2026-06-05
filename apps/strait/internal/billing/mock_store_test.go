@@ -46,6 +46,8 @@ type mockBillingStore struct {
 	lastPlanUpdate             *planUpdate
 	lastStatusUpdate           *statusUpdate
 	lastFullUpdate             *fullUpdate
+	lastOverageDisabledOrg     string
+	lastOverageDisabled        bool
 	lastPendingTier            string
 	lastClearedPending         string
 	pendingDowngradeOrg        string
@@ -54,10 +56,12 @@ type mockBillingStore struct {
 	lastPaymentStatusUpdate    *paymentStatusUpdate
 	subscriptions              map[string]*OrgSubscription
 	projects                   map[string][]string
+	countProjectsErr           error
 	memberCounts               map[string]int
+	countMembersErr            error
 	orgCountsByUser            map[string]int
+	countOrgsByUserErr         error
 	executingRuns              map[string]int
-	aiModelCallCounts          map[string]int64
 	usageRecords               []UsageRecord
 	periodSpendByOrg           map[string]int64
 	sumSpendErr                error
@@ -74,9 +78,17 @@ type mockBillingStore struct {
 	upsertEnterpriseContractFn func(ctx context.Context, c *EnterpriseContract) error
 	activeAddons               []Addon
 	listActiveAddonsErr        error
+	countActiveAddonsErr       error
 	lastAddonCreated           *Addon
 	deactivatedAddonIDs        []string
 	httpJobCount               int
+	pausedOrgID                string
+	pausedReason               string
+	pausedJobIDs               []string
+	unpausedOrgID              string
+	unpausedReason             string
+	unpausedCount              int64
+	isProjectSuspendedErr      error
 	getProjectBudgetFn         func(ctx context.Context, projectID string) (int64, string, error)
 	getProjectPeriodSpendFn    func(ctx context.Context, projectID string, periodStart time.Time) (int64, error)
 }
@@ -174,6 +186,18 @@ func (m *mockBillingStore) UpdateOrgSubscriptionFull(_ context.Context, orgID, t
 
 func (m *mockBillingStore) UpdateSpendingLimit(_ context.Context, _ string, _ int64, _ string) error {
 	return nil
+}
+
+func (m *mockBillingStore) UpdateOverageDisabled(_ context.Context, orgID string, disabled bool) error {
+	m.lastOverageDisabledOrg = orgID
+	m.lastOverageDisabled = disabled
+	if m.subscriptions != nil {
+		if sub, ok := m.subscriptions[orgID]; ok {
+			sub.OverageDisabled = disabled
+			return nil
+		}
+	}
+	return ErrSubscriptionNotFound
 }
 
 func (m *mockBillingStore) SetPendingPlanTier(_ context.Context, orgID, tier string) error {
@@ -290,6 +314,9 @@ func (m *mockBillingStore) ListProjectsByOrg(_ context.Context, orgID string) ([
 }
 
 func (m *mockBillingStore) CountProjectsByOrg(_ context.Context, orgID string) (int, error) {
+	if m.countProjectsErr != nil {
+		return 0, m.countProjectsErr
+	}
 	if m.projects != nil {
 		return len(m.projects[orgID]), nil
 	}
@@ -297,6 +324,9 @@ func (m *mockBillingStore) CountProjectsByOrg(_ context.Context, orgID string) (
 }
 
 func (m *mockBillingStore) CountMembersByOrg(_ context.Context, orgID string) (int, error) {
+	if m.countMembersErr != nil {
+		return 0, m.countMembersErr
+	}
 	if m.memberCounts != nil {
 		return m.memberCounts[orgID], nil
 	}
@@ -304,6 +334,9 @@ func (m *mockBillingStore) CountMembersByOrg(_ context.Context, orgID string) (i
 }
 
 func (m *mockBillingStore) CountOrgsByUser(_ context.Context, userID string) (int, error) {
+	if m.countOrgsByUserErr != nil {
+		return 0, m.countOrgsByUserErr
+	}
 	if m.orgCountsByUser != nil {
 		return m.orgCountsByUser[userID], nil
 	}
@@ -325,13 +358,6 @@ func (m *mockBillingStore) BulkCountExecutingRunsByOrg(_ context.Context, orgIDs
 		}
 	}
 	return result, nil
-}
-
-func (m *mockBillingStore) CountAIModelCallsByOrg(_ context.Context, orgID string, _, _ time.Time) (int64, error) {
-	if m.aiModelCallCounts != nil {
-		return m.aiModelCallCounts[orgID], nil
-	}
-	return 0, nil
 }
 
 func (m *mockBillingStore) SetProjectOrgID(_ context.Context, _, _ string) error {
@@ -432,6 +458,9 @@ func (m *mockBillingStore) ListStaleSubscriptions(_ context.Context) ([]OrgSubsc
 }
 
 func (m *mockBillingStore) IsProjectSuspended(_ context.Context, _ string) (bool, error) {
+	if m.isProjectSuspendedErr != nil {
+		return false, m.isProjectSuspendedErr
+	}
 	return false, nil
 }
 
@@ -480,8 +509,17 @@ func (m *mockBillingStore) DeactivateAddon(_ context.Context, id string) error {
 	return nil
 }
 
-func (m *mockBillingStore) CountActiveAddonsByType(_ context.Context, _ string, _ AddonType) (int, error) {
-	return 0, nil
+func (m *mockBillingStore) CountActiveAddonsByType(_ context.Context, orgID string, addonType AddonType) (int, error) {
+	if m.countActiveAddonsErr != nil {
+		return 0, m.countActiveAddonsErr
+	}
+	count := 0
+	for _, addon := range m.activeAddons {
+		if addon.Active && addon.OrgID == orgID && addon.AddonType == addonType {
+			count++
+		}
+	}
+	return count, nil
 }
 
 func (m *mockBillingStore) RecordProcessedWebhook(_ context.Context, msgID string) error {
@@ -545,12 +583,19 @@ func (m *mockBillingStore) ListExpiringContracts(_ context.Context, _ int) ([]En
 	return nil, nil
 }
 
-func (m *mockBillingStore) PauseHTTPJobsByOrg(_ context.Context, _ string, _ string) ([]string, error) {
+func (m *mockBillingStore) PauseHTTPJobsByOrg(_ context.Context, orgID string, reason string) ([]string, error) {
+	m.pausedOrgID = orgID
+	m.pausedReason = reason
+	if m.pausedJobIDs != nil {
+		return m.pausedJobIDs, nil
+	}
 	return nil, nil
 }
 
-func (m *mockBillingStore) UnpauseJobsByPauseReason(_ context.Context, _ string, _ string) (int64, error) {
-	return 0, nil
+func (m *mockBillingStore) UnpauseJobsByPauseReason(_ context.Context, orgID string, reason string) (int64, error) {
+	m.unpausedOrgID = orgID
+	m.unpausedReason = reason
+	return m.unpausedCount, nil
 }
 
 func (m *mockBillingStore) CountHTTPJobsByOrg(_ context.Context, _ string) (int, error) {

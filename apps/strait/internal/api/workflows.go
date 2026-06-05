@@ -178,12 +178,12 @@ func (s *Server) handleCreateWorkflow(ctx context.Context, input *CreateWorkflow
 	if err := validateWorkflowConfig(wf.Cron, wf.CronTimezone, wf.MaxParallelSteps); err != nil {
 		return nil, huma.Error400BadRequest(err.Error())
 	}
-	if err := s.checkScheduleLimit(ctx, req.ProjectID, wf.Cron); err != nil {
-		return nil, err
-	}
 
 	var steps []domain.WorkflowStep
 	if err := s.runInTx(ctx, func(txStore APIStore) error {
+		if err := s.enforceCronScheduleLimitForStore(ctx, txStore, req.ProjectID, wf.Cron); err != nil {
+			return err
+		}
 		if err := txStore.CreateWorkflow(ctx, wf); err != nil {
 			return fmt.Errorf("create workflow: %w", err)
 		}
@@ -199,6 +199,10 @@ func (s *Server) handleCreateWorkflow(ctx context.Context, input *CreateWorkflow
 		}
 		return nil
 	}); err != nil {
+		var statusErr huma.StatusError
+		if errors.As(err, &statusErr) {
+			return nil, err
+		}
 		slog.Error("failed to create workflow", "error", err)
 		return nil, huma.Error500InternalServerError("failed to create workflow")
 	}
@@ -451,12 +455,6 @@ func (s *Server) applyWorkflowUpdate(ctx context.Context, state *updateWorkflowS
 	if err := validateWorkflowConfig(wf.Cron, wf.CronTimezone, wf.MaxParallelSteps); err != nil {
 		return huma.Error400BadRequest(err.Error())
 	}
-	if state.previousCron == "" && wf.Cron != "" {
-		if err := s.checkScheduleLimit(ctx, wf.ProjectID, wf.Cron); err != nil {
-			return err
-		}
-	}
-
 	wf.UpdatedBy = actorFromContext(ctx)
 	return nil
 }
@@ -464,6 +462,11 @@ func (s *Server) applyWorkflowUpdate(ctx context.Context, state *updateWorkflowS
 func (s *Server) persistWorkflowUpdate(ctx context.Context, state *updateWorkflowState, req updateWorkflowRequest) error {
 	wf := state.workflow
 	if err := s.runInTx(ctx, func(txStore APIStore) error {
+		if state.previousCron == "" && wf.Cron != "" {
+			if err := s.enforceCronScheduleLimitForStore(ctx, txStore, wf.ProjectID, wf.Cron); err != nil {
+				return err
+			}
+		}
 		if err := txStore.UpdateWorkflow(ctx, wf); err != nil {
 			return fmt.Errorf("update workflow: %w", err)
 		}
@@ -485,6 +488,10 @@ func (s *Server) persistWorkflowUpdate(ctx context.Context, state *updateWorkflo
 	}); err != nil {
 		if errors.Is(err, store.ErrWorkflowNotFound) {
 			return huma.Error404NotFound("workflow not found")
+		}
+		var statusErr huma.StatusError
+		if errors.As(err, &statusErr) {
+			return err
 		}
 		slog.Error("failed to update workflow", "error", err)
 		return huma.Error500InternalServerError("failed to update workflow")
@@ -1017,9 +1024,6 @@ func (s *Server) handleCloneWorkflow(ctx context.Context, input *CloneWorkflowIn
 	if err := s.checkWorkflowStepLimit(ctx, projectID, len(sourceSteps)); err != nil {
 		return nil, err
 	}
-	if err := s.checkScheduleLimit(ctx, projectID, newWf.Cron); err != nil {
-		return nil, err
-	}
 	for _, step := range sourceSteps {
 		switch step.StepType {
 		case domain.WorkflowStepTypeApproval:
@@ -1036,6 +1040,9 @@ func (s *Server) handleCloneWorkflow(ctx context.Context, input *CloneWorkflowIn
 
 	newSteps := make([]domain.WorkflowStep, 0, len(sourceSteps))
 	if err := s.runInTx(ctx, func(txStore APIStore) error {
+		if err := s.enforceCronScheduleLimitForStore(ctx, txStore, projectID, newWf.Cron); err != nil {
+			return err
+		}
 		if err := txStore.CreateWorkflow(ctx, newWf); err != nil {
 			return fmt.Errorf("create cloned workflow: %w", err)
 		}
@@ -1081,6 +1088,10 @@ func (s *Server) handleCloneWorkflow(ctx context.Context, input *CloneWorkflowIn
 		}
 		return nil
 	}); err != nil {
+		var statusErr huma.StatusError
+		if errors.As(err, &statusErr) {
+			return nil, err
+		}
 		slog.Error("failed to clone workflow", "error", err)
 		return nil, huma.Error500InternalServerError("failed to clone workflow")
 	}

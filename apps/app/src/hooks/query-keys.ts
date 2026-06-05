@@ -73,10 +73,6 @@ export const queryKeys = createQueryKeyStore({
     projectCosts: null,
     usageForecast: null,
     usageHistory: null,
-    costEstimate: (preset: string, timeoutSecs: number) => [
-      preset,
-      timeoutSecs,
-    ],
     downgradePreview: (targetTier: string) => [targetTier],
     projectBudget: (projectId: string) => [projectId],
     anomalyConfig: null,

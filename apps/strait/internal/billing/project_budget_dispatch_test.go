@@ -100,10 +100,9 @@ func TestEnforcer_CheckProjectBudgetLimit_NilEnforcer(t *testing.T) {
 	}
 }
 
-// TestEnforcer_CheckProjectBudgetLimit_BudgetReadFailsOpen confirms
-// that a transient DB error reading project_quotas does NOT block the
-// dispatch (org-level CheckSpendingLimit is the fail-closed gate).
-func TestEnforcer_CheckProjectBudgetLimit_BudgetReadFailsOpen(t *testing.T) {
+// TestEnforcer_CheckProjectBudgetLimit_BudgetReadFailsClosed confirms that a
+// transient DB error reading project_quotas cannot bypass a blocking budget.
+func TestEnforcer_CheckProjectBudgetLimit_BudgetReadFailsClosed(t *testing.T) {
 	t.Parallel()
 	enforcer, store, _ := setupEnforcer(t)
 
@@ -111,14 +110,19 @@ func TestEnforcer_CheckProjectBudgetLimit_BudgetReadFailsOpen(t *testing.T) {
 		return 0, "", errors.New("transient db error")
 	}
 
-	if err := enforcer.CheckProjectBudgetLimit(context.Background(), "proj-x"); err != nil {
-		t.Errorf("budget read error must fail open; got %v", err)
+	err := enforcer.CheckProjectBudgetLimit(context.Background(), "proj-x")
+	var lim *LimitError
+	if !errors.As(err, &lim) {
+		t.Fatalf("expected *LimitError, got %T: %v", err, err)
+	}
+	if lim.Code != "service_degraded" {
+		t.Fatalf("LimitError.Code = %q, want service_degraded", lim.Code)
 	}
 }
 
-// TestEnforcer_CheckProjectBudgetLimit_SpendReadFailsOpen mirrors the
-// above: a usage_records read error must not block dispatch.
-func TestEnforcer_CheckProjectBudgetLimit_SpendReadFailsOpen(t *testing.T) {
+// TestEnforcer_CheckProjectBudgetLimit_SpendReadFailsClosed mirrors the
+// above: a usage_records read error cannot bypass a blocking budget.
+func TestEnforcer_CheckProjectBudgetLimit_SpendReadFailsClosed(t *testing.T) {
 	t.Parallel()
 	enforcer, store, _ := setupEnforcer(t)
 
@@ -135,15 +139,19 @@ func TestEnforcer_CheckProjectBudgetLimit_SpendReadFailsOpen(t *testing.T) {
 		return 0, errors.New("transient db error")
 	}
 
-	if err := enforcer.CheckProjectBudgetLimit(context.Background(), "proj-x"); err != nil {
-		t.Errorf("spend read error must fail open; got %v", err)
+	err := enforcer.CheckProjectBudgetLimit(context.Background(), "proj-x")
+	var lim *LimitError
+	if !errors.As(err, &lim) {
+		t.Fatalf("expected *LimitError, got %T: %v", err, err)
+	}
+	if lim.Code != "service_degraded" {
+		t.Fatalf("LimitError.Code = %q, want service_degraded", lim.Code)
 	}
 }
 
-// TestEnforcer_CheckProjectBudgetLimit_OrgResolutionFailsOpen: a
-// missing project→org link should not block the dispatch — the
-// org-level enforcer (CheckSpendingLimit) handles the abuse case.
-func TestEnforcer_CheckProjectBudgetLimit_OrgResolutionFailsOpen(t *testing.T) {
+// TestEnforcer_CheckProjectBudgetLimit_OrgResolutionFailsClosed confirms that
+// a project→org lookup error cannot bypass a blocking project budget.
+func TestEnforcer_CheckProjectBudgetLimit_OrgResolutionFailsClosed(t *testing.T) {
 	t.Parallel()
 	enforcer, store, _ := setupEnforcer(t)
 
@@ -154,7 +162,12 @@ func TestEnforcer_CheckProjectBudgetLimit_OrgResolutionFailsOpen(t *testing.T) {
 		return "", errors.New("project not found")
 	}
 
-	if err := enforcer.CheckProjectBudgetLimit(context.Background(), "proj-orphan"); err != nil {
-		t.Errorf("orphan project (no org) must fail open; got %v", err)
+	err := enforcer.CheckProjectBudgetLimit(context.Background(), "proj-orphan")
+	var lim *LimitError
+	if !errors.As(err, &lim) {
+		t.Fatalf("expected *LimitError, got %T: %v", err, err)
+	}
+	if lim.Code != "service_degraded" {
+		t.Fatalf("LimitError.Code = %q, want service_degraded", lim.Code)
 	}
 }

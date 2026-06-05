@@ -27,12 +27,6 @@ func cloneJob(job *domain.Job) *domain.Job {
 	if job.PreferredRegions != nil {
 		cloned.PreferredRegions = append([]string(nil), job.PreferredRegions...)
 	}
-	if job.AllowedTools != nil {
-		cloned.AllowedTools = append([]string(nil), job.AllowedTools...)
-	}
-	if job.BlockedTools != nil {
-		cloned.BlockedTools = append([]string(nil), job.BlockedTools...)
-	}
 	if job.ResultSchema != nil {
 		cloned.ResultSchema = append(json.RawMessage(nil), job.ResultSchema...)
 	}

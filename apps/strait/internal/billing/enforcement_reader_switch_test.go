@@ -130,28 +130,54 @@ func TestReaderSwitch_AuthoritativeFalse_AlwaysRecomputes_NeverWrites(t *testing
 	}
 }
 
-func TestReaderSwitch_OverridesApplyOnTopOfSnapshot(t *testing.T) {
+func TestReaderSwitch_ConcurrentOverrideAppliesOnTopOfSnapshot(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	e, store := makeReaderSwitchEnforcer(t, true)
 
-	// Snapshot says Pro-tier MaxRunsPerDay; the per-org override must win.
+	// Snapshot says Pro-tier concurrency; the per-org override must win.
 	snap := GetPlanLimits(domain.PlanPro)
 	raw, _ := json.Marshal(snap)
 	override := 7
 	store.subscriptions["org-5"] = &OrgSubscription{
 		ID: "sub", OrgID: "org-5", PlanTier: string(domain.PlanPro),
-		Status: "active", EnforcementMode: "enforce",
-		Entitlements:          raw,
-		OverrideDailyRunLimit: &override,
+		Status:                     "active",
+		EnforcementMode:            "enforce",
+		Entitlements:               raw,
+		OverrideConcurrentRunLimit: &override,
 	}
 
 	got, err := e.GetOrgPlanLimits(ctx, "org-5")
 	if err != nil {
 		t.Fatalf("GetOrgPlanLimits: %v", err)
 	}
-	if got.MaxRunsPerDay != int64(override) {
-		t.Errorf("override not applied: got %d, want %d", got.MaxRunsPerDay, override)
+	if got.MaxConcurrentRuns != override {
+		t.Errorf("override not applied: got %d, want %d", got.MaxConcurrentRuns, override)
+	}
+}
+
+func TestReaderSwitch_LegacyDailyOverrideIgnoredForLaunch(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	e, store := makeReaderSwitchEnforcer(t, true)
+
+	snap := GetPlanLimits(domain.PlanFree)
+	raw, _ := json.Marshal(snap)
+	override := 7
+	store.subscriptions["org-legacy-daily"] = &OrgSubscription{
+		ID: "sub", OrgID: "org-legacy-daily", PlanTier: string(domain.PlanFree),
+		Status:                "active",
+		EnforcementMode:       "enforce",
+		Entitlements:          raw,
+		OverrideDailyRunLimit: &override,
+	}
+
+	got, err := e.GetOrgPlanLimits(ctx, "org-legacy-daily")
+	if err != nil {
+		t.Fatalf("GetOrgPlanLimits: %v", err)
+	}
+	if got.MaxRunsPerDay != -1 {
+		t.Errorf("legacy daily override changed launch limit: got %d, want -1", got.MaxRunsPerDay)
 	}
 }
 

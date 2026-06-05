@@ -22,6 +22,56 @@ func TestEffectiveLimits_NoAddons(t *testing.T) {
 	}
 }
 
+func TestLaunchActiveAddonTypesExcludeRoadmapAddons(t *testing.T) {
+	t.Parallel()
+
+	active := []AddonType{
+		AddonConcurrency100,
+		AddonHistory30d,
+		AddonEnvironments5,
+	}
+	for _, addonType := range active {
+		if !IsLaunchActiveAddonType(addonType) {
+			t.Fatalf("%s should be launch-active", addonType)
+		}
+	}
+
+	roadmap := []AddonType{
+		AddonComplianceArchive,
+		AddonDedicatedWorkers,
+	}
+	for _, addonType := range roadmap {
+		if IsLaunchActiveAddonType(addonType) {
+			t.Fatalf("%s should remain roadmap-only at launch", addonType)
+		}
+	}
+}
+
+func TestAddonPacksDerivedFromGeneratedCatalog(t *testing.T) {
+	t.Parallel()
+
+	if len(AddonPacks) != len(AddonCatalogs) {
+		t.Fatalf("AddonPacks len = %d, want generated catalog len %d", len(AddonPacks), len(AddonCatalogs))
+	}
+	for _, addonType := range AddonCatalogOrder {
+		catalog, ok := AddonCatalogs[addonType]
+		if !ok {
+			t.Fatalf("generated catalog missing %s", addonType)
+		}
+		pack, ok := AddonPacks[addonType]
+		if !ok {
+			t.Fatalf("AddonPacks missing %s", addonType)
+		}
+		if pack.DisplayName != catalog.DisplayName ||
+			pack.LookupKey != catalog.LookupKey ||
+			pack.PackSize != catalog.PackSize ||
+			pack.PriceCents != catalog.PriceCents ||
+			pack.MaxTotal != catalog.MaxTotal {
+			t.Fatalf("AddonPacks[%s] = %+v, want generated catalog %+v", addonType, pack, catalog)
+		}
+	}
+}
+
 func TestEffectiveLimits_Concurrency100Pack(t *testing.T) {
 	t.Parallel()
 	base := GetPlanLimits(domain.PlanPro)
@@ -52,7 +102,7 @@ func TestEffectiveLimits_MultiplePacksStack(t *testing.T) {
 
 func TestEffectiveLimits_Environments5Pack(t *testing.T) {
 	t.Parallel()
-	base := GetPlanLimits(domain.PlanStarter)
+	base := GetPlanLimits(domain.PlanPro)
 	addons := []Addon{
 		{AddonType: AddonEnvironments5, Quantity: 1, Active: true},
 	}
@@ -67,28 +117,51 @@ func TestEffectiveLimits_Environments5Pack(t *testing.T) {
 func TestEffectiveLimits_History30dPack(t *testing.T) {
 	t.Parallel()
 
-	// Starter has RetentionStarter days. One pack adds 30 days.
-	starter := GetPlanLimits(domain.PlanStarter)
-	result := EffectiveLimits(starter, []Addon{
+	// Scale has RetentionScale days. One pack adds 30 days.
+	scale := GetPlanLimits(domain.PlanScale)
+	result := EffectiveLimits(scale, []Addon{
 		{AddonType: AddonHistory30d, Quantity: 1, Active: true},
 	})
-	want1Pack := RetentionStarter + 30
+	want1Pack := RetentionScale + 30
 	if result.RetentionDays != want1Pack {
-		t.Errorf("Starter + 1 history pack = %d, want %d", result.RetentionDays, want1Pack)
+		t.Errorf("Scale + 1 history pack = %d, want %d", result.RetentionDays, want1Pack)
 	}
 
 	// Two packs stack additively.
-	pro := GetPlanLimits(domain.PlanPro)
-	result = EffectiveLimits(pro, []Addon{
+	business := GetPlanLimits(domain.PlanBusiness)
+	result = EffectiveLimits(business, []Addon{
 		{AddonType: AddonHistory30d, Quantity: 2, Active: true},
 	})
-	want2Pack := pro.RetentionDays + 60
+	want2Pack := business.RetentionDays + 60
 	if result.RetentionDays != want2Pack {
-		t.Errorf("Pro + 2 history packs = %d, want %d", result.RetentionDays, want2Pack)
+		t.Errorf("Business + 2 history packs = %d, want %d", result.RetentionDays, want2Pack)
 	}
 }
 
-func TestEffectiveLimits_ComplianceArchive_SetsSIEMExport(t *testing.T) {
+func TestEffectiveLimits_History30dClampedToCatalogMaxTotal(t *testing.T) {
+	t.Parallel()
+
+	scale := GetPlanLimits(domain.PlanScale)
+	scale.MaxAddonPacks = map[AddonType]int{
+		AddonHistory30d: -1,
+	}
+	result := EffectiveLimits(scale, []Addon{
+		{AddonType: AddonHistory30d, Quantity: 1000, Active: true},
+	})
+	maxTotal := AddonPacks[AddonHistory30d].MaxTotal
+	if maxTotal != 365 {
+		t.Fatalf("history add-on catalog MaxTotal = %d, want 365", maxTotal)
+	}
+	if result.RetentionDays > maxTotal {
+		t.Fatalf("retention with excessive history packs = %d, want <= %d", result.RetentionDays, maxTotal)
+	}
+	want := scale.RetentionDays + ((maxTotal-scale.RetentionDays)/AddonPacks[AddonHistory30d].PackSize)*AddonPacks[AddonHistory30d].PackSize
+	if result.RetentionDays != want {
+		t.Fatalf("retention with excessive history packs = %d, want %d", result.RetentionDays, want)
+	}
+}
+
+func TestEffectiveLimits_ComplianceArchiveLaunchRoadmapNoEffect(t *testing.T) {
 	t.Parallel()
 	base := GetPlanLimits(domain.PlanScale)
 	if base.HasSIEMExport {
@@ -98,14 +171,14 @@ func TestEffectiveLimits_ComplianceArchive_SetsSIEMExport(t *testing.T) {
 	result := EffectiveLimits(base, []Addon{
 		{AddonType: AddonComplianceArchive, Quantity: 1, Active: true},
 	})
-	if !result.HasSIEMExport {
-		t.Error("expected ComplianceArchive addon to enable HasSIEMExport")
+	if result.HasSIEMExport {
+		t.Error("ComplianceArchive is roadmap at launch and must not enable HasSIEMExport")
 	}
 }
 
-func TestEffectiveLimits_DedicatedWorkers_SetsHasDedicatedCompute(t *testing.T) {
+func TestEffectiveLimits_DedicatedWorkersLaunchRoadmapNoEffect(t *testing.T) {
 	t.Parallel()
-	base := GetPlanLimits(domain.PlanPro)
+	base := GetPlanLimits(domain.PlanScale)
 	if base.HasDedicatedCompute {
 		t.Fatalf("precondition: Pro should not have dedicated compute")
 	}
@@ -113,14 +186,14 @@ func TestEffectiveLimits_DedicatedWorkers_SetsHasDedicatedCompute(t *testing.T) 
 	result := EffectiveLimits(base, []Addon{
 		{AddonType: AddonDedicatedWorkers, Quantity: 1, Active: true},
 	})
-	if !result.HasDedicatedCompute {
-		t.Error("expected DedicatedWorkers addon to enable HasDedicatedCompute")
+	if result.HasDedicatedCompute {
+		t.Error("DedicatedWorkers is roadmap at launch and must not enable HasDedicatedCompute")
 	}
 }
 
 func TestEffectiveLimits_MixedAddons(t *testing.T) {
 	t.Parallel()
-	base := GetPlanLimits(domain.PlanPro)
+	base := GetPlanLimits(domain.PlanScale)
 	addons := []Addon{
 		{AddonType: AddonConcurrency100, Quantity: 2, Active: true},
 		{AddonType: AddonEnvironments5, Quantity: 3, Active: true},
@@ -225,8 +298,8 @@ func TestIsValidAddonType(t *testing.T) {
 func TestAllAddonTypes_Count(t *testing.T) {
 	t.Parallel()
 	types := AllAddonTypes()
-	if len(types) != 6 {
-		t.Errorf("AllAddonTypes() count = %d, want 6", len(types))
+	if len(types) != 5 {
+		t.Errorf("AllAddonTypes() count = %d, want 5", len(types))
 	}
 }
 
@@ -239,14 +312,11 @@ func TestAddonPacks_AllDefined(t *testing.T) {
 	}
 }
 
-func TestAddonPacks_PositiveValues(t *testing.T) {
+func TestAddonPacks_SellableMetadataMatchesLaunchStatus(t *testing.T) {
 	t.Parallel()
 	for at, pack := range AddonPacks {
 		if pack.PackSize <= 0 {
 			t.Errorf("AddonPacks[%q].PackSize = %d, want > 0", at, pack.PackSize)
-		}
-		if pack.PriceCents <= 0 {
-			t.Errorf("AddonPacks[%q].PriceCents = %d, want > 0", at, pack.PriceCents)
 		}
 		if pack.Type != at {
 			t.Errorf("AddonPacks[%q].Type = %q, want %q", at, pack.Type, at)
@@ -254,8 +324,20 @@ func TestAddonPacks_PositiveValues(t *testing.T) {
 		if pack.DisplayName == "" {
 			t.Errorf("AddonPacks[%q].DisplayName is empty", at)
 		}
-		if pack.LookupKey == "" {
-			t.Errorf("AddonPacks[%q].LookupKey is empty", at)
+		if IsLaunchActiveAddonType(at) {
+			if pack.PriceCents <= 0 {
+				t.Errorf("active AddonPacks[%q].PriceCents = %d, want > 0", at, pack.PriceCents)
+			}
+			if pack.LookupKey == "" {
+				t.Errorf("active AddonPacks[%q].LookupKey is empty", at)
+			}
+			continue
+		}
+		if pack.PriceCents != 0 {
+			t.Errorf("roadmap AddonPacks[%q].PriceCents = %d, want 0", at, pack.PriceCents)
+		}
+		if pack.LookupKey != "" {
+			t.Errorf("roadmap AddonPacks[%q].LookupKey = %q, want empty", at, pack.LookupKey)
 		}
 	}
 }

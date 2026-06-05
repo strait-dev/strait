@@ -5,12 +5,7 @@ import {
   SidebarTrigger,
 } from "@strait/ui/components/sidebar";
 import { useQuery } from "@tanstack/react-query";
-import {
-  createFileRoute,
-  Outlet,
-  redirect,
-  useNavigate,
-} from "@tanstack/react-router";
+import { createFileRoute, Outlet, redirect } from "@tanstack/react-router";
 import { zodValidator } from "@tanstack/zod-adapter";
 import { useEffect, useRef } from "react";
 import * as z from "zod";
@@ -24,7 +19,6 @@ import ThemeToggle from "@/components/common/theme-toggle";
 import FeedbackDialog from "@/components/help/feedback-dialog";
 import SupportDialog from "@/components/help/support-dialog";
 import { usePostHog } from "@/components/providers/posthog-provider";
-import TrialStartedModal from "@/components/upgrade/trial-started-modal";
 import { projectsQueryOptions } from "@/hooks/api/use-projects";
 import {
   organizationQueryOptions,
@@ -44,7 +38,6 @@ export type AppRouteContext = RouterContext & {
 };
 
 const appSearchSchema = z.object({
-  trial_started: z.coerce.boolean().optional(),
   checkout_success: z.coerce.boolean().optional(),
 });
 
@@ -127,10 +120,7 @@ export const Route = createFileRoute("/app")({
 
 function RouteComponent() {
   const { session } = Route.useLoaderData();
-  const search = Route.useSearch();
-  const navigate = useNavigate();
   const posthog = usePostHog();
-  const showTrialModal = Boolean(search.trial_started);
   const hasIdentifiedRef = useRef(false);
 
   const { data: subscription } = useQuery(subscriptionQueryOptions());
@@ -203,16 +193,6 @@ function RouteComponent() {
     }
   }, [posthog, session, subscription, subscriptionState]);
 
-  const handleTrialModalClose = (open: boolean) => {
-    if (!open) {
-      navigate({
-        to: "/app",
-        search: {},
-        replace: true,
-      });
-    }
-  };
-
   return (
     <SidebarProvider>
       <Sidebar session={session} />
@@ -246,11 +226,6 @@ function RouteComponent() {
           <Outlet />
         </div>
       </SidebarInset>
-
-      <TrialStartedModal
-        onOpenChange={handleTrialModalClose}
-        open={showTrialModal}
-      />
     </SidebarProvider>
   );
 }

@@ -362,18 +362,13 @@ type Job struct {
 	BatchMaxSize              int               `json:"batch_max_size,omitempty"`
 	ExecutionMode             ExecutionMode     `json:"execution_mode,omitempty"`
 	Queue                     string            `json:"queue,omitempty"`
-	PreferredRegions          []string          `json:"preferred_regions,omitempty"`
+	PreferredRegions          []string          `json:"-"`
 	OnCompleteTriggerWorkflow string            `json:"on_complete_trigger_workflow,omitempty"`
 	OnCompleteTriggerJob      string            `json:"on_complete_trigger_job,omitempty"`
 	OnCompletePayloadMapping  json.RawMessage   `json:"on_complete_payload_mapping,omitempty"`
 	OnFailureTriggerJob       string            `json:"on_failure_trigger_job,omitempty"`
 	OnFailureTriggerWorkflow  string            `json:"on_failure_trigger_workflow,omitempty"`
 	OnFailurePayloadMapping   json.RawMessage   `json:"on_failure_payload_mapping,omitempty"`
-	MaxTokensPerRun           int64             `json:"max_tokens_per_run,omitempty"`
-	MaxToolCallsPerRun        int               `json:"max_tool_calls_per_run,omitempty"`
-	MaxIterationsPerRun       int               `json:"max_iterations_per_run,omitempty"`
-	AllowedTools              []string          `json:"allowed_tools,omitempty"`
-	BlockedTools              []string          `json:"blocked_tools,omitempty"`
 	EndpointSigningSecret     string            `json:"-"`
 	CreatedBy                 string            `json:"created_by,omitempty"`
 	UpdatedBy                 string            `json:"updated_by,omitempty"`
@@ -456,7 +451,8 @@ type Environment struct {
 	UpdatedAt  time.Time         `json:"updated_at"`
 }
 
-// StandardEnvironmentSlugs defines the three standard environments created for every project.
+// StandardEnvironmentSlugs defines the legacy standard environment seed set.
+// Launch project creation does not auto-provision these environments.
 var StandardEnvironmentSlugs = []string{"development", "staging", "production"}
 
 // StandardEnvironmentNames maps slugs to display names.
@@ -610,29 +606,6 @@ type RunCheckpoint struct {
 	CreatedAt time.Time       `json:"created_at"`
 }
 
-type RunUsage struct {
-	ID               string    `json:"id"`
-	RunID            string    `json:"run_id"`
-	Provider         string    `json:"provider"`
-	Model            string    `json:"model"`
-	PromptTokens     int       `json:"prompt_tokens"`
-	CompletionTokens int       `json:"completion_tokens"`
-	TotalTokens      int       `json:"total_tokens"`
-	CostMicrousd     int64     `json:"cost_microusd"`
-	CreatedAt        time.Time `json:"created_at"`
-}
-
-type RunToolCall struct {
-	ID         string          `json:"id"`
-	RunID      string          `json:"run_id"`
-	ToolName   string          `json:"tool_name"`
-	Input      json.RawMessage `json:"input,omitempty"`
-	Output     json.RawMessage `json:"output,omitempty"`
-	DurationMs int             `json:"duration_ms,omitempty"`
-	Status     string          `json:"status"`
-	CreatedAt  time.Time       `json:"created_at"`
-}
-
 // RunIteration represents a single iteration of an agent run.
 type RunIteration struct {
 	ID          string    `json:"id"`
@@ -679,8 +652,6 @@ type DebugBundle struct {
 	Run               *JobRun               `json:"run"`
 	Events            []RunEvent            `json:"events"`
 	Checkpoints       []RunCheckpoint       `json:"checkpoints"`
-	Usage             []RunUsage            `json:"usage"`
-	ToolCalls         []RunToolCall         `json:"tool_calls"`
 	Outputs           []RunOutput           `json:"outputs"`
 	ResourceSnapshots []RunResourceSnapshot `json:"resource_snapshots"`
 }

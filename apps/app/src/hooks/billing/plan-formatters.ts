@@ -26,29 +26,16 @@ export const formatLimit = (value: number): string => {
 };
 
 /**
- * Format a micro-USD compute credit amount for display.
+ * Format a micro-USD price amount for display.
  *
- * @param microusd - Credit amount in micro-USD (1,000,000 = $1.00).
+ * @param microusd - Price amount in micro-USD (1,000,000 = $1.00).
  * @returns Formatted string (e.g. "$19.99") or "-" for zero/negative.
  */
-export const formatComputeCredit = (microusd: number): string => {
+export const formatMicroUsdPrice = (microusd: number): string => {
   if (microusd <= 0) {
     return "-";
   }
   return `$${(microusd / MICRO_TO_DOLLARS).toFixed(2)}`;
-};
-
-/**
- * Format a region list into a count string.
- *
- * @param regions - Array of allowed region codes. Empty means all regions.
- * @returns "All" for empty array, otherwise the count as a string.
- */
-export const formatRegionCount = (regions: string[] | null): string => {
-  if (!regions || regions.length === 0) {
-    return "All";
-  }
-  return String(regions.length);
 };
 
 /**
@@ -65,9 +52,26 @@ export const formatRetention = (days: number): string => {
 };
 
 /**
+ * Format a cron minimum interval in seconds.
+ *
+ * @param seconds - Minimum interval in seconds. `0` means sub-second.
+ * @returns Human-readable interval.
+ */
+export const formatCronInterval = (seconds: number): string => {
+  if (seconds === 0) {
+    return "sub-second";
+  }
+  if (seconds < 60) {
+    return `${seconds} sec`;
+  }
+  const minutes = seconds / 60;
+  return minutes === 1 ? "1 min" : `${minutes} min`;
+};
+
+/**
  * Format an RBAC level string for display.
  *
- * @param level - RBAC level ("", "basic", "full").
+ * @param level - RBAC level ("", "basic", "full", "advanced").
  * @returns Capitalized level or "-" for empty string.
  */
 export const formatRBAC = (level: string): string => {

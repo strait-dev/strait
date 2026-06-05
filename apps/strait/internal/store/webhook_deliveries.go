@@ -133,7 +133,6 @@ func (q *Queries) EnqueueRunWebhook(ctx context.Context, job *domain.Job, run *d
 		return nil, fmt.Errorf("enqueue run webhook: marshal payload: %w", err)
 	}
 
-	now := time.Now().UTC()
 	d := &domain.WebhookDelivery{
 		ID:            uuid.Must(uuid.NewV7()).String(),
 		RunID:         run.ID,
@@ -144,7 +143,6 @@ func (q *Queries) EnqueueRunWebhook(ctx context.Context, job *domain.Job, run *d
 		Status:        domain.WebhookStatusPending,
 		Attempts:      0,
 		MaxAttempts:   maxAttempts,
-		NextRetryAt:   &now,
 	}
 
 	// EnqueueRunWebhook has the run in scope so project_id is known
@@ -155,8 +153,8 @@ func (q *Queries) EnqueueRunWebhook(ctx context.Context, job *domain.Job, run *d
 			id, run_id, job_id, webhook_url, webhook_retry_policy, status, attempts, max_attempts, next_retry_at,
 			webhook_secret, payload, payload_size_bytes, event_type, project_id
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, octet_length($11::jsonb::text), $12, $13)
-		RETURNING created_at, updated_at`
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), $9, $10::jsonb, octet_length($10::jsonb::text), $11, $12)
+		RETURNING next_retry_at, created_at, updated_at`
 
 	err = q.db.QueryRow(
 		ctx,
@@ -169,12 +167,11 @@ func (q *Queries) EnqueueRunWebhook(ctx context.Context, job *domain.Job, run *d
 		d.Status,
 		d.Attempts,
 		d.MaxAttempts,
-		d.NextRetryAt,
 		dbscan.NilIfEmptyString(job.WebhookSecret),
 		payload,
 		fmt.Sprintf("run.%s", run.Status),
 		run.ProjectID,
-	).Scan(&d.CreatedAt, &d.UpdatedAt)
+	).Scan(&d.NextRetryAt, &d.CreatedAt, &d.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("enqueue run webhook: %w", err)
 	}

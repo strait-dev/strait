@@ -119,10 +119,9 @@ The client exposes 22 service objects as methods. Each service maps to a Strait 
 | SDK Runs              | `client.sdk_runs`              |      26 |
 | RBAC                  | `client.rbac`                  |      18 |
 | Job Groups            | `client.job_groups`            |       9 |
-| Regions               | `client.regions`               |       1 |
 | Projects              | `client.projects`              |       2 |
 | Notification Channels | `client.notification_channels` |       6 |
-| **Total**             |                                | **198** |
+| **Total**             |                                | **197** |
 
 All service methods return parsed JSON as Ruby hashes and arrays. List endpoints return paginated results.
 
@@ -141,7 +140,7 @@ workflow = Strait::Authoring.define_workflow(
       depends_on: ["build"],
       approvers: ["eng-lead"]
     ),
-    Strait::Authoring.ai_step(
+    Strait::Authoring.job_step(
       ref: "release-notes",
       job_id: "job_release_notes",
       depends_on: ["approve"]
@@ -170,7 +169,7 @@ Available step types:
 | --------------------------------- | ------------------------------ |
 | `Strait::Authoring.job_step`      | Execute a job                  |
 | `Strait::Authoring.approval_step` | Wait for human approval        |
-| `Strait::Authoring.ai_step`       | Execute an AI-powered job step |
+| `Strait::Authoring.wait_for_event_step` | Wait for an event       |
 
 ## Composition Helpers
 

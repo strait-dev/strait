@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"strait/internal/billing"
+	"strait/internal/domain"
 	"strait/internal/pubsub"
 	"strait/internal/queue"
 	"strait/internal/store"
@@ -58,10 +59,12 @@ type Executor struct {
 	defaultRegion            string
 	mode                     string
 	version                  string
+	edition                  domain.Edition
 	billingEnforcer          *billing.Enforcer
 	stripeUsageReporter      *billing.StripeUsageReporter
 	stripeUsageWG            conc.WaitGroup // tracks in-flight Stripe usage event goroutines
 	runCostRecorder          *billing.RunCostRecorder
+	dlqCapEnforcer           *DLQCapEnforcer
 	secretDecryptor          SecretDecryptor
 	stop                     chan struct{}
 	done                     chan struct{}

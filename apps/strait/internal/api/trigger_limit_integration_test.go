@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"strait/internal/billing"
 	"strait/internal/config"
 	"strait/internal/domain"
 	"strait/internal/queue"
@@ -25,6 +26,7 @@ import (
 
 var (
 	triggerLimitTestDB     *testutil.TestDB
+	triggerLimitTestRedis  *testutil.TestRedis
 	triggerLimitTestDBOnce sync.Once
 )
 
@@ -36,11 +38,26 @@ func getTriggerLimitTestDB(t *testing.T) *testutil.TestDB {
 		if err != nil {
 			t.Fatalf("SetupTestDB() error = %v", err)
 		}
+		triggerLimitTestRedis, err = testutil.SetupSharedTestRedis(context.Background(), "api-trigger-limit")
+		if err != nil {
+			t.Fatalf("SetupTestRedis() error = %v", err)
+		}
 	})
 	if triggerLimitTestDB == nil || triggerLimitTestDB.Pool == nil {
 		t.Fatal("triggerLimitTestDB is not initialized")
 	}
 	return triggerLimitTestDB
+}
+
+func newTriggerLimitBillingEnforcer(t *testing.T, ctx context.Context, db *testutil.TestDB) *billing.Enforcer {
+	t.Helper()
+	if triggerLimitTestRedis == nil || triggerLimitTestRedis.Client == nil {
+		t.Fatal("triggerLimitTestRedis is not initialized")
+	}
+	if err := triggerLimitTestRedis.FlushAll(ctx); err != nil {
+		t.Fatalf("FlushAll() error = %v", err)
+	}
+	return billing.NewEnforcer(billing.NewPgStore(db.Pool), triggerLimitTestRedis.Client, nil)
 }
 
 func newTriggerLimitPgQueQueue(t *testing.T, db *testutil.TestDB) *queue.PgQueQueue {
@@ -69,15 +86,20 @@ func TestIntegration_TriggerLimitGuard_SerializesQueuedQuota(t *testing.T) {
 			MaxBulkTriggerItems: 500,
 			JWTSigningKey:       testJWTSigningKey,
 		},
-		Store:   st,
-		Queue:   q,
-		Edition: domain.EditionCloud,
+		Store:           st,
+		Queue:           q,
+		BillingEnforcer: newTriggerLimitBillingEnforcer(t, ctx, db),
+		Edition:         domain.EditionCloud,
 	})
 	t.Cleanup(srv.Close)
 
 	projectID := "project-" + uuid.Must(uuid.NewV7()).String()
-	if _, err := db.Pool.Exec(ctx, `INSERT INTO projects (id, name) VALUES ($1, $2)`, projectID, "trigger limit project"); err != nil {
-		t.Fatalf("insert project: %v", err)
+	if err := st.CreateProject(ctx, &domain.Project{
+		ID:    projectID,
+		OrgID: "org-trigger-limit",
+		Name:  "trigger limit project",
+	}); err != nil {
+		t.Fatalf("create project: %v", err)
 	}
 	if _, err := db.Pool.Exec(ctx, `INSERT INTO project_quotas (project_id, max_queued_runs) VALUES ($1, 1)`, projectID); err != nil {
 		t.Fatalf("insert project quota: %v", err)
@@ -277,13 +299,17 @@ func TestIntegration_BulkTriggerLimitGuard_RejectsBatchBeyondQueuedQuota(t *test
 	q := newTriggerLimitPgQueQueue(t, db)
 	srv := NewServer(ServerDeps{
 		Config: &config.Config{InternalSecret: "test-secret-value", MaxBulkTriggerItems: 500, JWTSigningKey: testJWTSigningKey},
-		Store:  st, Queue: q, Edition: domain.EditionCloud,
+		Store:  st, Queue: q, BillingEnforcer: newTriggerLimitBillingEnforcer(t, ctx, db), Edition: domain.EditionCloud,
 	})
 	t.Cleanup(srv.Close)
 
 	projectID := "project-" + uuid.Must(uuid.NewV7()).String()
-	if _, err := db.Pool.Exec(ctx, `INSERT INTO projects (id, name) VALUES ($1, $2)`, projectID, "bulk trigger quota project"); err != nil {
-		t.Fatalf("insert project: %v", err)
+	if err := st.CreateProject(ctx, &domain.Project{
+		ID:    projectID,
+		OrgID: "org-bulk-trigger-limit",
+		Name:  "bulk trigger quota project",
+	}); err != nil {
+		t.Fatalf("create project: %v", err)
 	}
 	if _, err := db.Pool.Exec(ctx, `INSERT INTO project_quotas (project_id, max_queued_runs) VALUES ($1, 1)`, projectID); err != nil {
 		t.Fatalf("insert project quota: %v", err)

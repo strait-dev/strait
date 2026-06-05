@@ -203,10 +203,10 @@ func (s *Server) routes() chi.Router {
 		r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/", s.handleRunStream)
 		// Worker-mode log streaming: subscribes to worker:log:<runID> pub/sub channel.
 		r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/logs", s.handleRunLogStream)
-		// LLM chunk streaming. Mounted here (not in /v1) so the response
+		// Run chunk streaming. Mounted here (not in /v1) so the response
 		// writer remains a Flusher and the JSON Accept gate does not refuse
 		// text/event-stream callers.
-		r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/chunks", s.handleRunLLMStream)
+		r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/chunks", s.handleRunChunkStream)
 	})
 
 	// Project activity stream (SSE, no timeout -- connections stay open).
@@ -240,7 +240,7 @@ func (s *Server) routes() chi.Router {
 			r.With(s.requirePermission(domain.ScopeSecretsWrite)).Delete("/{secretID}", TypedHandler(s, http.StatusNoContent, s.handleDeleteSecret))
 		})
 
-		r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/regions", TypedHandler(s, http.StatusOK, s.handleGetRegions))
+		r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/plans", TypedHandler(s, http.StatusOK, s.handleGetPlans))
 
 		r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/usage/current", TypedHandler(s, http.StatusOK, s.handleGetCurrentUsage))
 		r.With(s.requirePermission(domain.ScopeProjectsRead)).Get("/usage/history", TypedHandler(s, http.StatusOK, s.handleGetUsageHistory))
@@ -340,8 +340,6 @@ func (s *Server) routes() chi.Router {
 				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/children", TypedHandler(s, http.StatusOK, s.handleListChildRuns))
 				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/events", TypedHandler(s, http.StatusOK, s.handleListRunEvents))
 				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/checkpoints", TypedHandler(s, http.StatusOK, s.handleListRunCheckpoints))
-				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/usage", TypedHandler(s, http.StatusOK, s.handleListRunUsage))
-				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/tool-calls", TypedHandler(s, http.StatusOK, s.handleListRunToolCalls))
 				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/outputs", TypedHandler(s, http.StatusOK, s.handleListRunOutputs))
 				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/debug-bundle", TypedHandler(s, http.StatusOK, s.handleGetDebugBundle))
 				r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/debug", TypedHandler(s, http.StatusOK, s.handleSetDebugMode))
@@ -670,8 +668,6 @@ func (s *Server) routes() chi.Router {
 			r.Post("/annotate", TypedHandler(s, http.StatusOK, s.handleSDKAnnotate))
 			r.Post("/heartbeat", TypedHandler(s, http.StatusOK, s.handleSDKHeartbeat))
 			r.Post("/checkpoint", TypedHandler(s, http.StatusCreated, s.handleSDKCheckpoint))
-			r.Post("/usage", TypedHandler(s, http.StatusCreated, s.handleSDKUsage))
-			r.Post("/tool-call", TypedHandler(s, http.StatusCreated, s.handleSDKToolCall))
 			r.Post("/output", TypedHandler(s, http.StatusCreated, s.handleSDKOutput))
 			r.Post("/complete", TypedHandler(s, http.StatusOK, s.handleSDKComplete))
 			r.Post("/fail", TypedHandler(s, http.StatusOK, s.handleSDKFail))
@@ -685,7 +681,6 @@ func (s *Server) routes() chi.Router {
 			r.Post("/stream", TypedHandler(s, http.StatusOK, s.handleSDKStreamChunk))
 			r.Post("/resources", TypedHandler(s, http.StatusCreated, s.handleSDKResources))
 			r.Post("/resource-snapshot", TypedHandler(s, http.StatusCreated, s.handleSDKResourceSnapshot))
-			r.Post("/iteration", TypedHandler(s, http.StatusOK, s.handleSDKIteration))
 			r.Route("/memory", func(r chi.Router) {
 				r.Post("/{key}", TypedHandler(s, http.StatusCreated, s.handleSDKSetMemory))
 				r.Get("/{key}", TypedHandler(s, http.StatusOK, s.handleSDKGetMemory))

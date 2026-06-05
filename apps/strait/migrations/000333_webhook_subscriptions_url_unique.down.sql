@@ -1,0 +1,5 @@
+-- This backfill deactivated duplicate active rows so the next migration could
+-- safely build a partial unique index. Reversing that deactivation would
+-- re-create the duplicate-dispatch surface the upgrade closed, so this
+-- down is intentionally a no-op. The freshest row per (project_id,
+-- webhook_url) was kept active and remains usable.

@@ -84,11 +84,11 @@ func (s *Server) registerStreamOps(api huma.API) {
 	})
 
 	huma.Register(api, huma.Operation{
-		OperationID: "get-run-llm-stream",
+		OperationID: "get-run-chunk-stream",
 		Method:      http.MethodGet,
 		Path:        "/v1/runs/{runID}/stream/chunks",
-		Summary:     "Get LLM stream chunks",
-		Description: "Returns stored LLM streaming chunks for a run.",
+		Summary:     "Get run stream chunks",
+		Description: "Returns stored run streaming chunks for a run.",
 		Tags:        []string{"Runs"},
 		Security:    []map[string][]string{{"bearerAuth": {}}},
 		Errors:      []int{401, 404, 500},

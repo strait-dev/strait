@@ -34,15 +34,15 @@ export type SpendingLimitData = {
   org_id: string;
   /** Current plan tier. */
   plan_tier: PlanTierSlug;
+  /** Whether runs beyond the included monthly allowance may enter paid overage. */
+  overage_enabled: boolean;
   /** Configured spending limit in USD. */
   spending_limit_usd: number;
   /** Action taken when the limit is reached. */
   limit_action: LimitAction;
   /** Current period spend in USD. */
   current_spend_usd: number;
-  /** Included compute credit in USD. */
-  included_credit_usd: number;
-  /** Overage spend above the included credit in USD. */
+  /** Overage spend beyond the included allowance in USD. */
   overage_spend_usd: number;
   /** Whether the org is hard-capped (no overage allowed). */
   is_hard_capped: boolean;
@@ -80,6 +80,7 @@ export const spendingLimitQueryOptions = () =>
 type UpdateSpendingLimitInput = {
   limitMicrousd: number;
   action: string;
+  overageEnabled?: boolean;
 };
 
 /** Server function to update the organization's spending limit. */
@@ -89,6 +90,7 @@ const updateSpendingLimitServerFn = createServerFn({ method: "POST" })
       .object({
         limitMicrousd: z.number().min(0),
         action: z.string().min(1),
+        overageEnabled: z.boolean().optional(),
       })
       .parse(data)
   )
@@ -103,6 +105,7 @@ const updateSpendingLimitServerFn = createServerFn({ method: "POST" })
         body: {
           limit_microusd: data.limitMicrousd,
           action: data.action,
+          overage_enabled: data.overageEnabled,
         },
       })
     );
@@ -119,7 +122,7 @@ const updateSpendingLimitServerFn = createServerFn({ method: "POST" })
 export const useUpdateSpendingLimit = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (params: { limitMicrousd: number; action: string }) =>
+    mutationFn: (params: UpdateSpendingLimitInput) =>
       updateSpendingLimitServerFn({ data: params }),
     onSuccess: (_data, variables) => {
       getPostHog()?.capture("spending_limit_updated", {

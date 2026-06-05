@@ -27,6 +27,7 @@
     "biome:format": "turbo biome:format",
     "biome:write": "turbo biome:write",
     "biome:fix:unsafe": "turbo biome:fix:unsafe",
+    "billing:catalog:check": "bun run --cwd packages/billing check:generated",
     "clean": "git clean -xdf node_modules",
     "clean:workspaces": "turbo run clean",
     "go:build": "cd apps/strait && go build ./...",

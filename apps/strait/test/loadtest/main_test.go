@@ -24,6 +24,7 @@ import (
 	"strait/internal/store"
 	"strait/internal/testutil"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	vegeta "github.com/tsenart/vegeta/v12/lib"
 )
@@ -383,12 +384,40 @@ func seedManyJobs(t *testing.T, projectID string, n int) []string {
 	return ids
 }
 
-// seedRun triggers a job and returns run ID + run token.
+type loadtestRunTokenClaims struct {
+	Attempt int `json:"attempt,omitempty"`
+	jwt.RegisteredClaims
+}
+
+// seedRun triggers a job and returns run ID plus an internal test SDK token.
 func seedRun(t *testing.T, jobID string) (runID, runToken string) {
 	t.Helper()
 	body := `{"payload":{"load":"test"}}`
 	resp := httpDo(t, "POST", "/v1/jobs/"+jobID+"/trigger", body, nil)
-	return resp["id"].(string), resp["run_token"].(string)
+	runID, ok := resp["id"].(string)
+	if !ok || runID == "" {
+		t.Fatalf("trigger response missing id: %#v", resp)
+	}
+	return runID, mintRunToken(t, runID)
+}
+
+func mintRunToken(t *testing.T, runID string) string {
+	t.Helper()
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, loadtestRunTokenClaims{
+		Attempt: 1,
+		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:    domain.RunTokenIssuer,
+			Subject:   runID,
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+		},
+	})
+	signed, err := token.SignedString([]byte(testJWTSigningKey))
+	if err != nil {
+		t.Fatalf("mint run token: %v", err)
+	}
+	return signed
 }
 
 // seedManyRuns triggers a job n times and returns run IDs.

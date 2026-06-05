@@ -8,12 +8,11 @@ import (
 
 // ProjectCostEntry summarizes costs for a single project within a period.
 type ProjectCostEntry struct {
-	ProjectID    string `json:"project_id"`
-	Name         string `json:"name"`
-	Runs         int64  `json:"runs"`
-	ComputeMicro int64  `json:"compute_microusd"`
-	AIMicro      int64  `json:"ai_microusd"`
-	TotalMicro   int64  `json:"total_microusd"`
+	ProjectID  string `json:"project_id"`
+	Name       string `json:"name"`
+	Runs       int64  `json:"runs"`
+	SpendMicro int64  `json:"spend_microusd"`
+	TotalMicro int64  `json:"total_microusd"`
 }
 
 // GetProjectCosts returns per-project cost allocations for an org over the given period.
@@ -36,9 +35,8 @@ func GetProjectCosts(ctx context.Context, store Store, orgID string, from, to ti
 			projectMap[r.ProjectID] = entry
 		}
 		entry.Runs += r.RunsCount
-		entry.ComputeMicro += r.ComputeCostMicro
-		entry.AIMicro += r.AICostMicro
-		entry.TotalMicro += r.ComputeCostMicro + r.AICostMicro
+		entry.SpendMicro += r.ComputeCostMicro
+		entry.TotalMicro += r.ComputeCostMicro
 	}
 
 	entries := make([]ProjectCostEntry, 0, len(projectMap))

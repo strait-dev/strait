@@ -1238,8 +1238,8 @@ func TestPgStore_UpsertUsageRecord(t *testing.T) {
 		PeriodDate:       day,
 		RunsCount:        10,
 		ComputeCostMicro: 5_000_000,
-		AITokensTotal:    1000,
-		AICostMicro:      500_000,
+		UsageTokensTotal: 1000,
+		UsageCostMicro:   500_000,
 		CreatedAt:        now,
 		UpdatedAt:        now,
 	}
@@ -1255,8 +1255,8 @@ func TestPgStore_UpsertUsageRecord(t *testing.T) {
 		PeriodDate:       day,
 		RunsCount:        5,
 		ComputeCostMicro: 1_000_000,
-		AITokensTotal:    200,
-		AICostMicro:      100_000,
+		UsageTokensTotal: 200,
+		UsageCostMicro:   100_000,
 		CreatedAt:        now,
 		UpdatedAt:        now,
 	}
@@ -1265,10 +1265,10 @@ func TestPgStore_UpsertUsageRecord(t *testing.T) {
 	}
 
 	// Read back via raw SQL.
-	var runs, compute, tokens, ai int64
+	var runs, compute, tokens, usageCost int64
 	err := testDB.Pool.QueryRow(ctx,
-		"SELECT runs_count, compute_cost_microusd, ai_tokens_total, ai_cost_microusd FROM usage_records WHERE org_id = $1 AND project_id = $2 AND period_date = $3",
-		orgID, p.ID, day).Scan(&runs, &compute, &tokens, &ai)
+		"SELECT runs_count, compute_cost_microusd, usage_tokens_total, usage_cost_microusd FROM usage_records WHERE org_id = $1 AND project_id = $2 AND period_date = $3",
+		orgID, p.ID, day).Scan(&runs, &compute, &tokens, &usageCost)
 	if err != nil {
 		t.Fatalf("query usage_records: %v", err)
 	}
@@ -1279,10 +1279,10 @@ func TestPgStore_UpsertUsageRecord(t *testing.T) {
 		t.Errorf("compute_cost = %d, want 6000000", compute)
 	}
 	if tokens != 1200 {
-		t.Errorf("ai_tokens = %d, want 1200", tokens)
+		t.Errorf("usage_tokens = %d, want 1200", tokens)
 	}
-	if ai != 600_000 {
-		t.Errorf("ai_cost = %d, want 600000", ai)
+	if usageCost != 600_000 {
+		t.Errorf("usage_cost = %d, want 600000", usageCost)
 	}
 }
 
@@ -2586,20 +2586,19 @@ func TestPgStore_CountMembersAndExecutingRunsByOrg(t *testing.T) {
 func makeContract(orgID string, tier billing.EnterpriseTier, endDate time.Time) *billing.EnterpriseContract {
 	subID := "sub_" + orgID
 	return &billing.EnterpriseContract{
-		ID:                     "contract_" + orgID,
-		OrgID:                  orgID,
-		EnterpriseTier:         tier,
-		AnnualCommitmentCents:  1800000,
-		IncludedCreditMicrousd: 1000000000,
-		ComputeDiscountPct:     10,
-		ContractStartDate:      time.Now().Add(-180 * 24 * time.Hour),
-		ContractEndDate:        endDate,
-		AutoRenew:              true,
-		BillingCadence:         "annual",
-		StripeSubscriptionID:   &subID,
-		Notes:                  "test contract",
-		CreatedAt:              time.Now(),
-		UpdatedAt:              time.Now(),
+		ID:                    "contract_" + orgID,
+		OrgID:                 orgID,
+		EnterpriseTier:        tier,
+		AnnualCommitmentCents: 1800000,
+		OverageDiscountPct:    10,
+		ContractStartDate:     time.Now().Add(-180 * 24 * time.Hour),
+		ContractEndDate:       endDate,
+		AutoRenew:             true,
+		BillingCadence:        "annual",
+		StripeSubscriptionID:  &subID,
+		Notes:                 "test contract",
+		CreatedAt:             time.Now(),
+		UpdatedAt:             time.Now(),
 	}
 }
 
@@ -2629,11 +2628,8 @@ func TestPgStore_UpsertAndGetEnterpriseContract(t *testing.T) {
 	if got.AnnualCommitmentCents != 1800000 {
 		t.Errorf("AnnualCommitmentCents = %d, want 1800000", got.AnnualCommitmentCents)
 	}
-	if got.IncludedCreditMicrousd != 1000000000 {
-		t.Errorf("IncludedCreditMicrousd = %d, want 1000000000", got.IncludedCreditMicrousd)
-	}
-	if got.ComputeDiscountPct != 10 {
-		t.Errorf("ComputeDiscountPct = %d, want 10", got.ComputeDiscountPct)
+	if got.OverageDiscountPct != 10 {
+		t.Errorf("OverageDiscountPct = %d, want 10", got.OverageDiscountPct)
 	}
 	if !got.AutoRenew {
 		t.Error("AutoRenew = false, want true")
@@ -2674,7 +2670,7 @@ func TestPgStore_UpsertEnterpriseContract_UpdatesExisting(t *testing.T) {
 
 	// Upsert again with different tier and discount.
 	c2 := makeContract(orgID, billing.EnterpriseTierGrowth, time.Now().Add(365*24*time.Hour))
-	c2.ComputeDiscountPct = 15
+	c2.OverageDiscountPct = 15
 	c2.AnnualCommitmentCents = 4800000
 	c2.Notes = "upgraded"
 
@@ -2689,8 +2685,8 @@ func TestPgStore_UpsertEnterpriseContract_UpdatesExisting(t *testing.T) {
 	if got.EnterpriseTier != billing.EnterpriseTierGrowth {
 		t.Errorf("EnterpriseTier = %q, want %q", got.EnterpriseTier, billing.EnterpriseTierGrowth)
 	}
-	if got.ComputeDiscountPct != 15 {
-		t.Errorf("ComputeDiscountPct = %d, want 15", got.ComputeDiscountPct)
+	if got.OverageDiscountPct != 15 {
+		t.Errorf("OverageDiscountPct = %d, want 15", got.OverageDiscountPct)
 	}
 	if got.AnnualCommitmentCents != 4800000 {
 		t.Errorf("AnnualCommitmentCents = %d, want 4800000", got.AnnualCommitmentCents)
@@ -3205,54 +3201,6 @@ func TestPgStore_ListStaleSubscriptions_MonthlyUsageEmail(t *testing.T) {
 	}
 	t.Fatal("org not found in stale subscriptions list")
 }
-func TestPgStore_UsageCTE_AIOnlyNoCompute(t *testing.T) {
-	ctx := context.Background()
-	mustClean(t, ctx)
-	pgStore := billing.NewPgStore(testDB.Pool)
-	q := mustQueries(t)
-
-	orgID := "org-cte-aionly-" + newID()
-	p := createProject(t, ctx, q, orgID, "P")
-	job := createJob(t, ctx, q, p.ID)
-	run := createRun(t, ctx, q, job, domain.StatusCompleted)
-
-	ai := &domain.RunUsage{
-		ID: newID(), RunID: run.ID,
-		Provider: "openai", Model: "gpt-4",
-		PromptTokens: 100, CompletionTokens: 50, TotalTokens: 150,
-		CostMicrousd: 500000,
-	}
-	if err := q.CreateRunUsage(ctx, ai); err != nil {
-		t.Fatalf("CreateRunUsage: %v", err)
-	}
-
-	now := time.Now().UTC()
-	from := now.Add(-1 * time.Hour)
-	to := now.Add(1 * time.Hour)
-	recs, err := pgStore.GetOrgUsageForPeriod(ctx, orgID, from, to)
-	if err != nil {
-		t.Fatalf("GetOrgUsageForPeriod: %v", err)
-	}
-	if len(recs) == 0 {
-		t.Fatal("expected at least one usage record")
-	}
-
-	for _, r := range recs {
-		if r.ProjectID == p.ID {
-			if r.ComputeCostMicro != 0 {
-				t.Errorf("ComputeCostMicro = %d, want 0", r.ComputeCostMicro)
-			}
-			if r.AITokensTotal != 150 {
-				t.Errorf("AITokensTotal = %d, want 150", r.AITokensTotal)
-			}
-			if r.AICostMicro != 500000 {
-				t.Errorf("AICostMicro = %d, want 500000", r.AICostMicro)
-			}
-			return
-		}
-	}
-	t.Fatal("project record not found in usage")
-}
 func TestPgStore_UpsertOrgSubscription_PreservesPendingPlanTier(t *testing.T) {
 	ctx := context.Background()
 	mustClean(t, ctx)
@@ -3667,41 +3615,6 @@ func TestPgStore_DeleteOldWebhookMessages_NoRows(t *testing.T) {
 	}
 	if deleted != 0 {
 		t.Errorf("deleted = %d, want 0 (message is recent)", deleted)
-	}
-}
-
-// L5: CountAIModelCallsByOrg multiple rows per run
-
-func TestPgStore_CountAIModelCallsByOrg_MultipleRowsPerRun(t *testing.T) {
-	ctx := context.Background()
-	mustClean(t, ctx)
-	pgStore := billing.NewPgStore(testDB.Pool)
-	q := mustQueries(t)
-
-	orgID := "org-multi-ai-" + newID()
-	p := createProject(t, ctx, q, orgID, "P")
-	job := createJob(t, ctx, q, p.ID)
-	run := createRun(t, ctx, q, job, domain.StatusCompleted)
-
-	for i := range 3 {
-		ai := &domain.RunUsage{
-			ID: newID(), RunID: run.ID,
-			Provider: "openai", Model: fmt.Sprintf("gpt-4-%d", i),
-			PromptTokens: 100, CompletionTokens: 50, TotalTokens: 150,
-			CostMicrousd: 100000,
-		}
-		if err := q.CreateRunUsage(ctx, ai); err != nil {
-			t.Fatalf("CreateRunUsage %d: %v", i, err)
-		}
-	}
-
-	now := time.Now().UTC()
-	count, err := pgStore.CountAIModelCallsByOrg(ctx, orgID, now.Add(-time.Hour), now.Add(time.Hour))
-	if err != nil {
-		t.Fatalf("CountAIModelCallsByOrg: %v", err)
-	}
-	if count != 3 {
-		t.Errorf("count = %d, want 3", count)
 	}
 }
 

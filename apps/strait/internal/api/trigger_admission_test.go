@@ -96,7 +96,7 @@ func TestCheckTriggerDispatchPrioritySkipsZeroPriority(t *testing.T) {
 			return nil
 		},
 	}
-	srv := &Server{billingEnforcer: enforcer}
+	srv := &Server{edition: domain.EditionCloud, billingEnforcer: enforcer}
 
 	if err := srv.checkTriggerDispatchPriority(context.Background(), "project-1", 0); err != nil {
 		t.Fatalf("checkTriggerDispatchPriority() error = %v", err)
@@ -117,7 +117,7 @@ func TestCheckTriggerDispatchPriorityMapsPlanErrorTo402(t *testing.T) {
 			return errors.New("dispatch priority exceeds plan limit")
 		},
 	}
-	srv := &Server{billingEnforcer: enforcer}
+	srv := &Server{edition: domain.EditionCloud, billingEnforcer: enforcer}
 
 	err := srv.checkTriggerDispatchPriority(context.Background(), "project-1", 9)
 	var statusErr huma.StatusError

@@ -9,7 +9,7 @@ You can use Strait Cloud or run Strait yourself. The API and SDKs are the same, 
 | | Cloud | Self-host |
 |---|---|---|
 | Setup | Sign up at app.strait.dev | Docker Compose or your own service host |
-| Infrastructure | Hosted by Strait | You run PostgreSQL and Redis |
+| Infrastructure | Hosted by Strait | You run PostgreSQL, Redis, and Sequin |
 | Updates | Rolled out by Strait | You pull and deploy |
 | Pricing | Free tier plus paid plans | Free, no limits |
 | Data | Hosted by Strait | Your servers, your data |
@@ -45,6 +45,6 @@ cd strait
 make selfhost
 ```
 
-That boots PostgreSQL, Redis, the Strait API, and the dashboard via Docker Compose. Open [http://localhost:3000](http://localhost:3000) and sign up.
+That boots PostgreSQL, Redis, Sequin, the Strait API, and the dashboard via Docker Compose. Open [http://localhost:3000](http://localhost:3000) and sign up.
 
 The full self-host walkthrough lives in the [Self-Hosting](/guides/self-hosting) guide. For a local development setup, see the [Quick Start](/quickstart).

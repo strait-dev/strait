@@ -31,9 +31,9 @@ func TestGetProjectCosts_Empty(t *testing.T) {
 
 func TestGetProjectCosts_AggregatesByProject(t *testing.T) {
 	records := []UsageRecord{
-		{ProjectID: "proj-a", RunsCount: 10, ComputeCostMicro: 1000, AICostMicro: 500},
-		{ProjectID: "proj-a", RunsCount: 5, ComputeCostMicro: 2000, AICostMicro: 300},
-		{ProjectID: "proj-b", RunsCount: 3, ComputeCostMicro: 800, AICostMicro: 200},
+		{ProjectID: "proj-a", RunsCount: 10, ComputeCostMicro: 1000},
+		{ProjectID: "proj-a", RunsCount: 5, ComputeCostMicro: 2000},
+		{ProjectID: "proj-b", RunsCount: 3, ComputeCostMicro: 800},
 	}
 
 	store := &mockProjectCostStore{usageRecords: records}
@@ -57,21 +57,18 @@ func TestGetProjectCosts_AggregatesByProject(t *testing.T) {
 	if projA.Runs != 15 {
 		t.Errorf("proj-a runs: expected 15, got %d", projA.Runs)
 	}
-	if projA.ComputeMicro != 3000 {
-		t.Errorf("proj-a compute: expected 3000, got %d", projA.ComputeMicro)
+	if projA.SpendMicro != 3000 {
+		t.Errorf("proj-a spend: expected 3000, got %d", projA.SpendMicro)
 	}
-	if projA.AIMicro != 800 {
-		t.Errorf("proj-a ai: expected 800, got %d", projA.AIMicro)
-	}
-	if projA.TotalMicro != 3800 {
-		t.Errorf("proj-a total: expected 3800, got %d", projA.TotalMicro)
+	if projA.TotalMicro != 3000 {
+		t.Errorf("proj-a total: expected 3000, got %d", projA.TotalMicro)
 	}
 
 	projB := entryMap["proj-b"]
 	if projB.Runs != 3 {
 		t.Errorf("proj-b runs: expected 3, got %d", projB.Runs)
 	}
-	if projB.TotalMicro != 1000 {
-		t.Errorf("proj-b total: expected 1000, got %d", projB.TotalMicro)
+	if projB.TotalMicro != 800 {
+		t.Errorf("proj-b total: expected 800, got %d", projB.TotalMicro)
 	}
 }

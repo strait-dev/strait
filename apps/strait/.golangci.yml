@@ -118,6 +118,9 @@ linters:
           - reassign
           - errname
           - govet
+      - path: _test\.go
+        text: "SA5011"
+        linters: [staticcheck]
       - path: cmd/strait/
         linters: [nolintlint, reassign]
       # Generated protobuf files use naming conventions (e.g. WorkerId, RunId)

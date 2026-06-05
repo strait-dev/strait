@@ -3,8 +3,6 @@ package health
 import (
 	"context"
 	"errors"
-	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -17,6 +15,19 @@ type mockPool struct {
 
 func (m *mockPool) Available() int   { return m.available }
 func (m *mockPool) ActiveCount() int { return m.active }
+
+type mockSequinReadinessClient struct {
+	healthErr       error
+	sinkConsumerErr error
+}
+
+func (m mockSequinReadinessClient) Health(context.Context) error {
+	return m.healthErr
+}
+
+func (m mockSequinReadinessClient) SinkConsumerHealth(context.Context) error {
+	return m.sinkConsumerErr
+}
 
 func TestNewPoolChecker(t *testing.T) {
 	t.Parallel()
@@ -178,15 +189,7 @@ func TestNewSequinChecker(t *testing.T) {
 
 	t.Run("healthy sequin", func(t *testing.T) {
 		t.Parallel()
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.URL.Path != "/health" {
-				t.Fatalf("path = %q, want /health", r.URL.Path)
-			}
-			w.WriteHeader(http.StatusOK)
-		}))
-		t.Cleanup(srv.Close)
-
-		checker := NewSequinChecker(srv.URL)
+		checker := NewSequinChecker(mockSequinReadinessClient{})
 		if err := checker.Check(context.Background()); err != nil {
 			t.Fatalf("expected healthy Sequin, got %v", err)
 		}
@@ -195,17 +198,24 @@ func TestNewSequinChecker(t *testing.T) {
 		}
 	})
 
-	t.Run("unhealthy sequin", func(t *testing.T) {
+	t.Run("unhealthy sequin process", func(t *testing.T) {
 		t.Parallel()
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			w.WriteHeader(http.StatusServiceUnavailable)
-		}))
-		t.Cleanup(srv.Close)
-
-		checker := NewSequinChecker(srv.URL)
+		checker := NewSequinChecker(mockSequinReadinessClient{healthErr: errors.New("HTTP 503")})
 		err := checker.Check(context.Background())
-		if err == nil || !strings.Contains(err.Error(), "sequin unhealthy") {
-			t.Fatalf("error = %v, want sequin unhealthy", err)
+		if err == nil || !strings.Contains(err.Error(), "sequin health failed") {
+			t.Fatalf("error = %v, want sequin health failed", err)
+		}
+		if !IsCritical(checker) {
+			t.Fatal("expected Sequin checker to be critical")
+		}
+	})
+
+	t.Run("unhealthy sink consumer", func(t *testing.T) {
+		t.Parallel()
+		checker := NewSequinChecker(mockSequinReadinessClient{sinkConsumerErr: errors.New("consumer paused")})
+		err := checker.Check(context.Background())
+		if err == nil || !strings.Contains(err.Error(), "sequin sink consumer health failed") {
+			t.Fatalf("error = %v, want sequin sink consumer health failed", err)
 		}
 		if !IsCritical(checker) {
 			t.Fatal("expected Sequin checker to be critical")

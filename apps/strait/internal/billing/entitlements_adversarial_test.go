@@ -2,6 +2,7 @@ package billing
 
 import (
 	"context"
+	"encoding/json"
 	"math/rand"
 	"reflect"
 	"testing"
@@ -49,32 +50,32 @@ func TestComputeEntitlements_DisallowedActiveAddonsDoNotGrantFreePlanBenefits(t 
 func TestComputeEntitlements_ActiveAddonsAreClampedToPlanPackCap(t *testing.T) {
 	t.Parallel()
 
-	base := GetPlanLimits(domain.PlanStarter)
-	cap := base.MaxAddonPacks[AddonConcurrency100]
+	base := GetPlanLimits(domain.PlanScale)
+	cap := base.MaxAddonPacks[AddonHistory30d]
 	if cap <= 0 {
-		t.Fatalf("starter concurrency add-on cap = %d, want positive", cap)
+		t.Fatalf("scale history add-on cap = %d, want positive", cap)
 	}
-	sub := &OrgSubscription{PlanTier: string(domain.PlanStarter)}
+	sub := &OrgSubscription{PlanTier: string(domain.PlanScale)}
 	got := ComputeEntitlements(sub, []Addon{
-		{AddonType: AddonConcurrency100, Quantity: cap + 10, Active: true},
-		{AddonType: AddonConcurrency100, Quantity: cap + 10, Active: true},
+		{AddonType: AddonHistory30d, Quantity: cap + 10, Active: true},
+		{AddonType: AddonHistory30d, Quantity: cap + 10, Active: true},
 	})
 
-	want := base.MaxConcurrentRuns + cap*AddonPacks[AddonConcurrency100].PackSize
-	if got.MaxConcurrentRuns != want {
-		t.Fatalf("clamped concurrency = %d, want %d", got.MaxConcurrentRuns, want)
+	want := base.RetentionDays + cap*AddonPacks[AddonHistory30d].PackSize
+	if got.RetentionDays != want {
+		t.Fatalf("clamped retention = %d, want %d", got.RetentionDays, want)
 	}
 }
 
 func TestReconcileActiveAddonsForPlan_DeactivatesDisallowedAndOverCapRows(t *testing.T) {
 	t.Parallel()
 
-	base := GetPlanLimits(domain.PlanStarter)
-	cap := base.MaxAddonPacks[AddonConcurrency100]
+	base := GetPlanLimits(domain.PlanScale)
+	cap := base.MaxAddonPacks[AddonHistory30d]
 	store := &mockBillingStore{
 		activeAddons: []Addon{
-			{ID: "keep-1", OrgID: "org-addons", AddonType: AddonConcurrency100, Quantity: cap, Active: true},
-			{ID: "over-cap", OrgID: "org-addons", AddonType: AddonConcurrency100, Quantity: 1, Active: true},
+			{ID: "keep-1", OrgID: "org-addons", AddonType: AddonHistory30d, Quantity: cap, Active: true},
+			{ID: "over-cap", OrgID: "org-addons", AddonType: AddonHistory30d, Quantity: 1, Active: true},
 			{ID: "disallowed", OrgID: "org-addons", AddonType: AddonDedicatedWorkers, Quantity: 1, Active: true},
 		},
 	}
@@ -113,7 +114,7 @@ func TestComputeEntitlements_FuzzAddonsNeverPanicsAndStaysWithinPaidCeiling(t *t
 	rng := rand.New(rand.NewSource(0xBEE51EBE))
 
 	addonTypes := []AddonType{
-		AddonConcurrency100, AddonLogDrain10GB, AddonHistory30d,
+		AddonConcurrency100, AddonHistory30d,
 		AddonComplianceArchive, AddonDedicatedWorkers, AddonEnvironments5,
 		AddonType("ghost_addon"), AddonType(""),
 	}
@@ -157,20 +158,20 @@ func TestComputeEntitlements_FuzzAddonsNeverPanicsAndStaysWithinPaidCeiling(t *t
 	}
 }
 
-// TestComputeEntitlements_HandcraftedFieldsCannotLeak builds a fake
-// OrgSubscription wired with every JSONB pack at oversized values, then
-// confirms only the documented packs influence the snapshot — no field on
-// OrgPlanLimits gets written by anything other than the catalog/addon paths.
-func TestComputeEntitlements_HandcraftedFieldsCannotLeak(t *testing.T) {
+// TestComputeEntitlements_LegacyJSONBAddOnsCannotLeak builds a fake
+// OrgSubscription from a stale add_ons JSONB payload and confirms it cannot
+// influence the snapshot. Launch add-ons must come from organization_addons.
+func TestComputeEntitlements_LegacyJSONBAddOnsCannotLeak(t *testing.T) {
 	t.Parallel()
+
+	var addOns SubscriptionAddOns
+	if err := json.Unmarshal([]byte(`{"retention_pack":999,"worker_connections":999}`), &addOns); err != nil {
+		t.Fatalf("unmarshal legacy add_ons: %v", err)
+	}
 
 	sub := &OrgSubscription{
 		PlanTier: string(domain.PlanFree),
-		AddOns: SubscriptionAddOns{
-			RetentionPack:     999,
-			PrioritySlotPack:  999,
-			WorkerConnections: 999,
-		},
+		AddOns:   addOns,
 		// Override fields that ComputeEntitlements MUST ignore — those
 		// are operator runtime knobs, not part of the snapshot.
 		OverrideDailyRunLimit:      new(1_000_000),
@@ -180,18 +181,14 @@ func TestComputeEntitlements_HandcraftedFieldsCannotLeak(t *testing.T) {
 	got := ComputeEntitlements(sub, nil)
 	free := GetPlanLimits(domain.PlanFree)
 
-	// Free RetentionDays > 0, so RetentionPack adds. Free WorkerConnections
-	// is finite, so the pack adds. PriorityPack only fires when
-	// MaxDispatchPriority != -1; Free is finite so it adds.
-	if got.RetentionDays != free.RetentionDays+999*retentionPackDays {
-		t.Errorf("retention pack: got %d, want %d",
-			got.RetentionDays, free.RetentionDays+999*retentionPackDays)
+	if got.RetentionDays != free.RetentionDays {
+		t.Errorf("legacy JSONB add-ons changed RetentionDays: got %d, want %d",
+			got.RetentionDays, free.RetentionDays)
 	}
-	if got.WorkerConnections != free.WorkerConnections+999 {
-		t.Errorf("worker pack: got %d, want %d",
-			got.WorkerConnections, free.WorkerConnections+999)
+	if got.WorkerConnections != free.WorkerConnections {
+		t.Errorf("legacy JSONB add-ons changed WorkerConnections: got %d, want %d",
+			got.WorkerConnections, free.WorkerConnections)
 	}
-
 	// Override fields must not bleed into the snapshot — those are loaded
 	// at read time inside Enforcer.GetOrgPlanLimits, not persisted.
 	if got.MaxRunsPerDay == 1_000_000 {
@@ -210,11 +207,7 @@ func TestComputeEntitlements_EnterprisePacksCannotShrinkUnlimited(t *testing.T) 
 
 	sub := &OrgSubscription{
 		PlanTier: string(domain.PlanEnterprise),
-		AddOns: SubscriptionAddOns{
-			RetentionPack:     5,
-			PrioritySlotPack:  5,
-			WorkerConnections: 5,
-		},
+		AddOns:   SubscriptionAddOns{},
 	}
 
 	got := ComputeEntitlements(sub, []Addon{
@@ -232,7 +225,7 @@ func TestComputeEntitlements_EnterprisePacksCannotShrinkUnlimited(t *testing.T) 
 	if got.WorkerConnections != -1 {
 		t.Errorf("enterprise worker connections should stay unlimited, got %d", got.WorkerConnections)
 	}
-	if got.MaxDispatchPriority != -1 {
-		t.Errorf("enterprise dispatch priority should stay unlimited, got %d", got.MaxDispatchPriority)
+	if got.MaxDispatchPriority != 10 {
+		t.Errorf("enterprise dispatch priority should use launch platform cap 10, got %d", got.MaxDispatchPriority)
 	}
 }

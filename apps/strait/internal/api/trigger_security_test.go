@@ -66,6 +66,7 @@ func TestTriggerJob_DryRunRejectsPriorityAboveBillingLimit(t *testing.T) {
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv.edition = domain.EditionCloud
 	srv.billingEnforcer = &triggerDryRunBillingEnforcer{priorityErr: errors.New("dispatch priority exceeds plan limit")}
 
 	w := httptest.NewRecorder()
@@ -76,6 +77,27 @@ func TestTriggerJob_DryRunRejectsPriorityAboveBillingLimit(t *testing.T) {
 	}
 	if !strings.Contains(w.Body.String(), "dispatch priority exceeds plan limit") {
 		t.Fatalf("response body = %s, want billing priority error", w.Body.String())
+	}
+}
+
+func TestCheckTriggerDispatchPriority_CloudNilEnforcerFailsClosed(t *testing.T) {
+	t.Parallel()
+
+	srv := &Server{edition: domain.EditionCloud}
+
+	err := srv.checkTriggerDispatchPriority(context.Background(), "proj-1", 10)
+	if err == nil || !strings.Contains(err.Error(), "billing enforcement unavailable") {
+		t.Fatalf("expected billing enforcement unavailable, got %v", err)
+	}
+}
+
+func TestCheckTriggerDispatchPriority_CommunityNilEnforcerFailsOpen(t *testing.T) {
+	t.Parallel()
+
+	srv := &Server{edition: domain.EditionCommunity}
+
+	if err := srv.checkTriggerDispatchPriority(context.Background(), "proj-1", 10); err != nil {
+		t.Fatalf("community nil enforcer must fail open; got %v", err)
 	}
 }
 

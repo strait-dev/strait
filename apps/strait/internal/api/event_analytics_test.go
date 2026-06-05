@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"strait/internal/billing"
 	"strait/internal/config"
 	"strait/internal/domain"
 	"strait/internal/store"
@@ -26,6 +27,9 @@ func newTestServerWithAnalytics(t *testing.T, s APIStore, as AnalyticsStore, q *
 		AnalyticsStore: as,
 		Queue:          q,
 		Edition:        domain.EditionCloud,
+		BillingEnforcer: &tunableLimitsEnforcer{
+			limits: billing.GetPlanLimits(domain.PlanEnterprise),
+		},
 	})
 	t.Cleanup(srv.Close)
 	return srv

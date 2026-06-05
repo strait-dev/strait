@@ -65,6 +65,7 @@ func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *d
 		)
 		return
 	}
+	e.recordTerminalRunBilling(ctx, job, run)
 	e.emit(ctx, newTerminalRunEvent(EventTimedOut, run, job, domain.StatusTimedOut, execTrace))
 	e.notifyWorkflowCallback(ctx, run)
 

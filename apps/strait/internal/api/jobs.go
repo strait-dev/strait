@@ -54,7 +54,6 @@ type CreateJobRequest struct {
 	ExecutionMode             string            `json:"execution_mode,omitempty" validate:"omitempty,oneof=http worker"`
 	Enabled                   *bool             `json:"enabled,omitempty"`
 	QueueName                 string            `json:"queue_name,omitempty"`
-	PreferredRegions          []string          `json:"preferred_regions,omitempty"`
 	PoisonPillThreshold       *int              `json:"poison_pill_threshold,omitempty" validate:"omitempty,min=1" doc:"Consecutive identical errors before auto-quarantine to DLQ. NULL or 0 disables."`
 	OnCompleteTriggerWorkflow string            `json:"on_complete_trigger_workflow,omitempty"`
 	OnCompleteTriggerJob      string            `json:"on_complete_trigger_job,omitempty"`
@@ -103,7 +102,6 @@ type UpdateJobRequest struct {
 	BatchMaxSize              *int               `json:"batch_max_size,omitempty" validate:"omitempty,min=0"`
 	ExecutionMode             *string            `json:"execution_mode,omitempty" validate:"omitempty,oneof=http worker"`
 	QueueName                 *string            `json:"queue_name,omitempty"`
-	PreferredRegions          *[]string          `json:"preferred_regions,omitempty"`
 	PoisonPillThreshold       *int               `json:"poison_pill_threshold,omitempty" validate:"omitempty,min=1" doc:"Consecutive identical errors before auto-quarantine to DLQ. NULL or 0 disables."`
 	OnCompleteTriggerWorkflow *string            `json:"on_complete_trigger_workflow,omitempty"`
 	OnCompleteTriggerJob      *string            `json:"on_complete_trigger_job,omitempty"`
@@ -142,9 +140,6 @@ func (s *Server) handleCreateJob(ctx context.Context, input *CreateJobInput) (*C
 		return nil, err
 	}
 	if err := s.checkCronOverlapPolicy(ctx, req.ProjectID, req.CronOverlapPolicy); err != nil {
-		return nil, err
-	}
-	if err := s.checkScheduleLimit(ctx, req.ProjectID, req.Cron); err != nil {
 		return nil, err
 	}
 	if err := s.checkCronMinInterval(ctx, req.ProjectID, req.Cron); err != nil {
@@ -196,7 +191,6 @@ func (s *Server) handleCreateJob(ctx context.Context, input *CreateJobInput) (*C
 		BatchMaxSize:              req.BatchMaxSize,
 		ExecutionMode:             execMode,
 		Queue:                     normalizeJobQueueName(req.QueueName),
-		PreferredRegions:          req.PreferredRegions,
 		PoisonPillThreshold:       req.PoisonPillThreshold,
 		OnCompleteTriggerWorkflow: req.OnCompleteTriggerWorkflow,
 		OnCompleteTriggerJob:      req.OnCompleteTriggerJob,
@@ -217,9 +211,13 @@ func (s *Server) handleCreateJob(ctx context.Context, input *CreateJobInput) (*C
 		job.VersionPolicy = domain.VersionPolicy(req.VersionPolicy)
 	}
 
-	if err := s.store.CreateJob(ctx, job); err != nil {
+	if err := s.createJobWithCronScheduleLimit(ctx, job); err != nil {
 		if errors.Is(err, store.ErrJobSlugConflict) {
 			return nil, huma.Error409Conflict(err.Error())
+		}
+		var statusErr huma.StatusError
+		if errors.As(err, &statusErr) {
+			return nil, err
 		}
 		return nil, huma.Error500InternalServerError("failed to create job")
 	}
@@ -238,6 +236,29 @@ func (s *Server) handleCreateJob(ctx context.Context, input *CreateJobInput) (*C
 	})
 
 	return &CreateJobOutput{Body: job}, nil
+}
+
+func (s *Server) createJobWithCronScheduleLimit(ctx context.Context, job *domain.Job) error {
+	orgID, maxSchedules, displayName, err := s.resolveScheduleCreateLimit(ctx, job.ProjectID, job.Cron)
+	if err != nil {
+		return err
+	}
+
+	if creator, ok := s.store.(jobCronScheduleLimitCreator); ok {
+		err = creator.CreateJobWithCronScheduleLimit(ctx, job, orgID, maxSchedules)
+	} else {
+		if err := s.checkScheduleLimit(ctx, job.ProjectID, job.Cron); err != nil {
+			return err
+		}
+		err = s.store.CreateJob(ctx, job)
+	}
+	if errors.Is(err, store.ErrCronScheduleLimitExceeded) {
+		s.dispatchWorkflowRegistrationRejected(ctx, job.ProjectID, "schedule_limit", maxSchedules, maxSchedules)
+		return huma.Error400BadRequest(
+			fmt.Sprintf("Your %s plan allows %d scheduled jobs. Upgrade at /settings/billing", displayName, maxSchedules),
+		)
+	}
+	return err
 }
 
 func (s *Server) resolveCreateJobSigningSecret(req CreateJobRequest) (string, error) {
@@ -309,9 +330,6 @@ func (s *Server) validateCreateJobFields(ctx context.Context, req *CreateJobRequ
 	}
 	if err := s.validateWindowsAgainstRetention(req.RateLimitWindowSecs, req.DedupWindowSecs); err != nil {
 		return huma.Error400BadRequest(err.Error())
-	}
-	if err := s.checkPreferredRegionsForPlan(ctx, req.ProjectID, req.PreferredRegions); err != nil {
-		return err
 	}
 	if err := validateQueueName(req.QueueName); err != nil {
 		return huma.Error400BadRequest(err.Error())
@@ -464,6 +482,7 @@ func (s *Server) handleUpdateJob(ctx context.Context, input *UpdateJobInput) (*U
 		return nil, err
 	}
 
+	addsCronSchedule := req.Cron != nil && *req.Cron != "" && job.Cron == ""
 	if err := s.applyJobBasicUpdate(ctx, job, req); err != nil {
 		return nil, err
 	}
@@ -483,7 +502,7 @@ func (s *Server) handleUpdateJob(ctx context.Context, input *UpdateJobInput) (*U
 		return nil, err
 	}
 
-	if err := s.persistUpdatedJob(ctx, job, req); err != nil {
+	if err := s.persistUpdatedJob(ctx, job, req, addsCronSchedule); err != nil {
 		return nil, err
 	}
 
@@ -504,12 +523,6 @@ func (s *Server) applyJobBasicUpdate(ctx context.Context, job *domain.Job, req U
 		job.Description = *req.Description
 	}
 	if req.Cron != nil {
-		// Schedule count is only consumed when a job gains a cron expression.
-		if *req.Cron != "" && job.Cron == "" {
-			if err := s.checkScheduleLimit(ctx, job.ProjectID, *req.Cron); err != nil {
-				return err
-			}
-		}
 		if *req.Cron != "" {
 			if err := s.checkCronMinInterval(ctx, job.ProjectID, *req.Cron); err != nil {
 				return err
@@ -674,12 +687,6 @@ func (s *Server) applyJobMetadataUpdate(ctx context.Context, job *domain.Job, re
 		}
 		job.Queue = normalizeJobQueueName(*req.QueueName)
 	}
-	if req.PreferredRegions != nil {
-		if err := s.checkPreferredRegionsForPlan(ctx, job.ProjectID, *req.PreferredRegions); err != nil {
-			return err
-		}
-		job.PreferredRegions = *req.PreferredRegions
-	}
 	if req.PoisonPillThreshold != nil {
 		job.PoisonPillThreshold = req.PoisonPillThreshold
 	}
@@ -803,12 +810,22 @@ func (s *Server) validateUpdateJobRequest(req UpdateJobRequest, current *domain.
 	return nil
 }
 
-func (s *Server) persistUpdatedJob(ctx context.Context, job *domain.Job, req UpdateJobRequest) error {
+func (s *Server) persistUpdatedJob(ctx context.Context, job *domain.Job, req UpdateJobRequest, addsCronSchedule bool) error {
 	job.UpdatedBy = actorFromContext(ctx)
 
-	if err := s.store.UpdateJob(ctx, job); err != nil {
+	var err error
+	if addsCronSchedule {
+		err = s.updateJobWithCronScheduleLimit(ctx, job)
+	} else {
+		err = s.store.UpdateJob(ctx, job)
+	}
+	if err != nil {
 		if errors.Is(err, store.ErrJobVersionConflict) {
 			return huma.Error409Conflict("job was modified concurrently -- retry with latest version")
+		}
+		var statusErr huma.StatusError
+		if errors.As(err, &statusErr) {
+			return err
 		}
 		return huma.Error500InternalServerError("failed to update job")
 	}
@@ -823,6 +840,29 @@ func (s *Server) persistUpdatedJob(ctx context.Context, job *domain.Job, req Upd
 	})
 
 	return nil
+}
+
+func (s *Server) updateJobWithCronScheduleLimit(ctx context.Context, job *domain.Job) error {
+	orgID, maxSchedules, displayName, err := s.resolveScheduleCreateLimit(ctx, job.ProjectID, job.Cron)
+	if err != nil {
+		return err
+	}
+
+	if updater, ok := s.store.(jobCronScheduleLimitUpdater); ok {
+		err = updater.UpdateJobWithCronScheduleLimit(ctx, job, orgID, maxSchedules)
+	} else {
+		if err := s.checkScheduleLimit(ctx, job.ProjectID, job.Cron); err != nil {
+			return err
+		}
+		err = s.store.UpdateJob(ctx, job)
+	}
+	if errors.Is(err, store.ErrCronScheduleLimitExceeded) {
+		s.dispatchWorkflowRegistrationRejected(ctx, job.ProjectID, "schedule_limit", maxSchedules, maxSchedules)
+		return huma.Error400BadRequest(
+			fmt.Sprintf("Your %s plan allows %d scheduled jobs. Upgrade at /settings/billing", displayName, maxSchedules),
+		)
+	}
+	return err
 }
 
 // enqueueJobMetadata sends a job metadata record to the ClickHouse exporter
@@ -934,9 +974,6 @@ func (s *Server) handleCloneJob(ctx context.Context, input *CloneJobInput) (*Clo
 	if err := s.checkCronOverlapPolicy(ctx, source.ProjectID, string(source.CronOverlapPolicy)); err != nil {
 		return nil, err
 	}
-	if err := s.checkScheduleLimit(ctx, source.ProjectID, source.Cron); err != nil {
-		return nil, err
-	}
 	if err := s.checkCronMinInterval(ctx, source.ProjectID, source.Cron); err != nil {
 		return nil, err
 	}
@@ -987,7 +1024,6 @@ func (s *Server) handleCloneJob(ctx context.Context, input *CloneJobInput) (*Clo
 		CronOverlapPolicy:         source.CronOverlapPolicy,
 		ExecutionMode:             source.ExecutionMode,
 		Queue:                     normalizeJobQueueName(source.Queue),
-		PreferredRegions:          source.PreferredRegions,
 		PoisonPillThreshold:       source.PoisonPillThreshold,
 		OnCompleteTriggerWorkflow: source.OnCompleteTriggerWorkflow,
 		OnCompleteTriggerJob:      source.OnCompleteTriggerJob,
@@ -995,17 +1031,16 @@ func (s *Server) handleCloneJob(ctx context.Context, input *CloneJobInput) (*Clo
 		OnFailureTriggerJob:       source.OnFailureTriggerJob,
 		OnFailureTriggerWorkflow:  source.OnFailureTriggerWorkflow,
 		OnFailurePayloadMapping:   source.OnFailurePayloadMapping,
-		MaxTokensPerRun:           source.MaxTokensPerRun,
-		MaxToolCallsPerRun:        source.MaxToolCallsPerRun,
-		MaxIterationsPerRun:       source.MaxIterationsPerRun,
-		AllowedTools:              source.AllowedTools,
-		BlockedTools:              source.BlockedTools,
 		EndpointSigningSecret:     source.EndpointSigningSecret,
 		CreatedBy:                 actorFromContext(ctx),
 		UpdatedBy:                 actorFromContext(ctx),
 	}
 
-	if err := s.store.CreateJob(ctx, clone); err != nil {
+	if err := s.createJobWithCronScheduleLimit(ctx, clone); err != nil {
+		var statusErr huma.StatusError
+		if errors.As(err, &statusErr) {
+			return nil, err
+		}
 		return nil, huma.Error500InternalServerError("failed to clone job")
 	}
 
@@ -1101,10 +1136,6 @@ func (s *Server) handleBatchCreateJobs(ctx context.Context, input *BatchCreateJo
 			resp.Errors = append(resp.Errors, BatchError{Index: i, Message: batchJobErrorMessage(err)})
 			continue
 		}
-		if err := s.checkScheduleLimit(ctx, jobReq.ProjectID, jobReq.Cron); err != nil {
-			resp.Errors = append(resp.Errors, BatchError{Index: i, Message: batchJobErrorMessage(err)})
-			continue
-		}
 		if err := s.checkCronOverlapPolicy(ctx, jobReq.ProjectID, jobReq.CronOverlapPolicy); err != nil {
 			resp.Errors = append(resp.Errors, BatchError{Index: i, Message: batchJobErrorMessage(err)})
 			continue
@@ -1152,7 +1183,6 @@ func (s *Server) handleBatchCreateJobs(ctx context.Context, input *BatchCreateJo
 			RetryDelaysSecs:       jobReq.RetryDelaysSecs,
 			RetryPriorityBoost:    jobReq.RetryPriorityBoost,
 			EnvironmentID:         jobReq.EnvironmentID,
-			PreferredRegions:      jobReq.PreferredRegions,
 			Enabled:               true,
 			ExecutionMode:         execMode,
 			Queue:                 normalizeJobQueueName(jobReq.QueueName),
@@ -1162,8 +1192,8 @@ func (s *Server) handleBatchCreateJobs(ctx context.Context, input *BatchCreateJo
 			UpdatedBy:             actorFromContext(ctx),
 		}
 
-		if err := s.store.CreateJob(ctx, job); err != nil {
-			resp.Errors = append(resp.Errors, BatchError{Index: i, Message: "failed to create job"})
+		if err := s.createJobWithCronScheduleLimit(ctx, job); err != nil {
+			resp.Errors = append(resp.Errors, BatchError{Index: i, Message: batchJobErrorMessage(err)})
 			continue
 		}
 
@@ -1501,28 +1531,33 @@ func (s *Server) handleResumeJob(ctx context.Context, input *ResumeJobInput) (*R
 
 // checkHTTPModeAllowed verifies that HTTP execution mode is allowed for the org's plan.
 // Returns nil if allowed, or a 400 error if the plan doesn't support HTTP mode.
-// Fails open on errors (returns nil) to avoid blocking jobs when billing is unavailable.
 func (s *Server) checkHTTPModeAllowed(ctx context.Context, mode domain.ExecutionMode, projectID string) error {
 	if mode != domain.ExecutionModeHTTP {
 		return nil
 	}
-	if !s.edition.RequiresHTTPModeGating() || s.billingEnforcer == nil {
+	if !s.edition.RequiresHTTPModeGating() {
 		return nil
+	}
+	if s.billingEnforcer == nil {
+		return planGateUnavailable("http_mode_enforcer", errors.New("billing enforcer not configured"))
 	}
 
 	orgID, err := s.billingEnforcer.GetProjectOrgID(ctx, projectID)
 	if err != nil || orgID == "" {
-		return nil //nolint:nilerr // fail open: org lookup failures must not block job creation
+		if err != nil {
+			return planGateUnavailable("http_mode_org_lookup", err)
+		}
+		return nil
 	}
 
 	limits, err := s.billingEnforcer.GetOrgPlanLimits(ctx, orgID)
 	if err != nil {
-		return nil //nolint:nilerr // fail open: plan lookup failures must not block job creation
+		return planGateUnavailable("http_mode_plan_lookup", err)
 	}
 
 	if !limits.AllowsHTTPMode {
 		billing.RecordHTTPModeGateRejected(ctx, string(limits.PlanTier), "job_create")
-		return huma.Error400BadRequest("HTTP execution mode requires the Pro plan ($49.99/mo). Upgrade at /settings/billing")
+		return huma.Error400BadRequest("HTTP execution mode is unavailable for this organization. Contact support if this persists.")
 	}
 	return nil
 }

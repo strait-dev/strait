@@ -204,9 +204,9 @@ func TestProject_QuotaManipulation(t *testing.T) {
 	}
 }
 
-// TestProject_DefaultRegionValidation verifies that project settings
-// with an invalid region are handled without panicking.
-func TestProject_DefaultRegionValidation(t *testing.T) {
+// TestProject_SettingsUnknownField verifies that launch-inactive settings fields
+// are handled without panicking.
+func TestProject_SettingsUnknownField(t *testing.T) {
 	t.Parallel()
 
 	ms := &APIStoreMock{
@@ -322,7 +322,7 @@ func FuzzProjectName(f *testing.F) {
 // server does not panic on arbitrary input.
 func FuzzProjectSettings(f *testing.F) {
 	f.Add(`{}`)
-	f.Add(`{"default_region":"us-east-1"}`)
+	f.Add(`{"max_key_lifetime_days":30}`)
 	f.Add(`null`)
 	f.Add(`[]`)
 	f.Add(`"just a string"`)

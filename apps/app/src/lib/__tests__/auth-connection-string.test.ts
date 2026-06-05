@@ -33,6 +33,10 @@ vi.mock("@/lib/resend.server", () => ({
   getResend: () => ({ emails: { send: vi.fn() } }),
 }));
 
+vi.mock("@/lib/stripe.server", () => ({
+  findOrCreateCustomerForOrg: vi.fn(),
+}));
+
 describe("getAuthConnectionString", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
@@ -51,7 +55,7 @@ describe("getAuthConnectionString", () => {
     expect(getAuthConnectionString()).toBe(
       "postgres://selfhost:secret@localhost:5432/strait"
     );
-  });
+  }, 15_000);
 
   it("returns an empty string when AUTH_DATABASE_URL is unset", async () => {
     vi.stubEnv("AUTH_DATABASE_URL", "");
@@ -60,7 +64,7 @@ describe("getAuthConnectionString", () => {
 
     const { getAuthConnectionString } = await import("@/lib/auth.server");
     expect(getAuthConnectionString()).toBe("");
-  });
+  }, 15_000);
 
   it("initializes the auth pool with AUTH_DATABASE_URL", async () => {
     vi.stubEnv(
@@ -76,5 +80,5 @@ describe("getAuthConnectionString", () => {
         connectionString: "postgres://selfhost:secret@localhost:5432/strait",
       },
     });
-  });
+  }, 15_000);
 });

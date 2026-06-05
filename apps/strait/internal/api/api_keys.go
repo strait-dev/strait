@@ -360,6 +360,9 @@ func (s *Server) handleRotateAPIKey(ctx context.Context, input *RotateAPIKeyInpu
 	if oldKey.RevokedAt != nil {
 		return nil, huma.Error409Conflict("api key is already revoked")
 	}
+	if s.config != nil && s.config.GRPCEnabled && s.pubsub == nil {
+		return nil, huma.Error503ServiceUnavailable("api key rotation unavailable: pubsub not configured")
+	}
 	rawKey, err := generateAPIKey()
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to generate api key")

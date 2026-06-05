@@ -76,22 +76,3 @@ func runEventsFromDomain(run *domain.JobRun, events []domain.RunEvent) []clickho
 	}
 	return records
 }
-
-func runUsageEventsFromDomain(run *domain.JobRun, usage []domain.RunUsage) []clickhouse.RunUsageEventRecord {
-	records := make([]clickhouse.RunUsageEventRecord, 0, len(usage))
-	for _, u := range usage {
-		records = append(records, clickhouse.RunUsageEventRecord{
-			RunID:            u.RunID,
-			JobID:            run.JobID,
-			ProjectID:        run.ProjectID,
-			Provider:         u.Provider,
-			Model:            u.Model,
-			PromptTokens:     uint32(u.PromptTokens),     //nolint:gosec // tokens are always non-negative
-			CompletionTokens: uint32(u.CompletionTokens), //nolint:gosec // tokens are always non-negative
-			TotalTokens:      uint32(u.TotalTokens),      //nolint:gosec // tokens are always non-negative
-			CostMicrousd:     u.CostMicrousd,
-			CreatedAt:        u.CreatedAt,
-		})
-	}
-	return records
-}

@@ -1,11 +1,11 @@
 ---
 title: "TypeScript"
-description: "Install, configure, and build jobs, workflows, and durable AI agents with the TypeScript SDK."
+description: "Install, configure, and build jobs and workflows with the TypeScript SDK."
 icon: "js"
 og:image: "/images/og.png"
 ---
 
-The TypeScript SDK (`@strait/ts`) provides full API coverage, a code-first authoring DSL for jobs, workflows, and durable AI agents, typed errors, composition helpers, middleware hooks, and a test harness.
+The TypeScript SDK (`@strait/ts`) provides full API coverage, a code-first authoring DSL for jobs and workflows, typed errors, composition helpers, middleware hooks, and a test harness.
 
 ## Installation
 
@@ -192,82 +192,6 @@ const pipeline = defineWorkflow({
 
 All step types accept `dependsOn` to declare dependencies. Steps with no dependencies run immediately when the workflow starts.
 
-## Durable AI Agents
-
-`defineAgent` creates a long-running, durable AI agent with built-in cost tracking, tool calling, and checkpoint persistence. The agent survives restarts and resumes from its last checkpoint automatically.
-
-> `defineAgent` is a convenience wrapper around `defineJob` with built-in cost tracking, tool calling, and checkpoint persistence. You can achieve the same behavior with `defineJob`.
-
-
-```ts
-import { defineAgent } from "@strait/ts";
-
-const researchAgent = defineAgent({
-  name: "Research Agent",
-  slug: "research-agent",
-  projectId: "proj_abc123",
-
-  model: "gpt-4o",
-  systemPrompt: "You are a research assistant. Gather data and produce a report.",
-
-  // Cost guardrails
-  maxTokens: 100_000,
-  maxCostUsd: 5.00,
-
-  // Tools the agent can call
-  tools: [searchTool, fetchPageTool, summarizeTool],
-
-  // Called when the agent completes
-  onComplete: async ({ output, usage }) => {
-    console.log(`Completed. Tokens: ${usage.totalTokens}, Cost: $${usage.totalCostUsd}`);
-  },
-});
-
-await researchAgent.register(client);
-const run = await researchAgent.trigger(client, {
-  payload: { topic: "supply chain optimization" },
-});
-```
-
-### Cost Tracking
-
-Every agent run tracks token usage and cost across all LLM calls. Set `maxCostUsd` to enforce a hard budget: the agent stops when the limit is reached rather than running up unbounded costs.
-
-## AI SDK Integration
-
-The SDK integrates directly with the [Vercel AI SDK](https://sdk.vercel.ai) for building AI jobs and agents.
-
-### Provider and Agent
-
-```ts
-import { createStraitProvider, createStraitAgent } from "@strait/ts/ai";
-
-// Create a provider that routes LLM calls through Strait for tracking
-const provider = createStraitProvider(client, {
-  model: "gpt-4o",
-});
-
-// Create an agent with built-in tools and cost tracking
-const agent = createStraitAgent(client, {
-  model: "gpt-4o",
-  tools: [searchTool, calculatorTool],
-  maxSteps: 10,
-});
-```
-
-### Built-in Tools
-
-The AI SDK integration includes tools that let agents interact with Strait itself:
-
-| Tool | Description |
-|---|---|
-| `triggerJob` | Trigger a Strait job from within an agent |
-| `waitForRun` | Block until a run completes |
-| `sendEvent` | Emit an event to the event bus |
-| `reportProgress` | Report progress back to the parent run |
-| `checkpoint` | Persist agent state for durable execution |
-| `spawnRun` | Spawn a child run |
-
 ## Event Definitions
 
 Define typed events that jobs and workflows can emit and listen for:
@@ -306,8 +230,6 @@ The `run` handler receives a `RunContext` (`ctx`) with methods for reporting pro
 | `ctx.sendEvent(event, payload)` | Emit a typed event |
 | `ctx.spawnRun(jobOrRef, payload)` | Spawn a child run |
 | `ctx.waitForEvent(eventName, opts?)` | Pause until a matching event arrives |
-| `ctx.toolCall(name, input, output)` | Record a tool call for monitoring |
-| `ctx.usage(tokens)` | Report token usage for cost tracking |
 | `ctx.heartbeat()` | Signal liveness to prevent timeout |
 | `ctx.output(partial)` | Stream partial output back to the caller |
 | `ctx.isCancelled()` | Check if the run has been cancelled |
@@ -335,7 +257,7 @@ expect(ctx.events).toHaveLength(0);
 expect(ctx.spawnedRuns).toHaveLength(0);
 ```
 
-The test context records all calls to `reportProgress`, `logger`, `sendEvent`, `spawnRun`, `checkpoint`, and `toolCall` so you can assert on side effects without mocking.
+The test context records calls to `reportProgress`, `logger`, `sendEvent`, `spawnRun`, and `checkpoint` so you can assert on side effects without mocking.
 
 ## Composition Helpers
 
@@ -413,11 +335,11 @@ const run = await withIdempotency(
 ```ts
 import { withCostBudget } from "@strait/ts";
 
-// Abort if accumulated LLM cost exceeds the budget
+// Abort if accumulated external API cost exceeds the budget
 const result = await withCostBudget(
   { maxCostUsd: 10.00 },
   async (budget) => {
-    const run = await agent.trigger(client, { payload: { topic: "analysis" } });
+    const run = await parserJob.trigger(client, { payload: { documentId: "doc_123" } });
     budget.track(run.usage);
     return run;
   }
@@ -566,6 +488,5 @@ The SDK uses subpath exports to keep your bundle lean. Import from the path that
 |---|---|
 | `@strait/ts` | Core client, types, errors, composition helpers, state machines |
 | `@strait/ts/node` | `createClientFromConfigFile`, `createClientFromEnv` (requires Node/Bun APIs) |
-| `@strait/ts/ai` | AI SDK integration: `createStraitProvider`, `createStraitAgent` |
 | `@strait/ts/testing` | Test harness: `createTestContext` |
 | `@strait/ts/schema` | Schema adapters: `zodSchema`, `arkSchema`, `valibotSchema` |

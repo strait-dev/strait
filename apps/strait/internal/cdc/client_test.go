@@ -530,6 +530,95 @@ func TestNewClient_NoAuthToken_OmitsHeader(t *testing.T) {
 	}
 }
 
+func TestClientSinkConsumerHealth(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		statusCode  int
+		body        string
+		wantErrPart string
+	}{
+		{
+			name:       "active healthy sink",
+			statusCode: http.StatusOK,
+			body:       `{"name":"consumer-1","status":"active","health":{"status":"healthy"}}`,
+		},
+		{
+			name:        "management api rejects token",
+			statusCode:  http.StatusUnauthorized,
+			body:        `bad token`,
+			wantErrPart: "status 401",
+		},
+		{
+			name:        "sink paused",
+			statusCode:  http.StatusOK,
+			body:        `{"name":"consumer-1","status":"paused","health":{"status":"healthy"}}`,
+			wantErrPart: `is paused`,
+		},
+		{
+			name:        "sink health unhealthy",
+			statusCode:  http.StatusOK,
+			body:        `{"name":"consumer-1","status":"active","health":{"status":"unhealthy"}}`,
+			wantErrPart: `health is unhealthy`,
+		},
+		{
+			name:        "unexpected sink name",
+			statusCode:  http.StatusOK,
+			body:        `{"name":"other-consumer","status":"active","health":{"status":"healthy"}}`,
+			wantErrPart: `name mismatch`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/api/sinks/consumer-1" {
+					t.Fatalf("path = %q, want /api/sinks/consumer-1", r.URL.Path)
+				}
+				if r.Method != http.MethodGet {
+					t.Fatalf("method = %q, want GET", r.Method)
+				}
+				if r.Header.Get("Authorization") != "Bearer token-1" {
+					t.Fatalf("Authorization = %q, want Bearer token-1", r.Header.Get("Authorization"))
+				}
+				w.WriteHeader(tt.statusCode)
+				_, _ = w.Write([]byte(tt.body))
+			}))
+			defer ts.Close()
+
+			client := NewClient(ts.URL, "consumer-1", "token-1")
+			err := client.SinkConsumerHealth(context.Background())
+			if tt.wantErrPart == "" {
+				if err != nil {
+					t.Fatalf("SinkConsumerHealth returned error: %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tt.wantErrPart) {
+				t.Fatalf("error = %v, want substring %q", err, tt.wantErrPart)
+			}
+		})
+	}
+}
+
+func TestClientSinkConsumerHealth_NoAuthTokenOmitsHeader(t *testing.T) {
+	t.Parallel()
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "" {
+			t.Fatalf("Authorization = %q, want empty", got)
+		}
+		_, _ = w.Write([]byte(`{"name":"consumer-1","status":"active","health":{"status":"healthy"}}`))
+	}))
+	defer ts.Close()
+
+	client := NewClient(ts.URL, "consumer-1", "")
+	if err := client.SinkConsumerHealth(context.Background()); err != nil {
+		t.Fatalf("SinkConsumerHealth returned error: %v", err)
+	}
+}
+
 func newTestRetryPolicy() retrypolicy.RetryPolicy[*http.Response] {
 	return retrypolicy.NewBuilder[*http.Response]().
 		WithMaxRetries(2).

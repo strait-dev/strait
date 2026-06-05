@@ -1,40 +1,68 @@
 ---
 title: "Pricing"
-description: "Strait pricing plans for teams of all sizes, from hobby projects to enterprise deployments."
+description: "Strait pricing plans, billing units, and launch limits."
 icon: "credit-card"
 og:image: "/images/og.png"
 ---
 
+Strait bills cloud customers by orchestration run. An orchestration run is customer work dispatched by Strait, including job runs and workflow step runs. Automatic system retries do not add runs. Manual replays do.
+
 ## Plans
 
-| Feature | Free | Starter | Pro | Enterprise |
-|---------|------|---------|-----|------------|
-| Price | $0/mo | $29/mo | $99/mo | Custom |
-| Organizations | 1 | 3 | 10 | Unlimited |
-| Projects per org | 2 | 10 | 50 | Unlimited |
-| Members per org | 3 | 10 | 25 | Unlimited |
-| Runs per day | 5,000 | 50,000 | 500,000 | Unlimited |
-| Concurrent runs | 5 | 25 | 100 | Custom |
-| Overage behavior | Queued until next day | Queued until next day | Contact for burst pricing | Custom |
-| Retention | 1 day | 7 days | 30 days | Custom |
-| RBAC | None | Basic | Full | Full |
-| Audit logs | No | No | Yes | Yes |
-| SSO/SAML | No | No | No | Yes |
+| Feature | Free | Starter | Pro | Scale | Business | Enterprise |
+|---|---:|---:|---:|---:|---:|---:|
+| Monthly price | $0 | $19 | $99 | $299 | $499 | Custom |
+| Annual price | - | $180 | $948 | $2,868 | $4,788 | Custom |
+| Included orchestration runs/mo | 5K | 50K | 1M | 5M | 25M | 50M+ |
+| Overage per 1K runs | $0.50 | $0.40 | $0.20 | $0.06 | $0.03 | Custom |
+| Default spending cap | $50 when enabled | $100 | $200 | $500 | $1,500 | Contract |
+| Concurrent runs | 3 | 15 | 100 | 300 | 500 | Custom |
+| Max workflow steps | 10 | 25 | 100 | 500 | Unlimited | Custom |
+| Run history | 7 days | 14 days | 30 days | 60 days | 90 days | Custom |
+| Projects | 1 | 3 | 10 | 50 | Unlimited | Custom |
+| Active environments | 1 | 1 | 3 | 10 | Unlimited | Custom |
+| Cron schedules | 1 | 5 | 25 | 100 | Unlimited | Custom |
+| Cron minimum interval | 5 min | 1 min | 30 sec | 1 sec | sub-second | sub-second |
+| Members | 1 | 3 | 10 | 50 | Unlimited | Custom |
+| Webhook endpoints | 0 | 3 | 10 | 25 | Unlimited | Custom |
+| Worker connections | 1 | 5 | 25 | 100 | Unlimited | Custom |
+| API rate limit | 60/min | 300/min | 1,000/min | 3,000/min | Unlimited | Custom |
+| Log streaming | No | Yes | Yes | Yes | Yes | Yes |
+| Log drains | 0 | 1 | 5 | 10 | Unlimited | Custom |
+| RBAC | None | Basic | Full | Full | Advanced | Full |
+| Audit logs | No | No | No | Yes | Yes | Yes |
+| Canary deployments | No | No | No | Yes | Yes | Yes |
+| SLA target | No | No | No | No | Non-contractual target | Non-contractual target |
+| Support | Community | Email 72h | Priority 24h | Slack 8h | Slack 8h | Dedicated |
 
-All plans include every core feature: jobs, workflows, retries, event triggers, webhooks, and API access.
+SSO/SAML, SCIM, IP allowlisting, static IPs, VPC peering, data residency, single-tenant orchestration, and BYO-cloud are roadmap or contact-sales items for launch. They are excluded from launch entitlements and are not enforced as plan gates.
 
-## What Happens at the Limit
+## Overage
 
-When you reach your daily run limit, new runs are queued and processed the next day. You are never charged overage fees on Free or Starter plans.
+Free is hard-capped at 5,000 included orchestration runs unless a credit card is added. Adding a card enables overage at $0.50 per 1,000 runs and applies the default $50 spending cap.
 
-On the Pro plan, contact us for burst pricing if you regularly exceed your daily limit.
+Starter, Pro, Scale, and Business include overage by default because a payment method is already attached to the subscription. Customers can disable overage from billing settings. With overage disabled, runs suspend at the included allowance and schedules pause until the next billing period or until overage is re-enabled.
 
-Concurrent run limits are hard caps. If all slots are occupied, new runs wait in the queue until a slot opens.
+At 80 percent of the spending cap, Strait emits `billing.cap_warning`. At 100 percent, Strait emits `billing.cap_reached`, suspends new dispatch, and pauses schedules. In-flight runs can finish. Suspension lifts when the cap is raised above current overage spend, the cap action is changed to notify-only, or the next billing period starts.
 
-## Self-Hosted
+## Add-ons
 
-Strait is open-source under the Apache 2.0 license. Self-host on your infrastructure with no license fees, no run limits, and no feature restrictions.
+| Add-on | Price | Available on | Status |
+|---|---:|---|---|
+| Additional concurrency, +100 | $20/mo | Pro, Scale, Business | Sellable |
+| Extended run history, +30d | $40/mo | Scale, Business | Sellable |
+| Additional environments, +5 | $30/mo | Pro, Scale | Sellable |
+| Compliance archive | Roadmap | Contact sales | Not sellable |
+| Dedicated worker pool | Roadmap | Contact sales | Not sellable |
 
-Self-hosting requires PostgreSQL, Redis, and a server to run the Strait binary. You handle updates, backups, monitoring, and scaling, and in return you keep full control over your data and infrastructure. Every feature available in the cloud plans works in self-hosted mode, except billing and the multi-region hosted orchestrator.
+Member, cron schedule, and webhook endpoint add-ons are not sold at launch.
 
-See the [Self-Hosting](/guides/self-hosting) guide for setup.
+## Plan changes
+
+Upgrades apply immediately. Downgrades apply at the next billing period. New workflow deployments must comply with the new plan's step cap, and new schedules must comply with the new schedule frequency cap.
+
+## Self-hosted
+
+The community edition is open source and has no cloud billing limits. Self-hosting requires PostgreSQL, Redis, and Sequin. The cloud dashboard, vendor support, hosted cloud orchestration, and BYO-cloud contracts are not included in community deployments.
+
+See [Self-Hosting](/guides/self-hosting) for setup.

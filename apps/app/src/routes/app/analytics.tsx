@@ -14,7 +14,6 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import ErrorComponent from "@/components/common/error-component";
 import {
-  computeQueryOptions,
   costTrendsQueryOptions,
   performanceQueryOptions,
   topCostsQueryOptions,
@@ -60,12 +59,10 @@ function AnalyticsPage() {
   const { data: costTrends } = useQuery(costTrendsQueryOptions(window));
   const { data: topCosts } = useQuery(topCostsQueryOptions(window));
   const { data: performance } = useQuery(performanceQueryOptions(window));
-  const { data: compute } = useQuery(computeQueryOptions(window));
 
   const costData = costTrends ?? [];
   const topCostData = topCosts ?? [];
   const perfData = performance ?? [];
-  const computeData = compute ?? [];
 
   return (
     <Shell>
@@ -75,7 +72,7 @@ function AnalyticsPage() {
             Analytics
           </h1>
           <p className="text-muted-foreground text-sm">
-            Overview of cost, performance, and compute usage.
+            Overview of cost, performance, and orchestration-run volume.
           </p>
         </div>
         <div className="flex items-center gap-1">
@@ -116,11 +113,11 @@ function AnalyticsPage() {
           </CardContent>
         </Card>
 
-        {/* Top Projects by Cost */}
+        {/* Top Cost Contributors */}
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="font-medium text-sm">
-              Top Projects by Cost
+              Top Cost Contributors
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -130,7 +127,7 @@ function AnalyticsPage() {
                   config={TOP_COSTS_CONFIG}
                   containerHeight={240}
                   data={topCostData}
-                  dataKey="project_name"
+                  dataKey="name"
                   layout="vertical"
                   legend={false}
                   valueFormatter={formatDollars}
@@ -150,12 +147,12 @@ function AnalyticsPage() {
             <CardTitle className="font-medium text-sm">Run Volume</CardTitle>
           </CardHeader>
           <CardContent>
-            {computeData.length > 0 ? (
+            {costData.length > 0 ? (
               <div className="h-[240px]">
                 <BarChart
                   config={RUN_VOLUME_CONFIG}
                   containerHeight={240}
-                  data={computeData}
+                  data={costData}
                   dataKey="date"
                   legend={false}
                 />

@@ -59,8 +59,6 @@ func TestCloneJob_IsolatesMutableFields(t *testing.T) {
 		RetryDelaysSecs:          []int{1, 2, 3},
 		RateLimitKeys:            []domain.RateLimitKey{{Name: "customer", Max: 10, WindowSecs: 60}},
 		PreferredRegions:         []string{"iad", "fra"},
-		AllowedTools:             []string{"search"},
-		BlockedTools:             []string{"shell"},
 		ResultSchema:             json.RawMessage(`{"type":"object"}`),
 		OnCompletePayloadMapping: json.RawMessage(`{"result":"$.output"}`),
 		OnFailurePayloadMapping:  json.RawMessage(`{"error":"$.error"}`),
@@ -73,8 +71,6 @@ func TestCloneJob_IsolatesMutableFields(t *testing.T) {
 	clone.RetryDelaysSecs[0] = 99
 	clone.RateLimitKeys[0].Name = "tenant"
 	clone.PreferredRegions[0] = "sfo"
-	clone.AllowedTools[0] = "browser"
-	clone.BlockedTools[0] = "network"
 	clone.ResultSchema[0] = '['
 	clone.OnCompletePayloadMapping[0] = '['
 	clone.OnFailurePayloadMapping[0] = '['
@@ -93,12 +89,6 @@ func TestCloneJob_IsolatesMutableFields(t *testing.T) {
 	}
 	if job.PreferredRegions[0] != "iad" {
 		t.Fatalf("original PreferredRegions mutated: %v", job.PreferredRegions)
-	}
-	if job.AllowedTools[0] != "search" {
-		t.Fatalf("original AllowedTools mutated: %v", job.AllowedTools)
-	}
-	if job.BlockedTools[0] != "shell" {
-		t.Fatalf("original BlockedTools mutated: %v", job.BlockedTools)
 	}
 	if string(job.ResultSchema) != `{"type":"object"}` {
 		t.Fatalf("original ResultSchema mutated: %s", job.ResultSchema)

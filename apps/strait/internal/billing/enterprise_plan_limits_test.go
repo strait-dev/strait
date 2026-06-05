@@ -1,6 +1,7 @@
 package billing
 
 import (
+	"reflect"
 	"testing"
 
 	"strait/internal/domain"
@@ -22,11 +23,9 @@ func TestEnterpriseLimits_AllUnlimited(t *testing.T) {
 		{"MaxWebhookEndpoints", e.MaxWebhookEndpoints},
 		{"MaxWorkflowDAGSteps", e.MaxWorkflowDAGSteps},
 		{"APIRateLimit", e.APIRateLimit},
-		{"MaxAlertRulesPerProj", e.MaxAlertRulesPerProj},
 		{"MaxWebhookSubsPerProj", e.MaxWebhookSubsPerProj},
 		{"MaxLogDrainsPerOrg", e.MaxLogDrainsPerOrg},
 		{"MaxNotificationChannels", e.MaxNotificationChannels},
-		{"MaxAIModelCallsPerDay", e.MaxAIModelCallsPerDay},
 		{"MaxJobChainDepth", e.MaxJobChainDepth},
 	}
 	for _, tt := range unlimited {
@@ -48,7 +47,7 @@ func TestEnterpriseLimits_RetentionUnlimited(t *testing.T) {
 	}
 }
 
-func TestEnterpriseLimits_AllEnterpriseFeatureFlags(t *testing.T) {
+func TestEnterpriseLimits_RoadmapFeatureFlagsInactive(t *testing.T) {
 	t.Parallel()
 	e := GetPlanLimits(domain.PlanEnterprise)
 
@@ -69,8 +68,8 @@ func TestEnterpriseLimits_AllEnterpriseFeatureFlags(t *testing.T) {
 		{"HasSIEMExport", e.HasSIEMExport},
 	}
 	for _, tt := range flags {
-		if !tt.val {
-			t.Errorf("Enterprise.%s = false, want true", tt.name)
+		if tt.val {
+			t.Errorf("Enterprise.%s = true, want false for launch roadmap item", tt.name)
 		}
 	}
 }
@@ -79,8 +78,8 @@ func TestEnterpriseLimits_ExistingFeatureFlags(t *testing.T) {
 	t.Parallel()
 	e := GetPlanLimits(domain.PlanEnterprise)
 
-	if !e.HasSSO {
-		t.Error("Enterprise.HasSSO = false, want true")
+	if e.HasSSO {
+		t.Error("Enterprise.HasSSO = true, want false for launch")
 	}
 	if !e.HasSLA {
 		t.Error("Enterprise.HasSLA = false, want true")
@@ -130,11 +129,11 @@ func TestEnterpriseLimits_NoRequiredCreditCard(t *testing.T) {
 	}
 }
 
-func TestEnterpriseLimits_AllRegions(t *testing.T) {
+func TestEnterpriseLimits_LaunchDefaultRegion(t *testing.T) {
 	t.Parallel()
 	e := GetPlanLimits(domain.PlanEnterprise)
-	if e.AllowedRegions != nil {
-		t.Error("Enterprise.AllowedRegions should be nil (all regions)")
+	if !reflect.DeepEqual(e.AllowedRegions, []string{"iad"}) {
+		t.Errorf("Enterprise.AllowedRegions = %#v, want launch default region", e.AllowedRegions)
 	}
 }
 
@@ -146,18 +145,11 @@ func TestEnterpriseLimits_DedicatedSupportLevel(t *testing.T) {
 	}
 }
 
-func TestEnterpriseLimits_UnlimitedAddonPacks(t *testing.T) {
+func TestEnterpriseLimits_NoSelfServeAddonPacks(t *testing.T) {
 	t.Parallel()
 	e := GetPlanLimits(domain.PlanEnterprise)
-	for _, addonType := range AllAddonTypes() {
-		max, ok := e.MaxAddonPacks[addonType]
-		if !ok {
-			t.Errorf("Enterprise.MaxAddonPacks missing %q", addonType)
-			continue
-		}
-		if max != -1 {
-			t.Errorf("Enterprise.MaxAddonPacks[%q] = %d, want -1", addonType, max)
-		}
+	if e.MaxAddonPacks != nil {
+		t.Fatalf("Enterprise.MaxAddonPacks = %#v, want nil for custom contract terms", e.MaxAddonPacks)
 	}
 }
 
@@ -191,7 +183,7 @@ func TestNonEnterpriseTiers_NoEnterpriseFeatures(t *testing.T) {
 
 func TestNonEnterpriseTiers_NoSSO(t *testing.T) {
 	t.Parallel()
-	for _, tier := range []domain.PlanTier{domain.PlanFree, domain.PlanStarter, domain.PlanPro, domain.PlanScale} {
+	for _, tier := range []domain.PlanTier{domain.PlanFree, domain.PlanStarter, domain.PlanPro, domain.PlanScale, domain.PlanBusiness, domain.PlanEnterprise} {
 		if GetPlanLimits(tier).HasSSO {
 			t.Errorf("%s.HasSSO = true, want false", tier)
 		}

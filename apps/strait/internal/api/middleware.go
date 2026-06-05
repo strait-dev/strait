@@ -978,6 +978,10 @@ func (s *Server) userProjectPermissions(ctx context.Context, projectID, actorID 
 }
 
 func (s *Server) resourcePolicyAllows(r *http.Request, projectID, actorID, permission string) bool {
+	if !s.isRBACLevelAllowed(r.Context(), projectID, "advanced") {
+		return false
+	}
+
 	resType, resID := resourceFromRequest(r)
 	if resType == "" || resID == "" {
 		return false
@@ -1388,8 +1392,8 @@ func (s *Server) planUsageHeaders(next http.Handler) http.Handler {
 			return
 		}
 
-		limits := s.getOrgPlanLimits(ctx, projectID)
-		if limits != nil {
+		limits, err := s.getOrgPlanLimits(ctx, projectID)
+		if err == nil && limits != nil {
 			w.Header().Set("X-Strait-Plan", string(limits.PlanTier))
 			s.setUsageHeaders(ctx, w, limits, projectID)
 		}
@@ -1398,27 +1402,28 @@ func (s *Server) planUsageHeaders(next http.Handler) http.Handler {
 	})
 }
 
-// setUsageHeaders writes X-Strait-Usage-Limit and X-Strait-Usage-Remaining.
+// setUsageHeaders writes X-Strait-Usage-Limit and X-Strait-Usage-Remaining
+// for the monthly orchestration-run allowance.
 func (s *Server) setUsageHeaders(ctx context.Context, w http.ResponseWriter, limits *billing.OrgPlanLimits, projectID string) {
-	if limits.MaxRunsPerDay == -1 {
+	if limits.MaxRunsPerMonth == -1 {
 		w.Header().Set("X-Strait-Usage-Limit", "unlimited")
 		w.Header().Set("X-Strait-Usage-Remaining", "unlimited")
 		return
 	}
 
-	w.Header().Set("X-Strait-Usage-Limit", strconv.FormatInt(limits.MaxRunsPerDay, 10))
+	w.Header().Set("X-Strait-Usage-Limit", strconv.Itoa(limits.MaxRunsPerMonth))
 
 	orgID, _ := s.billingEnforcer.GetProjectOrgID(ctx, projectID)
 	if orgID == "" {
 		return
 	}
 
-	used, err := s.billingEnforcer.GetDailyRunCount(ctx, orgID)
+	used, err := s.billingEnforcer.GetMonthlyRunCount(ctx, orgID)
 	if err != nil {
 		return
 	}
 
-	remaining := max(limits.MaxRunsPerDay-used, 0)
+	remaining := max(int64(limits.MaxRunsPerMonth)-used, 0)
 	w.Header().Set("X-Strait-Usage-Remaining", strconv.FormatInt(remaining, 10))
 }
 
@@ -1426,15 +1431,39 @@ type resolvedRateLimit struct {
 	limit      int
 	windowSecs int
 	key        string
+	err        error
 }
 
 // resolveRateLimit determines the applicable rate limit by cascading through:
 // API key override → project quota → plan-based → global defaults → per-IP.
+// When a plan cap exists, API-key and project overrides can only lower it.
 func (s *Server) resolveRateLimit(ctx context.Context, r *http.Request, projectID, apiKeyID string) resolvedRateLimit {
+	planLimit := 0
+	planResolved := false
+	planKey := ""
+	if projectID != "" && s.billingEnforcer != nil {
+		orgID, orgErr := s.billingEnforcer.GetProjectOrgID(ctx, projectID)
+		if orgErr != nil {
+			return resolvedRateLimit{err: fmt.Errorf("resolve project organization for rate limit: %w", orgErr)}
+		}
+		if orgID != "" {
+			limits, limErr := s.billingEnforcer.GetOrgPlanLimits(ctx, orgID)
+			if limErr != nil {
+				return resolvedRateLimit{err: fmt.Errorf("resolve plan limit for rate limit: %w", limErr)}
+			}
+			planLimit = limits.APIRateLimit
+			planResolved = true
+			planKey = "rl:plan:" + orgID
+		}
+	}
+
 	// 1. Try API key-level rate limit (from context, no DB hit).
 	if apiKeyID != "" {
 		if apiKey, ok := ctx.Value(ctxAuthKeyObjKey).(*domain.APIKey); ok && apiKey != nil && apiKey.RateLimitRequests > 0 && apiKey.RateLimitWindowSecs > 0 {
-			return resolvedRateLimit{apiKey.RateLimitRequests, apiKey.RateLimitWindowSecs, "rl:apikey:" + apiKeyID}
+			return capResolvedRateLimit(
+				resolvedRateLimit{limit: apiKey.RateLimitRequests, windowSecs: apiKey.RateLimitWindowSecs, key: "rl:apikey:" + apiKeyID},
+				planLimit,
+			)
 		}
 	}
 
@@ -1442,38 +1471,52 @@ func (s *Server) resolveRateLimit(ctx context.Context, r *http.Request, projectI
 	if projectID != "" && s.quotaCache != nil {
 		quota, err := s.quotaCache.Get(ctx, projectID)
 		if err == nil && quota != nil && quota.RateLimitRequests > 0 && quota.RateLimitWindowSecs > 0 {
-			return resolvedRateLimit{quota.RateLimitRequests, quota.RateLimitWindowSecs, "rl:project:" + projectID}
+			return capResolvedRateLimit(
+				resolvedRateLimit{limit: quota.RateLimitRequests, windowSecs: quota.RateLimitWindowSecs, key: "rl:project:" + projectID},
+				planLimit,
+			)
 		}
 	}
 
 	// 3. Fall back to plan-based rate limit.
-	if projectID != "" && s.billingEnforcer != nil {
-		orgID, orgErr := s.billingEnforcer.GetProjectOrgID(ctx, projectID)
-		if orgErr == nil && orgID != "" {
-			planLimits, limErr := s.billingEnforcer.GetOrgPlanLimits(ctx, orgID)
-			if limErr == nil && planLimits.APIRateLimit > 0 {
-				return resolvedRateLimit{planLimits.APIRateLimit, 60, "rl:plan:" + orgID}
-			}
-		}
+	if projectID != "" && planLimit > 0 {
+		return resolvedRateLimit{limit: planLimit, windowSecs: 60, key: planKey}
+	}
+	if projectID != "" && planResolved && planLimit < 0 {
+		return resolvedRateLimit{}
 	}
 
 	// 4. Fall back to global default rate limit per API key.
 	if apiKeyID != "" && s.config.DefaultAPIKeyRateLimit > 0 {
-		return resolvedRateLimit{s.config.DefaultAPIKeyRateLimit, s.config.DefaultAPIKeyRateWindowSecs, "rl:apikey:" + apiKeyID}
+		return resolvedRateLimit{limit: s.config.DefaultAPIKeyRateLimit, windowSecs: s.config.DefaultAPIKeyRateWindowSecs, key: "rl:apikey:" + apiKeyID}
 	}
 
 	// 5. Fall back to global default rate limit per project.
 	if projectID != "" && s.config.DefaultAPIKeyRateLimit > 0 {
-		return resolvedRateLimit{s.config.DefaultAPIKeyRateLimit, s.config.DefaultAPIKeyRateWindowSecs, "rl:project:" + projectID}
+		return resolvedRateLimit{limit: s.config.DefaultAPIKeyRateLimit, windowSecs: s.config.DefaultAPIKeyRateWindowSecs, key: "rl:project:" + projectID}
 	}
 
 	// 6. Fall back to per-IP rate limit when no key/project limits matched.
 	if s.config.RateLimitRequests > 0 {
 		ip := realIP(r, s.trustedProxies)
-		return resolvedRateLimit{s.config.RateLimitRequests, int(time.Minute.Seconds()), "rl:ip:" + ip}
+		return resolvedRateLimit{limit: s.config.RateLimitRequests, windowSecs: int(time.Minute.Seconds()), key: "rl:ip:" + ip}
 	}
 
 	return resolvedRateLimit{}
+}
+
+func capResolvedRateLimit(rl resolvedRateLimit, planLimitPerMinute int) resolvedRateLimit {
+	if planLimitPerMinute <= 0 || rl.limit <= 0 || rl.windowSecs <= 0 {
+		return rl
+	}
+	planLimitForWindow := planLimitPerMinute * rl.windowSecs / 60
+	if planLimitForWindow < 1 {
+		planLimitForWindow = 1
+	}
+	if rl.limit > planLimitForWindow {
+		rl.limit = planLimitForWindow
+	}
+	return rl
 }
 
 // auditVerifyRateLimit enforces a per-project rate limit on the audit chain
@@ -1542,15 +1585,22 @@ func (s *Server) projectRateLimit(next http.Handler) http.Handler {
 		}
 
 		rl := s.resolveRateLimit(ctx, r, projectIDFromContext(ctx), apiKeyIDFromContext(ctx))
+		if rl.err != nil {
+			slog.Error("rate limit plan lookup failed, failing closed", "error", rl.err)
+			respondError(w, r, http.StatusServiceUnavailable, "rate limit plan unavailable")
+			return
+		}
 		if rl.limit == 0 {
 			next.ServeHTTP(w, r)
 			return
 		}
 
 		window := time.Duration(rl.windowSecs) * time.Second
-		result, rlErr := s.rateLimiter.Allow(ctx, rl.key, rl.limit, window)
+		result, rlErr := s.rateLimiter.AllowStrict(ctx, rl.key, rl.limit, window)
 		if rlErr != nil {
-			slog.Warn("rate limiter error, failing open", "key", rl.key, "error", rlErr)
+			slog.Error("rate limiter error, failing closed", "key", rl.key, "error", rlErr)
+			respondError(w, r, http.StatusServiceUnavailable, "rate limit service unavailable")
+			return
 		}
 		w.Header().Set("X-RateLimit-Limit", strconv.Itoa(rl.limit))
 		w.Header().Set("X-RateLimit-Remaining", strconv.Itoa(result.Remaining))

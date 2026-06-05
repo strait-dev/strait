@@ -22,8 +22,8 @@ func TestGetCostAnalytics_Empty(t *testing.T) {
 	if result == nil {
 		t.Fatal("GetCostAnalytics(live) returned nil")
 	}
-	if result.TotalAICostMicrousd != 0 {
-		t.Fatalf("TotalAICostMicrousd = %d, want 0", result.TotalAICostMicrousd)
+	if result.TotalSpendMicrousd != 0 {
+		t.Fatalf("TotalSpendMicrousd = %d, want 0", result.TotalSpendMicrousd)
 	}
 	if result.RunCount != 0 {
 		t.Fatalf("RunCount = %d, want 0", result.RunCount)

@@ -30,10 +30,10 @@ func TestPgStore_UpdateEntitlements_RoundTrip(t *testing.T) {
 
 	want := billing.ComputeEntitlements(&billing.OrgSubscription{
 		PlanTier: string(domain.PlanPro),
-		AddOns:   billing.SubscriptionAddOns{RetentionPack: 2, WorkerConnections: 4},
 	}, []billing.Addon{
 		{AddonType: billing.AddonConcurrency100, Quantity: 1, Active: true},
 		{AddonType: billing.AddonEnvironments5, Quantity: 1, Active: true},
+		{AddonType: billing.AddonHistory30d, Quantity: 1, Active: true},
 	})
 
 	if err := pgStore.UpdateEntitlements(ctx, orgID, want); err != nil {

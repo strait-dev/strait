@@ -67,13 +67,13 @@ func NewRunCostRecorder(store Store, rdb redis.Cmdable, chExporter billingEventE
 	}
 }
 
-// RecordHTTPRunCost writes a flat 20 micro-USD cost row for a completed HTTP dispatch.
+// RecordHTTPRunCost writes a flat 20 micro-USD cost row for a billable HTTP run.
 // orgID and projectID are required; runID is used for ClickHouse analytics only.
 func (r *RunCostRecorder) RecordHTTPRunCost(ctx context.Context, orgID, projectID, runID string) error {
 	return r.record(ctx, orgID, projectID, runID, HTTPCostPerRunMicrousd, "http")
 }
 
-// RecordWorkerRunCost writes a flat 20 micro-USD cost row for a completed Worker dispatch.
+// RecordWorkerRunCost writes a flat 20 micro-USD cost row for a billable Worker run.
 // orgID and projectID are required; runID is used for ClickHouse analytics only.
 func (r *RunCostRecorder) RecordWorkerRunCost(ctx context.Context, orgID, projectID, runID string) error {
 	return r.record(ctx, orgID, projectID, runID, WorkerCostPerRunMicrousd, "worker")

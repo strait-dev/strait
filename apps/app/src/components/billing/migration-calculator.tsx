@@ -35,33 +35,27 @@ type ComparisonResult = {
 
 function estimateStraitCost(
   runsPerMonth: number,
-  computeHours: number,
+  _computeHours: number,
   _teamMembers: number
 ): ComparisonResult {
-  const microPerSecond = 0.017;
-  const monthlyComputeCost = computeHours * 3600 * microPerSecond;
-
   let recommendedPlan = "Free";
   let planCost = 0;
 
-  // Plan thresholds based on actual plan limits:
-  // Free: 5K runs/day (~150K/mo), 3 members, no compute credit
-  // Starter: 25K runs/day (~750K/mo), 10 members, $19.99 compute credit
-  // Pro: 100K runs/day (~3M/mo), 25 members, $49.99 compute credit
-  if (
-    runsPerMonth > 750_000 ||
-    monthlyComputeCost > 19.99 ||
-    _teamMembers > 10
-  ) {
+  if (runsPerMonth > 25_000_000) {
+    recommendedPlan = "Enterprise";
+    planCost = 1500;
+  } else if (runsPerMonth > 5_000_000) {
+    recommendedPlan = "Business";
+    planCost = 499;
+  } else if (runsPerMonth > 1_000_000 || _teamMembers > 10) {
+    recommendedPlan = "Scale";
+    planCost = 299;
+  } else if (runsPerMonth > 50_000 || _teamMembers > 3) {
     recommendedPlan = "Pro";
-    planCost = 49.99;
-  } else if (
-    runsPerMonth > 150_000 ||
-    monthlyComputeCost > 0 ||
-    _teamMembers > 3
-  ) {
+    planCost = 99;
+  } else if (runsPerMonth > 5000 || _teamMembers > 1) {
     recommendedPlan = "Starter";
-    planCost = 19.99;
+    planCost = 19;
   }
 
   return {
@@ -70,10 +64,10 @@ function estimateStraitCost(
     savings: 0,
     recommendedPlan,
     advantages: [
-      "5 SDKs (TypeScript, Python, Go, Rust, Java)",
-      "All features on every plan",
-      "MCP server for AI agents",
-      "Apache 2.0 license",
+      "Orchestration-run billing with no compute-time metering",
+      "HTTP and worker execution modes",
+      "Workflow retries, scheduling, and observability",
+      "Open API and SDK access",
       "No vendor lock-in",
     ],
   };
@@ -141,7 +135,9 @@ const MigrationCalculator = () => {
             />
           </Field>
           <Field>
-            <FieldLabel htmlFor="compute">Compute hours/month</FieldLabel>
+            <FieldLabel htmlFor="compute">
+              Current provider compute hours/month
+            </FieldLabel>
             <NumberInputWithChevrons
               id="compute"
               min={0}

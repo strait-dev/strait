@@ -570,7 +570,7 @@ func TestEndToEndHTTPMode(t *testing.T) {
 
 // TestEndToEndCapEnforcement verifies billing quota enforcement mechanics:
 //
-//   - An org on the free plan has MaxRunsPerMonth = billing.MaxRunsPerMonthFree (1000).
+//   - An org on the free plan has MaxRunsPerMonth = billing.MaxRunsPerMonthFree.
 //   - We pre-fill the Redis monthly counter to MaxRunsPerMonth - 3 so that only
 //     3 more runs are allowed.
 //   - Calls to billing.Enforcer.CheckMonthlyRunLimit for the first 3 invocations
@@ -592,8 +592,8 @@ func TestEndToEndCapEnforcement(t *testing.T) {
 
 	// Seed org with free plan subscription.
 	if _, err := testEnv.DB.Pool.Exec(ctx,
-		`INSERT INTO organization_subscriptions (id, org_id, plan_tier, status)
-		 VALUES (gen_random_uuid()::text, $1, 'free', 'active') ON CONFLICT DO NOTHING`,
+		`INSERT INTO organization_subscriptions (id, org_id, plan_tier, status, overage_disabled)
+		 VALUES (gen_random_uuid()::text, $1, 'free', 'active', true) ON CONFLICT DO NOTHING`,
 		orgID,
 	); err != nil {
 		t.Fatalf("insert org subscription: %v", err)

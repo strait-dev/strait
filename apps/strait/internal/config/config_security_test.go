@@ -10,6 +10,7 @@ func setRequiredRuntimeEnv(t *testing.T) {
 	t.Setenv("SEQUIN_BASE_URL", "http://localhost:7376")
 	t.Setenv("SEQUIN_CONSUMER_NAME", "strait-cdc")
 	t.Setenv("SEQUIN_API_TOKEN", "sequin-api-token")
+	t.Setenv("SEQUIN_WEBHOOK_SECRET", "sequin-webhook-secret")
 }
 
 func TestCORS_WildcardWithCredentials_Rejected(t *testing.T) {

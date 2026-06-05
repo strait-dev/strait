@@ -44,11 +44,10 @@ const ProjectCostsTab = () => {
   const totals = (costs ?? []).reduce(
     (acc, c) => ({
       runs: acc.runs + c.runs,
-      compute: acc.compute + c.compute_microusd,
-      ai: acc.ai + c.ai_microusd,
+      spend: acc.spend + c.spend_microusd,
       total: acc.total + c.total_microusd,
     }),
-    { runs: 0, compute: 0, ai: 0, total: 0 }
+    { runs: 0, spend: 0, total: 0 }
   );
 
   const sortedCosts = useMemo(
@@ -69,7 +68,7 @@ const ProjectCostsTab = () => {
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
         <MetricCard
           size="sm"
           title="Total Runs"
@@ -77,13 +76,8 @@ const ProjectCostsTab = () => {
         />
         <MetricCard
           size="sm"
-          title="Compute Cost"
-          value={formatMicroUsd(totals.compute)}
-        />
-        <MetricCard
-          size="sm"
-          title="AI Cost"
-          value={formatMicroUsd(totals.ai)}
+          title="Run Spend"
+          value={formatMicroUsd(totals.spend)}
         />
         <MetricCard
           size="sm"
@@ -122,8 +116,7 @@ const ProjectCostsTab = () => {
               <TableRow>
                 <TableHead>Project</TableHead>
                 <TableHead className="text-right">Runs</TableHead>
-                <TableHead className="text-right">Compute</TableHead>
-                <TableHead className="text-right">AI Cost</TableHead>
+                <TableHead className="text-right">Run Spend</TableHead>
                 <TableHead className="text-right">Total</TableHead>
                 <TableHead className="text-right">Budget</TableHead>
               </TableRow>
@@ -144,10 +137,7 @@ const ProjectCostsTab = () => {
                       {entry.runs.toLocaleString()}
                     </TableCell>
                     <TableCell className="text-right tabular-nums">
-                      {formatMicroUsd(entry.compute_microusd)}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums">
-                      {formatMicroUsd(entry.ai_microusd)}
+                      {formatMicroUsd(entry.spend_microusd)}
                     </TableCell>
                     <TableCell className="text-right tabular-nums">
                       {formatMicroUsd(entry.total_microusd)}

@@ -57,44 +57,91 @@ func (q *Queries) CreateWebhookSubscription(ctx context.Context, sub *domain.Web
 // per-org advisory lock prevents concurrent creates from all observing the same
 // pre-insert count and overshooting the plan limit.
 func (q *Queries) CreateWebhookSubscriptionWithOrgLimit(ctx context.Context, sub *domain.WebhookSubscription, orgID string, maxEndpoints int) error {
+	return q.CreateWebhookSubscriptionWithLimits(ctx, sub, orgID, maxEndpoints, -1)
+}
+
+// CreateWebhookSubscriptionWithLimits serializes quota enforcement and row
+// creation for active webhook endpoints across the org and subscriptions within
+// the target project.
+func (q *Queries) CreateWebhookSubscriptionWithLimits(ctx context.Context, sub *domain.WebhookSubscription, orgID string, maxEndpoints, maxProjectSubscriptions int) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateWebhookSubscriptionWithOrgLimit")
 	defer span.End()
 
 	if _, ok := TxFromContext(ctx); ok {
-		return q.createWebhookSubscriptionWithOrgLimitLocked(ctx, sub, orgID, maxEndpoints)
+		return q.createWebhookSubscriptionWithLimitsLocked(ctx, sub, orgID, maxEndpoints, maxProjectSubscriptions)
 	}
 	if _, ok := q.db.(pgx.Tx); ok {
-		return q.createWebhookSubscriptionWithOrgLimitLocked(ctx, sub, orgID, maxEndpoints)
+		return q.createWebhookSubscriptionWithLimitsLocked(ctx, sub, orgID, maxEndpoints, maxProjectSubscriptions)
 	}
 
 	_, ok := q.db.(TxBeginner)
 	if !ok {
-		return q.createWebhookSubscriptionWithOrgLimitLocked(ctx, sub, orgID, maxEndpoints)
+		return q.createWebhookSubscriptionWithLimitsLocked(ctx, sub, orgID, maxEndpoints, maxProjectSubscriptions)
 	}
 
 	return q.withTx(ctx, func(txq *Queries) error {
-		return txq.createWebhookSubscriptionWithOrgLimitLocked(ctx, sub, orgID, maxEndpoints)
+		return txq.createWebhookSubscriptionWithLimitsLocked(ctx, sub, orgID, maxEndpoints, maxProjectSubscriptions)
 	})
 }
 
-func (q *Queries) createWebhookSubscriptionWithOrgLimitLocked(ctx context.Context, sub *domain.WebhookSubscription, orgID string, maxEndpoints int) error {
-	if maxEndpoints < 0 {
+func (q *Queries) createWebhookSubscriptionWithLimitsLocked(ctx context.Context, sub *domain.WebhookSubscription, orgID string, maxEndpoints, maxProjectSubscriptions int) error {
+	if maxEndpoints < 0 && maxProjectSubscriptions < 0 {
 		return q.CreateWebhookSubscription(ctx, sub)
 	}
 
-	if err := q.acquireWebhookEndpointLimitLock(ctx, orgID); err != nil {
-		return fmt.Errorf("lock webhook endpoint limit: %w", err)
+	if orgID != "" && maxEndpoints >= 0 {
+		if err := q.acquireWebhookEndpointLimitLock(ctx, orgID); err != nil {
+			return fmt.Errorf("lock webhook endpoint limit: %w", err)
+		}
+	}
+	if maxProjectSubscriptions >= 0 {
+		if err := q.acquireWebhookProjectLimitLock(ctx, sub.ProjectID); err != nil {
+			return fmt.Errorf("lock project webhook subscription limit: %w", err)
+		}
 	}
 
-	count, err := q.countWebhookSubscriptionsByOrgIgnoringProjectRLS(ctx, orgID)
-	if err != nil {
-		return fmt.Errorf("count webhook subscriptions before create: %w", err)
+	if orgID != "" && maxEndpoints >= 0 {
+		count, err := q.countWebhookSubscriptionsByOrgIgnoringProjectRLS(ctx, orgID)
+		if err != nil {
+			return fmt.Errorf("count webhook subscriptions before create: %w", err)
+		}
+		if count >= maxEndpoints {
+			return ErrWebhookEndpointLimitExceeded
+		}
 	}
-	if count >= maxEndpoints {
-		return ErrWebhookEndpointLimitExceeded
+
+	if maxProjectSubscriptions >= 0 {
+		count, err := q.CountWebhookSubscriptionsByProject(ctx, sub.ProjectID)
+		if err != nil {
+			return fmt.Errorf("count project webhook subscriptions before create: %w", err)
+		}
+		if count >= maxProjectSubscriptions {
+			return ErrWebhookProjectLimitExceeded
+		}
 	}
 
 	return q.CreateWebhookSubscription(ctx, sub)
+}
+
+func (q *Queries) acquireWebhookProjectLimitLock(ctx context.Context, projectID string) error {
+	lockKey := "webhook_project_limit:" + projectID
+	ticker := time.NewTicker(5 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		var locked bool
+		if err := q.db.QueryRow(ctx, `SELECT pg_try_advisory_xact_lock(hashtext($1))`, lockKey).Scan(&locked); err != nil {
+			return err
+		}
+		if locked {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
 }
 
 func (q *Queries) acquireWebhookEndpointLimitLock(ctx context.Context, orgID string) error {

@@ -601,7 +601,7 @@ func TestClickHouseSubscriber_NilJob_EmptyExecutionMode(t *testing.T) {
 	}
 }
 
-func TestClickHouseSubscriber_AllDepsEnqueued(t *testing.T) {
+func TestClickHouseSubscriber_AnalyticsAndEventsEnqueued(t *testing.T) {
 	t.Parallel()
 
 	exporter := clickhouse.NewExporter(&clickhouse.Client{}, clickhouse.ExporterConfig{
@@ -617,15 +617,8 @@ func TestClickHouseSubscriber_AllDepsEnqueued(t *testing.T) {
 			{ID: "evt-1", RunID: "run-all", Type: "log", Level: "info", Message: "hello", CreatedAt: now},
 		},
 	}
-	usageLister := &mockUsageLister{
-		usage: []domain.RunUsage{
-			{ID: "u-1", RunID: "run-all", Provider: "openai", Model: "gpt-4", PromptTokens: 100, CompletionTokens: 50, TotalTokens: 150, CostMicrousd: 5000, CreatedAt: now},
-		},
-	}
 
-	sub := ClickHouseSubscriber(exporter, eventLister, ClickHouseSubscriberDeps{
-		UsageLister: usageLister,
-	})
+	sub := ClickHouseSubscriber(exporter, eventLister)
 
 	sub(context.Background(), RunLifecycleEvent{
 		Type: EventCompleted,
@@ -643,17 +636,17 @@ func TestClickHouseSubscriber_AllDepsEnqueued(t *testing.T) {
 		QueueWait: 100 * time.Millisecond,
 	})
 
-	// 1 analytics + 1 event + 1 usage = 3
+	// 1 analytics + 1 event = 2.
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
-		if exporter.PendingCount() >= 3 {
+		if exporter.PendingCount() >= 2 {
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	if exporter.PendingCount() != 3 {
-		t.Errorf("expected 3 pending (analytics+event+usage), got %d", exporter.PendingCount())
+	if exporter.PendingCount() != 2 {
+		t.Errorf("expected 2 pending (analytics+event), got %d", exporter.PendingCount())
 	}
 }
 

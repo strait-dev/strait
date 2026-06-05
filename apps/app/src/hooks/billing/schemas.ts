@@ -8,7 +8,10 @@
  * @see https://effect.website/docs/schema/introduction
  */
 
+import { ACTIVE_ADDON_KEYS } from "@strait/billing/products";
 import { Schema } from "effect";
+
+const ActiveAddonTypeSchema = Schema.Literal(...ACTIVE_ADDON_KEYS);
 
 /**
  * Schema for a single usage quota dimension.
@@ -40,24 +43,18 @@ export const UsageAlertSchema = Schema.Struct({
  * @see {@link import("./org-usage").AddonSummary}
  */
 export const AddonSummarySchema = Schema.Struct({
-  type: Schema.String,
+  type: ActiveAddonTypeSchema,
   quantity: Schema.Number,
 });
 
-/**
- * Schema for the raw usage dimensions from the API.
- * AI fields are optional for backward compatibility.
- */
+/** Schema for the raw usage dimensions from the API. */
 export const RawOrgUsageDimensionsSchema = Schema.Struct({
+  monthly_runs: Schema.optional(UsageDimensionSchema),
   runs_today: UsageDimensionSchema,
   concurrent_runs: UsageDimensionSchema,
-  compute_credit: UsageDimensionSchema,
   projects: UsageDimensionSchema,
   members: UsageDimensionSchema,
   retention_days: Schema.Number,
-  regions_available: Schema.Number,
-  ai_model_calls_today: Schema.optional(UsageDimensionSchema),
-  ai_assistant_messages_today: Schema.optional(UsageDimensionSchema),
 });
 
 /**
@@ -79,11 +76,8 @@ export const OrgUsageResponseSchema = Schema.mutable(
       })
     ),
     usage: Schema.mutable(RawOrgUsageDimensionsSchema),
-    included_credit_microusd: Schema.Number,
     period_spend_microusd: Schema.Number,
     overage_microusd: Schema.Number,
-    credit_used_percent: Schema.Number,
-    credit_remaining_microusd: Schema.Number,
     alerts: Schema.mutable(Schema.Array(Schema.mutable(UsageAlertSchema))),
     payment_status: Schema.optional(Schema.String),
     grace_period_end: Schema.optional(Schema.String),
@@ -92,7 +86,7 @@ export const OrgUsageResponseSchema = Schema.mutable(
     ),
     enterprise_tier: Schema.optional(Schema.String),
     contract_end_date: Schema.optional(Schema.String),
-    compute_discount_pct: Schema.optional(Schema.Number),
+    overage_discount_pct: Schema.optional(Schema.Number),
     sla_uptime_pct: Schema.optional(Schema.Number),
   })
 );
@@ -105,10 +99,10 @@ export const OrgUsageResponseSchema = Schema.mutable(
 export const SpendingLimitSchema = Schema.Struct({
   org_id: Schema.String,
   plan_tier: Schema.String,
+  overage_enabled: Schema.Boolean,
   spending_limit_usd: Schema.Number,
   limit_action: Schema.String,
   current_spend_usd: Schema.Number,
-  included_credit_usd: Schema.Number,
   overage_spend_usd: Schema.Number,
   is_hard_capped: Schema.Boolean,
 });
@@ -120,11 +114,89 @@ export const SpendingLimitSchema = Schema.Struct({
  */
 export const UsageForecastSchema = Schema.Struct({
   projected_monthly_runs: Schema.Number,
-  projected_monthly_compute_usd: Schema.Number,
-  projected_monthly_ai_cost_usd: Schema.Number,
+  projected_monthly_spend_usd: Schema.Number,
   recommended_plan: Schema.String,
   days_until_limit: Schema.Number,
   projected_overage_microusd: Schema.Number,
   addon_spend_microusd: Schema.Number,
   scale_breakeven: Schema.Boolean,
+});
+
+/**
+ * Schema for a single usage history entry.
+ *
+ * @see {@link import("./use-usage-history").UsageHistoryEntry}
+ */
+export const UsageHistoryEntrySchema = Schema.Struct({
+  date: Schema.String,
+  runs_count: Schema.Number,
+  spend_microusd: Schema.Number,
+});
+
+/**
+ * Schema for a project cost entry.
+ *
+ * @see {@link import("./use-project-costs").ProjectCostEntry}
+ */
+export const ProjectCostEntrySchema = Schema.Struct({
+  project_id: Schema.String,
+  name: Schema.String,
+  runs: Schema.Number,
+  spend_microusd: Schema.Number,
+  total_microusd: Schema.Number,
+  monthly_budget_microusd: Schema.optional(Schema.Number),
+  budget_action: Schema.optional(Schema.String),
+});
+
+/**
+ * Schema for an anomaly alert.
+ *
+ * @see {@link import("./use-anomaly-alerts").AnomalyAlert}
+ */
+export const AnomalyAlertSchema = Schema.Struct({
+  org_id: Schema.String,
+  today_spend: Schema.Number,
+  avg_7d_spend: Schema.Number,
+  spike_ratio: Schema.Number,
+  top_contributor: Schema.String,
+  severity: Schema.String,
+});
+
+/**
+ * Schema for the downgrade preview response.
+ *
+ * @see {@link import("./use-downgrade-preview").DowngradePreview}
+ */
+export const DowngradePreviewSchema = Schema.Struct({
+  current_plan: Schema.String,
+  target_plan: Schema.String,
+  impacts: Schema.Array(
+    Schema.Struct({
+      resource: Schema.String,
+      current: Schema.Number,
+      limit: Schema.Number,
+      action: Schema.String,
+    })
+  ),
+  effective_date: Schema.optional(Schema.String),
+  manual_actions: Schema.optional(
+    Schema.Array(
+      Schema.Struct({
+        resource: Schema.String,
+        current: Schema.Number,
+        limit: Schema.Number,
+        action: Schema.String,
+      })
+    )
+  ),
+  auto_disabled: Schema.optional(
+    Schema.Array(
+      Schema.Struct({
+        resource: Schema.String,
+        current: Schema.Number,
+        limit: Schema.Number,
+        action: Schema.String,
+      })
+    )
+  ),
 });

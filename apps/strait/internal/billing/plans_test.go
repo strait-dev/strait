@@ -519,47 +519,53 @@ func TestPlanConstants_Overage(t *testing.T) {
 	}
 }
 
-func TestPlanLimits_EnterpriseFeatures(t *testing.T) {
+func TestPlanLimits_EnterpriseRoadmapFeaturesInactive(t *testing.T) {
 	t.Parallel()
 	ent := GetPlanLimits(domain.PlanEnterprise)
-	if !ent.HasDedicatedCompute {
-		t.Error("Enterprise should have HasDedicatedCompute")
+	flags := []struct {
+		name string
+		val  bool
+	}{
+		{"HasDedicatedCompute", ent.HasDedicatedCompute},
+		{"HasStaticIPs", ent.HasStaticIPs},
+		{"HasVPCPeering", ent.HasVPCPeering},
+		{"HasSCIM", ent.HasSCIM},
+		{"HasDataResidency", ent.HasDataResidency},
+		{"HasCustomRBAC", ent.HasCustomRBAC},
+		{"HasPriorityQueue", ent.HasPriorityQueue},
+		{"HasIPAllowlisting", ent.HasIPAllowlisting},
+		{"HasSessionManagement", ent.HasSessionManagement},
+		{"HasSecretRotation", ent.HasSecretRotation},
+		{"HasSIEMExport", ent.HasSIEMExport},
+		{"HasSSO", ent.HasSSO},
 	}
-	if !ent.HasStaticIPs {
-		t.Error("Enterprise should have HasStaticIPs")
-	}
-	if !ent.HasVPCPeering {
-		t.Error("Enterprise should have HasVPCPeering")
-	}
-	if !ent.HasSCIM {
-		t.Error("Enterprise should have HasSCIM")
-	}
-	if !ent.HasDataResidency {
-		t.Error("Enterprise should have HasDataResidency")
-	}
-	if !ent.HasCustomRBAC {
-		t.Error("Enterprise should have HasCustomRBAC")
-	}
-	if !ent.HasPriorityQueue {
-		t.Error("Enterprise should have HasPriorityQueue")
-	}
-	if !ent.HasIPAllowlisting {
-		t.Error("Enterprise should have HasIPAllowlisting")
-	}
-	if !ent.HasSessionManagement {
-		t.Error("Enterprise should have HasSessionManagement")
-	}
-	if !ent.HasSecretRotation {
-		t.Error("Enterprise should have HasSecretRotation")
-	}
-	if !ent.HasSIEMExport {
-		t.Error("Enterprise should have HasSIEMExport")
-	}
-	if !ent.HasSSO {
-		t.Error("Enterprise should have HasSSO")
+	for _, tt := range flags {
+		if tt.val {
+			t.Errorf("Enterprise.%s = true, want false for launch roadmap item", tt.name)
+		}
 	}
 	if !ent.HasSLA {
 		t.Error("Enterprise should have HasSLA")
+	}
+}
+
+func TestPlanLimits_DispatchPriorityIsNotPaidLaunchEntitlement(t *testing.T) {
+	t.Parallel()
+	for _, tier := range []domain.PlanTier{
+		domain.PlanFree,
+		domain.PlanStarter,
+		domain.PlanPro,
+		domain.PlanScale,
+		domain.PlanBusiness,
+		domain.PlanEnterprise,
+	} {
+		limits := GetPlanLimits(tier)
+		if limits.HasPriorityQueue {
+			t.Fatalf("%s HasPriorityQueue = true, want false for launch roadmap item", tier)
+		}
+		if limits.MaxDispatchPriority != 10 {
+			t.Fatalf("%s MaxDispatchPriority = %d, want shared launch cap 10", tier, limits.MaxDispatchPriority)
+		}
 	}
 }
 

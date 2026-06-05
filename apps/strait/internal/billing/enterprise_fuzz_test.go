@@ -29,7 +29,7 @@ func FuzzEnterpriseTierValidation(f *testing.F) {
 	})
 }
 
-func FuzzApplyComputeDiscount(f *testing.F) {
+func FuzzApplyOverageDiscount(f *testing.F) {
 	f.Add(int64(1000000), 10)
 	f.Add(int64(0), 0)
 	f.Add(int64(-1), 50)
@@ -37,26 +37,26 @@ func FuzzApplyComputeDiscount(f *testing.F) {
 	f.Add(int64(1), 100)
 
 	f.Fuzz(func(t *testing.T, cost int64, discount int) {
-		result := ApplyComputeDiscount(cost, discount)
+		result := ApplyOverageDiscount(cost, discount)
 
 		// Result should never be negative.
 		if result < 0 {
-			t.Errorf("ApplyComputeDiscount(%d, %d) = %d, should be non-negative", cost, discount, result)
+			t.Errorf("ApplyOverageDiscount(%d, %d) = %d, should be non-negative", cost, discount, result)
 		}
 
 		// If cost <= 0, result should be 0.
 		if cost <= 0 && result != 0 {
-			t.Errorf("ApplyComputeDiscount(%d, %d) = %d, want 0 for non-positive cost", cost, discount, result)
+			t.Errorf("ApplyOverageDiscount(%d, %d) = %d, want 0 for non-positive cost", cost, discount, result)
 		}
 
 		// If discount >= 100, result should be 0 (for positive cost).
 		if cost > 0 && discount >= 100 && result != 0 {
-			t.Errorf("ApplyComputeDiscount(%d, %d) = %d, want 0 for 100%%+ discount", cost, discount, result)
+			t.Errorf("ApplyOverageDiscount(%d, %d) = %d, want 0 for 100%%+ discount", cost, discount, result)
 		}
 
 		// If discount <= 0 and cost > 0, result should be original cost.
 		if cost > 0 && discount <= 0 && result != cost {
-			t.Errorf("ApplyComputeDiscount(%d, %d) = %d, want %d for zero discount", cost, discount, result, cost)
+			t.Errorf("ApplyOverageDiscount(%d, %d) = %d, want %d for zero discount", cost, discount, result, cost)
 		}
 	})
 }

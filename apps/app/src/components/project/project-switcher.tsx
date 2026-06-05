@@ -10,19 +10,13 @@ import {
 import { SidebarMenuButton } from "@strait/ui/components/sidebar";
 import { toast } from "@strait/ui/components/toast";
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
 import type { Project } from "@/hooks/api/types";
 import {
   projectsQueryOptions,
   useSetActiveProject,
 } from "@/hooks/api/use-projects";
-import {
-  BriefcaseIcon,
-  ChevronDownIcon,
-  PlusIcon,
-  SettingsOutlineIcon,
-} from "@/lib/icons";
+import { BriefcaseIcon, ChevronDownIcon, PlusIcon } from "@/lib/icons";
 import type { AuthUser } from "@/routes/__root";
 import CreateProjectDialog from "./create-project-dialog";
 
@@ -143,20 +137,6 @@ const ProjectSwitcher = ({ user }: Props) => {
             </DropdownMenuCheckboxItem>
           ))}
           <DropdownMenuSeparator />
-          {activeProjectId && (
-            <DropdownMenuItem
-              render={
-                <Link
-                  onClick={() => setDropdownOpen(false)}
-                  params={{ projectId: activeProjectId }}
-                  to="/app/projects/$projectId/settings"
-                />
-              }
-            >
-              <HugeiconsIcon className="size-4" icon={SettingsOutlineIcon} />
-              Project Settings
-            </DropdownMenuItem>
-          )}
           <DropdownMenuItem
             onClick={() => {
               setDropdownOpen(false);

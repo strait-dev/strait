@@ -57,20 +57,6 @@ type RunAnalyticsRecord struct {
 	FinishedAt          *time.Time
 }
 
-// RunUsageEventRecord maps to the run_usage_events ClickHouse table.
-type RunUsageEventRecord struct {
-	RunID            string
-	JobID            string
-	ProjectID        string
-	Provider         string
-	Model            string
-	PromptTokens     uint32
-	CompletionTokens uint32
-	TotalTokens      uint32
-	CostMicrousd     int64
-	CreatedAt        time.Time
-}
-
 // WorkflowApprovalEventRecord maps to the workflow_approval_events ClickHouse table.
 type WorkflowApprovalEventRecord struct {
 	ApprovalID    string
@@ -480,7 +466,6 @@ func (e *Exporter) insertBatch(ctx context.Context, batch []any) error {
 type exportRecordBatch struct {
 	events            []RunEventRecord
 	analytics         []RunAnalyticsRecord
-	runUsage          []RunUsageEventRecord
 	approvals         []WorkflowApprovalEventRecord
 	jobMeta           []JobMetadataRecord
 	webhookDeliveries []WebhookDeliveryEventRecord
@@ -496,8 +481,6 @@ func (b *exportRecordBatch) add(logger *slog.Logger, rec any) {
 		b.events = append(b.events, sanitizeRunEventRecord(r))
 	case RunAnalyticsRecord:
 		b.analytics = append(b.analytics, r)
-	case RunUsageEventRecord:
-		b.runUsage = append(b.runUsage, r)
 	case WorkflowApprovalEventRecord:
 		b.approvals = append(b.approvals, r)
 	case JobMetadataRecord:
@@ -521,7 +504,6 @@ func (b *exportRecordBatch) insert(ctx context.Context, e *Exporter) error {
 	var errs []error
 	errs = appendBatchInsertError(ctx, errs, "run_events", b.events, e.insertRunEvents)
 	errs = appendBatchInsertError(ctx, errs, "run_analytics", b.analytics, e.insertRunAnalytics)
-	errs = appendBatchInsertError(ctx, errs, "run_usage_events", b.runUsage, e.insertRunUsageEvents)
 	errs = appendBatchInsertError(ctx, errs, "workflow_approval_events", b.approvals, e.insertWorkflowApprovalEvents)
 	errs = appendBatchInsertError(ctx, errs, "job_metadata", b.jobMeta, e.insertJobMetadata)
 	errs = appendBatchInsertError(ctx, errs, "webhook_delivery_events", b.webhookDeliveries, e.insertWebhookDeliveryEvents)
@@ -560,7 +542,6 @@ func (b *exportRecordBatch) logFlush(logger *slog.Logger) {
 	logger.Debug("clickhouse exporter flushed batch",
 		"events", len(b.events),
 		"analytics", len(b.analytics),
-		"run_usage", len(b.runUsage),
 		"approvals", len(b.approvals),
 		"job_metadata", len(b.jobMeta),
 		"webhook_deliveries", len(b.webhookDeliveries),
@@ -599,22 +580,6 @@ func (e *Exporter) insertRunAnalytics(ctx context.Context, records []RunAnalytic
 		args = append(args, r.RunID, r.JobID, r.ProjectID, r.Status, r.ExecutionMode,
 			r.Attempt, r.DurationMs, r.QueueWaitMs, r.CostMicrousd, r.ComputeCostMicrousd, r.TriggeredBy,
 			r.Tags, r.JobVersionID, r.CreatedAt, r.StartedAt, r.FinishedAt)
-	}
-
-	return e.client.Exec(ctx, query+strings.Join(placeholders, ", "), args...)
-}
-
-func (e *Exporter) insertRunUsageEvents(ctx context.Context, records []RunUsageEventRecord) error {
-	const row = "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-	query := "INSERT INTO run_usage_events " +
-		"(run_id, job_id, project_id, provider, model, prompt_tokens, completion_tokens, total_tokens, cost_microusd, created_at) VALUES "
-	placeholders := make([]string, len(records))
-	args := make([]any, 0, len(records)*10)
-
-	for i, r := range records {
-		placeholders[i] = row
-		args = append(args, r.RunID, r.JobID, r.ProjectID, r.Provider, r.Model,
-			r.PromptTokens, r.CompletionTokens, r.TotalTokens, r.CostMicrousd, r.CreatedAt)
 	}
 
 	return e.client.Exec(ctx, query+strings.Join(placeholders, ", "), args...)

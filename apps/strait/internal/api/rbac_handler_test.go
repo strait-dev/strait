@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
+	"strait/internal/billing"
 	"strait/internal/domain"
 	"strait/internal/store"
 )
@@ -54,6 +56,78 @@ func TestHandleCreateRole_InvalidScope(t *testing.T) {
 
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusBadRequest, w.Body.String())
+	}
+}
+
+func TestHandleCreateRole_StarterBasicRBACRejectsCustomRole(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{}
+	ms.CreateProjectRoleFunc = func(_ context.Context, _ *domain.ProjectRole) error {
+		t.Fatal("CreateProjectRole must not run when RBAC level gate rejects")
+		return nil
+	}
+	enforcer := &tunableLimitsEnforcer{limits: billing.GetPlanLimits(domain.PlanStarter)}
+	srv := newServerWithEnforcer(t, ms, nil, enforcer)
+
+	body := `{"name":"deployer","description":"Can deploy","permissions":["jobs:write"]}`
+	req := authedRequest(http.MethodPost, "/v1/roles", body)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusForbidden, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "requires full RBAC") {
+		t.Fatalf("response must explain RBAC level gate, got: %s", w.Body.String())
+	}
+}
+
+func TestHandleCreateResourcePolicy_ProFullRBACRejectsAdvancedPolicy(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{}
+	ms.CreateResourcePolicyFunc = func(context.Context, *domain.ResourcePolicy) error {
+		t.Fatal("CreateResourcePolicy must not run below Advanced RBAC")
+		return nil
+	}
+	enforcer := &tunableLimitsEnforcer{limits: billing.GetPlanLimits(domain.PlanPro)}
+	srv := newServerWithEnforcer(t, ms, nil, enforcer)
+
+	body := `{"project_id":"test-project","resource_type":"job","resource_id":"job-1","user_id":"user-1","actions":["jobs:write"]}`
+	req := authedProjectRequest(http.MethodPost, "/v1/resource-policies", body, "test-project")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusForbidden, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "requires advanced RBAC") {
+		t.Fatalf("response must explain RBAC level gate, got: %s", w.Body.String())
+	}
+}
+
+func TestHandleCreateTagPolicy_ProFullRBACRejectsAdvancedPolicy(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{}
+	ms.CreateTagPolicyFunc = func(context.Context, *domain.TagPolicy) error {
+		t.Fatal("CreateTagPolicy must not run below Advanced RBAC")
+		return nil
+	}
+	enforcer := &tunableLimitsEnforcer{limits: billing.GetPlanLimits(domain.PlanPro)}
+	srv := newServerWithEnforcer(t, ms, nil, enforcer)
+
+	body := `{"project_id":"test-project","resource_type":"job","user_id":"user-1","tag_key":"team","tag_value":"billing","actions":["jobs:write"]}`
+	req := authedProjectRequest(http.MethodPost, "/v1/tag-policies", body, "test-project")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusForbidden, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "requires advanced RBAC") {
+		t.Fatalf("response must explain RBAC level gate, got: %s", w.Body.String())
 	}
 }
 

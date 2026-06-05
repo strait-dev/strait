@@ -58,11 +58,8 @@ func TestWebhook_EnterpriseContractCreated_GrowthTier(t *testing.T) {
 	}
 
 	cfg := GetEnterpriseConfig(entTier)
-	if cfg.ComputeDiscountPct != EnterpriseGrowthDiscountPct {
-		t.Errorf("discount = %d%%, want %d%%", cfg.ComputeDiscountPct, EnterpriseGrowthDiscountPct)
-	}
-	if cfg.IncludedCreditMicrousd != EnterpriseGrowthCreditMicrousd {
-		t.Errorf("credit = %d, want %d", cfg.IncludedCreditMicrousd, EnterpriseGrowthCreditMicrousd)
+	if cfg.OverageDiscountPct != EnterpriseGrowthOverageDiscountPct {
+		t.Errorf("discount = %d%%, want %d%%", cfg.OverageDiscountPct, EnterpriseGrowthOverageDiscountPct)
 	}
 }
 
@@ -79,8 +76,8 @@ func TestWebhook_EnterpriseContractCreated_LargeTier(t *testing.T) {
 	}
 
 	cfg := GetEnterpriseConfig(entTier)
-	if cfg.ComputeDiscountPct != EnterpriseLargeDiscountPct {
-		t.Errorf("discount = %d%%, want %d%%", cfg.ComputeDiscountPct, EnterpriseLargeDiscountPct)
+	if cfg.OverageDiscountPct != EnterpriseLargeOverageDiscountPct {
+		t.Errorf("discount = %d%%, want %d%%", cfg.OverageDiscountPct, EnterpriseLargeOverageDiscountPct)
 	}
 }
 
@@ -90,15 +87,12 @@ func TestWebhook_EnterpriseContractFields(t *testing.T) {
 
 	cfg := GetEnterpriseConfig(EnterpriseTierStarter)
 
-	// Verify all contract fields would be populated correctly.
+	// Verify all active launch contract fields would be populated correctly.
 	if cfg.AnnualCommitmentCents != 1_800_000 {
 		t.Errorf("annual commitment = %d, want 1800000", cfg.AnnualCommitmentCents)
 	}
-	if cfg.IncludedCreditMicrousd != 1_000_000_000 {
-		t.Errorf("credit = %d, want 1000000000", cfg.IncludedCreditMicrousd)
-	}
-	if cfg.ComputeDiscountPct != 10 {
-		t.Errorf("discount = %d, want 10", cfg.ComputeDiscountPct)
+	if cfg.OverageDiscountPct != 10 {
+		t.Errorf("discount = %d, want 10", cfg.OverageDiscountPct)
 	}
 }
 
@@ -121,12 +115,12 @@ func TestWebhook_EnterpriseContractUpsertIdempotent(t *testing.T) {
 
 	// First upsert.
 	contract1 := &EnterpriseContract{
-		ID:                     "contract-1",
-		OrgID:                  "org-idempotent",
-		EnterpriseTier:         EnterpriseTierStarter,
-		AnnualCommitmentCents:  1_800_000,
-		IncludedCreditMicrousd: 1_000_000_000,
-		BillingCadence:         "annual",
+		ID:                    "contract-1",
+		OrgID:                 "org-idempotent",
+		EnterpriseTier:        EnterpriseTierStarter,
+		AnnualCommitmentCents: 1_800_000,
+		OverageDiscountPct:    10,
+		BillingCadence:        "annual",
 	}
 	if err := store.UpsertEnterpriseContract(context.Background(), contract1); err != nil {
 		t.Fatalf("first upsert: %v", err)
@@ -134,12 +128,12 @@ func TestWebhook_EnterpriseContractUpsertIdempotent(t *testing.T) {
 
 	// Second upsert for same org (simulating duplicate webhook).
 	contract2 := &EnterpriseContract{
-		ID:                     "contract-2",
-		OrgID:                  "org-idempotent",
-		EnterpriseTier:         EnterpriseTierGrowth,
-		AnnualCommitmentCents:  4_800_000,
-		IncludedCreditMicrousd: 2_500_000_000,
-		BillingCadence:         "annual",
+		ID:                    "contract-2",
+		OrgID:                 "org-idempotent",
+		EnterpriseTier:        EnterpriseTierGrowth,
+		AnnualCommitmentCents: 4_800_000,
+		OverageDiscountPct:    15,
+		BillingCadence:        "annual",
 	}
 	if err := store.UpsertEnterpriseContract(context.Background(), contract2); err != nil {
 		t.Fatalf("second upsert: %v", err)

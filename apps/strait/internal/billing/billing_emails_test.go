@@ -50,9 +50,20 @@ func TestSpendingLimitWarningHTML_ContainsValues(t *testing.T) {
 
 func TestOverageAlertHTML_EscapesHTML(t *testing.T) {
 	t.Parallel()
-	html := overageAlertHTML("<img>", "$10", "$50")
+	html := overageAlertHTML("<img>", "$10", "50000")
 	if strings.Contains(html, "<img>") {
 		t.Fatal("HTML not escaped")
+	}
+}
+
+func TestOverageAlertHTML_UsesRunAllowanceLanguage(t *testing.T) {
+	t.Parallel()
+	html := overageAlertHTML("Starter", "$10", "50000")
+	if !strings.Contains(html, "included allowance of 50000 orchestration runs") {
+		t.Fatal("expected orchestration run allowance language")
+	}
+	if strings.Contains(html, "included credit") {
+		t.Fatal("overage alert must not use compute credit language")
 	}
 }
 

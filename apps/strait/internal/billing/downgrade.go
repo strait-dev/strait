@@ -118,21 +118,6 @@ func PreviewDowngrade(ctx context.Context, store Store, orgID string, targetTier
 		int64(targetLimits.RetentionDays),
 	))
 
-	// Regions
-	currentRegions := len(currentLimits.AllowedRegions)
-	if currentRegions == 0 {
-		currentRegions = TotalRegions // nil means all
-	}
-	targetRegions := len(targetLimits.AllowedRegions)
-	if targetRegions == 0 {
-		targetRegions = TotalRegions
-	}
-	impact.Impacts = append(impact.Impacts, buildImpact(
-		"regions",
-		int64(currentRegions),
-		int64(targetRegions),
-	))
-
 	// HTTP-mode jobs (losing HTTP mode on downgrade = jobs auto-paused).
 	if currentLimits.AllowsHTTPMode && !targetLimits.AllowsHTTPMode {
 		httpJobs, err := store.CountHTTPJobsByOrg(ctx, orgID)

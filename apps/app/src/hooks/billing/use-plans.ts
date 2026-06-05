@@ -5,235 +5,42 @@
  * plan comparison table, and upgrade flow.
  */
 
+import {
+  PLAN_API_RESPONSE,
+  type PlanApiResponse,
+} from "@strait/billing/products";
 import { createServerFn } from "@tanstack/react-start";
 
 export {
   formatBoolean,
-  formatComputeCredit,
+  formatCronInterval,
   formatLimit,
+  formatMicroUsdPrice,
   formatRBAC,
-  formatRegionCount,
   formatRetention,
   formatSupportLevel,
 } from "./plan-formatters";
 
 import {
   formatBoolean,
-  formatComputeCredit,
+  formatCronInterval,
   formatLimit,
+  formatMicroUsdPrice,
   formatRBAC,
-  formatRegionCount,
   formatRetention,
   formatSupportLevel,
 } from "./plan-formatters";
 
 /** Raw plan data for upgrade and billing screens. */
-export type APIPlan = {
-  tier: string;
-  display_name: string;
-  price_monthly_usd: number;
-  price_annual_usd: number;
-  max_orgs_per_user: number;
-  max_projects_per_org: number;
-  max_members_per_org: number;
-  max_runs_per_day: number;
-  max_runs_per_month: number;
-  max_concurrent_runs: number;
-  compute_credit_microusd: number;
-  retention_days: number;
-  allowed_regions: string[] | null;
-  max_alert_rules_per_project: number;
-  max_webhook_subs_per_project: number;
-  max_log_drains_per_org: number;
-  max_ai_model_calls_per_day: number;
-  ai_assistant_byok: boolean;
-  has_rbac: boolean;
-  rbac_level: string;
-  has_audit_logs: boolean;
-  has_sso: boolean;
-  has_sla: boolean;
-  requires_credit_card: boolean;
-  overage_per_k_runs_microusd: number;
-  support_level: string;
-  has_dedicated_compute: boolean;
-  has_static_ips: boolean;
-  has_vpc_peering: boolean;
-  has_scim: boolean;
-  has_data_residency: boolean;
-  has_custom_rbac: boolean;
-  has_reserved_capacity: boolean;
-  has_priority_queue: boolean;
-  has_ip_allowlisting: boolean;
-  has_session_management: boolean;
-  has_secret_rotation: boolean;
-  has_siem_export: boolean;
-};
+export type APIPlan = PlanApiResponse;
 
 /** API response wrapper for the plans endpoint. */
-type PlansResponse = {
+export type PlansResponse = {
   plans: APIPlan[];
 };
 
-const plan = (
-  tier: string,
-  displayName: string,
-  fields: Partial<APIPlan>
-): APIPlan => ({
-  tier,
-  display_name: displayName,
-  price_monthly_usd: 0,
-  price_annual_usd: 0,
-  max_orgs_per_user: -1,
-  max_projects_per_org: -1,
-  max_members_per_org: -1,
-  max_runs_per_day: -1,
-  max_runs_per_month: -1,
-  max_concurrent_runs: -1,
-  compute_credit_microusd: 0,
-  retention_days: -1,
-  allowed_regions: null,
-  max_alert_rules_per_project: -1,
-  max_webhook_subs_per_project: -1,
-  max_log_drains_per_org: -1,
-  max_ai_model_calls_per_day: -1,
-  ai_assistant_byok: true,
-  has_rbac: true,
-  rbac_level: "full",
-  has_audit_logs: true,
-  has_sso: false,
-  has_sla: false,
-  requires_credit_card: true,
-  overage_per_k_runs_microusd: 30_000,
-  support_level: "priority_slack_8h",
-  has_dedicated_compute: false,
-  has_static_ips: false,
-  has_vpc_peering: false,
-  has_scim: false,
-  has_data_residency: false,
-  has_custom_rbac: false,
-  has_reserved_capacity: false,
-  has_priority_queue: false,
-  has_ip_allowlisting: false,
-  has_session_management: false,
-  has_secret_rotation: false,
-  has_siem_export: false,
-  ...fields,
-});
-
 const PLANS_RESPONSE: PlansResponse = {
-  plans: [
-    plan("free", "Free", {
-      max_orgs_per_user: 1,
-      max_projects_per_org: 1,
-      max_members_per_org: 1,
-      max_runs_per_month: 5000,
-      max_concurrent_runs: 3,
-      compute_credit_microusd: 1_000_000,
-      retention_days: 7,
-      allowed_regions: ["iad"],
-      max_alert_rules_per_project: 0,
-      max_webhook_subs_per_project: 0,
-      max_log_drains_per_org: 0,
-      max_ai_model_calls_per_day: 20,
-      ai_assistant_byok: false,
-      has_rbac: false,
-      rbac_level: "",
-      has_audit_logs: false,
-      requires_credit_card: false,
-      overage_per_k_runs_microusd: 500_000,
-      support_level: "community",
-    }),
-    plan("starter", "Starter", {
-      price_monthly_usd: 1900,
-      price_annual_usd: 18_000,
-      max_orgs_per_user: 2,
-      max_projects_per_org: 3,
-      max_members_per_org: 3,
-      max_runs_per_month: 50_000,
-      max_concurrent_runs: 15,
-      compute_credit_microusd: 19_000_000,
-      retention_days: 14,
-      max_alert_rules_per_project: 0,
-      max_webhook_subs_per_project: 3,
-      max_log_drains_per_org: 1,
-      max_ai_model_calls_per_day: 100,
-      ai_assistant_byok: false,
-      rbac_level: "basic",
-      has_audit_logs: false,
-      overage_per_k_runs_microusd: 400_000,
-      support_level: "email_72h",
-    }),
-    plan("pro", "Pro", {
-      price_monthly_usd: 9900,
-      price_annual_usd: 94_800,
-      max_orgs_per_user: 5,
-      max_projects_per_org: 10,
-      max_members_per_org: 10,
-      max_runs_per_month: 1_000_000,
-      max_concurrent_runs: 100,
-      compute_credit_microusd: 99_000_000,
-      retention_days: 30,
-      max_alert_rules_per_project: 50,
-      max_webhook_subs_per_project: 10,
-      max_log_drains_per_org: 5,
-      max_ai_model_calls_per_day: 500,
-      overage_per_k_runs_microusd: 200_000,
-      support_level: "priority_24h",
-    }),
-    plan("scale", "Scale", {
-      price_monthly_usd: 29_900,
-      price_annual_usd: 286_800,
-      max_orgs_per_user: 10,
-      max_projects_per_org: 50,
-      max_members_per_org: 50,
-      max_runs_per_month: 5_000_000,
-      max_concurrent_runs: 300,
-      compute_credit_microusd: 299_000_000,
-      retention_days: 60,
-      max_alert_rules_per_project: 50,
-      max_webhook_subs_per_project: 25,
-      max_log_drains_per_org: 10,
-      max_ai_model_calls_per_day: 1000,
-      has_audit_logs: true,
-      overage_per_k_runs_microusd: 60_000,
-      support_level: "priority_slack_8h",
-    }),
-    plan("business", "Business", {
-      price_monthly_usd: 49_900,
-      price_annual_usd: 478_800,
-      max_runs_per_month: 25_000_000,
-      max_concurrent_runs: 500,
-      compute_credit_microusd: 499_000_000,
-      retention_days: 90,
-      has_sso: true,
-      has_sla: true,
-      rbac_level: "advanced",
-      has_scim: true,
-      has_ip_allowlisting: true,
-      has_session_management: true,
-      has_secret_rotation: true,
-      has_siem_export: true,
-      has_priority_queue: true,
-    }),
-    plan("enterprise", "Enterprise", {
-      requires_credit_card: false,
-      has_dedicated_compute: true,
-      has_static_ips: true,
-      has_vpc_peering: true,
-      has_sso: true,
-      has_sla: true,
-      has_scim: true,
-      has_data_residency: true,
-      has_custom_rbac: true,
-      has_reserved_capacity: true,
-      has_priority_queue: true,
-      has_ip_allowlisting: true,
-      has_session_management: true,
-      has_secret_rotation: true,
-      has_siem_export: true,
-      support_level: "dedicated",
-    }),
-  ],
+  plans: PLAN_API_RESPONSE,
 };
 
 /**
@@ -283,13 +90,13 @@ export type PricingPlan = {
 
 /** Plan descriptions for the pricing cards. */
 const PLAN_DESCRIPTIONS: Record<string, string> = {
-  free: "For side projects and evaluation. All features included.",
-  starter: "For growing teams with production workloads.",
-  pro: "For production workloads at scale.",
+  free: "For evaluation, demos, and side projects.",
+  starter: "For solo developers, small projects, and internal tools.",
+  pro: "For production SaaS and mid-market teams.",
   scale: "For high-volume teams that need audit logs and canary deploys.",
   business:
-    "For companies that need SSO, higher capacity, and security controls.",
-  enterprise: "Custom everything for large organizations.",
+    "For enterprise volume and regulated workloads before a custom contract.",
+  enterprise: "For custom contracts and roadmap enterprise deployment needs.",
 };
 
 /**
@@ -309,41 +116,35 @@ export const apiPlansToPricingPlans = (plans: APIPlan[]): PricingPlan[] => {
     const isFree = slug === "free";
 
     const features: PricingFeature[] = [
-      { name: "All core features", included: true },
+      { name: "Core orchestration", included: true },
     ];
 
     if (isEnterprise) {
       features.push(
-        { name: "Unlimited everything", included: true },
-        { name: "Custom compute credits", included: true },
-        { name: "SSO/SAML", included: true },
-        { name: "99.9% SLA", included: true },
+        { name: "50M+ orchestration runs/mo", included: true },
+        { name: "Custom concurrency and retention", included: true },
+        { name: "Multi-org consolidated invoicing", included: true },
+        { name: "99.99% SLA target (non-contractual)", included: true },
         {
           name: `${formatRetention(p.retention_days)} retention`,
           included: true,
         },
         { name: formatSupportLevel(p.support_level), included: true },
-        { name: "Custom integrations", included: true },
-        { name: "Static IPs", included: true }
+        {
+          name: "Roadmap security features are not launch entitlements",
+          included: false,
+        }
       );
     } else {
       features.push(
         {
-          name: `${formatLimit(p.max_runs_per_month)} runs/month`,
+          name: `${formatLimit(p.max_runs_per_month)} orchestration runs/mo`,
           included: true,
         },
-        ...(p.compute_credit_microusd > 0
-          ? [
-              {
-                name: `${formatComputeCredit(p.compute_credit_microusd)}/mo compute credit`,
-                included: true,
-              },
-            ]
-          : []),
         ...(p.overage_per_k_runs_microusd > 0
           ? [
               {
-                name: `${formatComputeCredit(p.overage_per_k_runs_microusd)}/1K runs overage`,
+                name: `${formatMicroUsdPrice(p.overage_per_k_runs_microusd)}/1K orchestration runs overage`,
                 included: true,
               },
             ]
@@ -372,16 +173,12 @@ export const apiPlansToPricingPlans = (plans: APIPlan[]): PricingPlan[] => {
           name: `${formatRetention(p.retention_days)} retention`,
           included: true,
         },
-        {
-          name: `${formatRegionCount(p.allowed_regions)} region${p.allowed_regions?.length === 1 ? "" : "s"}`,
-          included: true,
-        },
         ...(p.has_rbac
           ? [{ name: `${formatRBAC(p.rbac_level)} RBAC`, included: true }]
           : []),
         ...(p.has_audit_logs ? [{ name: "Audit logs", included: true }] : []),
-        ...(p.ai_assistant_byok
-          ? [{ name: "AI Assistant BYOK", included: true }]
+        ...(p.has_log_streaming
+          ? [{ name: "Log streaming", included: true }]
           : []),
         { name: formatSupportLevel(p.support_level), included: true }
       );
@@ -460,30 +257,50 @@ export const apiPlansToComparisonFeatures = (
     enterprise: val("enterprise", fn),
   });
 
+  const roadmapRow = (name: string, feature: string): ComparisonFeature =>
+    row(name, (p) =>
+      p.roadmap_features.includes(feature) ? "Roadmap" : formatBoolean(false)
+    );
+
   return [
     row("Runs per month", (p) => formatLimit(p.max_runs_per_month)),
-    row("Concurrent runs", (p) => formatLimit(p.max_concurrent_runs)),
-    row("Compute credit", (p) =>
-      formatComputeCredit(p.compute_credit_microusd)
+    row("Overage per 1K runs", (p) =>
+      formatMicroUsdPrice(p.overage_per_k_runs_microusd)
     ),
+    row("Concurrent runs", (p) => formatLimit(p.max_concurrent_runs)),
+    row("Workflow steps", (p) => formatLimit(p.max_workflow_dag_steps)),
     row("Projects", (p) => formatLimit(p.max_projects_per_org)),
+    row("Active environments", (p) => formatLimit(p.max_environments)),
     row("Team members", (p) => formatLimit(p.max_members_per_org)),
+    row("Cron schedules", (p) => formatLimit(p.max_scheduled_jobs)),
+    row("Cron minimum interval", (p) =>
+      formatCronInterval(p.cron_min_interval_sec)
+    ),
     row("Retention", (p) => formatRetention(p.retention_days)),
-    row("Regions", (p) => formatRegionCount(p.allowed_regions)),
-    row("AI model calls/day", (p) => formatLimit(p.max_ai_model_calls_per_day)),
+    row("Worker connections", (p) => formatLimit(p.worker_connections)),
+    row("API rate limit", (p) =>
+      p.api_rate_limit === -1
+        ? "Unlimited"
+        : `${formatLimit(p.api_rate_limit)}/min`
+    ),
     row("RBAC", (p) => formatRBAC(p.rbac_level)),
     row("Audit logs", (p) => formatBoolean(p.has_audit_logs)),
-    row("SSO", (p) => formatBoolean(p.has_sso)),
-    row("SLA", (p) => formatBoolean(p.has_sla)),
-    row("Webhook subscriptions", (p) =>
-      formatLimit(p.max_webhook_subs_per_project)
-    ),
+    row("SLA target", (p) => formatBoolean(p.has_sla)),
+    row("Log streaming", (p) => formatBoolean(p.has_log_streaming)),
+    row("Webhook endpoints", (p) => formatLimit(p.max_webhook_endpoints)),
     row("Log drains", (p) => formatLimit(p.max_log_drains_per_org)),
-    row("Alert rules", (p) => formatLimit(p.max_alert_rules_per_project)),
-    row("Dedicated compute", (p) => formatBoolean(p.has_dedicated_compute)),
-    row("Static IPs", (p) => formatBoolean(p.has_static_ips)),
-    row("VPC peering", (p) => formatBoolean(p.has_vpc_peering)),
-    row("SCIM", (p) => formatBoolean(p.has_scim)),
-    row("SIEM export", (p) => formatBoolean(p.has_siem_export)),
+    roadmapRow("SSO/SAML", "SSO/SAML"),
+    roadmapRow("SCIM", "SCIM"),
+    roadmapRow("IP allowlisting", "IP allowlisting"),
+    roadmapRow("Static IPs", "static IPs"),
+    roadmapRow("VPC peering", "VPC peering"),
+    roadmapRow("Data residency", "data residency"),
+    row("Single-tenant / BYO-cloud", (p) =>
+      p.roadmap_features.some((feature) =>
+        ["single-tenant orchestration", "BYO-cloud"].includes(feature)
+      )
+        ? "Contact sales"
+        : formatBoolean(false)
+    ),
   ];
 };

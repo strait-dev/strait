@@ -21,7 +21,10 @@ func TestResolveOrgPlanLimits_DoesNotMutateSubscriptionCacheVersion(t *testing.T
 		CacheVersion: 12,
 	}
 
-	resolution := e.resolveOrgPlanLimits(ctx, sub.OrgID, sub)
+	resolution, err := e.resolveOrgPlanLimits(ctx, sub.OrgID, sub)
+	if err != nil {
+		t.Fatalf("resolveOrgPlanLimits returned error: %v", err)
+	}
 
 	if sub.CacheVersion != 12 {
 		t.Fatalf("subscription CacheVersion mutated to %d, want 12", sub.CacheVersion)
@@ -51,10 +54,13 @@ func TestResolveOrgPlanLimits_OverridesStayOutOfPersistedSnapshot(t *testing.T) 
 		OverrideConcurrentRunLimit: &overrideConcurrent,
 	}
 
-	resolution := e.resolveOrgPlanLimits(ctx, sub.OrgID, sub)
+	resolution, err := e.resolveOrgPlanLimits(ctx, sub.OrgID, sub)
+	if err != nil {
+		t.Fatalf("resolveOrgPlanLimits returned error: %v", err)
+	}
 
-	if resolution.limits.MaxRunsPerDay != int64(overrideDaily) {
-		t.Fatalf("resolved MaxRunsPerDay = %d, want override %d", resolution.limits.MaxRunsPerDay, overrideDaily)
+	if resolution.limits.MaxRunsPerDay != -1 {
+		t.Fatalf("resolved MaxRunsPerDay = %d, want launch default -1", resolution.limits.MaxRunsPerDay)
 	}
 	if resolution.limits.MaxConcurrentRuns != overrideConcurrent {
 		t.Fatalf("resolved MaxConcurrentRuns = %d, want override %d", resolution.limits.MaxConcurrentRuns, overrideConcurrent)

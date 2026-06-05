@@ -511,6 +511,46 @@ func TestWorkerCache_ConstructedFromExecutorConfig(t *testing.T) {
 	}
 }
 
+func TestWorkerStrongCacheConstructorRegistersRuntimeNamespace(t *testing.T) {
+	t.Parallel()
+
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() {
+		_ = rdb.Close()
+		mr.Close()
+	})
+	registry := straitcache.NewRegistry(straitcache.RegistryConfig{Origin: "worker-test"})
+
+	exec := NewExecutor(ExecutorConfig{
+		Pool:          NewPool(1),
+		Queue:         &mockExecQueue{},
+		Store:         &mockExecutorStore{},
+		JobCacheTTL:   time.Minute,
+		RedisClient:   rdb,
+		CacheRegistry: registry,
+	})
+
+	if exec.jobCache == nil {
+		t.Fatal("jobCache = nil, want constructed when JobCacheTTL > 0")
+	}
+	assertWorkerRegisteredNamespaces(t, registry, []string{workerJobCacheNamespace})
+}
+
+func assertWorkerRegisteredNamespaces(t *testing.T, registry *straitcache.Registry, expected []string) {
+	t.Helper()
+
+	registered := make(map[string]struct{}, len(registry.RegisteredNamespaces()))
+	for _, namespace := range registry.RegisteredNamespaces() {
+		registered[namespace] = struct{}{}
+	}
+	for _, namespace := range expected {
+		if _, ok := registered[namespace]; !ok {
+			t.Fatalf("cache namespace %s was not registered; registered namespaces: %v", namespace, registry.RegisteredNamespaces())
+		}
+	}
+}
+
 func TestResolveJobForRun_CachesPinnedVersion(t *testing.T) {
 	t.Parallel()
 

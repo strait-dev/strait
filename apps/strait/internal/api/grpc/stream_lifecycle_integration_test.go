@@ -15,9 +15,11 @@ import (
 	"google.golang.org/grpc/status"
 
 	workerv1 "strait/internal/api/grpc/proto/workerv1"
+	"strait/internal/billing"
 	"strait/internal/domain"
 	"strait/internal/pubsub"
 	"strait/internal/store"
+	"strait/internal/testutil"
 
 	"github.com/sourcegraph/conc"
 )
@@ -149,6 +151,13 @@ func seedGRPCAPIKey(t *testing.T, ctx context.Context, q *store.Queries, project
 
 func seedGRPCAPIKeyWithExpiry(t *testing.T, ctx context.Context, q *store.Queries, projectID, keyID, rawKey string, expiresAt *time.Time) {
 	t.Helper()
+	if err := q.CreateProject(ctx, &domain.Project{
+		ID:    projectID,
+		OrgID: "org-" + projectID,
+		Name:  projectID,
+	}); err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
 	if err := q.CreateAPIKey(ctx, &domain.APIKey{
 		ID:        keyID,
 		ProjectID: projectID,
@@ -160,6 +169,14 @@ func seedGRPCAPIKeyWithExpiry(t *testing.T, ctx context.Context, q *store.Querie
 	}); err != nil {
 		t.Fatalf("CreateAPIKey: %v", err)
 	}
+}
+
+func newLifecycleBillingEnforcer(t *testing.T, env *testutil.TestEnv) *billing.Enforcer {
+	t.Helper()
+	if env == nil || env.Redis == nil || env.Redis.Client == nil {
+		t.Fatal("test Redis is not initialized")
+	}
+	return billing.NewEnforcer(billing.NewPgStore(env.DB.Pool), env.Redis.Client, nil)
 }
 
 func TestIntegration_StreamTasks_SubscribeFailureRejectsWorker(t *testing.T) {
@@ -178,10 +195,11 @@ func TestIntegration_StreamTasks_SubscribeFailureRejectsWorker(t *testing.T) {
 	defer cancel()
 	stream := newBlockingWorkerStream(streamCtx, rawKey)
 	svc := &workerService{
-		queries:        q,
-		pub:            failingSubscribePublisher{},
-		registry:       NewConnectionRegistry(),
-		resultChannels: NewResultChannelRegistry(),
+		queries:         q,
+		pub:             failingSubscribePublisher{},
+		registry:        NewConnectionRegistry(),
+		resultChannels:  NewResultChannelRegistry(),
+		billingEnforcer: newLifecycleBillingEnforcer(t, env),
 	}
 
 	err := svc.StreamTasks(stream)
@@ -226,10 +244,11 @@ func TestIntegration_StreamTasks_APIKeyRevokeReturnsWithoutClientRecv(t *testing
 	}
 
 	svc := &workerService{
-		queries:        q,
-		pub:            &noopPublisher{},
-		registry:       NewConnectionRegistry(),
-		resultChannels: NewResultChannelRegistry(),
+		queries:         q,
+		pub:             &noopPublisher{},
+		registry:        NewConnectionRegistry(),
+		resultChannels:  NewResultChannelRegistry(),
+		billingEnforcer: newLifecycleBillingEnforcer(t, env),
 	}
 
 	done := make(chan error, 1)
@@ -287,10 +306,11 @@ func TestIntegration_StreamTasks_RevokeBeforeRegistrationRejectsWorker(t *testin
 	stream := newBlockingWorkerStream(streamCtx, rawKey)
 	pub := newTestRevocationPublisher()
 	svc := &workerService{
-		queries:        q,
-		pub:            pub,
-		registry:       NewConnectionRegistry(),
-		resultChannels: NewResultChannelRegistry(),
+		queries:         q,
+		pub:             pub,
+		registry:        NewConnectionRegistry(),
+		resultChannels:  NewResultChannelRegistry(),
+		billingEnforcer: newLifecycleBillingEnforcer(t, env),
 	}
 
 	done := make(chan error, 1)
@@ -381,10 +401,11 @@ func TestIntegration_StreamTasks_APIKeyExpiryClosesRegisteredStream(t *testing.T
 	}
 
 	svc := &workerService{
-		queries:        q,
-		pub:            &noopPublisher{},
-		registry:       NewConnectionRegistry(),
-		resultChannels: NewResultChannelRegistry(),
+		queries:         q,
+		pub:             &noopPublisher{},
+		registry:        NewConnectionRegistry(),
+		resultChannels:  NewResultChannelRegistry(),
+		billingEnforcer: newLifecycleBillingEnforcer(t, env),
 	}
 
 	done := make(chan error, 1)
@@ -457,10 +478,11 @@ func TestIntegration_StreamTasks_APIKeyRotationGraceSignalClosesRegisteredStream
 	}
 
 	svc := &workerService{
-		queries:        q,
-		pub:            pub,
-		registry:       NewConnectionRegistry(),
-		resultChannels: NewResultChannelRegistry(),
+		queries:         q,
+		pub:             pub,
+		registry:        NewConnectionRegistry(),
+		resultChannels:  NewResultChannelRegistry(),
+		billingEnforcer: newLifecycleBillingEnforcer(t, env),
 	}
 
 	done := make(chan error, 1)
@@ -522,10 +544,11 @@ func TestIntegration_StreamTasks_APIKeyExpiryBeforeRegistrationRejectsWorker(t *
 	defer cancel()
 	stream := newBlockingWorkerStream(streamCtx, rawKey)
 	svc := &workerService{
-		queries:        q,
-		pub:            &noopPublisher{},
-		registry:       NewConnectionRegistry(),
-		resultChannels: NewResultChannelRegistry(),
+		queries:         q,
+		pub:             &noopPublisher{},
+		registry:        NewConnectionRegistry(),
+		resultChannels:  NewResultChannelRegistry(),
+		billingEnforcer: newLifecycleBillingEnforcer(t, env),
 	}
 
 	done := make(chan error, 1)
@@ -578,10 +601,11 @@ func TestIntegration_StreamTasks_RevalidatesAPIKeyAfterDelayedRegistration(t *te
 	defer cancel()
 	stream := newBlockingWorkerStream(streamCtx, rawKey)
 	svc := &workerService{
-		queries:        q,
-		pub:            &noopPublisher{},
-		registry:       NewConnectionRegistry(),
-		resultChannels: NewResultChannelRegistry(),
+		queries:         q,
+		pub:             &noopPublisher{},
+		registry:        NewConnectionRegistry(),
+		resultChannels:  NewResultChannelRegistry(),
+		billingEnforcer: newLifecycleBillingEnforcer(t, env),
 	}
 
 	done := make(chan error, 1)
@@ -646,10 +670,11 @@ func TestIntegration_StreamTasks_PreRegistrationStreamsCountTowardAPIKeyQuota(t 
 	registry.maxStreamsPerProject = 10
 	registry.maxStreamsPerAPIKey = 1
 	svc := &workerService{
-		queries:        q,
-		pub:            &noopPublisher{},
-		registry:       registry,
-		resultChannels: NewResultChannelRegistry(),
+		queries:         q,
+		pub:             &noopPublisher{},
+		registry:        registry,
+		resultChannels:  NewResultChannelRegistry(),
+		billingEnforcer: newLifecycleBillingEnforcer(t, env),
 	}
 
 	firstCtx, firstCancel := context.WithCancel(ctx)

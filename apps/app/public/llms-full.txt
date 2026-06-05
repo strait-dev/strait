@@ -116,7 +116,6 @@ Use SDKs to trigger jobs, report progress, manage runs, and define workflows fro
 - Go: https://docs.strait.dev/sdks/go
 - Ruby: https://docs.strait.dev/sdks/ruby
 - Rust: https://docs.strait.dev/sdks/rust
-- MCP Server: https://docs.strait.dev/sdks/mcp
 
 ## Compare
 

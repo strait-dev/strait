@@ -40,6 +40,10 @@ func (s *Server) handleEventTriggerStream(w http.ResponseWriter, r *http.Request
 		respondError(w, r, http.StatusNotFound, "event trigger not found")
 		return
 	}
+	if err := requireProjectMatch(r.Context(), trigger.ProjectID); err != nil {
+		respondError(w, r, http.StatusNotFound, "event trigger not found")
+		return
+	}
 
 	if err := requireEnvironmentMatch(r.Context(), trigger.EnvironmentID); err != nil {
 		respondError(w, r, http.StatusNotFound, "event trigger not found")

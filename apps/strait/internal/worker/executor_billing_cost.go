@@ -13,40 +13,50 @@ func (e *Executor) recordHTTPRunCost(ctx context.Context, job *domain.Job, run *
 		return
 	}
 	billing.RecordHTTPModeRunCompleted(ctx)
-	e.ingestStripeUsageEvent(ctx, job.ProjectID, run.ID, billing.HTTPCostPerRunMicrousd)
-	e.recordRunCostRow(ctx, job.ProjectID, run.ID, "failed to record HTTP run cost", func(costCtx context.Context, orgID, projectID, runID string) error {
-		return e.runCostRecorder.RecordHTTPRunCost(costCtx, orgID, projectID, runID)
-	})
+	e.recordTerminalRunBilling(ctx, job, run)
 }
 
 func (e *Executor) recordWorkerModeCost(ctx context.Context, run *domain.JobRun, job *domain.Job) {
-	e.recordRunCostRow(ctx, job.ProjectID, run.ID, "failed to record worker run cost", func(costCtx context.Context, orgID, projectID, runID string) error {
-		return e.runCostRecorder.RecordWorkerRunCost(costCtx, orgID, projectID, runID)
-	})
-	e.ingestStripeUsageEvent(ctx, job.ProjectID, run.ID, billing.WorkerCostPerRunMicrousd)
+	e.recordTerminalRunBilling(ctx, job, run)
 }
 
-func (e *Executor) recordRunCostRow(
-	ctx context.Context,
-	projectID string,
-	runID string,
-	logMessage string,
-	record func(context.Context, string, string, string) error,
-) {
+func (e *Executor) recordTerminalRunBilling(ctx context.Context, job *domain.Job, run *domain.JobRun) {
+	if job == nil || run == nil {
+		return
+	}
+	costMicroUSD := billing.HTTPCostPerRunMicrousd
+	recordCost := func(costCtx context.Context, orgID string) error {
+		if e.runCostRecorder == nil {
+			return nil
+		}
+		return e.runCostRecorder.RecordHTTPRunCost(costCtx, orgID, job.ProjectID, run.ID)
+	}
+	if job.ExecutionMode == domain.ExecutionModeWorker {
+		costMicroUSD = billing.WorkerCostPerRunMicrousd
+		recordCost = func(costCtx context.Context, orgID string) error {
+			if e.runCostRecorder == nil {
+				return nil
+			}
+			return e.runCostRecorder.RecordWorkerRunCost(costCtx, orgID, job.ProjectID, run.ID)
+		}
+	}
+
+	e.ingestStripeUsageEvent(ctx, job.ProjectID, run.ID, costMicroUSD)
+
 	if e.runCostRecorder == nil || e.billingEnforcer == nil {
 		return
 	}
-	orgID, err := e.billingEnforcer.GetProjectOrgID(ctx, projectID)
+	orgID, err := e.billingEnforcer.GetProjectOrgID(ctx, job.ProjectID)
 	if err != nil || orgID == "" {
 		return
 	}
-	// Tracked on stripeUsageWG so graceful shutdown waits for the billing row.
 	costCtx := context.WithoutCancel(ctx)
 	e.stripeUsageWG.Go(func() {
-		if err := record(costCtx, orgID, projectID, runID); err != nil {
-			e.logger.Warn(logMessage,
-				"run_id", runID,
+		if err := recordCost(costCtx, orgID); err != nil {
+			e.logger.Warn("failed to record run cost",
+				"run_id", run.ID,
 				"org_id", orgID,
+				"execution_mode", job.ExecutionMode,
 				"error", err,
 			)
 		}
@@ -62,6 +72,9 @@ func (e *Executor) recordRunCostRow(
 //nolint:unparam // HTTP/worker pass distinct named constants that may diverge
 func (e *Executor) ingestStripeUsageEvent(ctx context.Context, projectID, runID string, costMicroUSD int64) {
 	if e.stripeUsageReporter == nil || e.billingEnforcer == nil || costMicroUSD <= 0 {
+		return
+	}
+	if !e.billingEnforcer.IsRunOverage(ctx, runID) {
 		return
 	}
 
@@ -83,10 +96,9 @@ func (e *Executor) ingestStripeUsageEvent(ctx context.Context, projectID, runID 
 	e.stripeUsageWG.Go(func() {
 		ingestCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		if err := e.stripeUsageReporter.IngestComputeUsage(ingestCtx, stripeCustomerID, runID, costMicroUSD); err != nil {
+		if err := e.stripeUsageReporter.IngestRunOverage(ingestCtx, stripeCustomerID, runID); err != nil {
 			e.logger.Warn("failed to ingest stripe usage event",
 				"run_id", runID,
-				"cost_microusd", costMicroUSD,
 				"error", err,
 			)
 		}

@@ -102,19 +102,53 @@ func TestCheckWorkflowStepLimit_UnlimitedTiers(t *testing.T) {
 	}
 }
 
-func TestCheckWorkflowStepLimit_FailOpenWhenNoEnforcer(t *testing.T) {
+func TestCheckWorkflowStepLimit_CloudNilEnforcerFailsClosed(t *testing.T) {
 	t.Parallel()
 
-	// Cloud edition with no billing enforcer (e.g., misconfigured deployment)
-	// must not block workflow registration -- failing closed would brick the
-	// product if the billing service is briefly unreachable.
 	s := &Server{
 		edition:         domain.EditionCloud,
 		billingEnforcer: nil,
 	}
 
 	if err := s.checkWorkflowStepLimit(context.Background(), "proj-1", 1_000_000); err != nil {
-		t.Fatalf("expected fail-open with nil enforcer, got: %v", err)
+		if strings.Contains(err.Error(), "billing enforcement unavailable") {
+			return
+		}
+		t.Fatalf("expected billing enforcement unavailable, got: %v", err)
+	}
+	t.Fatal("expected cloud nil enforcer to fail closed")
+}
+
+func TestCheckWorkflowStepLimit_CloudEmptyOrgFailsClosed(t *testing.T) {
+	t.Parallel()
+
+	s := &Server{
+		edition: domain.EditionCloud,
+		billingEnforcer: &mockHTTPModeEnforcer{
+			mockBillingEnforcer: mockBillingEnforcer{},
+			planLimits:          billing.GetPlanLimits(domain.PlanFree),
+		},
+	}
+
+	err := s.checkWorkflowStepLimit(context.Background(), "proj-1", 1_000_000)
+	if err == nil {
+		t.Fatal("expected cloud empty org lookup to fail closed")
+	}
+	if !strings.Contains(err.Error(), "billing enforcement unavailable") {
+		t.Fatalf("expected billing enforcement unavailable, got: %v", err)
+	}
+}
+
+func TestCheckWorkflowStepLimit_CommunityNilEnforcerFailsOpen(t *testing.T) {
+	t.Parallel()
+
+	s := &Server{
+		edition:         domain.EditionCommunity,
+		billingEnforcer: nil,
+	}
+
+	if err := s.checkWorkflowStepLimit(context.Background(), "proj-1", 1_000_000); err != nil {
+		t.Fatalf("expected community nil enforcer to fail open, got: %v", err)
 	}
 }
 

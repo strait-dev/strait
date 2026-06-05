@@ -408,29 +408,16 @@ func TestHandleSDKCheckpoint_Success(t *testing.T) {
 	}
 }
 
-func TestHandleSDKUsage_Success(t *testing.T) {
+func TestSDKUsageRoute_NotRegistered(t *testing.T) {
 	t.Parallel()
-	created := false
-	ms := &APIStoreMock{
-		CreateRunUsageFunc: func(_ context.Context, usage *domain.RunUsage) error {
-			created = true
-			if usage.RunID != "run-123" {
-				t.Fatalf("run_id = %q, want run-123", usage.RunID)
-			}
-			return nil
-		},
-	}
-	srv := newTestServer(t, ms, &mockQueue{}, &mockPublisher{})
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, &mockPublisher{})
 
 	w := httptest.NewRecorder()
-	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-123/usage", "run-123", `{"provider":"openai","model":"gpt-4","prompt_tokens":10,"completion_tokens":5}`)
+	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-123/usage", "run-123", `{"usage_units":1}`)
 	srv.ServeHTTP(w, r)
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if !created {
-		t.Fatal("expected CreateRunUsage to be called")
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for launch-inactive usage route, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
@@ -991,8 +978,8 @@ func TestSDKAuth_SDKVersionHeaders_Modern(t *testing.T) {
 	if got := w.Header().Get("X-SDK-Version-Accepted"); got != "2.1.0" {
 		t.Fatalf("X-SDK-Version-Accepted = %q, want %q", got, "2.1.0")
 	}
-	if got := w.Header().Get("X-SDK-Capabilities"); got != "progress,checkpoint,usage" {
-		t.Fatalf("X-SDK-Capabilities = %q, want %q", got, "progress,checkpoint,usage")
+	if got := w.Header().Get("X-SDK-Capabilities"); got != "progress,checkpoint" {
+		t.Fatalf("X-SDK-Capabilities = %q, want %q", got, "progress,checkpoint")
 	}
 }
 
@@ -1470,71 +1457,5 @@ func TestHandleSDKContinue_EnqueueError(t *testing.T) {
 
 	if w.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
-	}
-}
-
-func TestHandleSDKUsage_PerRunCostBudgetExceeded(t *testing.T) {
-	t.Parallel()
-	ms := &APIStoreMock{
-		CreateRunUsageFunc: func(_ context.Context, _ *domain.RunUsage) error { return nil },
-		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
-			return &domain.JobRun{ID: id, ProjectID: "proj-1"}, nil
-		},
-		GetProjectQuotaFunc: func(_ context.Context, _ string) (*store.ProjectQuota, error) {
-			return &store.ProjectQuota{ProjectID: "proj-1", MaxCostPerRunMicrousd: 1000}, nil
-		},
-		SumRunCostMicrousdFunc: func(_ context.Context, _ string) (int64, error) {
-			return 1500, nil // exceeds 1000 limit
-		},
-	}
-	srv := newTestServer(t, ms, &mockQueue{}, nil)
-
-	w := httptest.NewRecorder()
-	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-1/usage", "run-1", `{"provider":"openai","model":"gpt-4","prompt_tokens":100,"completion_tokens":50,"cost_microusd":500}`)
-	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusTooManyRequests {
-		t.Fatalf("expected 429, got %d: %s", w.Code, w.Body.String())
-	}
-}
-
-func TestHandleSDKUsage_PerRunCostBudgetOK(t *testing.T) {
-	t.Parallel()
-	ms := &APIStoreMock{
-		CreateRunUsageFunc: func(_ context.Context, _ *domain.RunUsage) error { return nil },
-		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
-			return &domain.JobRun{ID: id, ProjectID: "proj-1"}, nil
-		},
-		GetProjectQuotaFunc: func(_ context.Context, _ string) (*store.ProjectQuota, error) {
-			return &store.ProjectQuota{ProjectID: "proj-1", MaxCostPerRunMicrousd: 2000}, nil
-		},
-		SumRunCostMicrousdFunc: func(_ context.Context, _ string) (int64, error) {
-			return 500, nil // under 2000 limit
-		},
-	}
-	srv := newTestServer(t, ms, &mockQueue{}, nil)
-
-	w := httptest.NewRecorder()
-	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-1/usage", "run-1", `{"provider":"openai","model":"gpt-4","prompt_tokens":100,"completion_tokens":50,"cost_microusd":100}`)
-	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-}
-
-func TestHandleSDKUsage_CostBudgetDisabled(t *testing.T) {
-	t.Parallel()
-	ms := &APIStoreMock{
-		CreateRunUsageFunc: func(_ context.Context, _ *domain.RunUsage) error { return nil },
-	}
-	srv := newTestServer(t, ms, &mockQueue{}, nil)
-
-	w := httptest.NewRecorder()
-	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-1/usage", "run-1", `{"provider":"openai","model":"gpt-4","prompt_tokens":100,"completion_tokens":50}`)
-	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
 	}
 }

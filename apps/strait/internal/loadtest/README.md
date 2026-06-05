@@ -152,6 +152,6 @@ The harness starts a local HTTP server on port 9000 with these endpoints:
 | `POST /variable-load` | 100-2000ms with CPU busy-wait |
 | `POST /flaky` | 20% failure rate, 50-250ms |
 | `POST /memory-heavy` | ~100KB response |
-| `POST /cost-reporter` | Simulated LLM cost metadata |
+| `POST /cost-reporter` | Simulated external service cost metadata |
 | `GET /health` | Server health check |
 | `GET /stats` | Request counters per endpoint |

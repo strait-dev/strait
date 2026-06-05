@@ -4,7 +4,9 @@ description: "Choose the right auth method for apps, users, and trusted backend 
 icon: "key"
 ---
 
-Strait supports three authentication methods: a server secret for trusted backend access, API keys for applications, and OIDC tokens for user-facing requests.
+Strait supports three authentication methods: a server secret for trusted backend access, API keys for applications, and OIDC bearer tokens for user-facing API requests.
+
+OIDC bearer-token verification is operator-configured API authentication. It is separate from hosted dashboard SSO/SAML, which is a launch roadmap item and is not included in self-serve cloud plans.
 
 ## Quick Decision
 
@@ -12,7 +14,7 @@ Strait supports three authentication methods: a server secret for trusted backen
 |---|---|---|
 | Server Secret | Trusted backend calls | `Authorization: Bearer YOUR_SECRET` |
 | API Key | Applications and integrations | `Authorization: Bearer strait_sk_...` |
-| OIDC | User requests from your identity provider | `Authorization: Bearer eyJ...` |
+| OIDC bearer token | User API requests from your identity provider | `Authorization: Bearer eyJ...` |
 
 ---
 
@@ -146,6 +148,8 @@ See [CLI API Keys](/cli/api-keys) for CLI rotation commands.
 
 When your users authenticate through an identity provider (Clerk, Auth0, Okta), Strait can validate their tokens directly instead of routing through your backend.
 
+This verifies already-issued bearer tokens on API requests. It does not provision hosted dashboard SSO/SAML or SCIM.
+
 ### When to Use
 
 Use OIDC when user requests should carry their own IdP tokens. Backend services can continue using the server secret.
@@ -201,7 +205,7 @@ Role-based access control gives fine-grained permissions for users (as opposed t
 2. **Members** link a user to a role within a project.
 3. When a user makes a request, Strait loads their role and checks permissions.
 
-Four built-in roles are available: **admin** (full access), **operator** (manage and trigger jobs/workflows), **viewer** (read-only), and **triggerer** (read and trigger only). You can also create custom roles with any combination of scopes.
+Four built-in roles are available on Basic RBAC plans: **admin** (full access), **operator** (manage and trigger jobs/workflows), **viewer** (read-only), and **triggerer** (read and trigger only). Custom roles require Full RBAC.
 
 For full details on managing roles, members, and custom permissions, see [RBAC & Policy Authorization](/guides/rbac).
 

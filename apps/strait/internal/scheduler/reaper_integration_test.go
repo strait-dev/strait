@@ -533,9 +533,9 @@ func (s *intMockRunLimitStore) CreateNotificationDelivery(_ context.Context, d *
 	return nil
 }
 
-// intMockEnforcer wraps the Check80PercentDailyRunWarning behavior
+// intMockEnforcer wraps the Check80PercentMonthlyWarning behavior
 // without requiring a real billing.Enforcer (which needs Redis).
-// Since checkRunLimitWarnings calls enforcer.Check80PercentDailyRunWarning
+// Since checkRunLimitWarnings calls enforcer.Check80PercentMonthlyWarning
 // and the BudgetMonitor expects a *billing.Enforcer, we test indirectly
 // by running the BudgetMonitor with a short interval and verifying that
 // the run-limit check path is exercised when the enforcer is nil (no crash).

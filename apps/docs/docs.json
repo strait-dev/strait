@@ -63,8 +63,7 @@
                 "group": "Tutorials",
                 "pages": [
                   "tutorials/webhook-processor",
-                  "tutorials/data-pipeline",
-                  "tutorials/ai-agent"
+                  "tutorials/data-pipeline"
                 ]
               },
               {
@@ -193,8 +192,7 @@
                   "sdks/python",
                   "sdks/go",
                   "sdks/ruby",
-                  "sdks/rust",
-                  "sdks/mcp"
+                  "sdks/rust"
                 ]
               }
             ]

@@ -20,9 +20,9 @@ import (
 	"strait/internal/domain"
 )
 
-// Issue 1: SumOrgPeriodSpend error must use boundedFailOpen, not bare nil.
+// Issue 1: SumOrgPeriodSpend error must fail closed, not bypass spending caps.
 
-func TestCheckSpendingLimit_SumSpendError_BoundedFailOpen(t *testing.T) {
+func TestCheckSpendingLimit_SumSpendError_FailsClosed(t *testing.T) {
 	t.Parallel()
 	mr := miniredis.RunT(t)
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
@@ -48,18 +48,9 @@ func TestCheckSpendingLimit_SumSpendError_BoundedFailOpen(t *testing.T) {
 
 	ctx := context.Background()
 
-	// First maxConsecutiveFailOpen calls should return nil (fail-open under threshold).
-	for i := range maxConsecutiveFailOpen {
-		err := enforcer.CheckSpendingLimit(ctx, "org-spend-err")
-		if err != nil {
-			t.Fatalf("call %d: expected nil (fail-open), got: %v", i+1, err)
-		}
-	}
-
-	// Next call should fail-closed (threshold exceeded).
 	err := enforcer.CheckSpendingLimit(ctx, "org-spend-err")
 	if err == nil {
-		t.Fatal("expected fail-closed error after threshold exceeded, got nil")
+		t.Fatal("expected fail-closed error, got nil")
 	}
 	var le *LimitError
 	if !errors.As(err, &le) {
@@ -70,7 +61,7 @@ func TestCheckSpendingLimit_SumSpendError_BoundedFailOpen(t *testing.T) {
 	}
 }
 
-func TestCheckSpendingLimit_SumSpendError_ResetOnSuccess(t *testing.T) {
+func TestCheckSpendingLimit_SumSpendError_SuccessAfterRecovery(t *testing.T) {
 	t.Parallel()
 	mr := miniredis.RunT(t)
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
@@ -96,29 +87,22 @@ func TestCheckSpendingLimit_SumSpendError_ResetOnSuccess(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Burn through most of the threshold.
-	for range maxConsecutiveFailOpen - 1 {
-		_ = enforcer.CheckSpendingLimit(ctx, "org-reset")
+	err := enforcer.CheckSpendingLimit(ctx, "org-reset")
+	if err == nil {
+		t.Fatal("expected initial spend read error to fail closed")
 	}
 
 	// Fix the error -- next call succeeds and resets the tracker.
 	store.sumSpendErr = nil
 	store.periodSpendByOrg = map[string]int64{"org-reset": 10_000_000}
 
-	err := enforcer.CheckSpendingLimit(ctx, "org-reset")
+	err = enforcer.CheckSpendingLimit(ctx, "org-reset")
 	if err != nil {
 		t.Fatalf("expected nil after error resolved, got: %v", err)
 	}
-
-	// Now re-introduce the error. Should get fresh threshold (not immediately fail-closed).
-	store.sumSpendErr = fmt.Errorf("another temp error")
-	err = enforcer.CheckSpendingLimit(ctx, "org-reset")
-	if err != nil {
-		t.Fatal("expected nil on first fail-open after reset, got error (counter was not reset)")
-	}
 }
 
-func TestCheckSpendingLimit_SumSpendError_CrossOrgIndependent(t *testing.T) {
+func TestCheckSpendingLimit_SumSpendError_CrossOrgFailsClosed(t *testing.T) {
 	t.Parallel()
 	mr := miniredis.RunT(t)
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
@@ -136,15 +120,15 @@ func TestCheckSpendingLimit_SumSpendError_CrossOrgIndependent(t *testing.T) {
 	enforcer := NewEnforcer(store, rdb, slog.Default())
 	ctx := context.Background()
 
-	// Exhaust threshold for org-A.
-	for range maxConsecutiveFailOpen + 1 {
-		_ = enforcer.CheckSpendingLimit(ctx, "org-A")
-	}
-
-	// org-B should still be under threshold.
-	err := enforcer.CheckSpendingLimit(ctx, "org-B")
-	if err != nil {
-		t.Fatal("org-B should not be affected by org-A's fail-open threshold")
+	for _, orgID := range []string{"org-A", "org-B"} {
+		err := enforcer.CheckSpendingLimit(ctx, orgID)
+		var le *LimitError
+		if !errors.As(err, &le) {
+			t.Fatalf("%s expected *LimitError, got %T: %v", orgID, err, err)
+		}
+		if le.Code != "service_degraded" {
+			t.Fatalf("%s expected code service_degraded, got %q", orgID, le.Code)
+		}
 	}
 }
 

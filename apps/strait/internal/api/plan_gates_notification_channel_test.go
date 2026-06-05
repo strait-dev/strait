@@ -145,6 +145,7 @@ func TestCreateNotificationChannel_NilEnforcer_FailsOpen(t *testing.T) {
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv.edition = domain.EditionCommunity
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/notification-channels", validChannelBody(), "proj-1"))
@@ -154,9 +155,9 @@ func TestCreateNotificationChannel_NilEnforcer_FailsOpen(t *testing.T) {
 	}
 }
 
-// TestCreateNotificationChannel_CountQueryFails_FailsOpen ensures a transient
-// store failure does not block channel creation.
-func TestCreateNotificationChannel_CountQueryFails_FailsOpen(t *testing.T) {
+// TestCreateNotificationChannel_CountQueryFails_FailsClosed ensures a transient
+// store failure does not bypass the paid notification-channel cap.
+func TestCreateNotificationChannel_CountQueryFails_FailsClosed(t *testing.T) {
 	t.Parallel()
 
 	ms := &APIStoreMock{
@@ -174,7 +175,7 @@ func TestCreateNotificationChannel_CountQueryFails_FailsOpen(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/notification-channels", validChannelBody(), "proj-1"))
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("count failure must fail open; got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("count failure must fail closed; got %d: %s", w.Code, w.Body.String())
 	}
 }

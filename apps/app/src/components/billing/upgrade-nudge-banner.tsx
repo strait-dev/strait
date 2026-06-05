@@ -1,3 +1,4 @@
+import { formatPrice, PLANS } from "@strait/billing";
 import { Button } from "@strait/ui/components/button";
 import {
   NoticeBanner,
@@ -14,6 +15,17 @@ import {
 import { usageForecastQueryOptions } from "@/hooks/billing/use-usage-forecast";
 
 const MICRO_USD = 1_000_000;
+const CENTS_TO_MICRO_USD = 10_000;
+const PRO_MONTHLY_PRICE_CENTS = PLANS.pro.prices.monthly;
+const SCALE_MONTHLY_PRICE_CENTS = PLANS.scale.prices.monthly;
+const PRO_MONTHLY_PRICE_MICRO_USD =
+  PRO_MONTHLY_PRICE_CENTS * CENTS_TO_MICRO_USD;
+const SCALE_MONTHLY_PRICE_MICRO_USD =
+  SCALE_MONTHLY_PRICE_CENTS * CENTS_TO_MICRO_USD;
+const SCALE_APPROACH_THRESHOLD_MICRO_USD = Math.floor(
+  SCALE_MONTHLY_PRICE_MICRO_USD * 0.9
+);
+const SCALE_MONTHLY_PRICE = formatPrice(SCALE_MONTHLY_PRICE_CENTS);
 
 const UpgradeNudgeBanner = () => {
   const approaching = useApproachingLimits();
@@ -86,9 +98,9 @@ const UpgradeNudgeBanner = () => {
       variant: "info",
       children: (
         <>
-          Your projected spend exceeds $99/mo. Upgrade to <strong>Scale</strong>{" "}
-          for the same price and get 5x concurrent runs, audit logs, and canary
-          deploys.
+          Your projected spend exceeds {SCALE_MONTHLY_PRICE}/mo. Upgrade to{" "}
+          <strong>Scale</strong> for more included orchestration runs, 3x
+          concurrent runs, audit logs, and canary deploys.
         </>
       ),
     });
@@ -102,11 +114,13 @@ const UpgradeNudgeBanner = () => {
   ) {
     const addonSpend = (forecast.addon_spend_microusd / MICRO_USD).toFixed(2);
     const totalSpend = (
-      (49.99 * MICRO_USD + forecast.addon_spend_microusd) /
+      (PRO_MONTHLY_PRICE_MICRO_USD + forecast.addon_spend_microusd) /
       MICRO_USD
     ).toFixed(2);
-    // Show when Pro base ($49.99) + addon spend approaches Scale ($99)
-    if (49.99 * MICRO_USD + forecast.addon_spend_microusd >= 89 * MICRO_USD) {
+    if (
+      PRO_MONTHLY_PRICE_MICRO_USD + forecast.addon_spend_microusd >=
+      SCALE_APPROACH_THRESHOLD_MICRO_USD
+    ) {
       return renderUpgradeBanner({
         cta: "Upgrade to Scale",
         title: "Scale plan recommended",
@@ -114,8 +128,8 @@ const UpgradeNudgeBanner = () => {
         children: (
           <>
             You're spending <strong>${totalSpend}/mo</strong> on Pro + add-ons
-            (${addonSpend} in add-ons). Scale ($99/mo) gives you 5x limits
-            included.
+            (${addonSpend} in add-ons). Scale ({SCALE_MONTHLY_PRICE}/mo)
+            includes higher launch limits.
           </>
         ),
       });
@@ -137,7 +151,7 @@ const UpgradeNudgeBanner = () => {
         <>
           Your projected overage this month is{" "}
           <strong>${projectedOverage}</strong>. Consider upgrading for more
-          included credit.
+          included orchestration runs.
         </>
       ),
     });

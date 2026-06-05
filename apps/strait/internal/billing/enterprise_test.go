@@ -68,8 +68,8 @@ func TestEnterpriseConfigCompleteness(t *testing.T) {
 		if cfg.MonthlyEquivalentCents <= 0 {
 			t.Errorf("config for %q has non-positive MonthlyEquivalentCents", tier)
 		}
-		if cfg.ComputeDiscountPct <= 0 {
-			t.Errorf("config for %q has non-positive ComputeDiscountPct", tier)
+		if cfg.OverageDiscountPct <= 0 {
+			t.Errorf("config for %q has non-positive OverageDiscountPct", tier)
 		}
 		if cfg.UptimeSLAPct < 99.0 {
 			t.Errorf("config for %q has SLA below 99%%: %.2f", tier, cfg.UptimeSLAPct)
@@ -93,14 +93,11 @@ func TestEnterpriseConfigValues_StarterTier(t *testing.T) {
 	if cfg.MonthlyEquivalentCents != 150_000 {
 		t.Errorf("Starter monthly = %d, want 150000", cfg.MonthlyEquivalentCents)
 	}
-	if cfg.IncludedCreditMicrousd != 1_000_000_000 {
-		t.Errorf("Starter credit = %d, want 1000000000", cfg.IncludedCreditMicrousd)
+	if cfg.PlatformFeeMicrousd != 1_500_000_000 {
+		t.Errorf("Starter platform fee = %d, want 1500000000", cfg.PlatformFeeMicrousd)
 	}
-	if cfg.PlatformFeeMicrousd != 500_000_000 {
-		t.Errorf("Starter platform fee = %d, want 500000000", cfg.PlatformFeeMicrousd)
-	}
-	if cfg.ComputeDiscountPct != 10 {
-		t.Errorf("Starter discount = %d%%, want 10%%", cfg.ComputeDiscountPct)
+	if cfg.OverageDiscountPct != 10 {
+		t.Errorf("Starter discount = %d%%, want 10%%", cfg.OverageDiscountPct)
 	}
 	if cfg.UptimeSLAPct != 99.9 {
 		t.Errorf("Starter SLA = %.2f, want 99.9", cfg.UptimeSLAPct)
@@ -120,14 +117,11 @@ func TestEnterpriseConfigValues_GrowthTier(t *testing.T) {
 	if cfg.MonthlyEquivalentCents != 400_000 {
 		t.Errorf("Growth monthly = %d, want 400000", cfg.MonthlyEquivalentCents)
 	}
-	if cfg.IncludedCreditMicrousd != 2_500_000_000 {
-		t.Errorf("Growth credit = %d, want 2500000000", cfg.IncludedCreditMicrousd)
+	if cfg.PlatformFeeMicrousd != 4_000_000_000 {
+		t.Errorf("Growth platform fee = %d, want 4000000000", cfg.PlatformFeeMicrousd)
 	}
-	if cfg.PlatformFeeMicrousd != 1_500_000_000 {
-		t.Errorf("Growth platform fee = %d, want 1500000000", cfg.PlatformFeeMicrousd)
-	}
-	if cfg.ComputeDiscountPct != 15 {
-		t.Errorf("Growth discount = %d%%, want 15%%", cfg.ComputeDiscountPct)
+	if cfg.OverageDiscountPct != 15 {
+		t.Errorf("Growth discount = %d%%, want 15%%", cfg.OverageDiscountPct)
 	}
 	if cfg.UptimeSLAPct != 99.95 {
 		t.Errorf("Growth SLA = %.2f, want 99.95", cfg.UptimeSLAPct)
@@ -144,40 +138,26 @@ func TestEnterpriseConfigValues_LargeTier(t *testing.T) {
 	if cfg.AnnualCommitmentCents != 9_600_000 {
 		t.Errorf("Large annual = %d, want 9600000", cfg.AnnualCommitmentCents)
 	}
-	if cfg.ComputeDiscountPct != 20 {
-		t.Errorf("Large discount = %d%%, want 20%%", cfg.ComputeDiscountPct)
+	if cfg.OverageDiscountPct != 20 {
+		t.Errorf("Large discount = %d%%, want 20%%", cfg.OverageDiscountPct)
 	}
 	if cfg.UptimeSLAPct != 99.95 {
 		t.Errorf("Large SLA = %.2f, want 99.95", cfg.UptimeSLAPct)
-	}
-	// Large tier has custom/negotiated credits.
-	if cfg.IncludedCreditMicrousd != 0 {
-		t.Errorf("Large credit = %d, want 0 (custom)", cfg.IncludedCreditMicrousd)
 	}
 }
 
 func TestPlatformFee_ConsistentWithCommitment(t *testing.T) {
 	t.Parallel()
-	// Starter: $1.5K/mo = $1K credit + $500 platform fee.
 	starter := EnterpriseConfigs[EnterpriseTierStarter]
-	creditAsDollars := starter.IncludedCreditMicrousd / 1_000_000
-	platformAsDollars := starter.PlatformFeeMicrousd / 1_000_000
-	monthlyDollars := starter.MonthlyEquivalentCents / 100
-	if creditAsDollars+platformAsDollars != monthlyDollars {
-		t.Errorf("Starter: credit($%d) + platform($%d) = $%d, want $%d",
-			creditAsDollars, platformAsDollars,
-			creditAsDollars+platformAsDollars, monthlyDollars)
+	if platformDollars := starter.PlatformFeeMicrousd / 1_000_000; platformDollars != starter.MonthlyEquivalentCents/100 {
+		t.Errorf("Starter: platform fee $%d, want monthly equivalent $%d",
+			platformDollars, starter.MonthlyEquivalentCents/100)
 	}
 
-	// Growth: $4K/mo = $2.5K credit + $1.5K platform fee.
 	growth := EnterpriseConfigs[EnterpriseTierGrowth]
-	creditAsDollars = growth.IncludedCreditMicrousd / 1_000_000
-	platformAsDollars = growth.PlatformFeeMicrousd / 1_000_000
-	monthlyDollars = growth.MonthlyEquivalentCents / 100
-	if creditAsDollars+platformAsDollars != monthlyDollars {
-		t.Errorf("Growth: credit($%d) + platform($%d) = $%d, want $%d",
-			creditAsDollars, platformAsDollars,
-			creditAsDollars+platformAsDollars, monthlyDollars)
+	if platformDollars := growth.PlatformFeeMicrousd / 1_000_000; platformDollars != growth.MonthlyEquivalentCents/100 {
+		t.Errorf("Growth: platform fee $%d, want monthly equivalent $%d",
+			platformDollars, growth.MonthlyEquivalentCents/100)
 	}
 }
 
@@ -199,9 +179,9 @@ func TestGetEnterpriseConfig_UnknownTierReturnsFallback(t *testing.T) {
 	}
 }
 
-// ApplyComputeDiscount tests.
+// ApplyOverageDiscount tests.
 
-func TestApplyComputeDiscount_AllTiers(t *testing.T) {
+func TestApplyOverageDiscount_AllTiers(t *testing.T) {
 	t.Parallel()
 	cost := int64(1_000_000_000) // $1,000
 
@@ -217,33 +197,33 @@ func TestApplyComputeDiscount_AllTiers(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got := ApplyComputeDiscount(cost, tt.discount)
+			got := ApplyOverageDiscount(cost, tt.discount)
 			if got != tt.want {
-				t.Errorf("ApplyComputeDiscount(%d, %d) = %d, want %d", cost, tt.discount, got, tt.want)
+				t.Errorf("ApplyOverageDiscount(%d, %d) = %d, want %d", cost, tt.discount, got, tt.want)
 			}
 		})
 	}
 }
 
-func TestApplyComputeDiscount_ZeroCost(t *testing.T) {
+func TestApplyOverageDiscount_ZeroCost(t *testing.T) {
 	t.Parallel()
-	if got := ApplyComputeDiscount(0, 10); got != 0 {
-		t.Errorf("ApplyComputeDiscount(0, 10) = %d, want 0", got)
+	if got := ApplyOverageDiscount(0, 10); got != 0 {
+		t.Errorf("ApplyOverageDiscount(0, 10) = %d, want 0", got)
 	}
 }
 
-func TestApplyComputeDiscount_ZeroDiscount(t *testing.T) {
+func TestApplyOverageDiscount_ZeroDiscount(t *testing.T) {
 	t.Parallel()
 	cost := int64(500_000)
-	if got := ApplyComputeDiscount(cost, 0); got != cost {
-		t.Errorf("ApplyComputeDiscount(%d, 0) = %d, want %d", cost, got, cost)
+	if got := ApplyOverageDiscount(cost, 0); got != cost {
+		t.Errorf("ApplyOverageDiscount(%d, 0) = %d, want %d", cost, got, cost)
 	}
 }
 
-func TestApplyComputeDiscount_FullDiscount(t *testing.T) {
+func TestApplyOverageDiscount_FullDiscount(t *testing.T) {
 	t.Parallel()
-	if got := ApplyComputeDiscount(1_000_000, 100); got != 0 {
-		t.Errorf("ApplyComputeDiscount(1000000, 100) = %d, want 0", got)
+	if got := ApplyOverageDiscount(1_000_000, 100); got != 0 {
+		t.Errorf("ApplyOverageDiscount(1000000, 100) = %d, want 0", got)
 	}
 }
 
@@ -253,14 +233,13 @@ func TestValidateEnterpriseContract_Valid(t *testing.T) {
 	t.Parallel()
 	now := time.Now()
 	c := &EnterpriseContract{
-		OrgID:                  "org-1",
-		EnterpriseTier:         EnterpriseTierStarter,
-		AnnualCommitmentCents:  1_800_000,
-		IncludedCreditMicrousd: 1_000_000_000,
-		ComputeDiscountPct:     10,
-		ContractStartDate:      now,
-		ContractEndDate:        now.AddDate(1, 0, 0),
-		BillingCadence:         "annual",
+		OrgID:                 "org-1",
+		EnterpriseTier:        EnterpriseTierStarter,
+		AnnualCommitmentCents: 1_800_000,
+		OverageDiscountPct:    10,
+		ContractStartDate:     now,
+		ContractEndDate:       now.AddDate(1, 0, 0),
+		BillingCadence:        "annual",
 	}
 	if err := ValidateEnterpriseContract(c); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -436,49 +415,33 @@ func TestCalculateSLACredit_CustomSLATarget(t *testing.T) {
 	}
 }
 
-func TestApplyComputeDiscount_NegativeCostReturnsZero(t *testing.T) {
+func TestApplyOverageDiscount_NegativeCostReturnsZero(t *testing.T) {
 	t.Parallel()
-	if got := ApplyComputeDiscount(-100, 10); got != 0 {
-		t.Errorf("ApplyComputeDiscount(-100, 10) = %d, want 0", got)
+	if got := ApplyOverageDiscount(-100, 10); got != 0 {
+		t.Errorf("ApplyOverageDiscount(-100, 10) = %d, want 0", got)
 	}
 }
 
-func TestApplyComputeDiscount_BoundaryDiscount1(t *testing.T) {
+func TestApplyOverageDiscount_BoundaryDiscount1(t *testing.T) {
 	t.Parallel()
-	got := ApplyComputeDiscount(1000, 1)
+	got := ApplyOverageDiscount(1000, 1)
 	if got != 990 {
-		t.Errorf("ApplyComputeDiscount(1000, 1) = %d, want 990", got)
+		t.Errorf("ApplyOverageDiscount(1000, 1) = %d, want 990", got)
 	}
 }
 
-func TestApplyComputeDiscount_BoundaryDiscount99(t *testing.T) {
+func TestApplyOverageDiscount_BoundaryDiscount99(t *testing.T) {
 	t.Parallel()
-	got := ApplyComputeDiscount(1000, 99)
+	got := ApplyOverageDiscount(1000, 99)
 	if got != 10 {
-		t.Errorf("ApplyComputeDiscount(1000, 99) = %d, want 10", got)
+		t.Errorf("ApplyOverageDiscount(1000, 99) = %d, want 10", got)
 	}
 }
 
-func TestApplyComputeDiscount_Over100(t *testing.T) {
+func TestApplyOverageDiscount_Over100(t *testing.T) {
 	t.Parallel()
-	if got := ApplyComputeDiscount(1000, 150); got != 0 {
-		t.Errorf("ApplyComputeDiscount(1000, 150) = %d, want 0 (>= 100 returns 0)", got)
-	}
-}
-
-func TestValidateEnterpriseContract_NegativeCredit(t *testing.T) {
-	t.Parallel()
-	c := &EnterpriseContract{
-		OrgID:                  "org-1",
-		EnterpriseTier:         EnterpriseTierStarter,
-		AnnualCommitmentCents:  1_800_000,
-		IncludedCreditMicrousd: -1,
-		ContractStartDate:      time.Now(),
-		ContractEndDate:        time.Now().AddDate(1, 0, 0),
-		BillingCadence:         "annual",
-	}
-	if err := ValidateEnterpriseContract(c); err == nil {
-		t.Fatal("expected error for negative credit")
+	if got := ApplyOverageDiscount(1000, 150); got != 0 {
+		t.Errorf("ApplyOverageDiscount(1000, 150) = %d, want 0 (>= 100 returns 0)", got)
 	}
 }
 
@@ -497,28 +460,28 @@ func TestValidateEnterpriseContract_DiscountBoundaries(t *testing.T) {
 
 	// Discount at 0 should pass.
 	c := base()
-	c.ComputeDiscountPct = 0
+	c.OverageDiscountPct = 0
 	if err := ValidateEnterpriseContract(c); err != nil {
 		t.Errorf("discount=0 should be valid: %v", err)
 	}
 
 	// Discount at 100 should pass.
 	c = base()
-	c.ComputeDiscountPct = 100
+	c.OverageDiscountPct = 100
 	if err := ValidateEnterpriseContract(c); err != nil {
 		t.Errorf("discount=100 should be valid: %v", err)
 	}
 
 	// Discount at -1 should fail.
 	c = base()
-	c.ComputeDiscountPct = -1
+	c.OverageDiscountPct = -1
 	if err := ValidateEnterpriseContract(c); err == nil {
 		t.Error("discount=-1 should be invalid")
 	}
 
 	// Discount at 101 should fail.
 	c = base()
-	c.ComputeDiscountPct = 101
+	c.OverageDiscountPct = 101
 	if err := ValidateEnterpriseContract(c); err == nil {
 		t.Error("discount=101 should be invalid")
 	}

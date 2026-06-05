@@ -37,16 +37,15 @@ func IsValidEnterpriseTier(tier EnterpriseTier) bool {
 }
 
 // EnterpriseConfig holds the commercial terms for an enterprise sub-tier.
-// These are the default values from the pricing doc; individual contracts
-// may override IncludedCreditMicrousd and ComputeDiscountPct.
+// These are default sales templates; individual contracts may override
+// OverageDiscountPct.
 type EnterpriseConfig struct {
 	Tier                   EnterpriseTier
 	DisplayName            string
 	AnnualCommitmentCents  int64   // $18,000 = 1_800_000
 	MonthlyEquivalentCents int64   // $1,500 = 150_000
-	IncludedCreditMicrousd int64   // monthly credit pool in micro-USD
 	PlatformFeeMicrousd    int64   // monthly platform fee in micro-USD
-	ComputeDiscountPct     int     // 10, 15, or 20
+	OverageDiscountPct     int     // 10, 15, or 20
 	UptimeSLAPct           float64 // 99.9 or 99.95
 	MaxDowntimeMinutes     float64 // per month
 	SupportResponseP1      string  // "1h"
@@ -66,18 +65,14 @@ const (
 	EnterpriseGrowthMonthlyCents  int64 = 400_000 // $4,000
 	EnterpriseLargeMonthlyCents   int64 = 800_000 // $8,000
 
-	// Monthly included credits in micro-USD.
-	EnterpriseStarterCreditMicrousd int64 = 1_000_000_000 // $1,000
-	EnterpriseGrowthCreditMicrousd  int64 = 2_500_000_000 // $2,500
-
 	// Monthly platform fees in micro-USD.
-	EnterpriseStarterPlatformFeeMicrousd int64 = 500_000_000   // $500
-	EnterpriseGrowthPlatformFeeMicrousd  int64 = 1_500_000_000 // $1,500
+	EnterpriseStarterPlatformFeeMicrousd int64 = 1_500_000_000 // $1,500
+	EnterpriseGrowthPlatformFeeMicrousd  int64 = 4_000_000_000 // $4,000
 
-	// Compute discounts (percentage off standard rates).
-	EnterpriseStarterDiscountPct = 10
-	EnterpriseGrowthDiscountPct  = 15
-	EnterpriseLargeDiscountPct   = 20
+	// Overage discounts (percentage off standard orchestration overage rates).
+	EnterpriseStarterOverageDiscountPct = 10
+	EnterpriseGrowthOverageDiscountPct  = 15
+	EnterpriseLargeOverageDiscountPct   = 20
 
 	// SLA uptime percentages.
 	EnterpriseStarterSLAPct = 99.9
@@ -97,9 +92,8 @@ var EnterpriseConfigs = map[EnterpriseTier]EnterpriseConfig{
 		DisplayName:            "Starter Enterprise",
 		AnnualCommitmentCents:  EnterpriseStarterAnnualCents,
 		MonthlyEquivalentCents: EnterpriseStarterMonthlyCents,
-		IncludedCreditMicrousd: EnterpriseStarterCreditMicrousd,
 		PlatformFeeMicrousd:    EnterpriseStarterPlatformFeeMicrousd,
-		ComputeDiscountPct:     EnterpriseStarterDiscountPct,
+		OverageDiscountPct:     EnterpriseStarterOverageDiscountPct,
 		UptimeSLAPct:           EnterpriseStarterSLAPct,
 		MaxDowntimeMinutes:     EnterpriseStarterMaxDowntime,
 		SupportResponseP1:      "1h",
@@ -111,9 +105,8 @@ var EnterpriseConfigs = map[EnterpriseTier]EnterpriseConfig{
 		DisplayName:            "Growth Enterprise",
 		AnnualCommitmentCents:  EnterpriseGrowthAnnualCents,
 		MonthlyEquivalentCents: EnterpriseGrowthMonthlyCents,
-		IncludedCreditMicrousd: EnterpriseGrowthCreditMicrousd,
 		PlatformFeeMicrousd:    EnterpriseGrowthPlatformFeeMicrousd,
-		ComputeDiscountPct:     EnterpriseGrowthDiscountPct,
+		OverageDiscountPct:     EnterpriseGrowthOverageDiscountPct,
 		UptimeSLAPct:           EnterpriseGrowthSLAPct,
 		MaxDowntimeMinutes:     EnterpriseGrowthMaxDowntime,
 		SupportResponseP1:      "1h",
@@ -125,9 +118,8 @@ var EnterpriseConfigs = map[EnterpriseTier]EnterpriseConfig{
 		DisplayName:            "Large Enterprise",
 		AnnualCommitmentCents:  EnterpriseLargeAnnualCents,
 		MonthlyEquivalentCents: EnterpriseLargeMonthlyCents,
-		IncludedCreditMicrousd: 0, // custom/negotiated
 		PlatformFeeMicrousd:    0, // custom/negotiated
-		ComputeDiscountPct:     EnterpriseLargeDiscountPct,
+		OverageDiscountPct:     EnterpriseLargeOverageDiscountPct,
 		UptimeSLAPct:           EnterpriseLargeSLAPct,
 		MaxDowntimeMinutes:     EnterpriseLargeMaxDowntime,
 		SupportResponseP1:      "1h",
@@ -171,9 +163,9 @@ func RegisterEnterprisePriceTier(priceID string, tier EnterpriseTier) {
 	}
 }
 
-// ApplyComputeDiscount reduces a cost by the given discount percentage.
+// ApplyOverageDiscount reduces a cost by the given discount percentage.
 // Returns the discounted cost in micro-USD. Negative costs return 0.
-func ApplyComputeDiscount(costMicro int64, discountPct int) int64 {
+func ApplyOverageDiscount(costMicro int64, discountPct int) int64 {
 	if costMicro <= 0 {
 		return 0
 	}
@@ -188,20 +180,19 @@ func ApplyComputeDiscount(costMicro int64, discountPct int) int64 {
 
 // EnterpriseContract represents an organization's enterprise contract terms.
 type EnterpriseContract struct {
-	ID                     string
-	OrgID                  string
-	EnterpriseTier         EnterpriseTier
-	AnnualCommitmentCents  int64
-	IncludedCreditMicrousd int64
-	ComputeDiscountPct     int
-	ContractStartDate      time.Time
-	ContractEndDate        time.Time
-	AutoRenew              bool
-	BillingCadence         string // "annual", "quarterly"
-	StripeSubscriptionID   *string
-	Notes                  string
-	CreatedAt              time.Time
-	UpdatedAt              time.Time
+	ID                    string
+	OrgID                 string
+	EnterpriseTier        EnterpriseTier
+	AnnualCommitmentCents int64
+	OverageDiscountPct    int
+	ContractStartDate     time.Time
+	ContractEndDate       time.Time
+	AutoRenew             bool
+	BillingCadence        string // "annual", "quarterly"
+	StripeSubscriptionID  *string
+	Notes                 string
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
 }
 
 // Sentinel errors for enterprise contract operations.
@@ -232,11 +223,8 @@ func ValidateEnterpriseContract(c *EnterpriseContract) error {
 	if c.AnnualCommitmentCents < EnterpriseStarterAnnualCents {
 		return errors.New("annual commitment below minimum ($18,000)")
 	}
-	if c.IncludedCreditMicrousd < 0 {
-		return errors.New("included credit must be non-negative")
-	}
-	if c.ComputeDiscountPct < 0 || c.ComputeDiscountPct > 100 {
-		return errors.New("compute discount must be between 0 and 100")
+	if c.OverageDiscountPct < 0 || c.OverageDiscountPct > 100 {
+		return errors.New("overage discount must be between 0 and 100")
 	}
 	if !c.ContractEndDate.After(c.ContractStartDate) {
 		return errors.New("contract end date must be after start date")

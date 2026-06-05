@@ -12,24 +12,21 @@ import (
 
 // CurrentUsageResponse is the response for GET /v1/usage/current.
 type CurrentUsageResponse struct {
-	OrgID                string          `json:"org_id"`
-	Plan                 string          `json:"plan"`
-	Period               PeriodInfo      `json:"period"`
-	Usage                UsageDimensions `json:"usage"`
-	IncludedCreditMicro  int64           `json:"included_credit_microusd"`
-	PeriodSpendMicro     int64           `json:"period_spend_microusd"`
-	OverageMicro         int64           `json:"overage_microusd"`
-	CreditUsedPercent    float64         `json:"credit_used_percent"`
-	CreditRemainingMicro int64           `json:"credit_remaining_microusd"`
-	Alerts               []UsageAlert    `json:"alerts,omitempty"`
-	PaymentStatus        string          `json:"payment_status,omitempty"`
-	GracePeriodEnd       *string         `json:"grace_period_end,omitempty"`
-	ActiveAddons         []AddonSummary  `json:"active_addons,omitempty"`
+	OrgID            string          `json:"org_id"`
+	Plan             string          `json:"plan"`
+	Period           PeriodInfo      `json:"period"`
+	Usage            UsageDimensions `json:"usage"`
+	PeriodSpendMicro int64           `json:"period_spend_microusd"`
+	OverageMicro     int64           `json:"overage_microusd"`
+	Alerts           []UsageAlert    `json:"alerts,omitempty"`
+	PaymentStatus    string          `json:"payment_status,omitempty"`
+	GracePeriodEnd   *string         `json:"grace_period_end,omitempty"`
+	ActiveAddons     []AddonSummary  `json:"active_addons,omitempty"`
 
 	// Enterprise-specific fields (only populated for enterprise plans).
 	EnterpriseTier     string  `json:"enterprise_tier,omitempty"`
 	ContractEndDate    string  `json:"contract_end_date,omitempty"`
-	ComputeDiscountPct int     `json:"compute_discount_pct,omitempty"`
+	OverageDiscountPct int     `json:"overage_discount_pct,omitempty"`
 	SLAUptimePct       float64 `json:"sla_uptime_pct,omitempty"`
 }
 
@@ -55,15 +52,12 @@ type UsageDimension struct {
 
 // UsageDimensions groups all quota dimensions.
 type UsageDimensions struct {
-	RunsToday           UsageDimension `json:"runs_today"`
-	ConcurrentRuns      UsageDimension `json:"concurrent_runs"`
-	ComputeCredit       UsageDimension `json:"compute_credit"`
-	Projects            UsageDimension `json:"projects"`
-	Members             UsageDimension `json:"members"`
-	AIModelCalls        UsageDimension `json:"ai_model_calls_today"`
-	AIAssistantMessages UsageDimension `json:"ai_assistant_messages_today"`
-	RetentionDays       int            `json:"retention_days"`
-	RegionsAvailable    int            `json:"regions_available"`
+	MonthlyRuns    UsageDimension `json:"monthly_runs"`
+	RunsToday      UsageDimension `json:"runs_today"` // Legacy alias for monthly_runs.
+	ConcurrentRuns UsageDimension `json:"concurrent_runs"`
+	Projects       UsageDimension `json:"projects"`
+	Members        UsageDimension `json:"members"`
+	RetentionDays  int            `json:"retention_days"`
 }
 
 // UsageAlert represents a quota approaching/exceeded alert.
@@ -77,26 +71,23 @@ type UsageAlert struct {
 
 // UsageHistoryEntry is a single day's usage data.
 type UsageHistoryEntry struct {
-	Date             string `json:"date"`
-	RunsCount        int64  `json:"runs_count"`
-	ComputeCostMicro int64  `json:"compute_cost_microusd"`
-	AITokens         int64  `json:"ai_tokens"`
-	AICostMicro      int64  `json:"ai_cost_microusd"`
+	Date       string `json:"date"`
+	RunsCount  int64  `json:"runs_count"`
+	SpendMicro int64  `json:"spend_microusd"`
 }
 
 // UsageForecastResponse is the response for GET /v1/usage/forecast.
 type UsageForecastResponse struct {
-	ProjectedMonthlyRuns           int64   `json:"projected_monthly_runs"`
-	ProjectedMonthlyComputeUsd     float64 `json:"projected_monthly_compute_usd"`
-	ProjectedMonthlyComputeLowUsd  float64 `json:"projected_monthly_compute_low_usd"`
-	ProjectedMonthlyComputeHighUsd float64 `json:"projected_monthly_compute_high_usd"`
-	ConfidencePct                  int     `json:"confidence_pct"`
-	ProjectedMonthlyAICostUsd      float64 `json:"projected_monthly_ai_cost_usd"`
-	RecommendedPlan                string  `json:"recommended_plan"`
-	DaysUntilLimit                 int     `json:"days_until_limit"`
-	ProjectedOverageMicro          int64   `json:"projected_overage_microusd"`
-	AddonSpendMicro                int64   `json:"addon_spend_microusd"`
-	ScaleBreakeven                 bool    `json:"scale_breakeven"`
+	ProjectedMonthlyRuns         int64   `json:"projected_monthly_runs"`
+	ProjectedMonthlySpendUsd     float64 `json:"projected_monthly_spend_usd"`
+	ProjectedMonthlySpendLowUsd  float64 `json:"projected_monthly_spend_low_usd"`
+	ProjectedMonthlySpendHighUsd float64 `json:"projected_monthly_spend_high_usd"`
+	ConfidencePct                int     `json:"confidence_pct"`
+	RecommendedPlan              string  `json:"recommended_plan"`
+	DaysUntilLimit               int     `json:"days_until_limit"`
+	ProjectedOverageMicro        int64   `json:"projected_overage_microusd"`
+	AddonSpendMicro              int64   `json:"addon_spend_microusd"`
+	ScaleBreakeven               bool    `json:"scale_breakeven"`
 }
 
 // UsageService provides usage data aggregation.
@@ -117,10 +108,9 @@ func (s *UsageService) GetCurrentUsage(ctx context.Context, orgID string) (*Curr
 		return nil, fmt.Errorf("getting org plan limits: %w", err)
 	}
 
-	// Get daily run count from Redis
-	runsToday, err := s.enforcer.GetDailyRunCount(ctx, orgID)
+	monthlyRuns, err := s.enforcer.GetMonthlyRunCount(ctx, orgID)
 	if err != nil {
-		runsToday = 0
+		monthlyRuns = 0
 	}
 
 	projectCount, err := s.store.CountProjectsByOrg(ctx, orgID)
@@ -138,15 +128,8 @@ func (s *UsageService) GetCurrentUsage(ctx context.Context, orgID string) (*Curr
 		return nil, fmt.Errorf("counting org concurrent runs: %w", err)
 	}
 
-	now := time.Now().UTC()
-	dayStart := now.UTC().Truncate(24 * time.Hour)
-	dayEnd := dayStart.Add(24 * time.Hour)
-	aiModelCallsToday, err := s.store.CountAIModelCallsByOrg(ctx, orgID, dayStart, dayEnd)
-	if err != nil {
-		return nil, fmt.Errorf("counting org ai model calls: %w", err)
-	}
-
 	// Get subscription for period info.
+	now := time.Now().UTC()
 	sub, err := s.store.GetOrgSubscription(ctx, orgID)
 	if err != nil && !errors.Is(err, ErrSubscriptionNotFound) {
 		return nil, fmt.Errorf("getting org subscription: %w", err)
@@ -159,32 +142,14 @@ func (s *UsageService) GetCurrentUsage(ctx context.Context, orgID string) (*Curr
 		return nil, fmt.Errorf("summing org period spend: %w", err)
 	}
 
-	computeUsed := periodSpend
-	// Included compute credit is zero in orchestration-only mode; all spend is overage.
-	var computeLimit int64
-
-	// For enterprise plans, load contract for credit pool and discount.
+	// For enterprise plans, load contract metadata for display and negotiated
+	// overage discounts. Launch billing uses run allowances, not spend credits.
 	var enterpriseContract *EnterpriseContract
 	if limits.PlanTier == domain.PlanEnterprise && orgID != "" {
 		contract, contractErr := s.store.GetEnterpriseContract(ctx, orgID)
 		if contractErr == nil && contract != nil {
 			enterpriseContract = contract
-			if contract.IncludedCreditMicrousd > 0 {
-				computeLimit = contract.IncludedCreditMicrousd
-			}
 		}
-	}
-
-	// Region count
-	regionCount := len(limits.AllowedRegions)
-	if regionCount == 0 {
-		regionCount = TotalRegions
-	}
-
-	aiModelCalls := UsageDimension{
-		Used:    aiModelCallsToday,
-		Limit:   int64(limits.MaxAIModelCallsPerDay),
-		Percent: safePercent(aiModelCallsToday, int64(limits.MaxAIModelCallsPerDay)),
 	}
 
 	resp := &CurrentUsageResponse{
@@ -195,21 +160,20 @@ func (s *UsageService) GetCurrentUsage(ctx context.Context, orgID string) (*Curr
 			End:   periodEnd.Format("2006-01-02"),
 		},
 		Usage: UsageDimensions{
+			MonthlyRuns: UsageDimension{
+				Used:    monthlyRuns,
+				Limit:   int64(limits.MaxRunsPerMonth),
+				Percent: safePercent(monthlyRuns, int64(limits.MaxRunsPerMonth)),
+			},
 			RunsToday: UsageDimension{
-				Used:    runsToday,
-				Limit:   limits.MaxRunsPerDay,
-				Percent: safePercent(runsToday, limits.MaxRunsPerDay),
+				Used:    monthlyRuns,
+				Limit:   int64(limits.MaxRunsPerMonth),
+				Percent: safePercent(monthlyRuns, int64(limits.MaxRunsPerMonth)),
 			},
 			ConcurrentRuns: UsageDimension{
 				Used:    int64(concurrentRuns),
 				Limit:   int64(limits.MaxConcurrentRuns),
 				Percent: safePercent(int64(concurrentRuns), int64(limits.MaxConcurrentRuns)),
-			},
-			ComputeCredit: UsageDimension{
-				Used:    computeUsed,
-				Limit:   computeLimit,
-				Percent: safePercent(computeUsed, computeLimit),
-				Display: fmt.Sprintf("$%.2f / $%.2f", float64(computeUsed)/1000000, float64(computeLimit)/1000000),
 			},
 			Projects: UsageDimension{
 				Used:    int64(projectCount),
@@ -221,29 +185,21 @@ func (s *UsageService) GetCurrentUsage(ctx context.Context, orgID string) (*Curr
 				Limit:   int64(limits.MaxMembersPerOrg),
 				Percent: safePercent(int64(memberCount), int64(limits.MaxMembersPerOrg)),
 			},
-			AIModelCalls:        aiModelCalls,
-			AIAssistantMessages: aiModelCalls,
-			RetentionDays:       limits.RetentionDays,
-			RegionsAvailable:    regionCount,
+			RetentionDays: limits.RetentionDays,
 		},
 	}
 
-	// Compute overage breakdown.
-	resp.IncludedCreditMicro = computeLimit
 	resp.PeriodSpendMicro = periodSpend
-	resp.OverageMicro = computeOverageSpend(periodSpend, computeLimit)
-	if computeLimit > 0 {
-		resp.CreditUsedPercent = float64(periodSpend) / float64(computeLimit) * 100
-	}
-	if periodSpend < computeLimit {
-		resp.CreditRemainingMicro = computeLimit - periodSpend
-	}
+	resp.OverageMicro = computeOverageSpend(periodSpend, 0)
 
 	// Load active add-ons.
 	if orgID != "" {
 		addons, addonErr := s.store.ListActiveAddons(ctx, orgID)
 		if addonErr == nil {
 			for _, a := range addons {
+				if !a.Active || !IsLaunchActiveAddonType(a.AddonType) {
+					continue
+				}
 				resp.ActiveAddons = append(resp.ActiveAddons, AddonSummary{
 					Type:     string(a.AddonType),
 					Quantity: a.Quantity,
@@ -260,7 +216,7 @@ func (s *UsageService) GetCurrentUsage(ctx context.Context, orgID string) (*Curr
 		resp.Alerts = append(resp.Alerts, UsageAlert{
 			Type:      "warning",
 			Dimension: "overage",
-			Message:   fmt.Sprintf("You're in overage ($%.2f over included credit). Set a spending limit to control costs.", float64(resp.OverageMicro)/1000000),
+			Message:   fmt.Sprintf("You're in overage ($%.2f beyond the included run allowance). Set a spending cap to control costs.", float64(resp.OverageMicro)/1000000),
 		})
 	}
 
@@ -277,13 +233,13 @@ func (s *UsageService) GetCurrentUsage(ctx context.Context, orgID string) (*Curr
 	if enterpriseContract != nil {
 		resp.EnterpriseTier = string(enterpriseContract.EnterpriseTier)
 		resp.ContractEndDate = enterpriseContract.ContractEndDate.Format("2006-01-02")
-		resp.ComputeDiscountPct = enterpriseContract.ComputeDiscountPct
+		resp.OverageDiscountPct = enterpriseContract.OverageDiscountPct
 		cfg := GetEnterpriseConfig(enterpriseContract.EnterpriseTier)
 		resp.SLAUptimePct = cfg.UptimeSLAPct
 
-		// Apply compute discount to overage.
-		if enterpriseContract.ComputeDiscountPct > 0 && resp.OverageMicro > 0 {
-			resp.OverageMicro = ApplyComputeDiscount(resp.OverageMicro, enterpriseContract.ComputeDiscountPct)
+		// Apply negotiated enterprise discount to overage spend.
+		if enterpriseContract.OverageDiscountPct > 0 && resp.OverageMicro > 0 {
+			resp.OverageMicro = ApplyOverageDiscount(resp.OverageMicro, enterpriseContract.OverageDiscountPct)
 		}
 	}
 
@@ -302,16 +258,12 @@ func (s *UsageService) GetUsageHistory(ctx context.Context, orgID string, from, 
 		dateStr := r.PeriodDate.Format("2006-01-02")
 		if entry, ok := dayMap[dateStr]; ok {
 			entry.RunsCount += r.RunsCount
-			entry.ComputeCostMicro += r.ComputeCostMicro
-			entry.AITokens += r.AITokensTotal
-			entry.AICostMicro += r.AICostMicro
+			entry.SpendMicro += r.ComputeCostMicro
 		} else {
 			dayMap[dateStr] = &UsageHistoryEntry{
-				Date:             dateStr,
-				RunsCount:        r.RunsCount,
-				ComputeCostMicro: r.ComputeCostMicro,
-				AITokens:         r.AITokensTotal,
-				AICostMicro:      r.AICostMicro,
+				Date:       dateStr,
+				RunsCount:  r.RunsCount,
+				SpendMicro: r.ComputeCostMicro,
 			}
 		}
 	}
@@ -340,7 +292,6 @@ func (s *UsageService) GetUsageForecast(ctx context.Context, orgID string) (*Usa
 
 	var totalRuns int64
 	var totalCompute int64
-	var totalAI int64
 	days := 0
 	daysSeen := make(map[string]bool)
 	dailyComputeByDay := make(map[string]int64)
@@ -352,7 +303,6 @@ func (s *UsageService) GetUsageForecast(ctx context.Context, orgID string) (*Usa
 		}
 		totalRuns += r.RunsCount
 		totalCompute += r.ComputeCostMicro
-		totalAI += r.AICostMicro
 		dailyComputeByDay[dateStr] += r.ComputeCostMicro
 	}
 
@@ -362,7 +312,6 @@ func (s *UsageService) GetUsageForecast(ctx context.Context, orgID string) (*Usa
 
 	avgDailyRuns := totalRuns / int64(days)
 	avgDailyCompute := totalCompute / int64(days)
-	avgDailyAI := totalAI / int64(days)
 
 	// Compute standard deviation of daily compute costs for confidence intervals.
 	dailyComputeValues := make([]float64, 0, len(dailyComputeByDay))
@@ -374,7 +323,6 @@ func (s *UsageService) GetUsageForecast(ctx context.Context, orgID string) (*Usa
 	daysInMonth := 30
 	projectedRuns := avgDailyRuns * int64(daysInMonth)
 	projectedCompute := float64(avgDailyCompute*int64(daysInMonth)) / 1000000
-	projectedAI := float64(avgDailyAI*int64(daysInMonth)) / 1000000
 
 	limits, err := s.enforcer.GetOrgPlanLimits(ctx, orgID)
 	if err != nil {
@@ -383,10 +331,14 @@ func (s *UsageService) GetUsageForecast(ctx context.Context, orgID string) (*Usa
 	recommended := recommendPlan(projectedRuns, avgDailyCompute*int64(daysInMonth))
 
 	daysUntilLimit := 0
-	if limits.MaxRunsPerDay > 0 && avgDailyRuns > 0 {
-		remaining := limits.MaxRunsPerDay - avgDailyRuns
-		if remaining > 0 && avgDailyCompute > 0 {
-			daysUntilLimit = min(30, int(remaining))
+	if limits.MaxRunsPerMonth > 0 && avgDailyRuns > 0 {
+		usedThisMonth, countErr := s.enforcer.GetMonthlyRunCount(ctx, orgID)
+		if countErr != nil {
+			usedThisMonth = 0
+		}
+		remaining := int64(limits.MaxRunsPerMonth) - usedThisMonth
+		if remaining > 0 {
+			daysUntilLimit = min(daysInMonth, int(math.Ceil(float64(remaining)/float64(avgDailyRuns))))
 		}
 	}
 
@@ -398,7 +350,10 @@ func (s *UsageService) GetUsageForecast(ctx context.Context, orgID string) (*Usa
 	addons, addonErr := s.store.ListActiveAddons(ctx, orgID)
 	if addonErr == nil {
 		for _, a := range addons {
-			if pack, ok := AddonPacks[a.AddonType]; ok && a.Active && a.Quantity > 0 {
+			if !a.Active || !IsLaunchActiveAddonType(a.AddonType) || a.Quantity <= 0 {
+				continue
+			}
+			if pack, ok := AddonPacks[a.AddonType]; ok {
 				addonSpendMicro += int64(pack.PriceCents) * int64(a.Quantity) * 10000
 			}
 		}
@@ -415,17 +370,16 @@ func (s *UsageService) GetUsageForecast(ctx context.Context, orgID string) (*Usa
 	highDailyCompute := avgDailyComputeF + 1.5*computeStddev
 
 	return &UsageForecastResponse{
-		ProjectedMonthlyRuns:           projectedRuns,
-		ProjectedMonthlyComputeUsd:     projectedCompute,
-		ProjectedMonthlyComputeLowUsd:  lowDailyCompute * float64(daysInMonth) / 1_000_000,
-		ProjectedMonthlyComputeHighUsd: highDailyCompute * float64(daysInMonth) / 1_000_000,
-		ConfidencePct:                  87,
-		ProjectedMonthlyAICostUsd:      projectedAI,
-		RecommendedPlan:                recommended,
-		DaysUntilLimit:                 daysUntilLimit,
-		ProjectedOverageMicro:          projectedOverage,
-		AddonSpendMicro:                addonSpendMicro,
-		ScaleBreakeven:                 scaleBreakeven,
+		ProjectedMonthlyRuns:         projectedRuns,
+		ProjectedMonthlySpendUsd:     projectedCompute,
+		ProjectedMonthlySpendLowUsd:  lowDailyCompute * float64(daysInMonth) / 1_000_000,
+		ProjectedMonthlySpendHighUsd: highDailyCompute * float64(daysInMonth) / 1_000_000,
+		ConfidencePct:                87,
+		RecommendedPlan:              recommended,
+		DaysUntilLimit:               daysUntilLimit,
+		ProjectedOverageMicro:        projectedOverage,
+		AddonSpendMicro:              addonSpendMicro,
+		ScaleBreakeven:               scaleBreakeven,
 	}, nil
 }
 
@@ -462,6 +416,7 @@ func (s *UsageService) GetSpendingLimit(ctx context.Context, orgID string) (*Spe
 		return &SpendingLimitResponse{
 			OrgID:            orgID,
 			PlanTier:         string(domain.PlanFree),
+			OverageEnabled:   false,
 			SpendingLimitUsd: 0,
 			LimitAction:      "reject",
 			CurrentSpendUsd:  float64(periodSpend) / 1000000,
@@ -479,20 +434,23 @@ func (s *UsageService) GetSpendingLimit(ctx context.Context, orgID string) (*Spe
 	overageSpend := computeOverageSpend(periodSpend, 0)
 
 	if limits.PlanTier == domain.PlanFree {
+		overageEnabled := !sub.OverageDisabled
 		return &SpendingLimitResponse{
 			OrgID:            orgID,
 			PlanTier:         string(domain.PlanFree),
-			SpendingLimitUsd: 0,
+			OverageEnabled:   overageEnabled,
+			SpendingLimitUsd: float64(sub.SpendingLimitMicrousd) / 1000000,
 			LimitAction:      "reject",
 			CurrentSpendUsd:  float64(periodSpend) / 1000000,
 			OverageSpendUsd:  float64(overageSpend) / 1000000,
-			IsHardCapped:     true,
+			IsHardCapped:     !overageEnabled || sub.SpendingLimitMicrousd == 0,
 		}, nil
 	}
 
 	return &SpendingLimitResponse{
 		OrgID:            orgID,
 		PlanTier:         sub.PlanTier,
+		OverageEnabled:   !sub.OverageDisabled,
 		SpendingLimitUsd: float64(sub.SpendingLimitMicrousd) / 1000000,
 		LimitAction:      sub.LimitAction,
 		CurrentSpendUsd:  float64(periodSpend) / 1000000,
@@ -529,7 +487,67 @@ func (s *UsageService) SetSpendingLimit(ctx context.Context, orgID string, limit
 		return fmt.Errorf("limit_action must be 'reject' or 'notify'")
 	}
 
-	return s.store.UpdateSpendingLimit(ctx, orgID, limitMicrousd, action)
+	shouldResume, err := s.shouldResumeQuotaPausedJobsAfterSpendingLimitChange(ctx, orgID, sub, limitMicrousd, action)
+	if err != nil {
+		return err
+	}
+
+	if err := s.store.UpdateSpendingLimit(ctx, orgID, limitMicrousd, action); err != nil {
+		return err
+	}
+
+	if shouldResume {
+		if _, err := s.store.UnpauseJobsByPauseReason(ctx, orgID, "quota_exceeded"); err != nil {
+			return fmt.Errorf("resuming jobs after spending limit update: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// SetOverageEnabled toggles whether the org may exceed its included monthly run allowance.
+func (s *UsageService) SetOverageEnabled(ctx context.Context, orgID string, enabled bool) error {
+	sub, err := s.store.GetOrgSubscription(ctx, orgID)
+	if err != nil {
+		if errors.Is(err, ErrSubscriptionNotFound) {
+			if enabled {
+				return fmt.Errorf("free overage requires a payment method on file")
+			}
+			return nil
+		}
+		return fmt.Errorf("getting org subscription: %w", err)
+	}
+
+	tier := domain.PlanTier(sub.PlanTier)
+	if tier == domain.PlanFree && enabled && sub.StripeCustomerID == nil {
+		return fmt.Errorf("free overage requires a payment method on file")
+	}
+
+	if err := s.store.UpdateOverageDisabled(ctx, orgID, !enabled); err != nil {
+		return err
+	}
+
+	if enabled {
+		if _, err := s.store.UnpauseJobsByPauseReason(ctx, orgID, "quota_exceeded"); err != nil {
+			return fmt.Errorf("resuming jobs after enabling overage: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func (s *UsageService) shouldResumeQuotaPausedJobsAfterSpendingLimitChange(ctx context.Context, orgID string, sub *OrgSubscription, limitMicrousd int64, action string) (bool, error) {
+	if action == "notify" {
+		return true, nil
+	}
+
+	periodStart, _ := usagePeriodWindow(time.Now().UTC(), domain.PlanTier(sub.PlanTier), sub)
+	periodSpend, err := s.store.SumOrgPeriodSpend(ctx, orgID, periodStart)
+	if err != nil {
+		return false, fmt.Errorf("summing org period spend before spending limit update: %w", err)
+	}
+	overageSpend := computeOverageSpend(periodSpend, 0)
+	return !isOverageLimitReached(limitMicrousd, overageSpend), nil
 }
 
 // PreviewDowngrade delegates to the downgrade module.
@@ -556,7 +574,7 @@ func (s *UsageService) DetectAnomalies(ctx context.Context, orgID string) ([]Ano
 	if sub != nil && sub.SpendingLimitMicrousd > 0 {
 		forecast, forecastErr := s.GetUsageForecast(ctx, orgID)
 		if forecastErr == nil && forecast != nil {
-			projectedSpendMicro := int64(forecast.ProjectedMonthlyComputeUsd * 1_000_000)
+			projectedSpendMicro := int64(forecast.ProjectedMonthlySpendUsd * 1_000_000)
 			if projectedSpendMicro > sub.SpendingLimitMicrousd {
 				alerts = append(alerts, AnomalyAlert{
 					OrgID:    orgID,
@@ -685,8 +703,7 @@ func (s *UsageService) buildAlerts(usage UsageDimensions) []UsageAlert {
 		percent float64
 		label   string
 	}{
-		{"runs_today", usage.RunsToday.Percent, "daily runs"},
-		{"compute_credit", usage.ComputeCredit.Percent, "compute credit"},
+		{"monthly_runs", usage.MonthlyRuns.Percent, "monthly runs"},
 		{"projects", usage.Projects.Percent, "project slots"},
 	}
 

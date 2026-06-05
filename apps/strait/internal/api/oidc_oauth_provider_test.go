@@ -10,7 +10,7 @@ import (
 
 // TestOIDCVerifierWithOAuthProviderToken verifies that tokens signed by
 // Better Auth's oauth-provider (RS256 with our RSA private key) pass the
-// Go OIDC verifier. This simulates the full MCP OAuth flow:
+// Go OIDC verifier. This simulates the full OAuth client flow:
 //
 //	Better Auth signs JWT with OIDC_PRIVATE_KEY_PEM -> Go verifies with OIDC_PUBLIC_KEY_PEM
 func TestOIDCVerifierWithOAuthProviderToken(t *testing.T) {

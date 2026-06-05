@@ -4,11 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
+	"strait/internal/billing"
+	"strait/internal/domain"
 	"strait/internal/store"
 )
 
@@ -52,6 +56,33 @@ func TestHandleGetApprovalStats_Success(t *testing.T) {
 	}
 	if stats.TotalApproved != 7 {
 		t.Errorf("expected 7 total_approved, got %d", stats.TotalApproved)
+	}
+}
+
+func TestHandleGetApprovalStats_FreeTierRejected(t *testing.T) {
+	t.Parallel()
+
+	ms := &AnalyticsStoreMock{
+		GetApprovalStatsFunc: func(_ context.Context, _ string, _, _ time.Time) (*store.ApprovalStats, error) {
+			t.Fatal("GetApprovalStats must not be called when approval-gates plan gate rejects")
+			return nil, nil
+		},
+	}
+	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, ms, &mockQueue{})
+	srv.edition = domain.EditionCloud
+	srv.billingEnforcer = &tunableLimitsEnforcer{limits: billing.GetPlanLimits(domain.PlanFree)}
+
+	from := time.Now().Add(-24 * time.Hour).UTC().Format(time.RFC3339)
+	to := time.Now().UTC().Format(time.RFC3339)
+	w := httptest.NewRecorder()
+	r := authedProjectRequest(http.MethodGet, approvalStatsURL(from, to), "", "proj-1")
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("free-tier approval stats must be 403, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "Approval gates") {
+		t.Fatalf("rejection must name the feature, got: %s", w.Body.String())
 	}
 }
 

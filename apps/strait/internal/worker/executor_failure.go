@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -59,11 +60,32 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 	fields := transition.fields
 	run.FinishedAt = &now
 	targetStatus := domain.StatusDeadLetter
+	eventType := EventDeadLettered
+	sentryErrorClass := errClass
+	if e.dlqCapEnforcer != nil {
+		proceed, enforceErr := e.dlqCapEnforcer.EnforceBeforeTransition(ctx, job.ProjectID, job.ID)
+		switch {
+		case enforceErr == nil && proceed:
+		case errors.Is(enforceErr, ErrDLQOverflow):
+			targetStatus = domain.StatusSystemFailed
+			eventType = EventSystemFailed
+			sentryErrorClass = "dlq_overflow"
+			fields["error"] = fmt.Sprintf("dlq overflow: cap reached before dead-lettering run: %s", errMsg)
+			fields["error_class"] = "dlq_overflow"
+		default:
+			e.logger.Warn("dlq cap check failed; allowing dead-letter transition",
+				"run_id", run.ID,
+				"job_id", run.JobID,
+				"project_id", run.ProjectID,
+				"error", enforceErr,
+			)
+		}
+	}
 	e.addExecutionTraceField(fields, targetStatus, execTrace)
 	run.Status = targetStatus
 
 	sentry.WithScope(func(scope *sentry.Scope) {
-		e.applyWorkerSentryScope(scope, run, map[string]any{"error_class": errClass})
+		e.applyWorkerSentryScope(scope, run, map[string]any{"error_class": sentryErrorClass})
 		scope.SetLevel(sentry.LevelWarning)
 		scope.SetContext("failure", map[string]any{
 			"error_message": errMsg,
@@ -71,8 +93,13 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 			"max_attempts":  policy.maxAttempts,
 			"final_status":  string(targetStatus),
 		})
-		scope.SetFingerprint([]string{"run_dead_lettered", run.JobID})
-		sentry.CaptureMessage(fmt.Sprintf("run dead-lettered: %s", errMsg))
+		if targetStatus == domain.StatusDeadLetter {
+			scope.SetFingerprint([]string{"run_dead_lettered", run.JobID})
+			sentry.CaptureMessage(fmt.Sprintf("run dead-lettered: %s", errMsg))
+		} else {
+			scope.SetFingerprint([]string{"run_dlq_overflow", run.JobID})
+			sentry.CaptureMessage(fmt.Sprintf("run failed before dead-lettering: %s", errMsg))
+		}
 	})
 
 	updateErr := e.completeRunWithWebhook(ctx, run, job, targetStatus, fields)
@@ -85,7 +112,8 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 		)
 		return false
 	}
-	e.emit(ctx, newTerminalRunEvent(EventDeadLettered, run, job, targetStatus, execTrace))
+	e.recordTerminalRunBilling(ctx, job, run)
+	e.emit(ctx, newTerminalRunEvent(eventType, run, job, targetStatus, execTrace))
 	e.notifyWorkflowCallback(ctx, run)
 
 	// Trigger on_failure job/workflow if configured.

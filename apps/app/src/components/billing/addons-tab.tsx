@@ -12,7 +12,12 @@ import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
 import { useState } from "react";
-import { ADDON_CATALOG, getActivePackCount } from "@/hooks/billing/use-addons";
+import {
+  getActivePackCount,
+  getAddonCatalogItem,
+  getAvailableAddonCatalog,
+  isAddonAvailableOnPlan,
+} from "@/hooks/billing/use-addons";
 import { orgUsageQueryOptions } from "@/hooks/billing/use-org-usage";
 import { apiRequest } from "@/lib/api-client.server";
 import { assertCloudEdition } from "@/lib/edition";
@@ -25,16 +30,10 @@ import { authMiddleware } from "@/middlewares/auth";
 import { requireActiveOrgAdmin } from "@/middlewares/require-access";
 
 const getAddonPriceMap = (): Record<string, string | undefined> => ({
-  "addon-concurrent-runs": process.env.STRIPE_ADDON_CONCURRENT_RUNS_PRICE_ID,
-  "addon-members": process.env.STRIPE_ADDON_MEMBERS_PRICE_ID,
-  "addon-cron-schedules": process.env.STRIPE_ADDON_CRON_SCHEDULES_PRICE_ID,
-  "addon-data-retention": process.env.STRIPE_ADDON_DATA_RETENTION_PRICE_ID,
-  "addon-webhook-endpoints":
-    process.env.STRIPE_ADDON_WEBHOOK_ENDPOINTS_PRICE_ID,
+  concurrency_100: process.env.STRIPE_ADDON_CONCURRENCY_100_PRICE_ID,
+  history_30d: process.env.STRIPE_ADDON_HISTORY_30D_PRICE_ID,
+  environments_5: process.env.STRIPE_ADDON_ENVIRONMENTS_5_PRICE_ID,
 });
-
-/** Plans that can purchase add-ons. Enterprise has custom terms. */
-const ADDON_ELIGIBLE_PLANS = new Set(["starter", "pro", "scale", "business"]);
 
 const startAddonCheckoutServerFn = createServerFn({ method: "POST" })
   .inputValidator((data: { checkoutSlug: string }) => data)
@@ -46,16 +45,20 @@ const startAddonCheckoutServerFn = createServerFn({ method: "POST" })
     const stripe = getStripeClient();
     const orgId = await requireActiveOrgAdmin(context);
 
-    const priceId = getAddonPriceMap()[data.checkoutSlug];
-    if (!priceId) {
+    const addon = getAddonCatalogItem(data.checkoutSlug);
+    if (!addon) {
       throw new Error(`Invalid addon: ${data.checkoutSlug}`);
+    }
+    const priceId = getAddonPriceMap()[addon.type];
+    if (!priceId) {
+      throw new Error(`Missing Stripe price for addon: ${addon.type}`);
     }
 
     const usage = await apiRequest<{ plan?: string }>("/v1/usage/current", {
       params: { org_id: orgId },
     });
-    if (!ADDON_ELIGIBLE_PLANS.has(usage.plan ?? "free")) {
-      throw new Error("Add-ons are not available for the current plan");
+    if (!isAddonAvailableOnPlan(addon.type, usage.plan)) {
+      throw new Error(`${addon.name} is not available for the current plan`);
     }
 
     const baseUrl =
@@ -87,7 +90,7 @@ const startAddonCheckoutServerFn = createServerFn({ method: "POST" })
       success_url: `${baseUrl}/app/billing?addon_success=true`,
       cancel_url: `${baseUrl}/app/billing`,
       customer: customerId,
-      allow_promotion_codes: true,
+      allow_promotion_codes: false,
       automatic_tax: { enabled: true },
       subscription_data: {
         metadata: { org_id: orgId },
@@ -106,14 +109,15 @@ const AddonsTab = () => {
   const [loadingSlug, setLoadingSlug] = useState<string | null>(null);
 
   const plan = usage?.plan ?? "free";
-  const isEligible = ADDON_ELIGIBLE_PLANS.has(plan);
+  const availableAddons = getAvailableAddonCatalog(plan);
+  const isEligible = availableAddons.length > 0;
   const activeAddons = usage?.active_addons;
 
   if (!isEligible) {
     const message =
       plan === "enterprise"
         ? "Enterprise plans have custom limits. Contact your account manager to adjust."
-        : "Add-ons are available on paid plans.";
+        : "Add-ons are available on Pro and above.";
 
     const action =
       plan === "enterprise" ? null : (
@@ -121,7 +125,7 @@ const AddonsTab = () => {
           onClick={() => navigate({ to: "/app/upgrade" })}
           variant="default"
         >
-          Upgrade to Starter
+          Upgrade to Pro
         </Button>
       );
 
@@ -148,7 +152,7 @@ const AddonsTab = () => {
       </div>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-        {ADDON_CATALOG.map((addon) => {
+        {availableAddons.map((addon) => {
           const activePacks = getActivePackCount(activeAddons, addon.type);
 
           return (
@@ -179,12 +183,12 @@ const AddonsTab = () => {
                     </p>
                   </div>
                   <Button
-                    disabled={loadingSlug === addon.checkoutSlug}
+                    disabled={loadingSlug === addon.type}
                     onClick={async () => {
-                      setLoadingSlug(addon.checkoutSlug);
+                      setLoadingSlug(addon.type);
                       try {
                         const result = await startAddonCheckoutServerFn({
-                          data: { checkoutSlug: addon.checkoutSlug },
+                          data: { checkoutSlug: addon.type },
                         });
                         if (result.checkoutUrl) {
                           window.location.assign(result.checkoutUrl);
@@ -197,9 +201,7 @@ const AddonsTab = () => {
                     }}
                     variant="outline"
                   >
-                    {loadingSlug === addon.checkoutSlug
-                      ? "Loading..."
-                      : "Add pack"}
+                    {loadingSlug === addon.type ? "Loading..." : "Add pack"}
                   </Button>
                 </div>
               </CardContent>

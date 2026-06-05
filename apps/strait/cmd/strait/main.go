@@ -12,6 +12,7 @@ import (
 
 	"strait/internal/api"
 	"strait/internal/billing"
+	"strait/internal/cdc"
 	"strait/internal/clickhouse"
 	"strait/internal/config"
 	"strait/internal/crypto"
@@ -41,6 +42,22 @@ func main() {
 	code := run(ctx)
 	cancel()
 	os.Exit(code)
+}
+
+func validateCloudBillingConfig(edition domain.Edition, cfg *config.Config) error {
+	if cfg == nil || edition != domain.EditionCloud {
+		return nil
+	}
+	if cfg.SentryEnvironment == "development" || cfg.SentryEnvironment == "test" {
+		return nil
+	}
+	if !cfg.BillingEnforcementEnabled {
+		return fmt.Errorf("cloud billing enforcement requires BILLING_ENFORCEMENT_ENABLED=true in non-development environments")
+	}
+	if cfg.StripeWebhookSecret == "" {
+		return fmt.Errorf("cloud billing enforcement requires STRIPE_WEBHOOK_SECRET in non-development environments")
+	}
+	return nil
 }
 
 func run(ctx context.Context) int {
@@ -395,7 +412,12 @@ func runServe(ctx context.Context, modeOverride string) error {
 		return err
 	}))
 	healthReg.Register(health.NewRedisChecker(redisPingerAdapter{rdb}))
-	healthReg.Register(health.NewSequinChecker(cfg.SequinBaseURL))
+	healthReg.Register(health.NewSequinChecker(cdc.NewClient(
+		cfg.SequinBaseURL,
+		cfg.SequinConsumerName,
+		cfg.SequinAPIToken,
+		cdc.WithDatabaseName(cfg.SequinDatabaseName),
+	)))
 	healthReg.Register(health.NewAuditProbe(queries))
 	healthReg.Register(health.NewAuditDMLGuardProbe(queries))
 	logAuditDMLGuardStartup(ctx, queries, metrics)
@@ -408,6 +430,10 @@ func runServe(ctx context.Context, modeOverride string) error {
 		} else {
 			apiEncryptor = enc
 		}
+	}
+
+	if err := validateCloudBillingConfig(domain.ParseEdition(cfg.Edition), cfg); err != nil {
+		return err
 	}
 
 	// Create a shared billing enforcer (used by both API webhook handler and worker executor).
@@ -424,6 +450,9 @@ func runServe(ctx context.Context, modeOverride string) error {
 		billingDispatcher = webhook.NewBillingDispatcher(eventNotifier, billingStore, queries, slog.Default())
 
 		var enforcerOpts []billing.EnforcerOption
+		if cfg.BillingEnforcementEnabled {
+			enforcerOpts = append(enforcerOpts, billing.WithRequireRedis())
+		}
 		billingEmailSender := billing.NewBillingEmailSender(cfg.ResendAPIKey, "billing@strait.dev", slog.Default())
 		if billingEmailSender != nil {
 			enforcerOpts = append(enforcerOpts, billing.WithEnforcerBillingEmails(billingEmailSender))
@@ -439,6 +468,10 @@ func runServe(ctx context.Context, modeOverride string) error {
 		// is billed at the same flat rate as an HTTP run (20 micro-USD).
 		webhookCostRecorder := billing.NewRunCostRecorder(billingStore, rdb, nil, slog.Default())
 		eventNotifier.SetRunCostRecorder(webhookCostRecorder)
+	}
+
+	if err := validateBillingEnforcerDependency(cfg, billingEnforcer); err != nil {
+		return err
 	}
 
 	if (cfg.BillingEnforcementEnabled || cfg.StripeWebhookSecret != "") && cfg.StripeWebhookSecret == "" {
@@ -530,6 +563,13 @@ func runServe(ctx context.Context, modeOverride string) error {
 func validateBillingRedisDependency(cfg *config.Config, rdb *redis.Client) error {
 	if cfg != nil && cfg.BillingEnforcementEnabled && rdb == nil {
 		return fmt.Errorf("billing enforcement requires Redis; configure REDIS_URL or Redis Sentinel")
+	}
+	return nil
+}
+
+func validateBillingEnforcerDependency(cfg *config.Config, enforcer *billing.Enforcer) error {
+	if cfg != nil && cfg.BillingEnforcementEnabled && enforcer == nil {
+		return fmt.Errorf("billing enforcement requires billing enforcer")
 	}
 	return nil
 }

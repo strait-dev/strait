@@ -9,6 +9,9 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/alicebob/miniredis/v2"
+	"github.com/redis/go-redis/v9"
 )
 
 // newFakeDispatcherEnforcer returns an Enforcer wired to a mockBillingStore
@@ -65,7 +68,8 @@ func TestCheckSpendingLimit_DispatchesCapReachedAndOverageDisabled(t *testing.T)
 	t.Parallel()
 
 	sub := newPaidSubscription("org_block", string(domain.PlanPro), 1_000_000, "block") // action=block
-	e, _, d := newFakeDispatcherEnforcer(t, sub, 1_500_000)                             // 150% of cap
+	e, store, d := newFakeDispatcherEnforcer(t, sub, 1_500_000)                         // 150% of cap
+	store.pausedJobIDs = []string{"schedule-a", "schedule-b"}
 
 	err := e.CheckSpendingLimit(context.Background(), sub.OrgID)
 	var limitErr *LimitError
@@ -81,6 +85,53 @@ func TestCheckSpendingLimit_DispatchesCapReachedAndOverageDisabled(t *testing.T)
 	}
 	if contains(got, domain.WebhookEventBillingCapDisabled) {
 		t.Errorf("cap_disabled should not fire on action=block; got %v", got)
+	}
+	if store.pausedOrgID != sub.OrgID || store.pausedReason != "quota_exceeded" {
+		t.Fatalf("spending cap should pause org schedules with quota_exceeded, got org=%q reason=%q",
+			store.pausedOrgID, store.pausedReason)
+	}
+	if cnt := countEvent(got, domain.WebhookEventScheduleSuspended); cnt != 2 {
+		t.Fatalf("schedule.suspended events = %d, want 2 for paused schedules", cnt)
+	}
+}
+
+func TestCheckMonthlyRunLimit_FreeCapPausesSchedules(t *testing.T) {
+	t.Parallel()
+
+	orgID := "org_free_cap_pause"
+	sub := &OrgSubscription{
+		OrgID:           orgID,
+		PlanTier:        string(domain.PlanFree),
+		Status:          "active",
+		OverageDisabled: true,
+	}
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{orgID: sub},
+		pausedJobIDs:  []string{"schedule-free"},
+	}
+	d := &fakeDispatcher{}
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { rdb.Close() })
+	e := NewEnforcer(store, rdb, nil, WithBillingDispatcher(d))
+
+	key := monthlyRunKey(orgID, time.Now())
+	if err := mr.Set(key, "5000"); err != nil {
+		t.Fatalf("seed monthly run count: %v", err)
+	}
+	mr.SetTTL(key, time.Hour)
+
+	err := e.CheckMonthlyRunLimitForRun(context.Background(), orgID, "run-free-cap")
+	var limitErr *LimitError
+	if !errors.As(err, &limitErr) {
+		t.Fatalf("CheckMonthlyRunLimitForRun err = %v, want *LimitError", err)
+	}
+	if store.pausedOrgID != orgID || store.pausedReason != "quota_exceeded" {
+		t.Fatalf("free monthly cap should pause org schedules with quota_exceeded, got org=%q reason=%q",
+			store.pausedOrgID, store.pausedReason)
+	}
+	if got := countEvent(dispatchedEventTypes(d), domain.WebhookEventScheduleSuspended); got != 1 {
+		t.Fatalf("schedule.suspended events = %d, want 1", got)
 	}
 }
 

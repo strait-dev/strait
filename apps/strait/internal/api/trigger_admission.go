@@ -48,8 +48,14 @@ func (s *Server) withTriggerLimitGuard(ctx context.Context, job *domain.Job, quo
 }
 
 func (s *Server) checkTriggerDispatchPriority(ctx context.Context, projectID string, priority int) error {
-	if s.billingEnforcer == nil || priority <= 0 {
+	if priority <= 0 {
 		return nil
+	}
+	if !s.edition.RequiresHTTPModeGating() {
+		return nil
+	}
+	if s.billingEnforcer == nil {
+		return planGateUnavailable("dispatch_priority_enforcer", errors.New("billing enforcer not configured"))
 	}
 	if err := s.billingEnforcer.CheckMaxDispatchPriority(ctx, projectID, priority); err != nil {
 		var rse *rawStatusError

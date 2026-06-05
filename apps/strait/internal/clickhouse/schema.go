@@ -50,26 +50,6 @@ ORDER BY (project_id, job_id, created_at)
 TTL inserted_at + INTERVAL 365 DAY
 `
 
-// RunUsageEventsTable is the DDL for the run_usage_events ClickHouse table.
-const RunUsageEventsTable = `
-CREATE TABLE IF NOT EXISTS run_usage_events (
-    run_id String,
-    job_id String,
-    project_id String,
-    provider LowCardinality(String),
-    model LowCardinality(String),
-    prompt_tokens UInt32,
-    completion_tokens UInt32,
-    total_tokens UInt32,
-    cost_microusd Int64,
-    created_at DateTime64(3),
-    inserted_at DateTime64(3) DEFAULT now64(3)
-) ENGINE = MergeTree()
-PARTITION BY toDate(inserted_at)
-ORDER BY (project_id, job_id, created_at)
-TTL inserted_at + INTERVAL 365 DAY
-`
-
 // WorkflowApprovalEventsTable is the DDL for the workflow_approval_events ClickHouse table.
 const WorkflowApprovalEventsTable = `
 CREATE TABLE IF NOT EXISTS workflow_approval_events (
@@ -223,29 +203,27 @@ const CostDailyTable = `
 CREATE TABLE IF NOT EXISTS cost_daily (
     project_id String,
     day Date,
-    ai_cost_microusd Int64,
+    usage_cost_microusd Int64,
     compute_cost_microusd Int64,
-    total_tokens UInt64,
     run_count UInt64,
     inserted_at DateTime64(3) DEFAULT now64(3)
-) ENGINE = SummingMergeTree((ai_cost_microusd, compute_cost_microusd, total_tokens, run_count))
+) ENGINE = SummingMergeTree((usage_cost_microusd, compute_cost_microusd, run_count))
 PARTITION BY toYYYYMM(day)
 ORDER BY (project_id, day)
 TTL day + INTERVAL 365 DAY
 `
 
-// CostDailyMV is the materialized view that populates cost_daily from run_usage_events.
+// CostDailyMV is the materialized view that populates cost_daily from run_analytics.
 const CostDailyMV = `
 CREATE MATERIALIZED VIEW IF NOT EXISTS cost_daily_mv
 TO cost_daily AS
 SELECT
     project_id,
     toDate(created_at) AS day,
-    sum(cost_microusd) AS ai_cost_microusd,
-    0 AS compute_cost_microusd,
-    sum(total_tokens) AS total_tokens,
-    count(DISTINCT run_id) AS run_count
-FROM run_usage_events
+    0 AS usage_cost_microusd,
+    sum(compute_cost_microusd) AS compute_cost_microusd,
+    count() AS run_count
+FROM run_analytics
 GROUP BY project_id, day
 `
 
@@ -305,7 +283,6 @@ func CreateSchema(ctx context.Context, c *Client) error {
 	}{
 		{"run_events", RunEventsTable},
 		{"run_analytics", RunAnalyticsTable},
-		{"run_usage_events", RunUsageEventsTable},
 		{"workflow_approval_events", WorkflowApprovalEventsTable},
 		{"job_metadata", JobMetadataTable},
 		{"webhook_delivery_events", WebhookDeliveryEventsTable},

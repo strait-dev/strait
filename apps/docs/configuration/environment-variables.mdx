@@ -28,6 +28,7 @@ export REDIS_URL="redis://localhost:16379"
 export SEQUIN_BASE_URL="http://localhost:7376"
 export SEQUIN_CONSUMER_NAME="strait-cdc"
 export SEQUIN_API_TOKEN="$(openssl rand -hex 32)"
+export SEQUIN_WEBHOOK_SECRET="$(openssl rand -hex 32)"
 export INTERNAL_SECRET="$(openssl rand -base64 32)"
 export JWT_SIGNING_KEY="$(openssl rand -base64 32)"
 export ENCRYPTION_KEY="$(openssl rand -base64 32)"
@@ -134,6 +135,14 @@ Strait uses a vendored and modified SQL snapshot of [PgQue](https://github.com/N
 | `STRAIT_PROFILING_ALLOWED_CIDRS` | - | Optional comma-separated CIDR/IP allowlist for pprof callers. |
 | `PYROSCOPE_ENDPOINT` | - | Pyroscope endpoint for profiling. |
 
+## Worker DLQ
+
+| Variable | Default | Description |
+|---|---|---|
+| `DLQ_MAX_PER_PROJECT` | `10000` | Maximum visible dead-letter runs per project. Set `0` to disable the project cap. |
+| `DLQ_MAX_PER_JOB` | `1000` | Maximum visible dead-letter runs per job. Set `0` to disable the job cap. |
+| `DLQ_OVERFLOW_POLICY` | `drop_oldest` | `drop_oldest` masks the oldest visible DLQ row before adding a new one. `reject` marks the new terminal failure `system_failed` with `error_class=dlq_overflow`. |
+
 ## Notifications
 
 | Variable | Default | Description |
@@ -144,6 +153,14 @@ Strait uses a vendored and modified SQL snapshot of [PgQue](https://github.com/N
 | `ENDPOINT_REQUIRE_TLS` | `false` | Require HTTPS for job endpoint and fallback endpoint URLs. Job dispatch injects decrypted secrets and the run-token JWT, so enable this to reject plaintext HTTP endpoints. |
 | `ALLOW_PRIVATE_ENDPOINTS` | `false` | Allow private endpoint URLs. Not recommended unless the network is trusted. |
 
+## Billing
+
+| Variable | Default | Description |
+|---|---|---|
+| `BILLING_ENFORCEMENT_ENABLED` | `false` | Enables cloud plan gates, run-limit enforcement, spending-cap enforcement, and worker billing hooks. Required for cloud builds outside development and test environments. |
+| `STRIPE_SECRET_KEY` | - | Stripe API key used for metered usage reporting and billing operations. |
+| `STRIPE_WEBHOOK_SECRET` | - | Stripe webhook signing secret. Required for cloud builds outside development and test environments. |
+
 ## CDC / Sequin
 
 | Variable | Default | Description |
@@ -152,7 +169,7 @@ Strait uses a vendored and modified SQL snapshot of [PgQue](https://github.com/N
 | `SEQUIN_CONSUMER_NAME` | - | Required Sequin HTTP pull consumer name. |
 | `SEQUIN_DATABASE_NAME` | `strait-db` | Sequin database name from the mounted Sequin config. |
 | `SEQUIN_API_TOKEN` | - | Bearer token used for Sequin API calls. |
-| `SEQUIN_WEBHOOK_SECRET` | - | HMAC-SHA256 secret used to verify Sequin push webhook request bodies. Set this when using `/internal/cdc/webhook`. |
+| `SEQUIN_WEBHOOK_SECRET` | - | HMAC-SHA256 secret used to verify Sequin push webhook request bodies. Required outside development and test environments. |
 | `SEQUIN_BATCH_SIZE` | `200` | Max CDC messages fetched per pull request. `CDC_BATCH_SIZE` is accepted as an alias. |
 | `SEQUIN_WAIT_TIME_MS` | `5000` | Sequin long-poll wait time in milliseconds. `CDC_WAIT_TIME_MS` is accepted as an alias. |
 

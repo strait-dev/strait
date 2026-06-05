@@ -40,7 +40,7 @@ func TestAnomalyDetector_DetectAnomalies_Spike(t *testing.T) {
 			ProjectID:        "proj-a",
 			PeriodDate:       today.AddDate(0, 0, -i),
 			ComputeCostMicro: 1000,
-			AICostMicro:      0,
+			UsageCostMicro:   0,
 		})
 	}
 	// Today: 5000 (5x the average).
@@ -49,7 +49,7 @@ func TestAnomalyDetector_DetectAnomalies_Spike(t *testing.T) {
 		ProjectID:        "proj-a",
 		PeriodDate:       today,
 		ComputeCostMicro: 5000,
-		AICostMicro:      0,
+		UsageCostMicro:   0,
 	})
 
 	store := &mockAnomalyStore{usageRecords: records}
@@ -108,38 +108,35 @@ func TestAnomalyDetector_DetectAnomalies_NoSpike(t *testing.T) {
 	}
 }
 
-func TestAnomalyDetector_DetectAnomalies_AISpendSpike(t *testing.T) {
+func TestAnomalyDetector_DetectAnomalies_IgnoresUsageCost(t *testing.T) {
 	today := time.Now().UTC()
 	today = time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, time.UTC)
 
 	var records []UsageRecord
 	for i := 1; i <= 7; i++ {
 		records = append(records, UsageRecord{
-			OrgID:       "org-ai",
-			ProjectID:   "proj-a",
-			PeriodDate:  today.AddDate(0, 0, -i),
-			AICostMicro: 1_000,
+			OrgID:          "org-usage",
+			ProjectID:      "proj-a",
+			PeriodDate:     today.AddDate(0, 0, -i),
+			UsageCostMicro: 1_000,
 		})
 	}
 	records = append(records, UsageRecord{
-		OrgID:       "org-ai",
-		ProjectID:   "proj-a",
-		PeriodDate:  today,
-		AICostMicro: 6_000,
+		OrgID:          "org-usage",
+		ProjectID:      "proj-a",
+		PeriodDate:     today,
+		UsageCostMicro: 6_000,
 	})
 
 	store := &mockAnomalyStore{usageRecords: records}
 	detector := NewAnomalyDetector(store)
 
-	alerts, err := detector.DetectAnomalies(context.Background(), []string{"org-ai"})
+	alerts, err := detector.DetectAnomalies(context.Background(), []string{"org-usage"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(alerts) != 1 {
-		t.Fatalf("expected 1 alert, got %d", len(alerts))
-	}
-	if alerts[0].OrgID != "org-ai" {
-		t.Fatalf("org_id = %q, want org-ai", alerts[0].OrgID)
+	if len(alerts) != 0 {
+		t.Fatalf("expected no alerts from usage cost, got %d", len(alerts))
 	}
 }
 
@@ -379,7 +376,7 @@ func TestAnomalyDetector_DefaultConfig_BackwardsCompatible(t *testing.T) {
 	}
 }
 
-func TestAnomalyDetector_MixedComputeAndAISpend(t *testing.T) {
+func TestAnomalyDetector_MixedComputeAndUsageSpendUsesComputeOnly(t *testing.T) {
 	today := time.Now().UTC()
 	today = time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, time.UTC)
 
@@ -390,16 +387,16 @@ func TestAnomalyDetector_MixedComputeAndAISpend(t *testing.T) {
 			ProjectID:        "proj-a",
 			PeriodDate:       today.AddDate(0, 0, -i),
 			ComputeCostMicro: 500,
-			AICostMicro:      500,
+			UsageCostMicro:   500,
 		})
 	}
-	// Today: compute 3000 + AI 2000 = 5000 total (5x avg of 1000).
+	// Launch anomaly detection ignores usage cost: 3000 compute / 500 baseline = 6x.
 	records = append(records, UsageRecord{
 		OrgID:            "org-mixed",
 		ProjectID:        "proj-a",
 		PeriodDate:       today,
 		ComputeCostMicro: 3000,
-		AICostMicro:      2000,
+		UsageCostMicro:   2000,
 	})
 
 	store := &mockAnomalyStore{usageRecords: records}
@@ -412,14 +409,14 @@ func TestAnomalyDetector_MixedComputeAndAISpend(t *testing.T) {
 	if len(alerts) != 1 {
 		t.Fatalf("expected 1 alert, got %d", len(alerts))
 	}
-	if alerts[0].SpikeRatio != 5.0 {
-		t.Errorf("expected spike ratio 5.0, got %f", alerts[0].SpikeRatio)
+	if alerts[0].SpikeRatio != 6.0 {
+		t.Errorf("expected spike ratio 6.0, got %f", alerts[0].SpikeRatio)
 	}
-	if alerts[0].TodaySpend != 5000 {
-		t.Errorf("expected today spend 5000, got %d", alerts[0].TodaySpend)
+	if alerts[0].TodaySpend != 3000 {
+		t.Errorf("expected today spend 3000, got %d", alerts[0].TodaySpend)
 	}
-	if alerts[0].Avg7dSpend != 1000 {
-		t.Errorf("expected avg7d 1000, got %d", alerts[0].Avg7dSpend)
+	if alerts[0].Avg7dSpend != 500 {
+		t.Errorf("expected avg7d 500, got %d", alerts[0].Avg7dSpend)
 	}
 }
 

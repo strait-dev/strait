@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"strait/internal/config"
 	"strait/internal/domain"
 )
 
@@ -99,6 +100,52 @@ func TestHandleRotateAPIKey_PublishesWorkerExpiryDeadline(t *testing.T) {
 	}
 	if time.Until(publishedDeadline) <= 0 {
 		t.Fatalf("published deadline is not in the future: %s", publishedDeadline)
+	}
+}
+
+func TestHandleRotateAPIKey_GRPCEnabledRequiresPubSubBeforeRotating(t *testing.T) {
+	t.Parallel()
+
+	expiresAt := time.Now().Add(24 * time.Hour)
+	created := false
+	rotated := false
+	ms := &APIStoreMock{}
+	ms.GetAPIKeyByIDFunc = func(_ context.Context, id string) (*domain.APIKey, error) {
+		return &domain.APIKey{ID: id, ProjectID: "proj-1", OrgID: "org-1", Name: "worker key", Scopes: []string{domain.ScopeWorkersConnect}, ExpiresAt: &expiresAt}, nil
+	}
+	ms.CreateAPIKeyFunc = func(_ context.Context, _ *domain.APIKey) error {
+		created = true
+		return nil
+	}
+	ms.MarkAPIKeyRotatedFunc = func(context.Context, string, string, time.Time) error {
+		rotated = true
+		return nil
+	}
+
+	srv := NewServer(ServerDeps{
+		Config: &config.Config{
+			InternalSecret:      "test-secret-value",
+			MaxBulkTriggerItems: 500,
+			JWTSigningKey:       testJWTSigningKey,
+			GRPCEnabled:         true,
+		},
+		Store:   ms,
+		Queue:   &mockQueue{},
+		Edition: domain.EditionCloud,
+	})
+	t.Cleanup(srv.Close)
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/api-keys/key-old/rotate", `{"grace_period_minutes":30}`))
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusServiceUnavailable, w.Body.String())
+	}
+	if created {
+		t.Fatal("replacement key was created even though worker-stream expiry broadcast was unavailable")
+	}
+	if rotated {
+		t.Fatal("old key was marked rotated even though worker-stream expiry broadcast was unavailable")
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"strait/internal/domain"
 )
@@ -19,13 +20,17 @@ func (e *Enforcer) resolveOrgPlanLimits(
 	ctx context.Context,
 	orgID string,
 	sub *OrgSubscription,
-) orgPlanLimitsResolution {
+) (orgPlanLimitsResolution, error) {
 	tier := domain.PlanTier(sub.PlanTier)
 	cacheVersion := orgSubscriptionCacheVersion(sub)
 	limits, usedSnapshot := e.limitsFromEntitlementsSnapshot(orgID, sub)
 
 	if !usedSnapshot {
-		limits = e.computeOrgPlanLimits(ctx, orgID, tier, sub)
+		var err error
+		limits, err = e.computeOrgPlanLimits(ctx, orgID, tier, sub)
+		if err != nil {
+			return orgPlanLimitsResolution{}, err
+		}
 		if e.entitlementsAuthoritative {
 			if err := e.store.UpdateEntitlements(ctx, orgID, limits); err != nil {
 				e.logger.Warn("failed to opportunistically populate entitlements",
@@ -42,7 +47,7 @@ func (e *Enforcer) resolveOrgPlanLimits(
 		limits:          limits,
 		enforcementMode: sub.EnforcementMode,
 		cacheVersion:    cacheVersion,
-	}
+	}, nil
 }
 
 func (e *Enforcer) limitsFromEntitlementsSnapshot(
@@ -66,23 +71,24 @@ func (e *Enforcer) computeOrgPlanLimits(
 	orgID string,
 	tier domain.PlanTier,
 	sub *OrgSubscription,
-) OrgPlanLimits {
+) (OrgPlanLimits, error) {
 	limits := GetPlanLimits(tier)
 
 	addons, addonErr := e.store.ListActiveAddons(ctx, orgID)
 	if addonErr != nil {
-		e.logger.Warn("failed to load add-ons, using base plan limits", "org_id", orgID, "error", addonErr)
+		return OrgPlanLimits{}, fmt.Errorf("listing active add-ons: %w", addonErr)
 	} else if len(addons) > 0 {
 		limits = EffectiveLimits(limits, addons)
 	}
 
-	return ApplySubscriptionAddOns(limits, sub.AddOns)
+	return ApplySubscriptionAddOns(limits, sub.AddOns), nil
 }
 
 func applyOrgLimitOverrides(limits *OrgPlanLimits, sub *OrgSubscription) {
-	if sub.OverrideDailyRunLimit != nil {
-		limits.MaxRunsPerDay = int64(*sub.OverrideDailyRunLimit)
-	}
+	// The legacy daily run override is intentionally ignored for launch:
+	// billing is monthly orchestration runs, and all launch plans keep
+	// MaxRunsPerDay at -1 so stale support metadata cannot reactivate a
+	// public daily quota.
 	if sub.OverrideConcurrentRunLimit != nil {
 		limits.MaxConcurrentRuns = *sub.OverrideConcurrentRunLimit
 	}

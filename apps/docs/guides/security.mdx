@@ -47,8 +47,12 @@ To restrict outbound traffic, Strait only allows webhooks on standard and common
 
 Strait rate-limits requests at multiple levels.
 
+### Plan API Rate Limit
+
+In Strait Cloud, requests that resolve to a project or API key use the plan API limit from billing: Free 60/min, Starter 300/min, Pro 1,000/min, Scale 3,000/min, and Business or Enterprise unlimited by plan. API-key and project quota overrides can lower this value, but cannot raise it above the plan cap.
+
 ### Global Rate Limit
-Controlled by the `RATE_LIMIT_REQUESTS` environment variable. This limits the total number of requests a single IP can make within the `RATE_LIMIT_WINDOW`.
+Controlled by the `RATE_LIMIT_REQUESTS` environment variable. This fallback limits the total number of requests a single IP can make within the `RATE_LIMIT_WINDOW` when no project, API-key, or plan limit applies.
 
 ### Per-Trigger Rate Limit
 Controlled by `TRIGGER_RATE_LIMIT_REQUESTS`. This specifically limits the `/trigger` endpoints to prevent accidental or malicious job flooding.
@@ -90,9 +94,9 @@ Keys with empty scopes (`[]`) retain full access for backward compatibility.
 
 ## Role-Based Access Control
 
-Users accessing Strait through the app are authorized via project roles. Each role defines a set of permissions identical to API key scopes. Four built-in roles (admin, operator, viewer, triggerer) are available, and you can create custom roles per-project.
+Users accessing Strait through the app are authorized via project roles. Each role defines a set of permissions identical to API key scopes. Four built-in roles (admin, operator, viewer, triggerer) are available on Basic RBAC plans. Custom roles require Full RBAC.
 
-RBAC also supports role inheritance and policy-based grants (resource policies and tag policies) for finer-grained authorization without relying on broad static roles.
+RBAC also supports role inheritance on Full RBAC plans and policy-based grants (resource policies and tag policies) on Advanced RBAC plans for finer-grained authorization without relying on broad static roles.
 
 See [Authentication & Authorization](/guides/authentication#rbac) for details.
 

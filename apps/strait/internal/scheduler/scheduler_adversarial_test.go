@@ -1464,15 +1464,6 @@ func TestConcurrentReconciler_Construction(t *testing.T) {
 	}
 }
 
-func TestConcurrentReconciler_WithDailyRunCounter(t *testing.T) {
-	t.Parallel()
-	r := NewConcurrentReconciler(nil, nil, time.Minute)
-	r2 := r.WithDailyRunCounter(nil)
-	if r2 != r {
-		t.Fatal("expected fluent return of same instance")
-	}
-}
-
 // FormatBudgetAlertKey edge cases
 
 func TestFormatBudgetAlertKey_EmptyProject(t *testing.T) {

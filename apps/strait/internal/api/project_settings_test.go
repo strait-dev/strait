@@ -81,7 +81,7 @@ func TestUpdateProjectSettings_InternalSecret_CrossOrgForbidden(t *testing.T) {
 		},
 	}
 	srv := newUsageTestServer(t, enforcer, &mockUsageService{})
-	body := `{"default_region":"us-east-1"}`
+	body := `{"max_key_lifetime_days":30}`
 	req := internalSecretRequestWithProject(http.MethodPut, "/v1/projects/proj-B/settings", body, "proj-A")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -98,11 +98,10 @@ func TestUpdateProjectSettings_InternalSecret_SameOrgAllowed(t *testing.T) {
 		},
 	}
 	srv := newUsageTestServer(t, enforcer, &mockUsageService{})
-	body := `{"default_region":"us-east-1"}`
+	body := `{"max_key_lifetime_days":30}`
 	req := internalSecretRequestWithProject(http.MethodPut, "/v1/projects/proj-A/settings", body, "proj-A")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-	// Should succeed (200) - the region validation may fail but the ownership check passes
 	if w.Code == http.StatusForbidden {
 		t.Fatalf("expected non-403, got 403: %s", w.Body.String())
 	}
