@@ -6,6 +6,9 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestRetries_Schedule_Clear_Ready(t *testing.T) {
@@ -17,40 +20,38 @@ func TestRetries_Schedule_Clear_Ready(t *testing.T) {
 
 	// Schedule a retry in the past → it should be "ready".
 	past := time.Now().UTC().Add(-1 * time.Second)
-	if err := q.ScheduleRetry(ctx, runID, past, 2); err != nil {
-		t.Fatalf("schedule: %v", err)
-	}
+	require.NoError(t, q.ScheduleRetry(ctx, runID,
+		past, 2),
+	)
+
 	ready, err := q.ReadyRetries(ctx, 100)
-	if err != nil {
-		t.Fatalf("ready: %v", err)
-	}
-	if len(ready) != 1 || ready[0] != runID {
-		t.Errorf("ready = %v, want [%s]", ready, runID)
-	}
+	require.NoError(t, err)
+	assert.False(t, len(ready) != 1 ||
+		ready[0] !=
+			runID)
+	require.NoError(t, q.ClearRetry(ctx,
+		runID))
 
 	// Clear it.
-	if err := q.ClearRetry(ctx, runID); err != nil {
-		t.Fatalf("clear: %v", err)
-	}
+
 	ready, _ = q.ReadyRetries(ctx, 100)
-	if len(ready) != 0 {
-		t.Errorf("ready after clear = %v", ready)
-	}
+	assert.Len(t, ready, 0)
 
 	var rawRows int
 	var latestCleared bool
-	if err := testDB.Pool.QueryRow(ctx, `
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`
 		SELECT COUNT(*), COALESCE((ARRAY_AGG(cleared ORDER BY id DESC))[1], FALSE)
 		FROM job_retries
-		WHERE run_id = $1`, runID).Scan(&rawRows, &latestCleared); err != nil {
-		t.Fatalf("query retry rows after clear: %v", err)
-	}
-	if rawRows != 2 {
-		t.Fatalf("raw retry rows = %d, want scheduled row plus clear tombstone", rawRows)
-	}
-	if !latestCleared {
-		t.Fatal("latest retry row must be a clear tombstone")
-	}
+		WHERE run_id = $1`,
+
+		runID,
+	).Scan(&rawRows,
+		&latestCleared))
+	require.EqualValues(t, 2, rawRows)
+	require.True(t, latestCleared)
+
 }
 
 func TestRetries_FutureRetry_NotReady(t *testing.T) {
@@ -60,14 +61,16 @@ func TestRetries_FutureRetry_NotReady(t *testing.T) {
 
 	runID := "retry-future-" + newID()
 	future := time.Now().UTC().Add(1 * time.Hour)
-	if err := q.ScheduleRetry(ctx, runID, future, 1); err != nil {
-		t.Fatalf("schedule: %v", err)
-	}
+	require.NoError(t, q.ScheduleRetry(ctx, runID,
+		future,
+		1))
+
 	ready, _ := q.ReadyRetries(ctx, 100)
 	for _, id := range ready {
-		if id == runID {
-			t.Errorf("future retry %s should not be ready", runID)
-		}
+		assert.NotEqual(t, runID,
+
+			id)
+
 	}
 }
 
@@ -77,43 +80,42 @@ func TestRetries_LatestScheduleWins(t *testing.T) {
 	mustClean(t, ctx)
 
 	runID := "retry-latest-" + newID()
-	if err := q.ScheduleRetry(ctx, runID, time.Now().UTC().Add(-1*time.Second), 1); err != nil {
-		t.Fatalf("first: %v", err)
-	}
-	if err := q.ScheduleRetry(ctx, runID, time.Now().UTC().Add(1*time.Hour), 5); err != nil {
-		t.Fatalf("second: %v", err)
-	}
+	require.NoError(t, q.ScheduleRetry(ctx, runID,
+		time.Now().UTC().
+			Add(-1*time.Second), 1))
+	require.NoError(t, q.ScheduleRetry(ctx, runID,
+		time.Now().UTC().
+			Add(1*time.Hour), 5))
+
 	ready, _ := q.ReadyRetries(ctx, 100)
 	for _, id := range ready {
-		if id == runID {
-			t.Errorf("newer future retry should remove run from ready")
-		}
+		assert.NotEqual(t, runID,
+
+			id)
+
 	}
 	n, err := q.CountPendingRetries(ctx)
-	if err != nil {
-		t.Fatalf("count: %v", err)
-	}
-	if n != 1 {
-		t.Errorf("pending = %d, want 1", n)
-	}
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, n)
 
 	var rawRows, latestAttempt int
 	var latestRetryAt time.Time
-	if err := testDB.Pool.QueryRow(ctx, `
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`
 		SELECT COUNT(*), (ARRAY_AGG(attempt ORDER BY id DESC))[1], (ARRAY_AGG(next_retry_at ORDER BY id DESC))[1]
 		FROM job_retries
-		WHERE run_id = $1`, runID).Scan(&rawRows, &latestAttempt, &latestRetryAt); err != nil {
-		t.Fatalf("query raw retry rows: %v", err)
-	}
-	if rawRows != 2 {
-		t.Fatalf("raw retry rows = %d, want append-only history", rawRows)
-	}
-	if latestAttempt != 5 {
-		t.Fatalf("latest attempt = %d, want 5", latestAttempt)
-	}
-	if !latestRetryAt.After(time.Now().UTC().Add(30 * time.Minute)) {
-		t.Fatalf("latest retry timestamp = %s, want future timestamp", latestRetryAt)
-	}
+		WHERE run_id = $1`,
+
+		runID).Scan(&rawRows, &latestAttempt,
+
+		&latestRetryAt))
+	require.EqualValues(t, 2, rawRows)
+	require.EqualValues(t, 5, latestAttempt)
+	require.True(t, latestRetryAt.
+		After(time.Now().UTC().Add(30*time.
+			Minute)))
+
 }
 
 func TestRetries_ScheduleRetrySkipsIdenticalLatest(t *testing.T) {
@@ -123,51 +125,57 @@ func TestRetries_ScheduleRetrySkipsIdenticalLatest(t *testing.T) {
 
 	runID := "retry-noop-" + newID()
 	retryAt := time.Now().UTC().Add(time.Hour).Truncate(time.Microsecond)
-	if err := q.ScheduleRetry(ctx, runID, retryAt, 2); err != nil {
-		t.Fatalf("schedule retry: %v", err)
-	}
+	require.NoError(t, q.ScheduleRetry(ctx, runID,
+		retryAt,
+		2))
 
 	var rawRows, latestID int
-	if err := testDB.Pool.QueryRow(ctx, `
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`
 		SELECT COUNT(*), COALESCE(MAX(id), 0)
 		FROM job_retries
-		WHERE run_id = $1`, runID).Scan(&rawRows, &latestID); err != nil {
-		t.Fatalf("query initial retry rows: %v", err)
-	}
-	if rawRows != 1 {
-		t.Fatalf("initial raw retry rows = %d, want 1", rawRows)
-	}
+		WHERE run_id = $1`,
 
-	if err := q.ScheduleRetry(ctx, runID, retryAt, 2); err != nil {
-		t.Fatalf("schedule identical retry: %v", err)
-	}
+		runID).Scan(&rawRows,
+		&latestID))
+	require.EqualValues(t, 1, rawRows)
+	require.NoError(t, q.ScheduleRetry(ctx, runID,
+		retryAt,
+		2))
+
 	var rowsAfterNoOp, latestIDAfterNoOp int
-	if err := testDB.Pool.QueryRow(ctx, `
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`
 		SELECT COUNT(*), COALESCE(MAX(id), 0)
 		FROM job_retries
-		WHERE run_id = $1`, runID).Scan(&rowsAfterNoOp, &latestIDAfterNoOp); err != nil {
-		t.Fatalf("query retry rows after identical schedule: %v", err)
-	}
-	if rowsAfterNoOp != 1 {
-		t.Fatalf("raw retry rows after identical schedule = %d, want 1", rowsAfterNoOp)
-	}
-	if latestIDAfterNoOp != latestID {
-		t.Fatalf("latest retry id after identical schedule = %d, want %d", latestIDAfterNoOp, latestID)
-	}
+		WHERE run_id = $1`,
 
-	if err := q.ScheduleRetry(ctx, runID, retryAt.Add(time.Second), 2); err != nil {
-		t.Fatalf("schedule changed retry: %v", err)
-	}
+		runID).Scan(&rowsAfterNoOp,
+		&latestIDAfterNoOp,
+	))
+	require.EqualValues(t, 1, rowsAfterNoOp)
+	require.Equal(t, latestID,
+
+		latestIDAfterNoOp,
+	)
+	require.NoError(t, q.ScheduleRetry(ctx, runID,
+		retryAt.
+			Add(time.
+				Second,
+			), 2))
+
 	var rowsAfterChange int
-	if err := testDB.Pool.QueryRow(ctx, `
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`
 		SELECT COUNT(*)
 		FROM job_retries
-		WHERE run_id = $1`, runID).Scan(&rowsAfterChange); err != nil {
-		t.Fatalf("query retry rows after changed schedule: %v", err)
-	}
-	if rowsAfterChange != 2 {
-		t.Fatalf("raw retry rows after changed schedule = %d, want 2", rowsAfterChange)
-	}
+		WHERE run_id = $1`,
+		runID).Scan(&rowsAfterChange))
+	require.EqualValues(t, 2, rowsAfterChange)
+
 }
 
 func TestRetries_ClearRetriesAppendsTombstones(t *testing.T) {
@@ -179,22 +187,26 @@ func TestRetries_ClearRetriesAppendsTombstones(t *testing.T) {
 	secondID := "retry-clear-batch-b-" + newID()
 	past := time.Now().UTC().Add(-time.Second)
 	for _, runID := range []string{firstID, secondID} {
-		if err := q.ScheduleRetry(ctx, runID, past, 1); err != nil {
-			t.Fatalf("schedule %s: %v", runID, err)
-		}
+		require.NoError(t, q.ScheduleRetry(ctx, runID,
+			past, 1),
+		)
+
 	}
-	if err := q.ClearRetries(ctx, []string{firstID, secondID}); err != nil {
-		t.Fatalf("clear batch: %v", err)
-	}
+	require.NoError(t, q.ClearRetries(ctx, []string{firstID,
+		secondID,
+	},
+	))
+
 	ready, err := q.ReadyRetries(ctx, 100)
-	if err != nil {
-		t.Fatalf("ready after batch clear: %v", err)
-	}
+	require.NoError(t, err)
+
 	for _, runID := range []string{firstID, secondID} {
 		for _, readyID := range ready {
-			if readyID == runID {
-				t.Fatalf("cleared run %s returned as ready: %v", runID, ready)
-			}
+			require.NotEqual(t, runID,
+
+				readyID,
+			)
+
 		}
 	}
 
@@ -203,32 +215,29 @@ func TestRetries_ClearRetriesAppendsTombstones(t *testing.T) {
 		FROM job_retries
 		WHERE run_id = ANY($1)
 		GROUP BY run_id`, []string{firstID, secondID})
-	if err != nil {
-		t.Fatalf("query clear tombstones: %v", err)
-	}
+	require.NoError(t, err)
+
 	defer rows.Close()
 	seen := 0
 	for rows.Next() {
 		var runID string
 		var rawRows int
 		var latestCleared bool
-		if err := rows.Scan(&runID, &rawRows, &latestCleared); err != nil {
-			t.Fatalf("scan clear tombstone row: %v", err)
-		}
+		require.NoError(t, rows.
+			Scan(&runID,
+				&rawRows,
+				&latestCleared,
+			))
+
 		seen++
-		if rawRows != 2 {
-			t.Fatalf("%s raw rows = %d, want scheduled row plus tombstone", runID, rawRows)
-		}
-		if !latestCleared {
-			t.Fatalf("%s latest row must be a clear tombstone", runID)
-		}
+		require.EqualValues(t, 2, rawRows)
+		require.True(t, latestCleared)
+
 	}
-	if err := rows.Err(); err != nil {
-		t.Fatalf("iterate clear tombstones: %v", err)
-	}
-	if seen != 2 {
-		t.Fatalf("clear tombstone rows seen = %d, want 2", seen)
-	}
+	require.NoError(t, rows.
+		Err())
+	require.EqualValues(t, 2, seen)
+
 }
 
 func TestRetries_ClearAlreadyClearedRetryDoesNotAppendTombstone(t *testing.T) {
@@ -237,33 +246,30 @@ func TestRetries_ClearAlreadyClearedRetryDoesNotAppendTombstone(t *testing.T) {
 	mustClean(t, ctx)
 
 	runID := "retry-clear-idempotent-" + newID()
-	if err := q.ScheduleRetry(ctx, runID, time.Now().UTC().Add(-time.Second), 1); err != nil {
-		t.Fatalf("schedule retry: %v", err)
-	}
-	if err := q.ClearRetry(ctx, runID); err != nil {
-		t.Fatalf("first clear retry: %v", err)
-	}
-	if err := q.ClearRetry(ctx, runID); err != nil {
-		t.Fatalf("second clear retry: %v", err)
-	}
-	if err := q.ClearRetries(ctx, []string{runID}); err != nil {
-		t.Fatalf("batch clear retry: %v", err)
-	}
+	require.NoError(t, q.ScheduleRetry(ctx, runID,
+		time.Now().UTC().
+			Add(-time.Second), 1))
+	require.NoError(t, q.ClearRetry(ctx,
+		runID))
+	require.NoError(t, q.ClearRetry(ctx,
+		runID))
+	require.NoError(t, q.ClearRetries(ctx, []string{runID}))
 
 	var rawRows int
 	var latestCleared bool
-	if err := testDB.Pool.QueryRow(ctx, `
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`
 		SELECT COUNT(*), COALESCE((ARRAY_AGG(cleared ORDER BY id DESC))[1], FALSE)
 		FROM job_retries
-		WHERE run_id = $1`, runID).Scan(&rawRows, &latestCleared); err != nil {
-		t.Fatalf("query retry rows after repeated clears: %v", err)
-	}
-	if rawRows != 2 {
-		t.Fatalf("raw retry rows = %d, want scheduled row plus one clear tombstone", rawRows)
-	}
-	if !latestCleared {
-		t.Fatal("latest retry row must remain a clear tombstone")
-	}
+		WHERE run_id = $1`,
+
+		runID,
+	).Scan(&rawRows,
+		&latestCleared))
+	require.EqualValues(t, 2, rawRows)
+	require.True(t, latestCleared)
+
 }
 
 func TestRetries_OrderedByNextRetryAt(t *testing.T) {
@@ -274,17 +280,16 @@ func TestRetries_OrderedByNextRetryAt(t *testing.T) {
 	base := time.Now().UTC().Add(-10 * time.Second)
 	ids := []string{"a-" + newID(), "b-" + newID(), "c-" + newID()}
 	for i, id := range ids {
-		if err := q.ScheduleRetry(ctx, id, base.Add(time.Duration(i)*time.Second), 1); err != nil {
-			t.Fatalf("schedule %d: %v", i, err)
-		}
+		require.NoError(t, q.ScheduleRetry(ctx, id,
+			base.Add(time.
+				Duration(i)*time.Second), 1))
+
 	}
 	ready, _ := q.ReadyRetries(ctx, 100)
-	if len(ready) != 3 {
-		t.Fatalf("ready count = %d", len(ready))
-	}
-	if ready[0] != ids[0] || ready[1] != ids[1] || ready[2] != ids[2] {
-		t.Errorf("order = %v, want %v", ready, ids)
-	}
+	require.Len(t, ready, 3)
+	assert.False(t, ready[0] !=
+		ids[0] || ready[1] != ids[1] || ready[2] != ids[2])
+
 }
 
 func TestRetries_ClearNonexistentIsNoOp(t *testing.T) {
@@ -293,31 +298,28 @@ func TestRetries_ClearNonexistentIsNoOp(t *testing.T) {
 	mustClean(t, ctx)
 
 	runID := "no-such-run-" + newID()
-	if err := q.ClearRetry(ctx, runID); err != nil {
-		t.Errorf("clear missing should be noop: %v", err)
-	}
+	assert.NoError(t, q.ClearRetry(ctx,
+		runID))
+
 	n, err := q.CountPendingRetries(ctx)
-	if err != nil {
-		t.Fatalf("count pending retries: %v", err)
-	}
-	if n != 0 {
-		t.Fatalf("pending retries = %d, want 0", n)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 0, n)
 
 	var rawRows int
 	var latestCleared bool
-	if err := testDB.Pool.QueryRow(ctx, `
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`
 		SELECT COUNT(*), COALESCE((ARRAY_AGG(cleared ORDER BY id DESC))[1], FALSE)
 		FROM job_retries
-		WHERE run_id = $1`, runID).Scan(&rawRows, &latestCleared); err != nil {
-		t.Fatalf("query clear missing tombstone: %v", err)
-	}
-	if rawRows != 0 {
-		t.Fatalf("raw retry rows = %d, want no tombstone for absent retry", rawRows)
-	}
-	if latestCleared {
-		t.Fatal("latest cleared = true, want false when no retry row exists")
-	}
+		WHERE run_id = $1`,
+
+		runID,
+	).Scan(&rawRows,
+		&latestCleared))
+	require.EqualValues(t, 0, rawRows)
+	require.False(t, latestCleared)
+
 }
 
 func TestRetries_CompactSupersededKeepsLatestRows(t *testing.T) {
@@ -327,56 +329,52 @@ func TestRetries_CompactSupersededKeepsLatestRows(t *testing.T) {
 
 	firstID := "retry-compact-a-" + newID()
 	secondID := "retry-compact-b-" + newID()
-	if err := q.ScheduleRetry(ctx, firstID, time.Now().UTC().Add(time.Hour), 1); err != nil {
-		t.Fatalf("schedule first initial retry: %v", err)
-	}
-	if err := q.ScheduleRetry(ctx, firstID, time.Now().UTC().Add(2*time.Hour), 2); err != nil {
-		t.Fatalf("schedule first replacement retry: %v", err)
-	}
-	if err := q.ClearRetry(ctx, firstID); err != nil {
-		t.Fatalf("clear first retry: %v", err)
-	}
-	if err := q.ScheduleRetry(ctx, secondID, time.Now().UTC().Add(time.Hour), 1); err != nil {
-		t.Fatalf("schedule second retry: %v", err)
-	}
+	require.NoError(t, q.ScheduleRetry(ctx, firstID,
+		time.Now().UTC().
+			Add(time.Hour), 1))
+	require.NoError(t, q.ScheduleRetry(ctx, firstID,
+		time.Now().UTC().
+			Add(2*time.Hour), 2))
+	require.NoError(t, q.ClearRetry(ctx,
+		firstID,
+	))
+	require.NoError(t, q.ScheduleRetry(ctx, secondID,
+		time.
+			Now().UTC().
+			Add(time.Hour), 1))
 
 	compacted, err := q.CompactSupersededRetries(ctx, 1)
-	if err != nil {
-		t.Fatalf("compact first page: %v", err)
-	}
-	if compacted != 1 {
-		t.Fatalf("first compacted rows = %d, want 1", compacted)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 1, compacted)
+
 	compacted, err = q.CompactSupersededRetries(ctx, 100)
-	if err != nil {
-		t.Fatalf("compact remaining: %v", err)
-	}
-	if compacted != 1 {
-		t.Fatalf("remaining compacted rows = %d, want 1", compacted)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 1, compacted)
 
 	var firstRows int
 	var firstLatestCleared bool
-	if err := testDB.Pool.QueryRow(ctx, `
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`
 		SELECT COUNT(*), COALESCE((ARRAY_AGG(cleared ORDER BY id DESC))[1], FALSE)
 		FROM job_retries
-		WHERE run_id = $1`, firstID).Scan(&firstRows, &firstLatestCleared); err != nil {
-		t.Fatalf("query first retry rows: %v", err)
-	}
-	if firstRows != 1 {
-		t.Fatalf("first retry rows after compaction = %d, want latest row only", firstRows)
-	}
-	if !firstLatestCleared {
-		t.Fatal("first latest retry row must remain the clear tombstone")
-	}
+		WHERE run_id = $1`,
+
+		firstID,
+	).Scan(&firstRows,
+
+		&firstLatestCleared))
+	require.EqualValues(t, 1, firstRows)
+	require.True(t, firstLatestCleared)
 
 	var secondRows int
-	if err := testDB.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM job_retries WHERE run_id = $1`, secondID).Scan(&secondRows); err != nil {
-		t.Fatalf("query second retry rows: %v", err)
-	}
-	if secondRows != 1 {
-		t.Fatalf("second retry rows after compaction = %d, want untouched latest row", secondRows)
-	}
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM job_retries WHERE run_id = $1`,
+
+		secondID).Scan(&secondRows))
+	require.EqualValues(t, 1, secondRows)
+
 }
 
 func TestRetries_RunRetryBlockedUsesLatestRow(t *testing.T) {
@@ -385,39 +383,38 @@ func TestRetries_RunRetryBlockedUsesLatestRow(t *testing.T) {
 	mustClean(t, ctx)
 
 	runID := "retry-blocked-" + newID()
-	if err := q.ScheduleRetry(ctx, runID, time.Now().UTC().Add(time.Hour), 1); err != nil {
-		t.Fatalf("schedule future retry: %v", err)
-	}
+	require.NoError(t, q.ScheduleRetry(ctx, runID,
+		time.Now().UTC().
+			Add(time.Hour), 1))
+
 	var blocked bool
-	if err := testDB.Pool.QueryRow(ctx, `SELECT strait_run_retry_blocked($1)`, runID).Scan(&blocked); err != nil {
-		t.Fatalf("query blocked future retry: %v", err)
-	}
-	if !blocked {
-		t.Fatal("future latest retry should block dequeue")
-	}
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`SELECT strait_run_retry_blocked($1)`,
 
-	if err := q.ScheduleRetry(ctx, runID, time.Now().UTC().Add(-time.Second), 2); err != nil {
-		t.Fatalf("schedule due retry: %v", err)
-	}
-	if err := testDB.Pool.QueryRow(ctx, `SELECT strait_run_retry_blocked($1)`, runID).Scan(&blocked); err != nil {
-		t.Fatalf("query blocked due retry: %v", err)
-	}
-	if blocked {
-		t.Fatal("newer due retry should unblock dequeue")
-	}
+		runID).Scan(&blocked))
+	require.True(t, blocked)
+	require.NoError(t, q.ScheduleRetry(ctx, runID,
+		time.Now().UTC().
+			Add(-time.Second), 2))
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`SELECT strait_run_retry_blocked($1)`,
 
-	if err := q.ScheduleRetry(ctx, runID, time.Now().UTC().Add(time.Hour), 3); err != nil {
-		t.Fatalf("schedule second future retry: %v", err)
-	}
-	if err := q.ClearRetry(ctx, runID); err != nil {
-		t.Fatalf("clear retry: %v", err)
-	}
-	if err := testDB.Pool.QueryRow(ctx, `SELECT strait_run_retry_blocked($1)`, runID).Scan(&blocked); err != nil {
-		t.Fatalf("query blocked cleared retry: %v", err)
-	}
-	if blocked {
-		t.Fatal("clear tombstone should unblock dequeue")
-	}
+		runID).Scan(&blocked))
+	require.False(t, blocked)
+	require.NoError(t, q.ScheduleRetry(ctx, runID,
+		time.Now().UTC().
+			Add(time.Hour), 3))
+	require.NoError(t, q.ClearRetry(ctx,
+		runID))
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`SELECT strait_run_retry_blocked($1)`,
+
+		runID).Scan(&blocked))
+	require.False(t, blocked)
+
 }
 
 func TestRetries_HOTUpdateOnScheduleDoesNotChurnJobRuns(t *testing.T) {

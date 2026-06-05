@@ -6,6 +6,9 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func testAuditEvent(id, projectID, action string) *domain.AuditEvent {
@@ -27,12 +30,9 @@ func TestDeriveAuditSigningKey_Returns32Bytes(t *testing.T) {
 	t.Parallel()
 
 	key, err := DeriveAuditSigningKey("test-internal-secret")
-	if err != nil {
-		t.Fatalf("DeriveAuditSigningKey error: %v", err)
-	}
-	if len(key) != 32 {
-		t.Errorf("key length = %d, want 32", len(key))
-	}
+	require.NoError(t, err)
+	assert.Len(t, key, 32)
+
 }
 
 func TestDeriveAuditSigningKey_Deterministic(t *testing.T) {
@@ -40,18 +40,16 @@ func TestDeriveAuditSigningKey_Deterministic(t *testing.T) {
 
 	key1, _ := DeriveAuditSigningKey("same-secret")
 	key2, _ := DeriveAuditSigningKey("same-secret")
-	if string(key1) != string(key2) {
-		t.Error("DeriveAuditSigningKey is not deterministic")
-	}
+	assert.Equal(t, string(key2), string(key1))
+
 }
 
 func TestDeriveAuditSigningKey_EmptySecret_Error(t *testing.T) {
 	t.Parallel()
 
 	_, err := DeriveAuditSigningKey("")
-	if err == nil {
-		t.Fatal("expected error for empty secret")
-	}
+	require.Error(t, err)
+
 }
 
 func TestComputeAuditSignature_Deterministic(t *testing.T) {
@@ -62,13 +60,10 @@ func TestComputeAuditSignature_Deterministic(t *testing.T) {
 
 	sig1 := ComputeAuditSignature(ev, key)
 	sig2 := ComputeAuditSignature(ev, key)
+	assert.Equal(t, sig2,
+		sig1)
+	assert.Len(t, sig1, 64)
 
-	if sig1 != sig2 {
-		t.Errorf("signatures differ: %s vs %s", sig1, sig2)
-	}
-	if len(sig1) != 64 {
-		t.Errorf("signature length = %d, want 64 (hex-encoded SHA-256)", len(sig1))
-	}
 }
 
 func TestComputeAuditSignature_ChangesWithFields(t *testing.T) {
@@ -98,9 +93,10 @@ func TestComputeAuditSignature_ChangesWithFields(t *testing.T) {
 			modified := testAuditEvent("ev-1", "proj-1", "create")
 			tc.modify(modified)
 			modSig := ComputeAuditSignature(modified, key)
-			if modSig == baseSig {
-				t.Errorf("signature should change when %s", tc.name)
-			}
+			assert.NotEqual(t, baseSig,
+				modSig,
+			)
+
 		})
 	}
 }
@@ -120,7 +116,9 @@ func TestComputeAuditSignatureV3_LengthDelimitsPipeFields(t *testing.T) {
 	right.ActorType = "api|key"
 
 	if sigLeft, sigRight := ComputeAuditSignature(left, key), ComputeAuditSignature(right, key); sigLeft == sigRight {
-		t.Fatal("v3 audit signatures collided for pipe-ambiguous adjacent fields")
+		require.Fail(t,
+
+			"v3 audit signatures collided for pipe-ambiguous adjacent fields")
 	}
 }
 
@@ -140,7 +138,9 @@ func TestComputeAuditSignatureLegacyVersions_LengthDelimitPipeFields(t *testing.
 		right.ActorType = "api|key"
 
 		if sigLeft, sigRight := ComputeAuditSignature(left, key), ComputeAuditSignature(right, key); sigLeft == sigRight {
-			t.Fatalf("schema version %d audit signatures collided for pipe-ambiguous adjacent fields", version)
+			require.Failf(t, "test failure",
+
+				"schema version %d audit signatures collided for pipe-ambiguous adjacent fields", version)
 		}
 	}
 }
@@ -152,10 +152,14 @@ func TestKeyForEpoch_RejectsMissingNonzeroEpochKey(t *testing.T) {
 	q := &Queries{auditSigningKey: key}
 
 	if _, err := q.keyForEpoch(map[int][]byte{1: nil}, 1); err == nil {
-		t.Fatal("expected missing nonzero epoch key to be rejected")
+		require.Fail(t,
+
+			"expected missing nonzero epoch key to be rejected")
 	}
 	if got, err := q.keyForEpoch(map[int][]byte{0: nil}, 0); err != nil || string(got) != string(key) {
-		t.Fatalf("epoch zero fallback = (%x, %v), want legacy key", got, err)
+		require.Failf(t, "test failure",
+
+			"epoch zero fallback = (%x, %v), want legacy key", got, err)
 	}
 }
 
@@ -170,15 +174,17 @@ func TestComputeAuditSignatureV3_BindsAnchorAndRotationEpoch(t *testing.T) {
 
 	anchorChanged := *base
 	anchorChanged.IsAnchor = true
-	if sig := ComputeAuditSignature(&anchorChanged, key); sig == baseSig {
-		t.Fatal("v3 audit signature did not change when is_anchor changed")
-	}
+	require.NotEqual(t, baseSig,
+		ComputeAuditSignature(&anchorChanged,
+			key,
+		))
 
 	epochChanged := *base
 	epochChanged.RotationEpoch = 8
-	if sig := ComputeAuditSignature(&epochChanged, key); sig == baseSig {
-		t.Fatal("v3 audit signature did not change when rotation_epoch changed")
-	}
+	require.NotEqual(t, baseSig,
+		ComputeAuditSignature(&epochChanged, key),
+	)
+
 }
 
 func TestComputeAuditSignatureV4_BindsShardID(t *testing.T) {
@@ -193,9 +199,9 @@ func TestComputeAuditSignatureV4_BindsShardID(t *testing.T) {
 
 	shardChanged := *base
 	shardChanged.ShardID = "workflow"
-	if sig := ComputeAuditSignature(&shardChanged, key); sig == baseSig {
-		t.Fatal("v4 audit signature did not change when shard_id changed")
-	}
+	require.NotEqual(t, baseSig,
+		ComputeAuditSignature(&shardChanged, key),
+	)
 
 	// Empty shard_id under v4 must not collide with a v3 row that has the
 	// same content but no shard binding. The version prefix in the
@@ -203,9 +209,8 @@ func TestComputeAuditSignatureV4_BindsShardID(t *testing.T) {
 	v3 := *base
 	v3.SchemaVersion = 3
 	v3.ShardID = ""
-	if ComputeAuditSignature(&v3, key) == ComputeAuditSignature(base, key) {
-		t.Fatal("v3 and v4 canonical forms produced identical signatures for the same row")
-	}
+	require.NotEqual(t, ComputeAuditSignature(base, key), ComputeAuditSignature(&v3, key))
+
 }
 
 func TestComputeAuditSignatureV4_LengthDelimitsShardID(t *testing.T) {
@@ -224,7 +229,9 @@ func TestComputeAuditSignatureV4_LengthDelimitsShardID(t *testing.T) {
 	right.ActorID += "|workflow"
 
 	if sigLeft, sigRight := ComputeAuditSignature(left, key), ComputeAuditSignature(right, key); sigLeft == sigRight {
-		t.Fatal("v4 audit signatures collided across pipe-ambiguous shard_id boundary")
+		require.Fail(t,
+
+			"v4 audit signatures collided across pipe-ambiguous shard_id boundary")
 	}
 }
 
@@ -237,10 +244,9 @@ func TestComputeAuditSignature_DifferentKeys(t *testing.T) {
 
 	sig1 := ComputeAuditSignature(ev, key1)
 	sig2 := ComputeAuditSignature(ev, key2)
+	assert.NotEqual(t, sig2,
+		sig1)
 
-	if sig1 == sig2 {
-		t.Error("signatures should differ with different keys")
-	}
 }
 
 func TestAuditChain_ManualVerification(t *testing.T) {
@@ -267,13 +273,16 @@ func TestAuditChain_ManualVerification(t *testing.T) {
 	chain := []*domain.AuditEvent{ev1, ev2, ev3}
 	expectedPrev := ZeroHash
 	for _, ev := range chain {
-		if ev.PreviousHash != expectedPrev {
-			t.Errorf("event %s: previous_hash = %s, want %s", ev.ID, ev.PreviousHash, expectedPrev)
-		}
+		assert.Equal(t, expectedPrev,
+			ev.
+				PreviousHash,
+		)
+
 		recomputed := ComputeAuditSignature(ev, key)
-		if ev.Signature != recomputed {
-			t.Errorf("event %s: signature mismatch", ev.ID)
-		}
+		assert.Equal(t, recomputed,
+			ev.Signature,
+		)
+
 		expectedPrev = ev.Signature
 	}
 }
@@ -291,9 +300,11 @@ func TestAuditChain_Adversarial_TamperedEvent(t *testing.T) {
 	ev.Action = "delete"
 
 	recomputed := ComputeAuditSignature(ev, key)
-	if ev.Signature == recomputed {
-		t.Error("tampered event should have different signature")
-	}
+	assert.NotEqual(t, recomputed,
+		ev.
+			Signature,
+	)
+
 }
 
 func TestAuditChain_Adversarial_BrokenChain(t *testing.T) {
@@ -309,11 +320,13 @@ func TestAuditChain_Adversarial_BrokenChain(t *testing.T) {
 	ev2.PreviousHash = "wrong-hash-simulating-deleted-event"
 	ev2.CreatedAt = ev1.CreatedAt.Add(time.Second)
 	ev2.Signature = ComputeAuditSignature(ev2, key)
+	assert.NotEqual(t, ev1.
+		Signature,
+		ev2.PreviousHash,
+	)
 
 	// Chain verification: ev2's previous_hash should be ev1's signature.
-	if ev2.PreviousHash == ev1.Signature {
-		t.Error("broken chain test setup is wrong")
-	}
+
 }
 
 func FuzzComputeAuditSignature(f *testing.F) {
@@ -323,9 +336,7 @@ func FuzzComputeAuditSignature(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, id, projectID, actorID, action, resourceType, resourceID, details, prevHash string) {
 		key, err := DeriveAuditSigningKey("fuzz-secret-key-value")
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 
 		ev := &domain.AuditEvent{
 			ID: id, ProjectID: projectID, ActorID: actorID, ActorType: "api_key",
@@ -336,12 +347,9 @@ func FuzzComputeAuditSignature(f *testing.F) {
 
 		sig1 := ComputeAuditSignature(ev, key)
 		sig2 := ComputeAuditSignature(ev, key)
+		assert.Equal(t, sig2,
+			sig1)
+		assert.Len(t, sig1, 64)
 
-		if sig1 != sig2 {
-			t.Error("signature is not deterministic")
-		}
-		if len(sig1) != 64 {
-			t.Errorf("signature length = %d, want 64", len(sig1))
-		}
 	})
 }

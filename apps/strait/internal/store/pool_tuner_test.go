@@ -3,6 +3,8 @@ package store
 import (
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestEvaluatePoolRecommendations(t *testing.T) {
@@ -12,15 +14,14 @@ func TestEvaluatePoolRecommendations(t *testing.T) {
 
 	for range poolAdviceSampleConsistencyMin - 1 {
 		recs := evaluatePoolRecommendations(poolSnapshot{Acquired: 25, Idle: 5, Total: 25, WaitCount: 0}, 25, 5, state)
-		if len(recs) != 0 {
-			t.Fatalf("unexpected recommendations before consistency threshold: %v", recs)
-		}
+		require.Len(t,
+			recs, 0)
+
 	}
 
 	recs := evaluatePoolRecommendations(poolSnapshot{Acquired: 25, Idle: 0, Total: 25, WaitCount: 2}, 25, 5, state)
-	if len(recs) != 2 {
-		t.Fatalf("recommendation count = %d, want 2 (%v)", len(recs), recs)
-	}
+	require.Len(t,
+		recs, 2)
 
 	wants := map[string]bool{
 		"Consider increasing DB_MAX_CONNS":                        false,
@@ -32,10 +33,10 @@ func TestEvaluatePoolRecommendations(t *testing.T) {
 		}
 	}
 
-	for rec, seen := range wants {
-		if !seen {
-			t.Fatalf("missing recommendation %q in %v", rec, recs)
-		}
+	for _, seen := range wants {
+		require.True(t,
+			seen)
+
 	}
 }
 
@@ -51,9 +52,10 @@ func TestEvaluatePoolRecommendations_DoesNotTreatIdleWaitCountAsPressure(t *test
 	}, 50, 10, state)
 
 	for _, rec := range recs {
-		if rec == "Connection pool under pressure, check query performance" {
-			t.Fatalf("unexpected pressure recommendation with idle pool: %v", recs)
-		}
+		require.NotEqual(t, "Connection pool under pressure, check query performance",
+
+			rec)
+
 	}
 }
 
@@ -68,10 +70,11 @@ func TestEvaluatePoolRecommendations_AcquireLatencyEvidenceIsPressure(t *testing
 		WaitCount:    101,
 		WaitDuration: time.Second + poolAdviceWaitDurationMin,
 	}, 50, 10, state)
+	require.False(t,
+		len(recs) !=
+			1 || recs[0] != "Connection pool under pressure, check query performance",
+	)
 
-	if len(recs) != 1 || recs[0] != "Connection pool under pressure, check query performance" {
-		t.Fatalf("recommendations = %v, want pool pressure from acquire latency", recs)
-	}
 }
 
 func TestEvaluatePoolRecommendations_ResetsStreaks(t *testing.T) {
@@ -81,13 +84,11 @@ func TestEvaluatePoolRecommendations_ResetsStreaks(t *testing.T) {
 
 	_ = evaluatePoolRecommendations(poolSnapshot{Acquired: 25, Idle: 5, Total: 25, WaitCount: 0}, 25, 5, state)
 	_ = evaluatePoolRecommendations(poolSnapshot{Acquired: 10, Idle: 1, Total: 25, WaitCount: 0}, 25, 5, state)
+	require.EqualValues(t, 0, state.
+		acquiredAtMaxStreak)
+	require.EqualValues(t, 0, state.
+		idleAtMaxStreak)
 
-	if state.acquiredAtMaxStreak != 0 {
-		t.Fatalf("acquired streak = %d, want 0", state.acquiredAtMaxStreak)
-	}
-	if state.idleAtMaxStreak != 0 {
-		t.Fatalf("idle streak = %d, want 0", state.idleAtMaxStreak)
-	}
 }
 
 func BenchmarkEvaluatePoolRecommendationsIdleWaitCount(b *testing.B) {

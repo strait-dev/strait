@@ -14,6 +14,7 @@ import (
 	"strait/internal/store"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/require"
 )
 
 func TestCreateWebhookSubscription(t *testing.T) {
@@ -28,45 +29,45 @@ func TestCreateWebhookSubscription(t *testing.T) {
 		Secret:     "whsec_test",
 		Active:     true,
 	}
+	require.NoError(t, q.CreateWebhookSubscription(ctx, sub))
+	require.NotEqual(t, "",
 
-	if err := q.CreateWebhookSubscription(ctx, sub); err != nil {
-		t.Fatalf("CreateWebhookSubscription() error = %v", err)
-	}
-	if sub.ID == "" {
-		t.Fatal("CreateWebhookSubscription() did not set ID")
-	}
-	if sub.CreatedAt.IsZero() {
-		t.Fatal("CreateWebhookSubscription() did not set CreatedAt")
-	}
+		sub.ID)
+	require.False(t, sub.CreatedAt.
+		IsZero())
 
 	// Verify all fields round-trip.
 	got, err := q.GetWebhookSubscription(ctx, sub.ID)
-	if err != nil {
-		t.Fatalf("GetWebhookSubscription() error = %v", err)
-	}
-	if got.ID != sub.ID {
-		t.Fatalf("ID = %q, want %q", got.ID, sub.ID)
-	}
-	if got.ProjectID != sub.ProjectID {
-		t.Fatalf("ProjectID = %q, want %q", got.ProjectID, sub.ProjectID)
-	}
-	if got.WebhookURL != sub.WebhookURL {
-		t.Fatalf("WebhookURL = %q, want %q", got.WebhookURL, sub.WebhookURL)
-	}
-	if len(got.EventTypes) != len(sub.EventTypes) {
-		t.Fatalf("EventTypes len = %d, want %d", len(got.EventTypes), len(sub.EventTypes))
-	}
+	require.NoError(t, err)
+	require.Equal(t, sub.ID,
+
+		got.ID)
+	require.Equal(t, sub.ProjectID,
+
+		got.
+			ProjectID,
+	)
+	require.Equal(t, sub.WebhookURL,
+
+		got.WebhookURL,
+	)
+	require.Len(t, got.EventTypes,
+
+		len(sub.EventTypes))
+
 	for i, et := range got.EventTypes {
-		if et != sub.EventTypes[i] {
-			t.Fatalf("EventTypes[%d] = %q, want %q", i, et, sub.EventTypes[i])
-		}
+		require.Equal(t, sub.EventTypes[i], et)
+
 	}
-	if got.Secret != sub.Secret {
-		t.Fatalf("Secret = %q, want %q", got.Secret, sub.Secret)
-	}
-	if got.Active != sub.Active {
-		t.Fatalf("Active = %v, want %v", got.Active, sub.Active)
-	}
+	require.Equal(t, sub.Secret,
+
+		got.
+			Secret)
+	require.Equal(t, sub.Active,
+
+		got.
+			Active)
+
 }
 
 func TestCreateWebhookSubscriptionWithOrgLimit_ConcurrentCreatesCannotExceedLimit(t *testing.T) {
@@ -78,9 +79,12 @@ func TestCreateWebhookSubscriptionWithOrgLimit_ConcurrentCreatesCannotExceedLimi
 
 	orgID := "org-webhook-limit-" + newID()
 	projectID := "proj-webhook-limit-" + newID()
-	if err := q.CreateProject(ctx, &domain.Project{ID: projectID, OrgID: orgID, Name: "Webhook Limit"}); err != nil {
-		t.Fatalf("CreateProject() error = %v", err)
-	}
+	require.NoError(t, q.CreateProject(ctx, &domain.
+		Project{ID: projectID,
+
+		OrgID: orgID,
+		Name:  "Webhook Limit",
+	}))
 
 	const maxEndpoints = 3
 	const attempts = 16
@@ -122,23 +126,25 @@ func TestCreateWebhookSubscriptionWithOrgLimit_ConcurrentCreatesCannotExceedLimi
 		case errors.Is(err, store.ErrWebhookEndpointLimitExceeded):
 			limited++
 		default:
-			t.Fatalf("unexpected create error: %v", err)
+			require.Failf(t, "test failure", "unexpected create error: %v", err)
 		}
 	}
-	if created != maxEndpoints {
-		t.Fatalf("created = %d, want %d", created, maxEndpoints)
-	}
-	if limited != attempts-maxEndpoints {
-		t.Fatalf("limited = %d, want %d", limited, attempts-maxEndpoints)
-	}
+	require.Equal(t, maxEndpoints,
+
+		created,
+	)
+	require.Equal(t, attempts-
+		maxEndpoints,
+		limited,
+	)
 
 	count, err := q.CountWebhookSubscriptionsByOrg(ctx, orgID)
-	if err != nil {
-		t.Fatalf("CountWebhookSubscriptionsByOrg() error = %v", err)
-	}
-	if count != maxEndpoints {
-		t.Fatalf("stored active webhook endpoints = %d, want %d", count, maxEndpoints)
-	}
+	require.NoError(t, err)
+	require.Equal(t, maxEndpoints,
+
+		count,
+	)
+
 }
 
 func TestCountWebhookSubscriptionsByOrg_IncludesSiblingProjectsUnderProjectRLS(t *testing.T) {
@@ -150,9 +156,14 @@ func TestCountWebhookSubscriptionsByOrg_IncludesSiblingProjectsUnderProjectRLS(t
 	projectA := "proj-webhook-rls-count-a-" + newID()
 	projectB := "proj-webhook-rls-count-b-" + newID()
 	for _, projectID := range []string{projectA, projectB} {
-		if err := q.CreateProject(ctx, &domain.Project{ID: projectID, OrgID: orgID, Name: projectID}); err != nil {
-			t.Fatalf("CreateProject(%s) error = %v", projectID, err)
-		}
+		require.NoError(t, q.CreateProject(ctx, &domain.
+			Project{ID: projectID,
+
+			OrgID: orgID,
+			Name:  projectID},
+		),
+		)
+
 	}
 
 	for _, projectID := range []string{projectA, projectB} {
@@ -164,9 +175,8 @@ func TestCountWebhookSubscriptionsByOrg_IncludesSiblingProjectsUnderProjectRLS(t
 			Secret:     "whsec_test",
 			Active:     true,
 		}
-		if err := q.CreateWebhookSubscription(ctx, sub); err != nil {
-			t.Fatalf("CreateWebhookSubscription(%s) error = %v", projectID, err)
-		}
+		require.NoError(t, q.CreateWebhookSubscription(ctx, sub))
+
 	}
 
 	var count int
@@ -174,12 +184,9 @@ func TestCountWebhookSubscriptionsByOrg_IncludesSiblingProjectsUnderProjectRLS(t
 	runAsProject(t, ctx, projectA, false, func(txq *store.Queries) {
 		count, err = txq.CountWebhookSubscriptionsByOrg(ctx, orgID)
 	})
-	if err != nil {
-		t.Fatalf("CountWebhookSubscriptionsByOrg() under project RLS error = %v", err)
-	}
-	if count != 2 {
-		t.Fatalf("CountWebhookSubscriptionsByOrg() under project RLS = %d, want 2", count)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 2, count)
+
 }
 
 func TestCreateWebhookSubscriptionWithOrgLimit_CountsSiblingProjectsUnderProjectRLS(t *testing.T) {
@@ -191,9 +198,14 @@ func TestCreateWebhookSubscriptionWithOrgLimit_CountsSiblingProjectsUnderProject
 	projectA := "proj-webhook-rls-limit-a-" + newID()
 	projectB := "proj-webhook-rls-limit-b-" + newID()
 	for _, projectID := range []string{projectA, projectB} {
-		if err := q.CreateProject(ctx, &domain.Project{ID: projectID, OrgID: orgID, Name: projectID}); err != nil {
-			t.Fatalf("CreateProject(%s) error = %v", projectID, err)
-		}
+		require.NoError(t, q.CreateProject(ctx, &domain.
+			Project{ID: projectID,
+
+			OrgID: orgID,
+			Name:  projectID},
+		),
+		)
+
 	}
 
 	existing := &domain.WebhookSubscription{
@@ -204,9 +216,7 @@ func TestCreateWebhookSubscriptionWithOrgLimit_CountsSiblingProjectsUnderProject
 		Secret:     "whsec_test",
 		Active:     true,
 	}
-	if err := q.CreateWebhookSubscription(ctx, existing); err != nil {
-		t.Fatalf("CreateWebhookSubscription(existing) error = %v", err)
-	}
+	require.NoError(t, q.CreateWebhookSubscription(ctx, existing))
 
 	candidate := &domain.WebhookSubscription{
 		ID:         "sub-webhook-rls-candidate-" + newID(),
@@ -221,9 +231,10 @@ func TestCreateWebhookSubscriptionWithOrgLimit_CountsSiblingProjectsUnderProject
 	runAsProject(t, ctx, projectA, false, func(txq *store.Queries) {
 		err = txq.CreateWebhookSubscriptionWithOrgLimit(ctx, candidate, orgID, 1)
 	})
-	if !errors.Is(err, store.ErrWebhookEndpointLimitExceeded) {
-		t.Fatalf("CreateWebhookSubscriptionWithOrgLimit() error = %v, want ErrWebhookEndpointLimitExceeded", err)
-	}
+	require.True(t, errors.Is(err, store.
+		ErrWebhookEndpointLimitExceeded,
+	))
+
 }
 
 func TestWebhookDeliverySubscriptionPayloadRoundTrip(t *testing.T) {
@@ -238,9 +249,7 @@ func TestWebhookDeliverySubscriptionPayloadRoundTrip(t *testing.T) {
 		Secret:     "whsec_test",
 		Active:     true,
 	}
-	if err := q.CreateWebhookSubscription(ctx, sub); err != nil {
-		t.Fatalf("CreateWebhookSubscription() error = %v", err)
-	}
+	require.NoError(t, q.CreateWebhookSubscription(ctx, sub))
 
 	payload := json.RawMessage(`{"run_id":"run-1","status":"completed"}`)
 	delivery := &domain.WebhookDelivery{
@@ -252,34 +261,34 @@ func TestWebhookDeliverySubscriptionPayloadRoundTrip(t *testing.T) {
 		Payload:        payload,
 		LastError:      string(payload),
 	}
-	if err := q.CreateWebhookDelivery(ctx, delivery); err != nil {
-		t.Fatalf("CreateWebhookDelivery() error = %v", err)
-	}
+	require.NoError(t, q.CreateWebhookDelivery(ctx,
+		delivery))
 
 	got, err := q.GetWebhookDelivery(ctx, delivery.ID)
-	if err != nil {
-		t.Fatalf("GetWebhookDelivery() error = %v", err)
-	}
-	if got.SubscriptionID != sub.ID {
-		t.Fatalf("SubscriptionID = %q, want %q", got.SubscriptionID, sub.ID)
-	}
-	if got.ProjectID != sub.ProjectID {
-		t.Fatalf("ProjectID = %q, want %q", got.ProjectID, sub.ProjectID)
-	}
-	if !jsonPayloadEqual(got.Payload, payload) {
-		t.Fatalf("Payload = %s, want %s", got.Payload, payload)
-	}
+	require.NoError(t, err)
+	require.Equal(t, sub.ID,
+
+		got.SubscriptionID,
+	)
+	require.Equal(t, sub.ProjectID,
+
+		got.
+			ProjectID,
+	)
+	require.True(t, jsonPayloadEqual(
+		got.Payload,
+		payload))
 
 	replay, err := q.ReplayWebhookDelivery(ctx, delivery.ID)
-	if err != nil {
-		t.Fatalf("ReplayWebhookDelivery() error = %v", err)
-	}
-	if replay.SubscriptionID != sub.ID {
-		t.Fatalf("replay SubscriptionID = %q, want %q", replay.SubscriptionID, sub.ID)
-	}
-	if !jsonPayloadEqual(replay.Payload, payload) {
-		t.Fatalf("replay Payload = %s, want %s", replay.Payload, payload)
-	}
+	require.NoError(t, err)
+	require.Equal(t, sub.ID,
+
+		replay.SubscriptionID,
+	)
+	require.True(t, jsonPayloadEqual(
+		replay.Payload,
+		payload))
+
 }
 
 func jsonPayloadEqual(a, b json.RawMessage) bool {
@@ -308,13 +317,12 @@ func TestCreateWebhookSubscription_CustomID(t *testing.T) {
 		Secret:     "s",
 		Active:     true,
 	}
+	require.NoError(t, q.CreateWebhookSubscription(ctx, sub))
+	require.Equal(t, customID,
 
-	if err := q.CreateWebhookSubscription(ctx, sub); err != nil {
-		t.Fatalf("CreateWebhookSubscription() error = %v", err)
-	}
-	if sub.ID != customID {
-		t.Fatalf("ID = %q, want %q", sub.ID, customID)
-	}
+		sub.ID,
+	)
+
 }
 
 func TestGetWebhookSubscription_NotFound(t *testing.T) {
@@ -323,9 +331,10 @@ func TestGetWebhookSubscription_NotFound(t *testing.T) {
 	mustClean(t, ctx)
 
 	_, err := q.GetWebhookSubscription(ctx, newID())
-	if !errors.Is(err, store.ErrWebhookSubscriptionNotFound) {
-		t.Fatalf("GetWebhookSubscription(missing) error = %v, want ErrWebhookSubscriptionNotFound", err)
-	}
+	require.True(t, errors.Is(err, store.
+		ErrWebhookSubscriptionNotFound,
+	))
+
 }
 
 func TestListWebhookSubscriptions(t *testing.T) {
@@ -345,9 +354,8 @@ func TestListWebhookSubscriptions(t *testing.T) {
 			Secret:     "s",
 			Active:     true,
 		}
-		if err := q.CreateWebhookSubscription(ctx, sub); err != nil {
-			t.Fatalf("CreateWebhookSubscription() error = %v", err)
-		}
+		require.NoError(t, q.CreateWebhookSubscription(ctx, sub))
+
 	}
 
 	// Create an inactive subscription (excluded from list).
@@ -358,9 +366,7 @@ func TestListWebhookSubscriptions(t *testing.T) {
 		Secret:     "s",
 		Active:     false,
 	}
-	if err := q.CreateWebhookSubscription(ctx, inactive); err != nil {
-		t.Fatalf("CreateWebhookSubscription(inactive) error = %v", err)
-	}
+	require.NoError(t, q.CreateWebhookSubscription(ctx, inactive))
 
 	// Create one in another project.
 	other := &domain.WebhookSubscription{
@@ -370,34 +376,26 @@ func TestListWebhookSubscriptions(t *testing.T) {
 		Secret:     "s",
 		Active:     true,
 	}
-	if err := q.CreateWebhookSubscription(ctx, other); err != nil {
-		t.Fatalf("CreateWebhookSubscription(other) error = %v", err)
-	}
+	require.NoError(t, q.CreateWebhookSubscription(ctx, other))
 
 	subs, err := q.ListWebhookSubscriptions(ctx, projectID)
-	if err != nil {
-		t.Fatalf("ListWebhookSubscriptions() error = %v", err)
-	}
-	if len(subs) != 2 {
-		t.Fatalf("len = %d, want 2", len(subs))
-	}
+	require.NoError(t, err)
+	require.Len(t, subs, 2)
+
 	for _, s := range subs {
-		if s.ProjectID != projectID {
-			t.Fatalf("ProjectID = %q, want %q", s.ProjectID, projectID)
-		}
-		if !s.Active {
-			t.Fatal("listed subscription is inactive, want active only")
-		}
+		require.Equal(t, projectID,
+
+			s.ProjectID,
+		)
+		require.True(t, s.Active)
+
 	}
 
 	// Empty project.
 	empty, err := q.ListWebhookSubscriptions(ctx, "proj-ws-empty-"+newID())
-	if err != nil {
-		t.Fatalf("ListWebhookSubscriptions(empty) error = %v", err)
-	}
-	if len(empty) != 0 {
-		t.Fatalf("empty len = %d, want 0", len(empty))
-	}
+	require.NoError(t, err)
+	require.Len(t, empty, 0)
+
 }
 
 func TestDeleteWebhookSubscription(t *testing.T) {
@@ -412,19 +410,15 @@ func TestDeleteWebhookSubscription(t *testing.T) {
 		Secret:     "s",
 		Active:     true,
 	}
-	if err := q.CreateWebhookSubscription(ctx, sub); err != nil {
-		t.Fatalf("CreateWebhookSubscription() error = %v", err)
-	}
-
-	if err := q.DeleteWebhookSubscription(ctx, sub.ID); err != nil {
-		t.Fatalf("DeleteWebhookSubscription() error = %v", err)
-	}
+	require.NoError(t, q.CreateWebhookSubscription(ctx, sub))
+	require.NoError(t, q.DeleteWebhookSubscription(ctx, sub.ID))
 
 	// Should be gone.
 	_, err := q.GetWebhookSubscription(ctx, sub.ID)
-	if !errors.Is(err, store.ErrWebhookSubscriptionNotFound) {
-		t.Fatalf("GetWebhookSubscription(deleted) error = %v, want ErrWebhookSubscriptionNotFound", err)
-	}
+	require.True(t, errors.Is(err, store.
+		ErrWebhookSubscriptionNotFound,
+	))
+
 }
 
 func TestDeleteWebhookSubscription_WithDeliveriesDetachesHistory(t *testing.T) {
@@ -439,9 +433,7 @@ func TestDeleteWebhookSubscription_WithDeliveriesDetachesHistory(t *testing.T) {
 		Secret:     "s",
 		Active:     true,
 	}
-	if err := q.CreateWebhookSubscription(ctx, sub); err != nil {
-		t.Fatalf("CreateWebhookSubscription() error = %v", err)
-	}
+	require.NoError(t, q.CreateWebhookSubscription(ctx, sub))
 
 	delivery := &domain.WebhookDelivery{
 		SubscriptionID: sub.ID,
@@ -451,27 +443,25 @@ func TestDeleteWebhookSubscription_WithDeliveriesDetachesHistory(t *testing.T) {
 		MaxAttempts:    3,
 		Payload:        json.RawMessage(`{"status":"completed"}`),
 	}
-	if err := q.CreateWebhookDelivery(ctx, delivery); err != nil {
-		t.Fatalf("CreateWebhookDelivery() error = %v", err)
-	}
-
-	if err := q.DeleteWebhookSubscription(ctx, sub.ID); err != nil {
-		t.Fatalf("DeleteWebhookSubscription() error = %v", err)
-	}
+	require.NoError(t, q.CreateWebhookDelivery(ctx,
+		delivery))
+	require.NoError(t, q.DeleteWebhookSubscription(ctx, sub.ID))
 
 	if _, err := q.GetWebhookSubscription(ctx, sub.ID); !errors.Is(err, store.ErrWebhookSubscriptionNotFound) {
-		t.Fatalf("GetWebhookSubscription(deleted) error = %v, want ErrWebhookSubscriptionNotFound", err)
+		require.Failf(t, "test failure",
+
+			"GetWebhookSubscription(deleted) error = %v, want ErrWebhookSubscriptionNotFound", err)
 	}
 	gotDelivery, err := q.GetWebhookDelivery(ctx, delivery.ID)
-	if err != nil {
-		t.Fatalf("GetWebhookDelivery(history) error = %v", err)
-	}
-	if gotDelivery.SubscriptionID != "" {
-		t.Fatalf("SubscriptionID = %q, want detached empty value", gotDelivery.SubscriptionID)
-	}
-	if gotDelivery.ProjectID != sub.ProjectID {
-		t.Fatalf("ProjectID = %q, want %q", gotDelivery.ProjectID, sub.ProjectID)
-	}
+	require.NoError(t, err)
+	require.Equal(t, "", gotDelivery.
+		SubscriptionID,
+	)
+	require.Equal(t, sub.ProjectID,
+
+		gotDelivery.
+			ProjectID)
+
 }
 
 func TestDeleteWebhookSubscription_NotFound(t *testing.T) {
@@ -480,7 +470,8 @@ func TestDeleteWebhookSubscription_NotFound(t *testing.T) {
 	mustClean(t, ctx)
 
 	err := q.DeleteWebhookSubscription(ctx, newID())
-	if !errors.Is(err, store.ErrWebhookSubscriptionNotFound) {
-		t.Fatalf("DeleteWebhookSubscription(missing) error = %v, want ErrWebhookSubscriptionNotFound", err)
-	}
+	require.True(t, errors.Is(err, store.
+		ErrWebhookSubscriptionNotFound,
+	))
+
 }

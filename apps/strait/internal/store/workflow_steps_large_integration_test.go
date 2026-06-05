@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"strait/internal/testutil"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestIntegration_ListStepsByWorkflow_ReturnsMoreThanFiveHundredSteps(t *testing.T) {
@@ -16,9 +18,10 @@ func TestIntegration_ListStepsByWorkflow_ReturnsMoreThanFiveHundredSteps(t *test
 	mustClean(t, ctx)
 
 	projectID := "project-large-workflow-" + newID()
-	if err := q.SetProjectContext(ctx, projectID); err != nil {
-		t.Fatalf("SetProjectContext() error = %v", err)
-	}
+	require.NoError(t, q.SetProjectContext(ctx,
+		projectID,
+	))
+
 	name := "large workflow"
 	slug := "large-workflow-" + newID()
 	wf := testutil.MustCreateWorkflow(t, ctx, q, &testutil.WorkflowOpts{
@@ -38,10 +41,7 @@ func TestIntegration_ListStepsByWorkflow_ReturnsMoreThanFiveHundredSteps(t *test
 	}
 
 	steps, err := q.ListStepsByWorkflow(ctx, wf.ID)
-	if err != nil {
-		t.Fatalf("ListStepsByWorkflow() error = %v", err)
-	}
-	if len(steps) != stepCount {
-		t.Fatalf("ListStepsByWorkflow() len = %d, want %d", len(steps), stepCount)
-	}
+	require.NoError(t, err)
+	require.Len(t, steps, stepCount)
+
 }

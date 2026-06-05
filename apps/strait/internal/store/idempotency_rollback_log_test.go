@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/stretchr/testify/require"
 )
 
 // TestLogIdempotencyRollbackErr_NilNoLog verifies the helper is a no-op on
@@ -19,10 +20,9 @@ func TestLogIdempotencyRollbackErr_NilNoLog(t *testing.T) {
 	t.Cleanup(func() { slog.SetDefault(old) })
 
 	logIdempotencyRollbackErr(nil)
+	require.EqualValues(t, 0, buf.
+		Len())
 
-	if buf.Len() != 0 {
-		t.Fatalf("logIdempotencyRollbackErr(nil) emitted %q, want empty", buf.String())
-	}
 }
 
 // TestLogIdempotencyRollbackErr_TxClosedNoLog ensures we don't spam logs
@@ -35,10 +35,9 @@ func TestLogIdempotencyRollbackErr_TxClosedNoLog(t *testing.T) {
 	t.Cleanup(func() { slog.SetDefault(old) })
 
 	logIdempotencyRollbackErr(pgx.ErrTxClosed)
+	require.EqualValues(t, 0, buf.
+		Len())
 
-	if buf.Len() != 0 {
-		t.Fatalf("logIdempotencyRollbackErr(ErrTxClosed) emitted %q, want empty", buf.String())
-	}
 }
 
 // TestLogIdempotencyRollbackErr_TxClosedWrappedNoLog verifies that wrapped
@@ -52,10 +51,9 @@ func TestLogIdempotencyRollbackErr_TxClosedWrappedNoLog(t *testing.T) {
 
 	wrapped := errors.Join(errors.New("outer"), pgx.ErrTxClosed)
 	logIdempotencyRollbackErr(wrapped)
+	require.EqualValues(t, 0, buf.
+		Len())
 
-	if buf.Len() != 0 {
-		t.Fatalf("logIdempotencyRollbackErr(wrapped ErrTxClosed) emitted %q, want empty", buf.String())
-	}
 }
 
 // TestLogIdempotencyRollbackErr_RealErrorEmitsWarn proves the helper does
@@ -71,13 +69,17 @@ func TestLogIdempotencyRollbackErr_RealErrorEmitsWarn(t *testing.T) {
 	logIdempotencyRollbackErr(errors.New("connection reset by peer"))
 
 	out := buf.String()
-	if !strings.Contains(out, "level=WARN") {
-		t.Fatalf("log line missing WARN level: %q", out)
-	}
-	if !strings.Contains(out, "failed to rollback idempotency transaction") {
-		t.Fatalf("log line missing rollback message: %q", out)
-	}
-	if !strings.Contains(out, "connection reset by peer") {
-		t.Fatalf("log line missing underlying error: %q", out)
-	}
+	require.True(
+		t, strings.Contains(out,
+			"level=WARN",
+		))
+	require.True(
+		t, strings.Contains(out,
+			"failed to rollback idempotency transaction",
+		))
+	require.True(
+		t, strings.Contains(out,
+			"connection reset by peer",
+		))
+
 }

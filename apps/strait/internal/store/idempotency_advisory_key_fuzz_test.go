@@ -2,6 +2,8 @@ package store
 
 import (
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 // FuzzIdempotencyAdvisoryKey_DeterministicAndDistinct asserts that the
@@ -19,16 +21,19 @@ func FuzzIdempotencyAdvisoryKey_DeterministicAndDistinct(f *testing.F) {
 	f.Fuzz(func(t *testing.T, projectID, key string) {
 		a := idempotencyAdvisoryKey(projectID, key)
 		b := idempotencyAdvisoryKey(projectID, key)
-		if a != b {
-			t.Fatalf("non-deterministic: %d vs %d for (%q,%q)", a, b, projectID, key)
-		}
+		require.Equal(t,
+
+			b,
+			a)
+
 		// Swap: must usually differ. When projectID == key the hash is naturally
 		// equal under swap, so only assert when they differ.
 		if projectID != key {
 			swapped := idempotencyAdvisoryKey(key, projectID)
-			if swapped == a {
-				t.Fatalf("swap collision for (%q,%q): %d", projectID, key, a)
-			}
+			require.NotEqual(
+				t,
+				a, swapped)
+
 		}
 	})
 }

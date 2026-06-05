@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
 
 	"strait/internal/domain"
 	"strait/internal/store"
@@ -51,12 +52,9 @@ func TestIntegration_MarkWorkerTaskResultReceivedByAssignment_BindsAndPersistsRe
 				[]byte(`{"stale":true}`),
 				11,
 			)
-			if err != nil {
-				t.Fatalf("MarkWorkerTaskResultReceivedByAssignment: %v", err)
-			}
-			if marked {
-				t.Fatal("stale assignment identity must not mark the task")
-			}
+			require.NoError(t, err)
+			require.False(t, marked)
+
 		})
 	}
 
@@ -72,36 +70,37 @@ func TestIntegration_MarkWorkerTaskResultReceivedByAssignment_BindsAndPersistsRe
 		[]byte(`{"ok":true}`),
 		42,
 	)
-	if err != nil {
-		t.Fatalf("MarkWorkerTaskResultReceivedByAssignment exact: %v", err)
-	}
-	if !marked {
-		t.Fatal("exact assignment identity should mark the task")
-	}
+	require.NoError(t, err)
+	require.True(t, marked)
 
 	task, err := q.GetWorkerTask(ctx, taskID)
-	if err != nil {
-		t.Fatalf("GetWorkerTask: %v", err)
-	}
-	if task.Status != domain.WorkerTaskStatusResultReceived {
-		t.Fatalf("status = %q, want result_received", task.Status)
-	}
-	if task.Attempt != 3 {
-		t.Fatalf("attempt = %d, want 3", task.Attempt)
-	}
-	if task.Result == nil {
-		t.Fatal("expected durable worker result")
-	}
-	if task.Result.Status != "success" || task.Result.DurationMS != 42 || task.Result.ReceivedAt == nil {
-		t.Fatalf("unexpected durable worker result metadata: %+v", task.Result)
-	}
+	require.NoError(t, err)
+	require.Equal(t, domain.
+		WorkerTaskStatusResultReceived,
+
+		task.
+			Status)
+	require.EqualValues(t, 3, task.
+		Attempt)
+	require.NotNil(t, task.
+		Result,
+	)
+	require.False(t, task.Result.
+		Status !=
+		"success" ||
+		task.Result.
+			DurationMS !=
+			42 ||
+		task.Result.ReceivedAt ==
+			nil)
+
 	var payload map[string]bool
-	if err := json.Unmarshal(task.Result.Output, &payload); err != nil {
-		t.Fatalf("unmarshal durable output: %v", err)
-	}
-	if !payload["ok"] {
-		t.Fatalf("durable output = %s, want ok=true", string(task.Result.Output))
-	}
+	require.NoError(t, json.
+		Unmarshal(task.Result.
+			Output, &payload,
+		))
+	require.True(t, payload["ok"])
+
 }
 
 func TestIntegration_ClaimRecoverableWorkerTaskResults_ClaimsOnlyOldExecutingHandoffs(t *testing.T) {
@@ -111,48 +110,49 @@ func TestIntegration_ClaimRecoverableWorkerTaskResults_ClaimsOnlyOldExecutingHan
 	q := store.New(env.DB.Pool)
 	projectID, workerID, runID, taskID := seedWorkerTaskForBinding(t, ctx, q, 1)
 	marked, err := q.MarkWorkerTaskResultReceivedByAssignment(ctx, taskID, workerID, projectID, runID, 1, "success", "", []byte(`{"ok":true}`), 7)
-	if err != nil {
-		t.Fatalf("MarkWorkerTaskResultReceivedByAssignment: %v", err)
-	}
-	if !marked {
-		t.Fatal("expected exact handoff to be marked")
-	}
+	require.NoError(t, err)
+	require.True(t, marked)
+
 	if _, err := env.DB.Pool.Exec(ctx, `UPDATE worker_tasks SET result_received_at = NOW() - INTERVAL '10 minutes' WHERE id = $1`, taskID); err != nil {
-		t.Fatalf("age result handoff: %v", err)
+		require.Failf(t, "test failure",
+
+			"age result handoff: %v", err)
 	}
 
 	claimed, err := q.ClaimRecoverableWorkerTaskResults(ctx, time.Now().Add(-5*time.Minute), 10)
-	if err != nil {
-		t.Fatalf("ClaimRecoverableWorkerTaskResults: %v", err)
-	}
-	if len(claimed) != 1 {
-		t.Fatalf("claimed = %d, want 1", len(claimed))
-	}
-	if claimed[0].ID != taskID || claimed[0].Status != domain.WorkerTaskStatusFinalizing {
-		t.Fatalf("claimed task = %+v, want finalizing %s", claimed[0], taskID)
-	}
-	if claimed[0].Result == nil || claimed[0].Result.Status != "success" || claimed[0].Result.DurationMS != 7 {
-		t.Fatalf("claimed durable result = %+v, want persisted success result", claimed[0].Result)
-	}
+	require.NoError(t, err)
+	require.Len(t, claimed,
+
+		1)
+	require.False(t, claimed[0].ID !=
+		taskID ||
+		claimed[0].Status !=
+			domain.
+				WorkerTaskStatusFinalizing,
+	)
+	require.False(t, claimed[0].Result ==
+		nil ||
+		claimed[0].Result.
+			Status !=
+			"success" ||
+		claimed[0].Result.DurationMS !=
+			7)
 
 	claimedAgain, err := q.ClaimRecoverableWorkerTaskResults(ctx, time.Now().Add(-5*time.Minute), 10)
-	if err != nil {
-		t.Fatalf("ClaimRecoverableWorkerTaskResults again: %v", err)
-	}
-	if len(claimedAgain) != 0 {
-		t.Fatalf("claimedAgain = %d, want 0 while finalizing claim is held", len(claimedAgain))
-	}
+	require.NoError(t, err)
+	require.Len(t, claimedAgain,
 
-	if err := q.ResetWorkerTaskFinalizingToResultReceived(ctx, taskID); err != nil {
-		t.Fatalf("ResetWorkerTaskFinalizingToResultReceived: %v", err)
-	}
+		0)
+	require.NoError(t, q.ResetWorkerTaskFinalizingToResultReceived(ctx, taskID))
+
 	task, err := q.GetWorkerTask(ctx, taskID)
-	if err != nil {
-		t.Fatalf("GetWorkerTask: %v", err)
-	}
-	if task.Status != domain.WorkerTaskStatusResultReceived {
-		t.Fatalf("task status after reset = %q, want result_received", task.Status)
-	}
+	require.NoError(t, err)
+	require.Equal(t, domain.
+		WorkerTaskStatusResultReceived,
+
+		task.
+			Status)
+
 }
 
 func TestIntegration_MarkWorkerTaskResultReceived_SkipsDuplicateHandoffWrites(t *testing.T) {
@@ -162,43 +162,39 @@ func TestIntegration_MarkWorkerTaskResultReceived_SkipsDuplicateHandoffWrites(t 
 	q := store.New(env.DB.Pool)
 	_, _, _, taskID := seedWorkerTaskForBinding(t, ctx, q, 1)
 	marked, err := q.MarkWorkerTaskResultReceived(ctx, taskID)
-	if err != nil {
-		t.Fatalf("MarkWorkerTaskResultReceived: %v", err)
-	}
-	if !marked {
-		t.Fatal("MarkWorkerTaskResultReceived marked = false, want true")
-	}
+	require.NoError(t, err)
+	require.True(t, marked)
 
 	var receivedXmin string
-	if err := env.DB.Pool.QueryRow(ctx, `
+	require.NoError(t, env.
+		DB.
+		Pool.QueryRow(ctx,
+		`
 		SELECT xmin::text
 		FROM worker_tasks
 		WHERE id = $1`,
 		taskID,
-	).Scan(&receivedXmin); err != nil {
-		t.Fatalf("query result_received worker task version: %v", err)
-	}
+	).Scan(&receivedXmin))
 
 	markedAgain, err := q.MarkWorkerTaskResultReceived(ctx, taskID)
-	if err != nil {
-		t.Fatalf("MarkWorkerTaskResultReceived duplicate: %v", err)
-	}
-	if !markedAgain {
-		t.Fatal("duplicate MarkWorkerTaskResultReceived marked = false, want true")
-	}
+	require.NoError(t, err)
+	require.True(t, markedAgain)
 
 	var duplicateReceivedXmin string
-	if err := env.DB.Pool.QueryRow(ctx, `
+	require.NoError(t, env.
+		DB.
+		Pool.QueryRow(ctx,
+		`
 		SELECT xmin::text
 		FROM worker_tasks
 		WHERE id = $1`,
 		taskID,
-	).Scan(&duplicateReceivedXmin); err != nil {
-		t.Fatalf("query duplicate result_received worker task version: %v", err)
-	}
-	if duplicateReceivedXmin != receivedXmin {
-		t.Fatalf("duplicate result_received handoff changed xmin from %s to %s", receivedXmin, duplicateReceivedXmin)
-	}
+	).Scan(&duplicateReceivedXmin))
+	require.Equal(t, receivedXmin,
+
+		duplicateReceivedXmin,
+	)
+
 }
 
 func TestIntegration_UpdateWorkerTaskStatus_SkipsDuplicateStatusWrites(t *testing.T) {
@@ -207,80 +203,94 @@ func TestIntegration_UpdateWorkerTaskStatus_SkipsDuplicateStatusWrites(t *testin
 
 	q := store.New(env.DB.Pool)
 	_, _, _, taskID := seedWorkerTaskForBinding(t, ctx, q, 1)
-	if err := q.UpdateWorkerTaskStatus(ctx, taskID, domain.WorkerTaskStatusAccepted); err != nil {
-		t.Fatalf("UpdateWorkerTaskStatus accepted: %v", err)
-	}
+	require.NoError(t, q.UpdateWorkerTaskStatus(
+		ctx, taskID, domain.
+			WorkerTaskStatusAccepted,
+	))
 
 	var acceptedXmin string
 	var acceptedAt time.Time
-	if err := env.DB.Pool.QueryRow(ctx, `
+	require.NoError(t, env.
+		DB.
+		Pool.QueryRow(ctx,
+		`
 		SELECT xmin::text, accepted_at
 		FROM worker_tasks
 		WHERE id = $1`,
-		taskID,
-	).Scan(&acceptedXmin, &acceptedAt); err != nil {
-		t.Fatalf("query accepted worker task version: %v", err)
-	}
 
-	if err := q.UpdateWorkerTaskStatus(ctx, taskID, domain.WorkerTaskStatusAccepted); err != nil {
-		t.Fatalf("UpdateWorkerTaskStatus duplicate accepted: %v", err)
-	}
+		taskID).Scan(&acceptedXmin,
+		&acceptedAt))
+	require.NoError(t, q.UpdateWorkerTaskStatus(
+		ctx, taskID, domain.
+			WorkerTaskStatusAccepted,
+	))
 
 	var duplicateAcceptedXmin string
 	var duplicateAcceptedAt time.Time
-	if err := env.DB.Pool.QueryRow(ctx, `
+	require.NoError(t, env.
+		DB.
+		Pool.QueryRow(ctx,
+		`
 		SELECT xmin::text, accepted_at
 		FROM worker_tasks
 		WHERE id = $1`,
-		taskID,
-	).Scan(&duplicateAcceptedXmin, &duplicateAcceptedAt); err != nil {
-		t.Fatalf("query duplicate accepted worker task version: %v", err)
-	}
-	if duplicateAcceptedXmin != acceptedXmin {
-		t.Fatalf("duplicate accepted update changed xmin from %s to %s", acceptedXmin, duplicateAcceptedXmin)
-	}
-	if !duplicateAcceptedAt.Equal(acceptedAt) {
-		t.Fatalf("duplicate accepted update changed accepted_at from %s to %s", acceptedAt, duplicateAcceptedAt)
-	}
 
-	if err := q.UpdateWorkerTaskStatus(ctx, taskID, domain.WorkerTaskStatusCompleted); err != nil {
-		t.Fatalf("UpdateWorkerTaskStatus completed: %v", err)
-	}
+		taskID).Scan(&duplicateAcceptedXmin,
+		&duplicateAcceptedAt,
+	))
+	require.Equal(t, acceptedXmin,
+
+		duplicateAcceptedXmin,
+	)
+	require.True(t, duplicateAcceptedAt.
+		Equal(acceptedAt))
+	require.NoError(t, q.UpdateWorkerTaskStatus(
+		ctx, taskID, domain.
+			WorkerTaskStatusCompleted,
+	))
 
 	var completedXmin string
 	var finishedAt time.Time
-	if err := env.DB.Pool.QueryRow(ctx, `
+	require.NoError(t, env.
+		DB.
+		Pool.QueryRow(ctx,
+		`
 		SELECT xmin::text, finished_at
 		FROM worker_tasks
 		WHERE id = $1`,
-		taskID,
-	).Scan(&completedXmin, &finishedAt); err != nil {
-		t.Fatalf("query completed worker task version: %v", err)
-	}
-	if completedXmin == duplicateAcceptedXmin {
-		t.Fatalf("completed transition kept xmin %s, want a real update", completedXmin)
-	}
 
-	if err := q.UpdateWorkerTaskStatus(ctx, taskID, domain.WorkerTaskStatusCompleted); err != nil {
-		t.Fatalf("UpdateWorkerTaskStatus duplicate completed: %v", err)
-	}
+		taskID).Scan(&completedXmin,
+		&finishedAt),
+	)
+	require.NotEqual(t, duplicateAcceptedXmin,
+
+		completedXmin,
+	)
+	require.NoError(t, q.UpdateWorkerTaskStatus(
+		ctx, taskID, domain.
+			WorkerTaskStatusCompleted,
+	))
 
 	var duplicateCompletedXmin string
 	var duplicateFinishedAt time.Time
-	if err := env.DB.Pool.QueryRow(ctx, `
+	require.NoError(t, env.
+		DB.
+		Pool.QueryRow(ctx,
+		`
 		SELECT xmin::text, finished_at
 		FROM worker_tasks
 		WHERE id = $1`,
-		taskID,
-	).Scan(&duplicateCompletedXmin, &duplicateFinishedAt); err != nil {
-		t.Fatalf("query duplicate completed worker task version: %v", err)
-	}
-	if duplicateCompletedXmin != completedXmin {
-		t.Fatalf("duplicate completed update changed xmin from %s to %s", completedXmin, duplicateCompletedXmin)
-	}
-	if !duplicateFinishedAt.Equal(finishedAt) {
-		t.Fatalf("duplicate completed update changed finished_at from %s to %s", finishedAt, duplicateFinishedAt)
-	}
+
+		taskID).Scan(&duplicateCompletedXmin,
+		&duplicateFinishedAt,
+	))
+	require.Equal(t, completedXmin,
+
+		duplicateCompletedXmin,
+	)
+	require.True(t, duplicateFinishedAt.
+		Equal(finishedAt))
+
 }
 
 func seedWorkerTaskForBinding(t *testing.T, ctx context.Context, q *store.Queries, attempt int) (projectID, workerID, runID, taskID string) {
@@ -290,41 +300,33 @@ func seedWorkerTaskForBinding(t *testing.T, ctx context.Context, q *store.Querie
 	workerID = "worker-" + uuid.Must(uuid.NewV7()).String()
 	runID = uuid.Must(uuid.NewV7()).String()
 	taskID = uuid.Must(uuid.NewV7()).String()
-
-	if err := q.CreateProject(ctx, &domain.Project{
-		ID:    projectID,
+	require.NoError(t, q.CreateProject(ctx, &domain.
+		Project{ID: projectID,
 		OrgID: "org-worker-binding",
-		Name:  "worker-binding",
-	}); err != nil {
-		t.Fatalf("CreateProject: %v", err)
-	}
+
+		Name: "worker-binding",
+	}))
+
 	job := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: &projectID})
 	executing := domain.StatusExecuting
 	run := testutil.BuildRun(job, &testutil.RunOpts{ID: &runID, Status: &executing})
 	run.Attempt = attempt
 	run.ExecutionMode = domain.ExecutionModeWorker
-	if err := q.CreateRun(ctx, run); err != nil {
-		t.Fatalf("CreateRun: %v", err)
-	}
-	if err := q.RegisterWorker(ctx, &domain.Worker{
-		ID:        workerID,
-		ProjectID: projectID,
-		QueueName: "default",
-		Hostname:  "host",
-		Version:   "1.0",
-		Status:    domain.WorkerStatusActive,
-	}); err != nil {
-		t.Fatalf("RegisterWorker: %v", err)
-	}
-	if err := q.CreateWorkerTask(ctx, &domain.WorkerTask{
-		ID:        taskID,
-		WorkerID:  workerID,
-		RunID:     runID,
-		ProjectID: projectID,
-		Attempt:   attempt,
-		Status:    domain.WorkerTaskStatusAssigned,
-	}); err != nil {
-		t.Fatalf("CreateWorkerTask: %v", err)
-	}
+	require.NoError(t, q.CreateRun(ctx,
+		run))
+	require.NoError(t, q.RegisterWorker(ctx, &domain.
+		Worker{ID: workerID,
+		ProjectID: projectID, QueueName: "default",
+
+		Hostname: "host", Version: "1.0", Status: domain.
+				WorkerStatusActive}))
+	require.NoError(t, q.CreateWorkerTask(ctx, &domain.WorkerTask{ID: taskID,
+		WorkerID: workerID, RunID: runID,
+
+		ProjectID: projectID, Attempt: attempt, Status: domain.
+				WorkerTaskStatusAssigned,
+	}),
+	)
+
 	return projectID, workerID, runID, taskID
 }

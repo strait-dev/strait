@@ -6,6 +6,8 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestGetCostAnalytics_Empty(t *testing.T) {
@@ -16,18 +18,15 @@ func TestGetCostAnalytics_Empty(t *testing.T) {
 	now := time.Now().UTC()
 	// Short period (live path).
 	result, err := q.GetCostAnalytics(ctx, "project-cost-analytics", now.Add(-1*time.Hour), now)
-	if err != nil {
-		t.Fatalf("GetCostAnalytics(live) error = %v", err)
-	}
-	if result == nil {
-		t.Fatal("GetCostAnalytics(live) returned nil")
-	}
-	if result.TotalSpendMicrousd != 0 {
-		t.Fatalf("TotalSpendMicrousd = %d, want 0", result.TotalSpendMicrousd)
-	}
-	if result.RunCount != 0 {
-		t.Fatalf("RunCount = %d, want 0", result.RunCount)
-	}
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.EqualValues(t, 0, result.
+		TotalSpendMicrousd,
+	)
+	require.EqualValues(t, 0, result.
+		RunCount,
+	)
+
 }
 
 func TestGetCostAnalytics_MaterializedPath(t *testing.T) {
@@ -38,12 +37,9 @@ func TestGetCostAnalytics_MaterializedPath(t *testing.T) {
 	now := time.Now().UTC()
 	// Long period (materialized path).
 	result, err := q.GetCostAnalytics(ctx, "project-cost-analytics-mat", now.Add(-48*time.Hour), now)
-	if err != nil {
-		t.Fatalf("GetCostAnalytics(materialized) error = %v", err)
-	}
-	if result == nil {
-		t.Fatal("GetCostAnalytics(materialized) returned nil")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
 }
 
 func TestGetCostTrends_Live(t *testing.T) {
@@ -54,12 +50,11 @@ func TestGetCostTrends_Live(t *testing.T) {
 	now := time.Now().UTC()
 	// Short period triggers live path.
 	points, err := q.GetCostTrends(ctx, "project-cost-trends-live", now.Add(-1*time.Hour), now)
-	if err != nil {
-		t.Fatalf("GetCostTrends(live) error = %v", err)
-	}
-	if len(points) != 0 {
-		t.Fatalf("GetCostTrends(live) len = %d, want 0", len(points))
-	}
+	require.NoError(t, err)
+	require.Len(t, points,
+		0,
+	)
+
 }
 
 func TestGetCostTrends_Materialized(t *testing.T) {
@@ -70,12 +65,11 @@ func TestGetCostTrends_Materialized(t *testing.T) {
 	now := time.Now().UTC()
 	// Long period triggers materialized path.
 	points, err := q.GetCostTrends(ctx, "project-cost-trends-mat", now.Add(-48*time.Hour), now)
-	if err != nil {
-		t.Fatalf("GetCostTrends(materialized) error = %v", err)
-	}
-	if len(points) != 0 {
-		t.Fatalf("GetCostTrends(materialized) len = %d, want 0", len(points))
-	}
+	require.NoError(t, err)
+	require.Len(t, points,
+		0,
+	)
+
 }
 
 func TestGetTopCosts_Empty(t *testing.T) {
@@ -85,12 +79,9 @@ func TestGetTopCosts_Empty(t *testing.T) {
 
 	now := time.Now().UTC()
 	items, err := q.GetTopCosts(ctx, "project-top-costs", now.Add(-1*time.Hour), now, 10)
-	if err != nil {
-		t.Fatalf("GetTopCosts() error = %v", err)
-	}
-	if len(items) != 0 {
-		t.Fatalf("GetTopCosts() len = %d, want 0", len(items))
-	}
+	require.NoError(t, err)
+	require.Len(t, items, 0)
+
 }
 
 func TestAggregateCostStatsHourly(t *testing.T) {
@@ -100,9 +91,8 @@ func TestAggregateCostStatsHourly(t *testing.T) {
 
 	// Should succeed even with no data.
 	hour := time.Now().UTC().Truncate(time.Hour)
-	if err := q.AggregateCostStatsHourly(ctx, hour); err != nil {
-		t.Fatalf("AggregateCostStatsHourly() error = %v", err)
-	}
+	require.NoError(t, q.AggregateCostStatsHourly(ctx, hour))
+
 }
 
 func TestGetCostOutliers_Empty(t *testing.T) {
@@ -112,10 +102,9 @@ func TestGetCostOutliers_Empty(t *testing.T) {
 
 	now := time.Now().UTC()
 	outliers, err := q.GetCostOutliers(ctx, "project-cost-outliers", now.Add(-1*time.Hour), now, 2.0)
-	if err != nil {
-		t.Fatalf("GetCostOutliers() error = %v", err)
-	}
-	if len(outliers) != 0 {
-		t.Fatalf("GetCostOutliers() len = %d, want 0", len(outliers))
-	}
+	require.NoError(t, err)
+	require.Len(t, outliers,
+
+		0)
+
 }

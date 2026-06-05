@@ -11,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/stretchr/testify/require"
 )
 
 // RLS isolation integration tests.
@@ -51,9 +52,8 @@ import (
 func runAsProject(t *testing.T, ctx context.Context, projectID string, commit bool, fn func(q *store.Queries)) {
 	t.Helper()
 	tx, err := testDB.Pool.Begin(ctx)
-	if err != nil {
-		t.Fatalf("begin tx: %v", err)
-	}
+	require.NoError(t, err)
+
 	defer func() {
 		if !commit {
 			_ = tx.Rollback(ctx)
@@ -61,18 +61,21 @@ func runAsProject(t *testing.T, ctx context.Context, projectID string, commit bo
 	}()
 	if _, err := tx.Exec(ctx, "SELECT set_config('app.current_project_id', $1, true)", projectID); err != nil {
 		_ = tx.Rollback(ctx)
-		t.Fatalf("set project context: %v", err)
+		require.Failf(t, "test failure",
+
+			"set project context: %v", err)
 	}
 	if _, err := tx.Exec(ctx, "SET LOCAL ROLE strait_app"); err != nil {
 		_ = tx.Rollback(ctx)
-		t.Fatalf("set local role strait_app: %v", err)
+		require.Failf(t, "test failure",
+
+			"set local role strait_app: %v", err)
 	}
 	q := store.New(tx)
 	fn(q)
 	if commit {
-		if err := tx.Commit(ctx); err != nil {
-			t.Fatalf("commit tx: %v", err)
-		}
+		require.NoError(t, tx.Commit(ctx))
+
 	}
 }
 
@@ -83,20 +86,25 @@ func runAsProject(t *testing.T, ctx context.Context, projectID string, commit bo
 func countAsProject(t *testing.T, ctx context.Context, pool *pgxpool.Pool, projectID, sqlQuery string, args ...any) int {
 	t.Helper()
 	tx, err := pool.Begin(ctx)
-	if err != nil {
-		t.Fatalf("begin tx: %v", err)
-	}
+	require.NoError(t, err)
+
 	defer func() { _ = tx.Rollback(ctx) }()
 	if _, err := tx.Exec(ctx, "SELECT set_config('app.current_project_id', $1, true)", projectID); err != nil {
-		t.Fatalf("set project context: %v", err)
+		require.Failf(t, "test failure",
+
+			"set project context: %v", err)
 	}
 	if _, err := tx.Exec(ctx, "SET LOCAL ROLE strait_app"); err != nil {
-		t.Fatalf("set local role strait_app: %v", err)
+		require.Failf(t, "test failure",
+
+			"set local role strait_app: %v", err)
 	}
 	var count int
-	if err := tx.QueryRow(ctx, sqlQuery, args...).Scan(&count); err != nil {
-		t.Fatalf("count query: %v", err)
-	}
+	require.NoError(t, tx.QueryRow(ctx,
+		sqlQuery,
+		args...).
+		Scan(&count))
+
 	return count
 }
 
@@ -120,37 +128,32 @@ func TestRLS_Jobs_CrossTenantIsolation(t *testing.T) {
 	// Query as A: only A's job visible.
 	runAsProject(t, ctx, projA, false, func(q *store.Queries) {
 		jobs, err := q.ListJobs(ctx, projA, 100, nil)
-		if err != nil {
-			t.Fatalf("ListJobs(projA) error = %v", err)
-		}
-		if len(jobs) != 1 {
-			t.Fatalf("project A sees %d jobs, want 1 (RLS leaking)", len(jobs))
-		}
-		if jobs[0].ID != jobA.ID {
-			t.Fatalf("project A sees job %q, want %q", jobs[0].ID, jobA.ID)
-		}
+		require.NoError(t, err)
+		require.Len(t, jobs, 1)
+		require.Equal(t, jobA.ID,
+
+			jobs[0].
+				ID)
+
 	})
 
 	// Query as B: only B's job visible.
 	runAsProject(t, ctx, projB, false, func(q *store.Queries) {
 		jobs, err := q.ListJobs(ctx, projB, 100, nil)
-		if err != nil {
-			t.Fatalf("ListJobs(projB) error = %v", err)
-		}
-		if len(jobs) != 1 {
-			t.Fatalf("project B sees %d jobs, want 1", len(jobs))
-		}
-		if jobs[0].ID != jobB.ID {
-			t.Fatalf("project B sees job %q, want %q", jobs[0].ID, jobB.ID)
-		}
+		require.NoError(t, err)
+		require.Len(t, jobs, 1)
+		require.Equal(t, jobB.ID,
+
+			jobs[0].
+				ID)
+
 	})
 
 	// Cross-tenant direct lookup: project A asks for job B's ID.
 	runAsProject(t, ctx, projA, false, func(q *store.Queries) {
 		_, err := q.GetJob(ctx, jobB.ID)
-		if err == nil {
-			t.Fatal("GetJob(jobB.ID) as project A returned a row, want not found")
-		}
+		require.Error(t, err)
+
 	})
 }
 
@@ -165,37 +168,31 @@ func TestRLS_JobRuns_CrossTenantIsolation(t *testing.T) {
 	runAsProject(t, ctx, projA, true, func(q *store.Queries) {
 		jobA = mustCreateJob(t, ctx, q, projA)
 		run := baseRun(jobA, newID())
-		if err := q.CreateRun(ctx, run); err != nil {
-			t.Fatalf("CreateRun(A) error = %v", err)
-		}
+		require.NoError(t, q.CreateRun(ctx,
+			run))
+
 	})
 	runAsProject(t, ctx, projB, true, func(q *store.Queries) {
 		jobB = mustCreateJob(t, ctx, q, projB)
 		run := baseRun(jobB, newID())
-		if err := q.CreateRun(ctx, run); err != nil {
-			t.Fatalf("CreateRun(B) error = %v", err)
-		}
+		require.NoError(t, q.CreateRun(ctx,
+			run))
+
 	})
 
 	runAsProject(t, ctx, projA, false, func(q *store.Queries) {
 		runs, err := q.ListRunsByJob(ctx, jobA.ID, 100, 0)
-		if err != nil {
-			t.Fatalf("ListRunsByJob(A) error = %v", err)
-		}
-		if len(runs) != 1 {
-			t.Fatalf("project A sees %d runs, want 1", len(runs))
-		}
+		require.NoError(t, err)
+		require.Len(t, runs, 1)
+
 	})
 
 	// Cross-tenant: project A asking for job B's runs returns empty.
 	runAsProject(t, ctx, projA, false, func(q *store.Queries) {
 		runs, err := q.ListRunsByJob(ctx, jobB.ID, 100, 0)
-		if err != nil {
-			t.Fatalf("ListRunsByJob(projA, jobB) error = %v", err)
-		}
-		if len(runs) != 0 {
-			t.Fatalf("cross-tenant run list returned %d rows, want 0", len(runs))
-		}
+		require.NoError(t, err)
+		require.Len(t, runs, 0)
+
 	})
 }
 
@@ -217,9 +214,8 @@ func TestRLS_AuditEvents_CrossTenantIsolation(t *testing.T) {
 			ResourceType: "job",
 			ResourceID:   newID(),
 		}
-		if err := q.CreateAuditEvent(ctx, ev); err != nil {
-			t.Fatalf("CreateAuditEvent(A) error = %v", err)
-		}
+		require.NoError(t, q.CreateAuditEvent(ctx, ev))
+
 	})
 	runAsProject(t, ctx, projB, true, func(q *store.Queries) {
 		ev := &domain.AuditEvent{
@@ -230,15 +226,13 @@ func TestRLS_AuditEvents_CrossTenantIsolation(t *testing.T) {
 			ResourceType: "job",
 			ResourceID:   newID(),
 		}
-		if err := q.CreateAuditEvent(ctx, ev); err != nil {
-			t.Fatalf("CreateAuditEvent(B) error = %v", err)
-		}
+		require.NoError(t, q.CreateAuditEvent(ctx, ev))
+
 	})
 
 	got := countAsProject(t, ctx, testDB.Pool, projA, `SELECT COUNT(*) FROM audit_events`)
-	if got != 1 {
-		t.Fatalf("project A sees %d audit events, want 1 (RLS leaking)", got)
-	}
+	require.EqualValues(t, 1, got)
+
 }
 
 func TestRLS_LogDrains_CrossTenantIsolation(t *testing.T) {
@@ -253,7 +247,9 @@ func TestRLS_LogDrains_CrossTenantIsolation(t *testing.T) {
 			`INSERT INTO log_drains (id, project_id, name, drain_type, endpoint_url) VALUES ($1, $2, $3, $4, $5)`,
 			"drain-"+newID(), projA, "a-drain", "http", "https://a.example.com",
 		); err != nil {
-			t.Fatalf("insert log_drain A: %v", err)
+			require.Failf(t, "test failure",
+
+				"insert log_drain A: %v", err)
 		}
 	})
 	runAsProject(t, ctx, projB, true, func(_ *store.Queries) {
@@ -261,18 +257,17 @@ func TestRLS_LogDrains_CrossTenantIsolation(t *testing.T) {
 			`INSERT INTO log_drains (id, project_id, name, drain_type, endpoint_url) VALUES ($1, $2, $3, $4, $5)`,
 			"drain-"+newID(), projB, "b-drain", "http", "https://b.example.com",
 		); err != nil {
-			t.Fatalf("insert log_drain B: %v", err)
+			require.Failf(t, "test failure",
+
+				"insert log_drain B: %v", err)
 		}
 	})
 
 	countA := countAsProject(t, ctx, testDB.Pool, projA, `SELECT COUNT(*) FROM log_drains`)
 	countB := countAsProject(t, ctx, testDB.Pool, projB, `SELECT COUNT(*) FROM log_drains`)
-	if countA != 1 {
-		t.Fatalf("project A sees %d log_drains, want 1", countA)
-	}
-	if countB != 1 {
-		t.Fatalf("project B sees %d log_drains, want 1", countB)
-	}
+	require.EqualValues(t, 1, countA)
+	require.EqualValues(t, 1, countB)
+
 }
 
 func TestRLS_JobMemory_CrossTenantIsolation(t *testing.T) {
@@ -288,7 +283,9 @@ func TestRLS_JobMemory_CrossTenantIsolation(t *testing.T) {
 			`INSERT INTO job_memory (id, job_id, project_id, memory_key, value) VALUES ($1, $2, $3, $4, $5::jsonb)`,
 			"mem-"+newID(), job.ID, projA, "k", `"v-a"`,
 		); err != nil {
-			t.Fatalf("insert job_memory A: %v", err)
+			require.Failf(t, "test failure",
+
+				"insert job_memory A: %v", err)
 		}
 	})
 	runAsProject(t, ctx, projB, true, func(q *store.Queries) {
@@ -297,14 +294,15 @@ func TestRLS_JobMemory_CrossTenantIsolation(t *testing.T) {
 			`INSERT INTO job_memory (id, job_id, project_id, memory_key, value) VALUES ($1, $2, $3, $4, $5::jsonb)`,
 			"mem-"+newID(), job.ID, projB, "k", `"v-b"`,
 		); err != nil {
-			t.Fatalf("insert job_memory B: %v", err)
+			require.Failf(t, "test failure",
+
+				"insert job_memory B: %v", err)
 		}
 	})
 
 	countA := countAsProject(t, ctx, testDB.Pool, projA, `SELECT COUNT(*) FROM job_memory`)
-	if countA != 1 {
-		t.Fatalf("project A sees %d job_memory rows, want 1", countA)
-	}
+	require.EqualValues(t, 1, countA)
+
 }
 
 // Transitive policy: job_slo_evaluations isolates via parent job_slos.
@@ -331,13 +329,17 @@ func TestRLS_JobSLOEvaluations_ViaParentJobSLO(t *testing.T) {
 		`INSERT INTO job_slos (id, job_id, project_id, metric, target, window_hours) VALUES ($1, $2, $3, $4, $5, $6)`,
 		sloA, jobA.ID, projA, "success_rate", 0.99, 24,
 	); err != nil {
-		t.Fatalf("insert job_slos A: %v", err)
+		require.Failf(t, "test failure",
+
+			"insert job_slos A: %v", err)
 	}
 	if _, err := testDB.Pool.Exec(ctx,
 		`INSERT INTO job_slo_evaluations (id, slo_id, current_value, budget_remaining) VALUES ($1, $2, $3, $4)`,
 		"eval-"+newID(), sloA, 0.98, 0.95,
 	); err != nil {
-		t.Fatalf("insert eval A: %v", err)
+		require.Failf(t, "test failure",
+
+			"insert eval A: %v", err)
 	}
 
 	sloB := "slo-" + newID()
@@ -345,13 +347,17 @@ func TestRLS_JobSLOEvaluations_ViaParentJobSLO(t *testing.T) {
 		`INSERT INTO job_slos (id, job_id, project_id, metric, target, window_hours) VALUES ($1, $2, $3, $4, $5, $6)`,
 		sloB, jobB.ID, projB, "success_rate", 0.99, 24,
 	); err != nil {
-		t.Fatalf("insert job_slos B: %v", err)
+		require.Failf(t, "test failure",
+
+			"insert job_slos B: %v", err)
 	}
 	if _, err := testDB.Pool.Exec(ctx,
 		`INSERT INTO job_slo_evaluations (id, slo_id, current_value, budget_remaining) VALUES ($1, $2, $3, $4)`,
 		"eval-"+newID(), sloB, 0.97, 0.90,
 	); err != nil {
-		t.Fatalf("insert eval B: %v", err)
+		require.Failf(t, "test failure",
+
+			"insert eval B: %v", err)
 	}
 
 	// The EXISTS subquery in the job_slo_evaluations policy routes RLS
@@ -361,13 +367,11 @@ func TestRLS_JobSLOEvaluations_ViaParentJobSLO(t *testing.T) {
 	// tx with app.current_project_id bound, so the policy actually
 	// enforces.
 	got := countAsProject(t, ctx, testDB.Pool, projA, `SELECT COUNT(*) FROM job_slo_evaluations`)
-	if got != 1 {
-		t.Fatalf("project A sees %d SLO evaluations, want 1 (transitive RLS failed)", got)
-	}
+	require.EqualValues(t, 1, got)
+
 	gotB := countAsProject(t, ctx, testDB.Pool, projB, `SELECT COUNT(*) FROM job_slo_evaluations`)
-	if gotB != 1 {
-		t.Fatalf("project B sees %d SLO evaluations, want 1", gotB)
-	}
+	require.EqualValues(t, 1, gotB)
+
 }
 
 // webhook_deliveries: project_id populated via COALESCE at insert time.
@@ -382,9 +386,9 @@ func TestRLS_WebhookDeliveries_ProjectIDBackfilledViaFK(t *testing.T) {
 	runAsProject(t, ctx, projA, true, func(q *store.Queries) {
 		job := mustCreateJob(t, ctx, q, projA)
 		run := baseRun(job, newID())
-		if err := q.CreateRun(ctx, run); err != nil {
-			t.Fatalf("CreateRun A: %v", err)
-		}
+		require.NoError(t, q.CreateRun(ctx,
+			run))
+
 		d := &domain.WebhookDelivery{
 			RunID:       run.ID,
 			JobID:       job.ID,
@@ -392,16 +396,16 @@ func TestRLS_WebhookDeliveries_ProjectIDBackfilledViaFK(t *testing.T) {
 			Status:      domain.WebhookStatusPending,
 			MaxAttempts: 3,
 		}
-		if err := q.CreateWebhookDelivery(ctx, d); err != nil {
-			t.Fatalf("CreateWebhookDelivery A: %v", err)
-		}
+		require.NoError(t, q.CreateWebhookDelivery(ctx,
+			d))
+
 	})
 	runAsProject(t, ctx, projB, true, func(q *store.Queries) {
 		job := mustCreateJob(t, ctx, q, projB)
 		run := baseRun(job, newID())
-		if err := q.CreateRun(ctx, run); err != nil {
-			t.Fatalf("CreateRun B: %v", err)
-		}
+		require.NoError(t, q.CreateRun(ctx,
+			run))
+
 		d := &domain.WebhookDelivery{
 			RunID:       run.ID,
 			JobID:       job.ID,
@@ -409,19 +413,16 @@ func TestRLS_WebhookDeliveries_ProjectIDBackfilledViaFK(t *testing.T) {
 			Status:      domain.WebhookStatusPending,
 			MaxAttempts: 3,
 		}
-		if err := q.CreateWebhookDelivery(ctx, d); err != nil {
-			t.Fatalf("CreateWebhookDelivery B: %v", err)
-		}
+		require.NoError(t, q.CreateWebhookDelivery(ctx,
+			d))
+
 	})
 
 	countA := countAsProject(t, ctx, testDB.Pool, projA, `SELECT COUNT(*) FROM webhook_deliveries`)
 	countB := countAsProject(t, ctx, testDB.Pool, projB, `SELECT COUNT(*) FROM webhook_deliveries`)
-	if countA != 1 {
-		t.Fatalf("project A sees %d webhook_deliveries, want 1", countA)
-	}
-	if countB != 1 {
-		t.Fatalf("project B sees %d webhook_deliveries, want 1", countB)
-	}
+	require.EqualValues(t, 1, countA)
+	require.EqualValues(t, 1, countB)
+
 }
 
 // Multi-query in one request: the fix target. This is the test that
@@ -450,30 +451,23 @@ func TestRLS_MultipleQueriesInOneTx_ShareProjectContext(t *testing.T) {
 	// everything via the escape hatch.
 	runAsProject(t, ctx, projA, false, func(q *store.Queries) {
 		firstA, err := q.ListJobs(ctx, projA, 100, nil)
-		if err != nil {
-			t.Fatalf("first ListJobs: %v", err)
-		}
-		if len(firstA) != 2 {
-			t.Fatalf("first ListJobs sees %d, want 2", len(firstA))
-		}
+		require.NoError(t, err)
+		require.Len(t, firstA,
+			2,
+		)
 
 		// Sanity check: listing project B from inside project A's tx
 		// should also be empty because the B rows are not visible.
 		b, err := q.ListJobs(ctx, projB, 100, nil)
-		if err != nil {
-			t.Fatalf("cross-tenant ListJobs: %v", err)
-		}
-		if len(b) != 0 {
-			t.Fatalf("cross-tenant ListJobs leaked %d rows", len(b))
-		}
+		require.NoError(t, err)
+		require.Len(t, b, 0)
 
 		secondA, err := q.ListJobs(ctx, projA, 100, nil)
-		if err != nil {
-			t.Fatalf("second ListJobs: %v", err)
-		}
-		if len(secondA) != 2 {
-			t.Fatalf("second ListJobs sees %d, want 2 (context lost mid-request)", len(secondA))
-		}
+		require.NoError(t, err)
+		require.Len(t, secondA,
+
+			2)
+
 	})
 }
 

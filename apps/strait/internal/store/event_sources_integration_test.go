@@ -10,6 +10,8 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestCreateEventSource(t *testing.T) {
@@ -24,42 +26,42 @@ func TestCreateEventSource(t *testing.T) {
 		Schema:      json.RawMessage(`{"type":"object"}`),
 		Enabled:     true,
 	}
-	if err := q.CreateEventSource(ctx, src); err != nil {
-		t.Fatalf("CreateEventSource() error = %v", err)
-	}
+	require.NoError(t, q.CreateEventSource(ctx,
+		src))
+	require.NotEqual(t, "",
 
-	if src.ID == "" {
-		t.Fatal("CreateEventSource() did not set ID")
-	}
-	if src.CreatedAt.IsZero() {
-		t.Fatal("CreateEventSource() did not set CreatedAt")
-	}
-	if src.UpdatedAt.IsZero() {
-		t.Fatal("CreateEventSource() did not set UpdatedAt")
-	}
+		src.ID)
+	require.False(t, src.CreatedAt.
+		IsZero())
+	require.False(t, src.UpdatedAt.
+		IsZero())
 
 	got, err := q.GetEventSource(ctx, src.ID, src.ProjectID)
-	if err != nil {
-		t.Fatalf("GetEventSource() error = %v", err)
-	}
-	if got.ID != src.ID {
-		t.Fatalf("GetEventSource() ID = %q, want %q", got.ID, src.ID)
-	}
-	if got.ProjectID != src.ProjectID {
-		t.Fatalf("GetEventSource() ProjectID = %q, want %q", got.ProjectID, src.ProjectID)
-	}
-	if got.Name != src.Name {
-		t.Fatalf("GetEventSource() Name = %q, want %q", got.Name, src.Name)
-	}
-	if got.Description != src.Description {
-		t.Fatalf("GetEventSource() Description = %q, want %q", got.Description, src.Description)
-	}
-	if !jsonEqual(got.Schema, src.Schema) {
-		t.Fatalf("GetEventSource() Schema = %s, want %s", got.Schema, src.Schema)
-	}
-	if got.Enabled != src.Enabled {
-		t.Fatalf("GetEventSource() Enabled = %v, want %v", got.Enabled, src.Enabled)
-	}
+	require.NoError(t, err)
+	require.Equal(t, src.ID,
+
+		got.ID)
+	require.Equal(t, src.ProjectID,
+
+		got.
+			ProjectID,
+	)
+	require.Equal(t, src.Name,
+
+		got.Name,
+	)
+	require.Equal(t, src.Description,
+
+		got.Description,
+	)
+	require.True(t, jsonEqual(got.Schema,
+		src.Schema,
+	))
+	require.Equal(t, src.Enabled,
+
+		got.
+			Enabled)
+
 }
 
 func TestGetEventSource_NotFound(t *testing.T) {
@@ -68,9 +70,10 @@ func TestGetEventSource_NotFound(t *testing.T) {
 	mustClean(t, ctx)
 
 	_, err := q.GetEventSource(ctx, newID(), "project-not-found")
-	if !errors.Is(err, store.ErrEventSourceNotFound) {
-		t.Fatalf("GetEventSource() error = %v, want ErrEventSourceNotFound", err)
-	}
+	require.True(t, errors.Is(err, store.
+		ErrEventSourceNotFound,
+	))
+
 }
 
 func TestGetEventSourceByName(t *testing.T) {
@@ -84,17 +87,15 @@ func TestGetEventSourceByName(t *testing.T) {
 		Description: "Deployment events",
 		Enabled:     true,
 	}
-	if err := q.CreateEventSource(ctx, src); err != nil {
-		t.Fatalf("CreateEventSource() error = %v", err)
-	}
+	require.NoError(t, q.CreateEventSource(ctx,
+		src))
 
 	got, err := q.GetEventSourceByName(ctx, src.ProjectID, src.Name)
-	if err != nil {
-		t.Fatalf("GetEventSourceByName() error = %v", err)
-	}
-	if got.ID != src.ID {
-		t.Fatalf("GetEventSourceByName() ID = %q, want %q", got.ID, src.ID)
-	}
+	require.NoError(t, err)
+	require.Equal(t, src.ID,
+
+		got.ID)
+
 }
 
 func TestListEventSources(t *testing.T) {
@@ -109,33 +110,31 @@ func TestListEventSources(t *testing.T) {
 		Name:      "source-alpha",
 		Enabled:   true,
 	}
-	if err := q.CreateEventSource(ctx, src1); err != nil {
-		t.Fatalf("CreateEventSource(1) error = %v", err)
-	}
+	require.NoError(t, q.CreateEventSource(ctx,
+		src1))
 
 	src2 := &domain.EventSource{
 		ProjectID: projectID,
 		Name:      "source-beta",
 		Enabled:   true,
 	}
-	if err := q.CreateEventSource(ctx, src2); err != nil {
-		t.Fatalf("CreateEventSource(2) error = %v", err)
-	}
+	require.NoError(t, q.CreateEventSource(ctx,
+		src2))
 
 	list, err := q.ListEventSources(ctx, projectID)
-	if err != nil {
-		t.Fatalf("ListEventSources() error = %v", err)
-	}
-	if len(list) != 2 {
-		t.Fatalf("ListEventSources() len = %d, want 2", len(list))
-	}
+	require.NoError(t, err)
+	require.Len(t, list, 2)
+	require.Equal(t, src2.ID,
+
+		list[0].
+			ID)
+	require.Equal(t, src1.ID,
+
+		list[1].
+			ID)
+
 	// Ordered by created_at DESC: src2 first.
-	if list[0].ID != src2.ID {
-		t.Fatalf("ListEventSources()[0].ID = %q, want %q (most recent)", list[0].ID, src2.ID)
-	}
-	if list[1].ID != src1.ID {
-		t.Fatalf("ListEventSources()[1].ID = %q, want %q (oldest)", list[1].ID, src1.ID)
-	}
+
 }
 
 func TestUpdateEventSource(t *testing.T) {
@@ -149,32 +148,29 @@ func TestUpdateEventSource(t *testing.T) {
 		Description: "Original desc",
 		Enabled:     true,
 	}
-	if err := q.CreateEventSource(ctx, src); err != nil {
-		t.Fatalf("CreateEventSource() error = %v", err)
-	}
+	require.NoError(t, q.CreateEventSource(ctx,
+		src))
 
 	originalUpdatedAt := src.UpdatedAt
-
-	if err := q.UpdateEventSource(ctx, src.ID, src.ProjectID, map[string]any{
-		"description": "Updated desc",
-		"enabled":     false,
-	}); err != nil {
-		t.Fatalf("UpdateEventSource() error = %v", err)
-	}
+	require.NoError(t, q.UpdateEventSource(ctx,
+		src.ID, src.ProjectID,
+		map[string]any{
+			"description": "Updated desc",
+			"enabled":     false}))
 
 	got, err := q.GetEventSource(ctx, src.ID, src.ProjectID)
-	if err != nil {
-		t.Fatalf("GetEventSource() error = %v", err)
-	}
-	if got.Description != "Updated desc" {
-		t.Fatalf("GetEventSource() Description = %q, want %q", got.Description, "Updated desc")
-	}
-	if got.Enabled != false {
-		t.Fatalf("GetEventSource() Enabled = %v, want false", got.Enabled)
-	}
-	if !got.UpdatedAt.After(originalUpdatedAt) {
-		t.Fatalf("GetEventSource() UpdatedAt not advanced: got %v, original %v", got.UpdatedAt, originalUpdatedAt)
-	}
+	require.NoError(t, err)
+	require.Equal(t, "Updated desc",
+
+		got.Description,
+	)
+	require.Equal(t, false,
+
+		got.Enabled,
+	)
+	require.True(t, got.UpdatedAt.
+		After(originalUpdatedAt))
+
 }
 
 func TestDeleteEventSource(t *testing.T) {
@@ -187,18 +183,17 @@ func TestDeleteEventSource(t *testing.T) {
 		Name:      "delete-me",
 		Enabled:   true,
 	}
-	if err := q.CreateEventSource(ctx, src); err != nil {
-		t.Fatalf("CreateEventSource() error = %v", err)
-	}
-
-	if err := q.DeleteEventSource(ctx, src.ID, src.ProjectID); err != nil {
-		t.Fatalf("DeleteEventSource() error = %v", err)
-	}
+	require.NoError(t, q.CreateEventSource(ctx,
+		src))
+	require.NoError(t, q.DeleteEventSource(ctx,
+		src.ID, src.ProjectID,
+	))
 
 	_, err := q.GetEventSource(ctx, src.ID, src.ProjectID)
-	if !errors.Is(err, store.ErrEventSourceNotFound) {
-		t.Fatalf("GetEventSource() after delete error = %v, want ErrEventSourceNotFound", err)
-	}
+	require.True(t, errors.Is(err, store.
+		ErrEventSourceNotFound,
+	))
+
 }
 
 func TestCreateEventSubscription(t *testing.T) {
@@ -211,9 +206,8 @@ func TestCreateEventSubscription(t *testing.T) {
 		Name:      "sub-source",
 		Enabled:   true,
 	}
-	if err := q.CreateEventSource(ctx, src); err != nil {
-		t.Fatalf("CreateEventSource() error = %v", err)
-	}
+	require.NoError(t, q.CreateEventSource(ctx,
+		src))
 
 	sub := &domain.EventSubscription{
 		SourceID:   src.ID,
@@ -222,39 +216,36 @@ func TestCreateEventSubscription(t *testing.T) {
 		FilterExpr: json.RawMessage(`{"event":"push"}`),
 		Enabled:    true,
 	}
-	if err := q.CreateEventSubscription(ctx, sub); err != nil {
-		t.Fatalf("CreateEventSubscription() error = %v", err)
-	}
+	require.NoError(t, q.CreateEventSubscription(ctx, sub))
+	require.NotEqual(t, "",
 
-	if sub.ID == "" {
-		t.Fatal("CreateEventSubscription() did not set ID")
-	}
-	if sub.CreatedAt.IsZero() {
-		t.Fatal("CreateEventSubscription() did not set CreatedAt")
-	}
+		sub.ID)
+	require.False(t, sub.CreatedAt.
+		IsZero())
 
 	subs, err := q.ListEventSubscriptionsBySource(ctx, src.ID)
-	if err != nil {
-		t.Fatalf("ListEventSubscriptionsBySource() error = %v", err)
-	}
-	if len(subs) != 1 {
-		t.Fatalf("ListEventSubscriptionsBySource() len = %d, want 1", len(subs))
-	}
-	if subs[0].ID != sub.ID {
-		t.Fatalf("ListEventSubscriptionsBySource()[0].ID = %q, want %q", subs[0].ID, sub.ID)
-	}
-	if subs[0].SourceID != src.ID {
-		t.Fatalf("ListEventSubscriptionsBySource()[0].SourceID = %q, want %q", subs[0].SourceID, src.ID)
-	}
-	if subs[0].TargetType != "job" {
-		t.Fatalf("ListEventSubscriptionsBySource()[0].TargetType = %q, want %q", subs[0].TargetType, "job")
-	}
-	if subs[0].Enabled != true {
-		t.Fatalf("ListEventSubscriptionsBySource()[0].Enabled = %v, want true", subs[0].Enabled)
-	}
-	if !jsonEqual(subs[0].FilterExpr, json.RawMessage(`{"event":"push"}`)) {
-		t.Fatalf("ListEventSubscriptionsBySource()[0].FilterExpr = %s, want %s", subs[0].FilterExpr, `{"event":"push"}`)
-	}
+	require.NoError(t, err)
+	require.Len(t, subs, 1)
+	require.Equal(t, sub.ID,
+
+		subs[0].
+			ID)
+	require.Equal(t, src.ID,
+
+		subs[0].
+			SourceID)
+	require.Equal(t, "job",
+
+		subs[0].TargetType,
+	)
+	require.Equal(t, true,
+		subs[0].Enabled,
+	)
+	require.True(t, jsonEqual(subs[0].
+		FilterExpr,
+		json.RawMessage(`{"event":"push"}`)),
+	)
+
 }
 
 func TestDeleteEventSubscription(t *testing.T) {
@@ -267,9 +258,8 @@ func TestDeleteEventSubscription(t *testing.T) {
 		Name:      "sub-delete-source",
 		Enabled:   true,
 	}
-	if err := q.CreateEventSource(ctx, src); err != nil {
-		t.Fatalf("CreateEventSource() error = %v", err)
-	}
+	require.NoError(t, q.CreateEventSource(ctx,
+		src))
 
 	sub := &domain.EventSubscription{
 		SourceID:   src.ID,
@@ -277,25 +267,17 @@ func TestDeleteEventSubscription(t *testing.T) {
 		TargetID:   newID(),
 		Enabled:    true,
 	}
-	if err := q.CreateEventSubscription(ctx, sub); err != nil {
-		t.Fatalf("CreateEventSubscription() error = %v", err)
-	}
-
-	if err := q.DeleteEventSubscription(ctx, sub.ID); err != nil {
-		t.Fatalf("DeleteEventSubscription() error = %v", err)
-	}
+	require.NoError(t, q.CreateEventSubscription(ctx, sub))
+	require.NoError(t, q.DeleteEventSubscription(ctx, sub.ID))
 
 	subs, err := q.ListEventSubscriptionsBySource(ctx, src.ID)
-	if err != nil {
-		t.Fatalf("ListEventSubscriptionsBySource() error = %v", err)
-	}
-	if len(subs) != 0 {
-		t.Fatalf("ListEventSubscriptionsBySource() len = %d, want 0", len(subs))
-	}
+	require.NoError(t, err)
+	require.Len(t, subs, 0)
 
 	// Deleting the same subscription again should return ErrEventSubscriptionNotFound.
 	err = q.DeleteEventSubscription(ctx, sub.ID)
-	if !errors.Is(err, store.ErrEventSubscriptionNotFound) {
-		t.Fatalf("DeleteEventSubscription() second call error = %v, want ErrEventSubscriptionNotFound", err)
-	}
+	require.True(t, errors.Is(err, store.
+		ErrEventSubscriptionNotFound,
+	))
+
 }

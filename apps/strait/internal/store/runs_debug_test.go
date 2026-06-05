@@ -12,6 +12,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type mockRows struct {
@@ -55,25 +57,25 @@ func TestGetDebugBundle(t *testing.T) {
 	db := &mockDBTX{}
 
 	db.queryRowFn = func(_ context.Context, sql string, _ ...any) pgx.Row {
-		if !strings.Contains(sql, "FROM job_runs") {
-			t.Fatalf("unexpected queryRow SQL: %s", sql)
-		}
+		require.True(t,
+			strings.Contains(sql, "FROM job_runs"))
+
 		// GetDebugBundle now probes visibility (visible_until) before
 		// fetching the full run row; serve a "visible" answer here so
 		// the bundle proceeds to its existing happy-path fetch.
 		if strings.Contains(sql, "visible_until") {
 			return &mockRow{scanFn: func(dest ...any) error {
-				if len(dest) != 1 {
-					t.Fatalf("visible_until probe: unexpected scan dest count: %d", len(dest))
-				}
+				require.Len(t,
+					dest, 1)
+
 				*dest[0].(**time.Time) = nil
 				return nil
 			}}
 		}
 		return &mockRow{scanFn: func(dest ...any) error {
-			if len(dest) != 35 {
-				t.Fatalf("unexpected scan dest count: %d", len(dest))
-			}
+			require.Len(t,
+				dest, 35)
+
 			*dest[0].(*string) = "run-1"
 			*dest[1].(*string) = "job-1"
 			*dest[2].(*string) = "proj-1"
@@ -136,26 +138,30 @@ func TestGetDebugBundle(t *testing.T) {
 		case strings.Contains(sql, "FROM run_resource_snapshots"):
 			return &mockRows{scanFns: nil}, nil
 		default:
-			t.Fatalf("unexpected query SQL: %s", sql)
+			require.Failf(t, "test failure", "unexpected query SQL: %s", sql)
 			return nil, nil
 		}
 	}
 
 	q := New(db)
 	bundle, err := q.GetDebugBundle(context.Background(), "run-1")
-	if err != nil {
-		t.Fatalf("GetDebugBundle() error = %v", err)
-	}
-	if bundle == nil || bundle.Run == nil {
-		t.Fatal("expected non-nil bundle and run")
-	}
-	if !bundle.Run.DebugMode {
-		t.Fatal("expected debug mode to be true")
-	}
-	if len(bundle.Events) != 1 || len(bundle.Checkpoints) != 1 || len(bundle.Outputs) != 1 {
-		t.Fatalf("unexpected bundle lengths: events=%d checkpoints=%d outputs=%d",
-			len(bundle.Events), len(bundle.Checkpoints), len(bundle.Outputs))
-	}
+	require.NoError(t, err)
+	require.False(t,
+		bundle == nil ||
+			bundle.Run ==
+				nil)
+	require.True(t,
+		bundle.Run.DebugMode,
+	)
+	require.False(t,
+		len(bundle.Events) != 1 ||
+			len(bundle.
+				Checkpoints,
+			) != 1 ||
+			len(bundle.Outputs) !=
+				1,
+	)
+
 }
 
 func TestUpdateRunDebugMode(t *testing.T) {
@@ -163,15 +169,15 @@ func TestUpdateRunDebugMode(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		t.Parallel()
 		db := &mockDBTX{queryRowFn: func(_ context.Context, sql string, args ...any) pgx.Row {
-			if !strings.Contains(sql, "UPDATE job_runs") || !strings.Contains(sql, "debug_mode IS DISTINCT FROM") {
-				t.Fatalf("unexpected SQL: %s", sql)
-			}
-			if len(args) != 2 {
-				t.Fatalf("unexpected arg count: %d", len(args))
-			}
-			if args[0] != true || args[1] != "run-1" {
-				t.Fatalf("unexpected args: %#v", args)
-			}
+			require.False(t,
+				!strings.Contains(sql, "UPDATE job_runs") || !strings.Contains(sql, "debug_mode IS DISTINCT FROM"))
+			require.Len(t,
+				args, 2)
+			require.False(t,
+				args[0] != true ||
+					args[1] != "run-1",
+			)
+
 			return &mockRow{scanFn: func(dest ...any) error {
 				*dest[0].(*bool) = true
 				*dest[1].(*bool) = true
@@ -180,9 +186,11 @@ func TestUpdateRunDebugMode(t *testing.T) {
 		}}
 
 		q := New(db)
-		if err := q.UpdateRunDebugMode(context.Background(), "run-1", true); err != nil {
-			t.Fatalf("UpdateRunDebugMode() error = %v", err)
-		}
+		require.NoError(t, q.UpdateRunDebugMode(context.
+			Background(), "run-1",
+			true,
+		))
+
 	})
 
 	t.Run("not found", func(t *testing.T) {
@@ -197,9 +205,9 @@ func TestUpdateRunDebugMode(t *testing.T) {
 
 		q := New(db)
 		err := q.UpdateRunDebugMode(context.Background(), "missing-run", false)
-		if !errors.Is(err, ErrRunNotFound) {
-			t.Fatalf("expected ErrRunNotFound, got %v", err)
-		}
+		require.True(t,
+			errors.Is(err, ErrRunNotFound))
+
 	})
 
 	t.Run("no-op existing run", func(t *testing.T) {
@@ -213,9 +221,11 @@ func TestUpdateRunDebugMode(t *testing.T) {
 		}}
 
 		q := New(db)
-		if err := q.UpdateRunDebugMode(context.Background(), "run-1", true); err != nil {
-			t.Fatalf("UpdateRunDebugMode() error = %v", err)
-		}
+		require.NoError(t, q.UpdateRunDebugMode(context.
+			Background(), "run-1",
+			true,
+		))
+
 	})
 }
 
@@ -227,9 +237,9 @@ func TestGetDebugBundle_MaskedRun_ReturnsNotFound(t *testing.T) {
 	t.Parallel()
 	masked := time.Now().Add(-time.Minute)
 	db := &mockDBTX{queryRowFn: func(_ context.Context, sql string, _ ...any) pgx.Row {
-		if !strings.Contains(sql, "visible_until") {
-			t.Fatalf("expected visibility probe first, got: %s", sql)
-		}
+		require.True(t,
+			strings.Contains(sql, "visible_until"))
+
 		return &mockRow{scanFn: func(dest ...any) error {
 			*dest[0].(**time.Time) = &masked
 			return nil
@@ -237,7 +247,8 @@ func TestGetDebugBundle_MaskedRun_ReturnsNotFound(t *testing.T) {
 	}}
 	q := New(db)
 	bundle, err := q.GetDebugBundle(context.Background(), "run-1")
-	if !errors.Is(err, ErrRunNotFound) {
-		t.Fatalf("expected ErrRunNotFound for masked run, got bundle=%v err=%v", bundle, err)
-	}
+	assert.Nil(t, bundle)
+	require.True(t,
+		errors.Is(err, ErrRunNotFound))
+
 }

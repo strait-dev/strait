@@ -9,6 +9,8 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestTouchAPIKeyLastUsed_ThrottlesRepeatedCalls verifies that two
@@ -30,36 +32,31 @@ func TestTouchAPIKeyLastUsed_ThrottlesRepeatedCalls(t *testing.T) {
 		KeyPrefix: "sk_thr",
 		Scopes:    []string{"jobs:read"},
 	}
-	if err := q.CreateAPIKey(ctx, key); err != nil {
-		t.Fatalf("CreateAPIKey() error = %v", err)
-	}
+	require.NoError(t, q.CreateAPIKey(ctx, key))
+	require.NoError(t, q.TouchAPIKeyLastUsed(ctx,
+		key.ID))
 
-	if err := q.TouchAPIKeyLastUsed(ctx, key.ID); err != nil {
-		t.Fatalf("TouchAPIKeyLastUsed(1) error = %v", err)
-	}
 	first, err := q.GetAPIKeyByID(ctx, key.ID)
-	if err != nil {
-		t.Fatalf("GetAPIKeyByID(after first) error = %v", err)
-	}
-	if first.LastUsedAt == nil {
-		t.Fatal("first touch did not stamp last_used_at")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, first.
+		LastUsedAt,
+	)
 
 	time.Sleep(20 * time.Millisecond)
-	if err := q.TouchAPIKeyLastUsed(ctx, key.ID); err != nil {
-		t.Fatalf("TouchAPIKeyLastUsed(2) error = %v", err)
-	}
+	require.NoError(t, q.TouchAPIKeyLastUsed(ctx,
+		key.ID))
+
 	second, err := q.GetAPIKeyByID(ctx, key.ID)
-	if err != nil {
-		t.Fatalf("GetAPIKeyByID(after second) error = %v", err)
-	}
-	if second.LastUsedAt == nil {
-		t.Fatal("last_used_at became nil after throttled call")
-	}
-	if !second.LastUsedAt.Equal(*first.LastUsedAt) {
-		t.Fatalf("last_used_at advanced under throttle: first=%v second=%v",
-			*first.LastUsedAt, *second.LastUsedAt)
-	}
+	require.NoError(t, err)
+	require.NotNil(t, second.
+		LastUsedAt,
+	)
+	require.True(t, second.
+		LastUsedAt.
+		Equal(*first.
+			LastUsedAt,
+		))
+
 }
 
 // TestTouchAPIKeyLastUsed_ReissuesAfterCooldown verifies that once the
@@ -80,30 +77,29 @@ func TestTouchAPIKeyLastUsed_ReissuesAfterCooldown(t *testing.T) {
 		KeyPrefix: "sk_cool",
 		Scopes:    []string{"jobs:read"},
 	}
-	if err := q.CreateAPIKey(ctx, key); err != nil {
-		t.Fatalf("CreateAPIKey() error = %v", err)
-	}
+	require.NoError(t, q.CreateAPIKey(ctx, key))
+	require.NoError(t, q.TouchAPIKeyLastUsed(ctx,
+		key.ID))
 
-	if err := q.TouchAPIKeyLastUsed(ctx, key.ID); err != nil {
-		t.Fatalf("TouchAPIKeyLastUsed(1) error = %v", err)
-	}
 	first, _ := q.GetAPIKeyByID(ctx, key.ID)
-	if first.LastUsedAt == nil {
-		t.Fatal("first touch did not stamp last_used_at")
-	}
+	require.NotNil(t, first.
+		LastUsedAt,
+	)
 
 	time.Sleep(50 * time.Millisecond)
-	if err := q.TouchAPIKeyLastUsed(ctx, key.ID); err != nil {
-		t.Fatalf("TouchAPIKeyLastUsed(2) error = %v", err)
-	}
+	require.NoError(t, q.TouchAPIKeyLastUsed(ctx,
+		key.ID))
+
 	second, _ := q.GetAPIKeyByID(ctx, key.ID)
-	if second.LastUsedAt == nil {
-		t.Fatal("second touch did not stamp last_used_at")
-	}
-	if !second.LastUsedAt.After(*first.LastUsedAt) {
-		t.Fatalf("last_used_at did not advance after cooldown: first=%v second=%v",
-			*first.LastUsedAt, *second.LastUsedAt)
-	}
+	require.NotNil(t, second.
+		LastUsedAt,
+	)
+	require.True(t, second.
+		LastUsedAt.
+		After(*first.
+			LastUsedAt,
+		))
+
 }
 
 // TestTouchAPIKeyLastUsed_BurstCoalescedIntoSingleUpdate is the regression
@@ -125,22 +121,17 @@ func TestTouchAPIKeyLastUsed_BurstCoalescedIntoSingleUpdate(t *testing.T) {
 		KeyPrefix: "sk_burst",
 		Scopes:    []string{"jobs:read"},
 	}
-	if err := q.CreateAPIKey(ctx, key); err != nil {
-		t.Fatalf("CreateAPIKey() error = %v", err)
-	}
+	require.NoError(t, q.CreateAPIKey(ctx, key))
 
 	const burst = 100
 	for range burst {
-		if err := q.TouchAPIKeyLastUsed(ctx, key.ID); err != nil {
-			t.Fatalf("TouchAPIKeyLastUsed error = %v", err)
-		}
+		require.NoError(t, q.TouchAPIKeyLastUsed(ctx,
+			key.ID))
+
 	}
 
 	got, err := q.GetAPIKeyByID(ctx, key.ID)
-	if err != nil {
-		t.Fatalf("GetAPIKeyByID() error = %v", err)
-	}
-	if got.LastUsedAt == nil {
-		t.Fatal("last_used_at never stamped after burst")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, got.LastUsedAt)
+
 }

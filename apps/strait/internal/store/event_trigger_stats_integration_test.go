@@ -5,6 +5,8 @@ package store_test
 import (
 	"context"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestGetEventTriggerStats_Empty(t *testing.T) {
@@ -13,19 +15,18 @@ func TestGetEventTriggerStats_Empty(t *testing.T) {
 	mustClean(t, ctx)
 
 	stats, err := q.GetEventTriggerStats(ctx, "project-event-trigger-stats-empty", "")
-	if err != nil {
-		t.Fatalf("GetEventTriggerStats() error = %v", err)
-	}
-	if stats.TotalCount != 0 {
-		t.Fatalf("TotalCount = %d, want 0", stats.TotalCount)
-	}
-	if stats.WaitingCount != 0 {
-		t.Fatalf("WaitingCount = %d, want 0", stats.WaitingCount)
-	}
-	if stats.ReceivedCount != 0 {
-		t.Fatalf("ReceivedCount = %d, want 0", stats.ReceivedCount)
-	}
-	if stats.AvgWaitDuration != 0 {
-		t.Fatalf("AvgWaitDuration = %f, want 0", stats.AvgWaitDuration)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 0, stats.
+		TotalCount,
+	)
+	require.EqualValues(t, 0, stats.
+		WaitingCount,
+	)
+	require.EqualValues(t, 0, stats.
+		ReceivedCount,
+	)
+	require.EqualValues(t, 0, stats.
+		AvgWaitDuration,
+	)
+
 }

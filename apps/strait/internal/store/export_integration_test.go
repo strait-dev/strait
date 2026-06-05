@@ -10,6 +10,8 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/require"
 )
 
 // Integration tests for the Stream* export iterators, which had zero
@@ -31,20 +33,21 @@ func TestStreamJobs_CallbackPerRow(t *testing.T) {
 	}
 
 	var streamed []string
-	if err := q.StreamJobs(ctx, projectID, func(j *domain.Job) error {
-		streamed = append(streamed, j.ID)
-		return nil
-	}); err != nil {
-		t.Fatalf("StreamJobs: %v", err)
-	}
+	require.NoError(t, q.StreamJobs(ctx,
+		projectID,
+		func(j *domain.Job) error {
+			streamed = append(streamed,
+				j.ID)
+			return nil
+		}),
+	)
+	require.Len(t, streamed,
 
-	if len(streamed) != want {
-		t.Fatalf("streamed %d jobs, want %d", len(streamed), want)
-	}
+		want)
+
 	for _, id := range streamed {
-		if !created[id] {
-			t.Fatalf("unexpected job %q", id)
-		}
+		require.True(t, created[id])
+
 	}
 }
 
@@ -61,19 +64,19 @@ func TestStreamJobs_OrderedByCreatedAtAsc(t *testing.T) {
 	thirdID := mustCreateJob(t, ctx, q, projectID).ID
 
 	var order []string
-	if err := q.StreamJobs(ctx, projectID, func(j *domain.Job) error {
-		order = append(order, j.ID)
-		return nil
-	}); err != nil {
-		t.Fatalf("StreamJobs: %v", err)
-	}
+	require.NoError(t, q.StreamJobs(ctx,
+		projectID,
+		func(j *domain.Job) error {
+			order = append(order, j.
+				ID)
+			return nil
+		}))
+	require.Len(t, order, 3)
+	require.False(t, order[0] != firstID ||
+		order[1] != secondID ||
+		order[2] !=
+			thirdID)
 
-	if len(order) != 3 {
-		t.Fatalf("streamed %d jobs, want 3", len(order))
-	}
-	if order[0] != firstID || order[1] != secondID || order[2] != thirdID {
-		t.Fatalf("order = %v, want [%q, %q, %q]", order, firstID, secondID, thirdID)
-	}
 }
 
 func TestStreamJobs_CallbackError_StopsIteration(t *testing.T) {
@@ -95,12 +98,9 @@ func TestStreamJobs_CallbackError_StopsIteration(t *testing.T) {
 		}
 		return nil
 	})
-	if !errors.Is(err, sentinel) {
-		t.Fatalf("StreamJobs err = %v, want sentinel", err)
-	}
-	if visited != 3 {
-		t.Fatalf("visited = %d, want 3", visited)
-	}
+	require.True(t, errors.Is(err, sentinel))
+	require.EqualValues(t, 3, visited)
+
 }
 
 func TestStreamJobs_EmptyProject_NoCallback(t *testing.T) {
@@ -109,15 +109,16 @@ func TestStreamJobs_EmptyProject_NoCallback(t *testing.T) {
 	mustClean(t, ctx)
 
 	called := false
-	if err := q.StreamJobs(ctx, "proj-empty-"+newID(), func(_ *domain.Job) error {
-		called = true
-		return nil
-	}); err != nil {
-		t.Fatalf("StreamJobs on empty project: %v", err)
-	}
-	if called {
-		t.Fatal("callback should not be invoked when project has no jobs")
-	}
+	require.NoError(t, q.StreamJobs(ctx,
+		"proj-empty-"+
+			newID(), func(
+			_ *domain.
+				Job) error {
+			called = true
+			return nil
+		}))
+	require.False(t, called)
+
 }
 
 // StreamRuns: time-window filtering + boundary inclusivity
@@ -136,46 +137,51 @@ func TestStreamRuns_TimeWindowInclusive(t *testing.T) {
 	var runIDs []string
 	for range 3 {
 		r := baseRun(job, newID())
-		if err := q.CreateRun(ctx, r); err != nil {
-			t.Fatalf("CreateRun: %v", err)
-		}
+		require.NoError(t, q.CreateRun(ctx,
+			r))
+
 		runIDs = append(runIDs, r.ID)
 	}
 
 	// Read back the middle run's created_at to use as the window bound.
 	middle, err := q.GetRun(ctx, runIDs[1])
-	if err != nil {
-		t.Fatalf("GetRun middle: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Window [middle.created_at, middle.created_at] should return exactly
 	// the middle run. The query uses created_at >= $2 AND created_at <= $3
 	// so both ends are inclusive.
 	var visited []string
-	if err := q.StreamRuns(ctx, projectID, middle.CreatedAt, middle.CreatedAt, func(r *domain.JobRun) error {
-		visited = append(visited, r.ID)
-		return nil
-	}); err != nil {
-		t.Fatalf("StreamRuns (point window): %v", err)
-	}
-	if len(visited) != 1 || visited[0] != middle.ID {
-		t.Fatalf("point window visited = %v, want [%q]", visited, middle.ID)
-	}
+	require.NoError(t, q.StreamRuns(ctx,
+		projectID,
+		middle.
+			CreatedAt,
+		middle.
+			CreatedAt,
+		func(r *domain.JobRun) error {
+			visited =
+				append(visited, r.ID)
+			return nil
+		}))
+	require.False(t, len(visited) !=
+		1 || visited[0] != middle.
+		ID)
 
 	// Wide window returns all three.
 	visited = nil
-	if err := q.StreamRuns(ctx, projectID,
-		middle.CreatedAt.Add(-time.Hour),
-		middle.CreatedAt.Add(time.Hour),
-		func(r *domain.JobRun) error {
+	require.NoError(t, q.StreamRuns(ctx,
+		projectID,
+		middle.
+			CreatedAt.
+			Add(-time.
+				Hour), middle.CreatedAt.Add(time.Hour), func(r *domain.
+			JobRun) error {
 			visited = append(visited, r.ID)
 			return nil
-		}); err != nil {
-		t.Fatalf("StreamRuns (wide window): %v", err)
-	}
-	if len(visited) != 3 {
-		t.Fatalf("wide window visited %d, want 3", len(visited))
-	}
+		}))
+	require.Len(t, visited,
+
+		3)
+
 }
 
 func TestStreamRuns_CallbackError_StopsIteration(t *testing.T) {
@@ -187,9 +193,9 @@ func TestStreamRuns_CallbackError_StopsIteration(t *testing.T) {
 	job := mustCreateJob(t, ctx, q, projectID)
 	for range 5 {
 		r := baseRun(job, newID())
-		if err := q.CreateRun(ctx, r); err != nil {
-			t.Fatalf("CreateRun: %v", err)
-		}
+		require.NoError(t, q.CreateRun(ctx,
+			r))
+
 	}
 
 	sentinel := errors.New("boom")
@@ -203,12 +209,9 @@ func TestStreamRuns_CallbackError_StopsIteration(t *testing.T) {
 			}
 			return nil
 		})
-	if !errors.Is(err, sentinel) {
-		t.Fatalf("err = %v, want sentinel", err)
-	}
-	if visited != 2 {
-		t.Fatalf("visited = %d, want 2", visited)
-	}
+	require.True(t, errors.Is(err, sentinel))
+	require.EqualValues(t, 2, visited)
+
 }
 
 // StreamWorkflows: callback iteration sanity
@@ -230,26 +233,25 @@ func TestStreamWorkflows_CallbackPerRow(t *testing.T) {
 			Enabled:   true,
 			Version:   i + 1,
 		}
-		if err := q.CreateWorkflow(ctx, wf); err != nil {
-			t.Fatalf("CreateWorkflow: %v", err)
-		}
+		require.NoError(t, q.CreateWorkflow(ctx, wf))
+
 		created[wf.ID] = true
 	}
 
 	var visited []string
-	if err := q.StreamWorkflows(ctx, projectID, func(w *domain.Workflow) error {
-		visited = append(visited, w.ID)
-		return nil
-	}); err != nil {
-		t.Fatalf("StreamWorkflows: %v", err)
-	}
-	if len(visited) != want {
-		t.Fatalf("streamed %d workflows, want %d", len(visited), want)
-	}
+	require.NoError(t, q.StreamWorkflows(ctx, projectID,
+		func(w *domain.
+			Workflow) error {
+			visited = append(visited, w.ID)
+			return nil
+		}))
+	require.Len(t, visited,
+
+		want)
+
 	for _, id := range visited {
-		if !created[id] {
-			t.Fatalf("unexpected workflow %q", id)
-		}
+		require.True(t, created[id])
+
 	}
 }
 
@@ -269,9 +271,8 @@ func TestCountProjectsByOrg_CrossOrgIsolation(t *testing.T) {
 			Name:  "A-" + string(rune('0'+i)),
 			OrgID: orgA,
 		}
-		if err := q.CreateProject(ctx, p); err != nil {
-			t.Fatalf("CreateProject A: %v", err)
-		}
+		require.NoError(t, q.CreateProject(ctx, p))
+
 	}
 	for range 2 {
 		p := &domain.Project{
@@ -279,34 +280,22 @@ func TestCountProjectsByOrg_CrossOrgIsolation(t *testing.T) {
 			Name:  "B",
 			OrgID: orgB,
 		}
-		if err := q.CreateProject(ctx, p); err != nil {
-			t.Fatalf("CreateProject B: %v", err)
-		}
+		require.NoError(t, q.CreateProject(ctx, p))
+
 	}
 
 	countA, err := q.CountProjectsByOrg(ctx, orgA)
-	if err != nil {
-		t.Fatalf("CountProjectsByOrg A: %v", err)
-	}
-	if countA != 3 {
-		t.Fatalf("org A count = %d, want 3", countA)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 3, countA)
 
 	countB, err := q.CountProjectsByOrg(ctx, orgB)
-	if err != nil {
-		t.Fatalf("CountProjectsByOrg B: %v", err)
-	}
-	if countB != 2 {
-		t.Fatalf("org B count = %d, want 2", countB)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 2, countB)
 
 	countEmpty, err := q.CountProjectsByOrg(ctx, "org-empty-"+newID())
-	if err != nil {
-		t.Fatalf("CountProjectsByOrg empty: %v", err)
-	}
-	if countEmpty != 0 {
-		t.Fatalf("empty org count = %d, want 0", countEmpty)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 0, countEmpty)
+
 }
 
 func TestCountProjectsByOrg_SoftDeletedExcluded(t *testing.T) {
@@ -317,26 +306,23 @@ func TestCountProjectsByOrg_SoftDeletedExcluded(t *testing.T) {
 	orgID := "org-soft-" + newID()
 
 	alive := &domain.Project{ID: "proj-alive-" + newID(), Name: "alive", OrgID: orgID}
-	if err := q.CreateProject(ctx, alive); err != nil {
-		t.Fatalf("CreateProject alive: %v", err)
-	}
+	require.NoError(t, q.CreateProject(ctx, alive))
+
 	dead := &domain.Project{ID: "proj-dead-" + newID(), Name: "dead", OrgID: orgID}
-	if err := q.CreateProject(ctx, dead); err != nil {
-		t.Fatalf("CreateProject dead: %v", err)
-	}
+	require.NoError(t, q.CreateProject(ctx, dead))
+
 	if _, err := testDB.Pool.Exec(ctx,
 		`UPDATE projects SET deleted_at = NOW() WHERE id = $1`, dead.ID,
 	); err != nil {
-		t.Fatalf("soft-delete: %v", err)
+		require.Failf(t, "test failure",
+
+			"soft-delete: %v", err)
 	}
 
 	count, err := q.CountProjectsByOrg(ctx, orgID)
-	if err != nil {
-		t.Fatalf("CountProjectsByOrg: %v", err)
-	}
-	if count != 1 {
-		t.Fatalf("count = %d, want 1 (soft-deleted should be excluded)", count)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 1, count)
+
 }
 
 // GetLogDrain cross-tenant guard
@@ -358,21 +344,20 @@ func TestGetLogDrain_WrongProject_NotFound(t *testing.T) {
 		AuthType:    "none",
 		Enabled:     true,
 	}
-	if err := q.CreateLogDrain(ctx, drain); err != nil {
-		t.Fatalf("CreateLogDrain: %v", err)
-	}
+	require.NoError(t, q.CreateLogDrain(ctx, drain))
 
 	// Correct project can fetch it.
 	got, err := q.GetLogDrain(ctx, drain.ID, projA)
-	if err != nil {
-		t.Fatalf("GetLogDrain(correct project): %v", err)
-	}
-	if got.ID != drain.ID {
-		t.Fatalf("got %q, want %q", got.ID, drain.ID)
-	}
+	require.NoError(t, err)
+	require.Equal(t, drain.
+		ID,
+		got.ID,
+	)
 
 	// Wrong project returns not-found.
 	if _, err := q.GetLogDrain(ctx, drain.ID, projB); !errors.Is(err, store.ErrLogDrainNotFound) {
-		t.Fatalf("cross-tenant GetLogDrain: err = %v, want ErrLogDrainNotFound", err)
+		require.Failf(t, "test failure",
+
+			"cross-tenant GetLogDrain: err = %v, want ErrLogDrainNotFound", err)
 	}
 }

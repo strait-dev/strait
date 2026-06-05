@@ -2,6 +2,8 @@ package store
 
 import (
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestValidateSLOWindow(t *testing.T) {
@@ -25,9 +27,10 @@ func TestValidateSLOWindow(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			err := validateSLOWindow(tt.window, tt.max)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("validateSLOWindow(%d, %d) error = %v, wantErr %v", tt.window, tt.max, err, tt.wantErr)
-			}
+			assert.Equal(t,
+				tt.
+					wantErr, (err != nil))
+
 		})
 	}
 }

@@ -11,6 +11,8 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestCreateLogDrainWithOrgLimit_SerializesConcurrentCreates(t *testing.T) {
@@ -20,9 +22,12 @@ func TestCreateLogDrainWithOrgLimit_SerializesConcurrentCreates(t *testing.T) {
 
 	orgID := "org-log-drain-limit-" + newID()
 	projectID := "proj-log-drain-limit-" + newID()
-	if err := q.CreateProject(ctx, &domain.Project{ID: projectID, OrgID: orgID, Name: "P"}); err != nil {
-		t.Fatalf("CreateProject() error = %v", err)
-	}
+	require.NoError(t, q.CreateProject(ctx, &domain.
+		Project{ID: projectID,
+
+		OrgID: orgID,
+
+		Name: "P"}))
 
 	errs := make(chan error, 20)
 	var wg sync.WaitGroup
@@ -48,12 +53,9 @@ func TestCreateLogDrainWithOrgLimit_SerializesConcurrentCreates(t *testing.T) {
 	assertConcurrentLimitResults(t, errs, 2, store.ErrLogDrainLimitExceeded)
 
 	count, err := q.CountLogDrainsByOrg(ctx, orgID)
-	if err != nil {
-		t.Fatalf("CountLogDrainsByOrg() error = %v", err)
-	}
-	if count != 2 {
-		t.Fatalf("count = %d, want 2", count)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 2, count)
+
 }
 
 func TestCreateNotificationChannelWithProjectLimit_SerializesConcurrentCreates(t *testing.T) {
@@ -85,12 +87,9 @@ func TestCreateNotificationChannelWithProjectLimit_SerializesConcurrentCreates(t
 	assertConcurrentLimitResults(t, errs, 3, store.ErrNotificationChannelLimitExceeded)
 
 	count, err := q.CountNotificationChannelsByProject(ctx, projectID)
-	if err != nil {
-		t.Fatalf("CountNotificationChannelsByProject() error = %v", err)
-	}
-	if count != 3 {
-		t.Fatalf("count = %d, want 3", count)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 3, count)
+
 }
 
 func TestCreateEnvironmentWithOrgLimit_SerializesConcurrentCreates(t *testing.T) {
@@ -100,9 +99,12 @@ func TestCreateEnvironmentWithOrgLimit_SerializesConcurrentCreates(t *testing.T)
 
 	orgID := "org-env-limit-" + newID()
 	projectID := "proj-env-limit-" + newID()
-	if err := q.CreateProject(ctx, &domain.Project{ID: projectID, OrgID: orgID, Name: "P"}); err != nil {
-		t.Fatalf("CreateProject() error = %v", err)
-	}
+	require.NoError(t, q.CreateProject(ctx, &domain.
+		Project{ID: projectID,
+
+		OrgID: orgID,
+
+		Name: "P"}))
 
 	errs := make(chan error, 20)
 	var wg sync.WaitGroup
@@ -125,12 +127,9 @@ func TestCreateEnvironmentWithOrgLimit_SerializesConcurrentCreates(t *testing.T)
 	assertConcurrentLimitResults(t, errs, 2, store.ErrEnvironmentLimitExceeded)
 
 	count, err := q.CountEnvironmentsByOrg(ctx, orgID)
-	if err != nil {
-		t.Fatalf("CountEnvironmentsByOrg() error = %v", err)
-	}
-	if count != 2 {
-		t.Fatalf("count = %d, want 2", count)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 2, count)
+
 }
 
 func TestCreateJobWithCronScheduleLimit_SerializesConcurrentCreates(t *testing.T) {
@@ -140,9 +139,12 @@ func TestCreateJobWithCronScheduleLimit_SerializesConcurrentCreates(t *testing.T
 
 	orgID := "org-job-cron-limit-" + newID()
 	projectID := "proj-job-cron-limit-" + newID()
-	if err := q.CreateProject(ctx, &domain.Project{ID: projectID, OrgID: orgID, Name: "P"}); err != nil {
-		t.Fatalf("CreateProject() error = %v", err)
-	}
+	require.NoError(t, q.CreateProject(ctx, &domain.
+		Project{ID: projectID,
+
+		OrgID: orgID,
+
+		Name: "P"}))
 
 	errs := make(chan error, 20)
 	var wg sync.WaitGroup
@@ -162,12 +164,9 @@ func TestCreateJobWithCronScheduleLimit_SerializesConcurrentCreates(t *testing.T
 	assertConcurrentLimitResults(t, errs, 2, store.ErrCronScheduleLimitExceeded)
 
 	count, err := q.CountCronJobsByOrg(ctx, orgID)
-	if err != nil {
-		t.Fatalf("CountCronJobsByOrg() error = %v", err)
-	}
-	if count != 2 {
-		t.Fatalf("count = %d, want 2", count)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 2, count)
+
 }
 
 func TestEnforceCronScheduleLimit_SerializesJobsAndWorkflows(t *testing.T) {
@@ -177,9 +176,12 @@ func TestEnforceCronScheduleLimit_SerializesJobsAndWorkflows(t *testing.T) {
 
 	orgID := "org-mixed-cron-limit-" + newID()
 	projectID := "proj-mixed-cron-limit-" + newID()
-	if err := q.CreateProject(ctx, &domain.Project{ID: projectID, OrgID: orgID, Name: "P"}); err != nil {
-		t.Fatalf("CreateProject() error = %v", err)
-	}
+	require.NoError(t, q.CreateProject(ctx, &domain.
+		Project{ID: projectID,
+
+		OrgID: orgID,
+
+		Name: "P"}))
 
 	errs := make(chan error, 20)
 	var wg sync.WaitGroup
@@ -215,12 +217,9 @@ func TestEnforceCronScheduleLimit_SerializesJobsAndWorkflows(t *testing.T) {
 	assertConcurrentLimitResults(t, errs, 3, store.ErrCronScheduleLimitExceeded)
 
 	count, err := q.CountCronJobsByOrg(ctx, orgID)
-	if err != nil {
-		t.Fatalf("CountCronJobsByOrg() error = %v", err)
-	}
-	if count != 3 {
-		t.Fatalf("count = %d, want 3", count)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 3, count)
+
 }
 
 func assertConcurrentLimitResults(t *testing.T, errs <-chan error, wantSuccesses int, limitErr error) {
@@ -235,14 +234,15 @@ func assertConcurrentLimitResults(t *testing.T, errs <-chan error, wantSuccesses
 		case errors.Is(err, limitErr):
 			rejections++
 		default:
-			t.Fatalf("unexpected error: %v", err)
+			require.Failf(t, "test failure", "unexpected error: %v", err)
 		}
 	}
+	require.Equal(t, wantSuccesses,
 
-	if successes != wantSuccesses {
-		t.Fatalf("successes = %d, want %d", successes, wantSuccesses)
-	}
-	if rejections == 0 {
-		t.Fatal("rejections = 0, want at least one limit rejection")
-	}
+		successes,
+	)
+	require.NotEqual(t, 0,
+		rejections,
+	)
+
 }

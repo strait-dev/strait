@@ -10,6 +10,8 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestDeleteWorkflow_DeletesTerminalRuns(t *testing.T) {
@@ -19,14 +21,12 @@ func TestDeleteWorkflow_DeletesTerminalRuns(t *testing.T) {
 
 	projectID := "project-delete-workflow-" + newID()
 	wf := &domain.Workflow{ID: newID(), ProjectID: projectID, Name: "delete-workflow", Slug: "delete-workflow-" + newID(), Enabled: true, Version: 1}
-	if err := q.CreateWorkflow(ctx, wf); err != nil {
-		t.Fatalf("CreateWorkflow() error = %v", err)
-	}
+	require.NoError(t, q.CreateWorkflow(ctx, wf))
 
 	run := &domain.WorkflowRun{ID: newID(), WorkflowID: wf.ID, ProjectID: projectID, Status: domain.WfStatusCompleted, TriggeredBy: domain.TriggerManual}
-	if err := q.CreateWorkflowRun(ctx, run); err != nil {
-		t.Fatalf("CreateWorkflowRun() error = %v", err)
-	}
+	require.NoError(t, q.CreateWorkflowRun(ctx,
+		run))
+
 	trigger := &domain.EventTrigger{
 		ID:            newID(),
 		EventKey:      "event-delete-workflow-" + newID(),
@@ -38,26 +38,25 @@ func TestDeleteWorkflow_DeletesTerminalRuns(t *testing.T) {
 		RequestedAt:   time.Now().UTC(),
 		ExpiresAt:     time.Now().UTC().Add(5 * time.Minute),
 	}
-	if err := q.CreateEventTrigger(ctx, trigger); err != nil {
-		t.Fatalf("CreateEventTrigger() error = %v", err)
-	}
+	require.NoError(t, q.CreateEventTrigger(ctx,
+		trigger))
+	require.NoError(t, q.DeleteWorkflow(ctx, wf.
+		ID))
 
-	if err := q.DeleteWorkflow(ctx, wf.ID); err != nil {
-		t.Fatalf("DeleteWorkflow() error = %v", err)
-	}
 	if _, err := q.GetWorkflow(ctx, wf.ID); !errors.Is(err, store.ErrWorkflowNotFound) {
-		t.Fatalf("GetWorkflow() error = %v, want ErrWorkflowNotFound", err)
+		require.Failf(t, "test failure",
+
+			"GetWorkflow() error = %v, want ErrWorkflowNotFound", err)
 	}
 	if _, err := q.GetWorkflowRun(ctx, run.ID); !errors.Is(err, store.ErrWorkflowRunNotFound) {
-		t.Fatalf("GetWorkflowRun() error = %v, want ErrWorkflowRunNotFound", err)
+		require.Failf(t, "test failure",
+
+			"GetWorkflowRun() error = %v, want ErrWorkflowRunNotFound", err)
 	}
 	gotTrigger, err := q.GetEventTriggerByEventKey(ctx, trigger.EventKey)
-	if err != nil {
-		t.Fatalf("GetEventTriggerByEventKey() error = %v", err)
-	}
-	if gotTrigger != nil {
-		t.Fatalf("GetEventTriggerByEventKey() = %+v, want nil", gotTrigger)
-	}
+	require.NoError(t, err)
+	require.Nil(t, gotTrigger)
+
 }
 
 func TestDeleteWorkflow_RejectsActiveRuns(t *testing.T) {
@@ -67,18 +66,20 @@ func TestDeleteWorkflow_RejectsActiveRuns(t *testing.T) {
 
 	projectID := "project-delete-active-workflow-" + newID()
 	wf := &domain.Workflow{ID: newID(), ProjectID: projectID, Name: "delete-active-workflow", Slug: "delete-active-workflow-" + newID(), Enabled: true, Version: 1}
-	if err := q.CreateWorkflow(ctx, wf); err != nil {
-		t.Fatalf("CreateWorkflow() error = %v", err)
-	}
+	require.NoError(t, q.CreateWorkflow(ctx, wf))
+
 	run := &domain.WorkflowRun{ID: newID(), WorkflowID: wf.ID, ProjectID: projectID, Status: domain.WfStatusPending, TriggeredBy: domain.TriggerManual}
-	if err := q.CreateWorkflowRun(ctx, run); err != nil {
-		t.Fatalf("CreateWorkflowRun() error = %v", err)
-	}
+	require.NoError(t, q.CreateWorkflowRun(ctx,
+		run))
 
 	if err := q.DeleteWorkflow(ctx, wf.ID); !errors.Is(err, store.ErrWorkflowHasActiveRuns) {
-		t.Fatalf("DeleteWorkflow() error = %v, want ErrWorkflowHasActiveRuns", err)
+		require.Failf(t, "test failure",
+
+			"DeleteWorkflow() error = %v, want ErrWorkflowHasActiveRuns", err)
 	}
 	if _, err := q.GetWorkflow(ctx, wf.ID); err != nil {
-		t.Fatalf("GetWorkflow() after rejected delete error = %v", err)
+		require.Failf(t, "test failure",
+
+			"GetWorkflow() after rejected delete error = %v", err)
 	}
 }

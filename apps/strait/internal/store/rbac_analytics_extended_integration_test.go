@@ -11,6 +11,8 @@ import (
 	"strait/internal/domain"
 	"strait/internal/store"
 	"strait/internal/testutil"
+
+	"github.com/stretchr/testify/require"
 )
 
 // UserHasProjectAccess.
@@ -26,9 +28,7 @@ func TestRBAC_UserHasProjectAccess_WithRole(t *testing.T) {
 
 	projectID := "project-rbac-access-" + newID()
 	project := &domain.Project{ID: projectID, Name: "test"}
-	if err := q.CreateProject(ctx, project); err != nil {
-		t.Fatalf("CreateProject() error = %v", err)
-	}
+	require.NoError(t, q.CreateProject(ctx, project))
 
 	role := &domain.ProjectRole{
 		ID:          newID(),
@@ -36,9 +36,8 @@ func TestRBAC_UserHasProjectAccess_WithRole(t *testing.T) {
 		Name:        "admin",
 		Permissions: []string{"read", "write"},
 	}
-	if err := q.CreateProjectRole(ctx, role); err != nil {
-		t.Fatalf("CreateProjectRole() error = %v", err)
-	}
+	require.NoError(t, q.CreateProjectRole(ctx,
+		role))
 
 	userID := "user-" + newID()
 	member := &domain.ProjectMemberRole{
@@ -47,17 +46,12 @@ func TestRBAC_UserHasProjectAccess_WithRole(t *testing.T) {
 		UserID:    userID,
 		RoleID:    role.ID,
 	}
-	if err := q.AssignMemberRole(ctx, member); err != nil {
-		t.Fatalf("AssignMemberRole() error = %v", err)
-	}
+	require.NoError(t, q.AssignMemberRole(ctx, member))
 
 	has, err := q.UserHasProjectAccess(ctx, userID, projectID)
-	if err != nil {
-		t.Fatalf("UserHasProjectAccess() error = %v", err)
-	}
-	if !has {
-		t.Fatal("expected true")
-	}
+	require.NoError(t, err)
+	require.True(t, has)
+
 }
 
 func TestRBAC_UserHasProjectAccess_NoRole(t *testing.T) {
@@ -67,17 +61,12 @@ func TestRBAC_UserHasProjectAccess_NoRole(t *testing.T) {
 
 	projectID := "project-rbac-no-access-" + newID()
 	project := &domain.Project{ID: projectID, Name: "test"}
-	if err := q.CreateProject(ctx, project); err != nil {
-		t.Fatalf("CreateProject() error = %v", err)
-	}
+	require.NoError(t, q.CreateProject(ctx, project))
 
 	has, err := q.UserHasProjectAccess(ctx, "user-"+newID(), projectID)
-	if err != nil {
-		t.Fatalf("UserHasProjectAccess() error = %v", err)
-	}
-	if has {
-		t.Fatal("expected false")
-	}
+	require.NoError(t, err)
+	require.False(t, has)
+
 }
 
 func TestRBAC_UserHasProjectAccess_NonexistentProject(t *testing.T) {
@@ -86,12 +75,9 @@ func TestRBAC_UserHasProjectAccess_NonexistentProject(t *testing.T) {
 	mustClean(t, ctx)
 
 	has, err := q.UserHasProjectAccess(ctx, "user-"+newID(), "nonexistent-"+newID())
-	if err != nil {
-		t.Fatalf("UserHasProjectAccess() error = %v", err)
-	}
-	if has {
-		t.Fatal("expected false for nonexistent project")
-	}
+	require.NoError(t, err)
+	require.False(t, has)
+
 }
 
 // AggregateHourlyStats.
@@ -107,26 +93,26 @@ func TestAnalytics_AggregateHourlyStats_HappyPath(t *testing.T) {
 	// Create a completed run.
 	run := baseRun(job, newID())
 	run.Status = domain.StatusExecuting
-	if err := q.CreateRun(ctx, run); err != nil {
-		t.Fatalf("CreateRun() error = %v", err)
-	}
+	require.NoError(t, q.CreateRun(ctx,
+		run))
+
 	finishedAt := time.Now().UTC()
-	if err := q.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusCompleted, map[string]any{
-		"started_at":  time.Now().UTC().Add(-5 * time.Second),
-		"finished_at": finishedAt,
-	}); err != nil {
-		t.Fatalf("UpdateRunStatus() error = %v", err)
-	}
+	require.NoError(t, q.UpdateRunStatus(ctx, run.
+		ID, domain.StatusExecuting,
+
+		domain.
+			StatusCompleted, map[string]any{"started_at": time.
+			Now().UTC().Add(-5 * time.Second), "finished_at": finishedAt,
+		}))
 
 	hour := time.Now().UTC().Truncate(time.Hour)
-	if err := q.AggregateHourlyStats(ctx, hour); err != nil {
-		t.Fatalf("AggregateHourlyStats() error = %v", err)
-	}
+	require.NoError(t, q.AggregateHourlyStats(ctx,
+		hour))
+	require.NoError(t, q.AggregateHourlyStats(ctx,
+		hour))
 
 	// Verify by calling again (idempotent).
-	if err := q.AggregateHourlyStats(ctx, hour); err != nil {
-		t.Fatalf("AggregateHourlyStats() second call error = %v", err)
-	}
+
 }
 
 func TestAnalytics_AggregateHourlyStats_EmptyHour(t *testing.T) {
@@ -136,9 +122,9 @@ func TestAnalytics_AggregateHourlyStats_EmptyHour(t *testing.T) {
 
 	// Aggregating an empty hour should not error.
 	hour := time.Now().UTC().Add(-24 * time.Hour).Truncate(time.Hour)
-	if err := q.AggregateHourlyStats(ctx, hour); err != nil {
-		t.Fatalf("AggregateHourlyStats() error = %v", err)
-	}
+	require.NoError(t, q.AggregateHourlyStats(ctx,
+		hour))
+
 }
 
 func TestAnalytics_AggregateHourlyStats_Idempotent(t *testing.T) {
@@ -148,9 +134,9 @@ func TestAnalytics_AggregateHourlyStats_Idempotent(t *testing.T) {
 
 	hour := time.Now().UTC().Truncate(time.Hour)
 	for range 3 {
-		if err := q.AggregateHourlyStats(ctx, hour); err != nil {
-			t.Fatalf("AggregateHourlyStats() error = %v", err)
-		}
+		require.NoError(t, q.AggregateHourlyStats(ctx,
+			hour))
+
 	}
 }
 
@@ -169,21 +155,15 @@ func TestJobMemory_DeleteJobMemory_HappyPath(t *testing.T) {
 		Value:     json.RawMessage(`"data"`),
 		SizeBytes: 4,
 	}
-	if err := q.UpsertJobMemoryWithQuota(ctx, mem, 1024, 10); err != nil {
-		t.Fatalf("UpsertJobMemoryWithQuota() error = %v", err)
-	}
-
-	if err := q.DeleteJobMemory(ctx, job.ID, "session"); err != nil {
-		t.Fatalf("DeleteJobMemory() error = %v", err)
-	}
+	require.NoError(t, q.UpsertJobMemoryWithQuota(ctx, mem, 1024,
+		10))
+	require.NoError(t, q.DeleteJobMemory(ctx, job.
+		ID, "session"))
 
 	got, err := q.GetJobMemory(ctx, job.ID, "session")
-	if err != nil {
-		t.Fatalf("GetJobMemory() error = %v", err)
-	}
-	if got != nil {
-		t.Fatal("expected nil after delete")
-	}
+	require.NoError(t, err)
+	require.Nil(t, got)
+
 }
 
 func TestJobMemory_DeleteJobMemory_NonexistentKey(t *testing.T) {
@@ -192,11 +172,12 @@ func TestJobMemory_DeleteJobMemory_NonexistentKey(t *testing.T) {
 	mustClean(t, ctx)
 
 	job := mustCreateJob(t, ctx, q, "project-delete-memory-missing")
+	require.NoError(t, q.DeleteJobMemory(ctx, job.
+		ID, "nonexistent",
+	))
 
 	// Deleting a nonexistent key should not error.
-	if err := q.DeleteJobMemory(ctx, job.ID, "nonexistent"); err != nil {
-		t.Fatalf("DeleteJobMemory() error = %v", err)
-	}
+
 }
 
 func TestJobMemory_DeleteJobMemory_ReducesSizeBytes(t *testing.T) {
@@ -213,9 +194,8 @@ func TestJobMemory_DeleteJobMemory_ReducesSizeBytes(t *testing.T) {
 		Value:     json.RawMessage(`"aaa"`),
 		SizeBytes: 3,
 	}
-	if err := q.UpsertJobMemoryWithQuota(ctx, mem1, 1024, 10); err != nil {
-		t.Fatalf("UpsertJobMemoryWithQuota(a) error = %v", err)
-	}
+	require.NoError(t, q.UpsertJobMemoryWithQuota(ctx, mem1, 1024,
+		10))
 
 	mem2 := &domain.JobMemory{
 		JobID:     job.ID,
@@ -224,29 +204,19 @@ func TestJobMemory_DeleteJobMemory_ReducesSizeBytes(t *testing.T) {
 		Value:     json.RawMessage(`"bbb"`),
 		SizeBytes: 3,
 	}
-	if err := q.UpsertJobMemoryWithQuota(ctx, mem2, 1024, 10); err != nil {
-		t.Fatalf("UpsertJobMemoryWithQuota(b) error = %v", err)
-	}
+	require.NoError(t, q.UpsertJobMemoryWithQuota(ctx, mem2, 1024,
+		10))
 
 	totalBefore, err := q.SumJobMemorySizeBytes(ctx, job.ID)
-	if err != nil {
-		t.Fatalf("SumJobMemorySizeBytes() before error = %v", err)
-	}
-	if totalBefore != 6 {
-		t.Fatalf("total before = %d, want 6", totalBefore)
-	}
-
-	if err := q.DeleteJobMemory(ctx, job.ID, "key-a"); err != nil {
-		t.Fatalf("DeleteJobMemory() error = %v", err)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 6, totalBefore)
+	require.NoError(t, q.DeleteJobMemory(ctx, job.
+		ID, "key-a"))
 
 	totalAfter, err := q.SumJobMemorySizeBytes(ctx, job.ID)
-	if err != nil {
-		t.Fatalf("SumJobMemorySizeBytes() after error = %v", err)
-	}
-	if totalAfter != 3 {
-		t.Fatalf("total after = %d, want 3", totalAfter)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 3, totalAfter)
+
 }
 
 // SetProjectContext / ClearProjectContext.
@@ -255,34 +225,31 @@ func TestStore_SetProjectContext_HappyPath(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
 	mustClean(t, ctx)
+	require.NoError(t, q.SetProjectContext(ctx,
+		"project-ctx-"+newID()))
 
-	if err := q.SetProjectContext(ctx, "project-ctx-"+newID()); err != nil {
-		t.Fatalf("SetProjectContext() error = %v", err)
-	}
 }
 
 func TestStore_ClearProjectContext_HappyPath(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
 	mustClean(t, ctx)
+	require.NoError(t, q.SetProjectContext(ctx,
+		"project-ctx-clear-"+
+			newID(),
+	))
+	require.NoError(t, q.ClearProjectContext(ctx))
 
-	if err := q.SetProjectContext(ctx, "project-ctx-clear-"+newID()); err != nil {
-		t.Fatalf("SetProjectContext() error = %v", err)
-	}
-	if err := q.ClearProjectContext(ctx); err != nil {
-		t.Fatalf("ClearProjectContext() error = %v", err)
-	}
 }
 
 func TestStore_ClearProjectContext_WithoutSet(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
 	mustClean(t, ctx)
+	require.NoError(t, q.ClearProjectContext(ctx))
 
 	// Clearing without setting should not error.
-	if err := q.ClearProjectContext(ctx); err != nil {
-		t.Fatalf("ClearProjectContext() error = %v", err)
-	}
+
 }
 
 // SetAuditSigningKey.
@@ -293,18 +260,14 @@ func TestStore_SetAuditSigningKey_HappyPath(t *testing.T) {
 
 	q := store.New(testDB.Pool)
 	key, err := store.DeriveAuditSigningKey("test-secret-for-audit")
-	if err != nil {
-		t.Fatalf("DeriveAuditSigningKey() error = %v", err)
-	}
+	require.NoError(t, err)
 
 	q.SetAuditSigningKey(key)
 
 	// Verify by creating an audit event and checking signature is set.
 	projectID := "project-audit-key-" + newID()
 	project := &domain.Project{ID: projectID, Name: "test"}
-	if err := q.CreateProject(ctx, project); err != nil {
-		t.Fatalf("CreateProject() error = %v", err)
-	}
+	require.NoError(t, q.CreateProject(ctx, project))
 
 	ev := &domain.AuditEvent{
 		ProjectID:    projectID,
@@ -315,12 +278,12 @@ func TestStore_SetAuditSigningKey_HappyPath(t *testing.T) {
 		ResourceID:   newID(),
 		Details:      json.RawMessage(`{}`),
 	}
-	if err := q.CreateAuditEvent(ctx, ev); err != nil {
-		t.Fatalf("CreateAuditEvent() error = %v", err)
-	}
-	if ev.Signature == "" {
-		t.Fatal("signature should be set when signing key is configured")
-	}
+	require.NoError(t, q.CreateAuditEvent(ctx, ev))
+	require.NotEqual(t, "",
+
+		ev.Signature,
+	)
+
 }
 
 // VerifyAuditChain.
@@ -331,19 +294,16 @@ func TestAudit_VerifyAuditChain_ValidChain(t *testing.T) {
 
 	q := store.New(testDB.Pool)
 	key, err := store.DeriveAuditSigningKey("test-secret-verify-chain")
-	if err != nil {
-		t.Fatalf("DeriveAuditSigningKey() error = %v", err)
-	}
+	require.NoError(t, err)
+
 	q.SetAuditSigningKey(key)
 
 	projectID := "project-audit-chain-" + newID()
 	project := &domain.Project{ID: projectID, Name: "test"}
-	if err := q.CreateProject(ctx, project); err != nil {
-		t.Fatalf("CreateProject() error = %v", err)
-	}
+	require.NoError(t, q.CreateProject(ctx, project))
 
 	// Create a chain of 3 audit events.
-	for i := range 3 {
+	for range 3 {
 		ev := &domain.AuditEvent{
 			ProjectID:    projectID,
 			ActorID:      "actor-1",
@@ -353,24 +313,23 @@ func TestAudit_VerifyAuditChain_ValidChain(t *testing.T) {
 			ResourceID:   newID(),
 			Details:      json.RawMessage(`{}`),
 		}
-		if err := q.CreateAuditEvent(ctx, ev); err != nil {
-			t.Fatalf("CreateAuditEvent(%d) error = %v", i, err)
-		}
+		require.NoError(t, q.CreateAuditEvent(ctx, ev))
+
 	}
 
 	result, err := q.VerifyAuditChain(ctx, projectID)
-	if err != nil {
-		t.Fatalf("VerifyAuditChain() error = %v", err)
-	}
-	if result == nil {
-		t.Fatal("expected non-nil result")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.GreaterOrEqual(
+		t,
+		result.
+			EventsChecked,
+		1)
+
 	// VerifyAuditChain may stop early on signature mismatch depending on
 	// the signing implementation. The key assertion is that the function
 	// returns without error and processes at least 1 event.
-	if result.EventsChecked < 1 {
-		t.Fatalf("events_checked = %d, want >= 1", result.EventsChecked)
-	}
+
 	t.Logf("audit chain: valid=%v, events_checked=%d, error=%s", result.Valid, result.EventsChecked, result.Error)
 }
 
@@ -380,21 +339,19 @@ func TestAudit_VerifyAuditChain_EmptyChain(t *testing.T) {
 
 	q := store.New(testDB.Pool)
 	key, err := store.DeriveAuditSigningKey("test-secret-empty-chain")
-	if err != nil {
-		t.Fatalf("DeriveAuditSigningKey() error = %v", err)
-	}
+	require.NoError(t, err)
+
 	q.SetAuditSigningKey(key)
 
 	result, err := q.VerifyAuditChain(ctx, "empty-project-"+newID())
-	if err != nil {
-		t.Fatalf("VerifyAuditChain() error = %v", err)
-	}
-	if !result.Valid {
-		t.Fatal("empty chain should be valid")
-	}
-	if result.EventsChecked != 0 {
-		t.Fatalf("events_checked = %d, want 0", result.EventsChecked)
-	}
+	require.NoError(t, err)
+	require.True(t, result.
+		Valid,
+	)
+	require.EqualValues(t, 0, result.
+		EventsChecked,
+	)
+
 }
 
 func TestAudit_VerifyAuditChain_NoSigningKey(t *testing.T) {
@@ -405,9 +362,8 @@ func TestAudit_VerifyAuditChain_NoSigningKey(t *testing.T) {
 	// Do not set signing key.
 
 	_, err := q.VerifyAuditChain(ctx, "any-project")
-	if err == nil {
-		t.Fatal("expected error when signing key is not set")
-	}
+	require.Error(t, err)
+
 }
 
 // Suppress unused import warning.

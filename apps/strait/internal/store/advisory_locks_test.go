@@ -4,41 +4,41 @@ import (
 	"context"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestAcquireAdvisoryLock_RejectsNilQueries(t *testing.T) {
 	t.Parallel()
 	err := AcquireAdvisoryLock(context.Background(), nil, AdvisoryLockNsAuditChain, "proj-1")
-	if err == nil {
-		t.Fatal("expected error for nil *Queries, got nil")
-	}
-	if !strings.Contains(err.Error(), "queries is nil") {
-		t.Errorf("error = %q, expected mention of nil queries", err)
-	}
+	require.Error(t,
+		err)
+	assert.True(t,
+		strings.Contains(err.Error(), "queries is nil"))
+
 }
 
 func TestAcquireAdvisoryLock_RejectsEmptyNamespace(t *testing.T) {
 	t.Parallel()
 	q := New(nil)
 	err := AcquireAdvisoryLock(context.Background(), q, "", "proj-1")
-	if err == nil {
-		t.Fatal("expected error for empty namespace, got nil")
-	}
-	if !strings.Contains(err.Error(), "namespace is empty") {
-		t.Errorf("error = %q, expected mention of empty namespace", err)
-	}
+	require.Error(t,
+		err)
+	assert.True(t,
+		strings.Contains(err.Error(), "namespace is empty"))
+
 }
 
 func TestAcquireAdvisoryLock_RejectsEmptyKey(t *testing.T) {
 	t.Parallel()
 	q := New(nil)
 	err := AcquireAdvisoryLock(context.Background(), q, AdvisoryLockNsAuditChain, "")
-	if err == nil {
-		t.Fatal("expected error for empty key, got nil")
-	}
-	if !strings.Contains(err.Error(), "key is empty") {
-		t.Errorf("error = %q, expected mention of empty key", err)
-	}
+	require.Error(t,
+		err)
+	assert.True(t,
+		strings.Contains(err.Error(), "key is empty"))
+
 }
 
 // TestAdvisoryLockNamespaces_Distinct guards against two namespaces
@@ -52,17 +52,19 @@ func TestAdvisoryLockNamespaces_Distinct(t *testing.T) {
 		AdvisoryLockNsAuditChainShard: {},
 		AdvisoryLockNsAuditRotate:     {},
 	}
+	require.Len(t,
+		namespaces,
+		3)
+
 	// All constants must be distinct string literals. Map insertion
 	// deduplicates, so a collision would show up as len < 3.
-	if len(namespaces) != 3 {
-		t.Fatalf("advisory lock namespaces collided: %v", namespaces)
-	}
+
 	for ns := range namespaces {
-		if ns == "" {
-			t.Error("advisory lock namespace is empty — must be a non-empty literal")
-		}
-		if !strings.HasSuffix(ns, ":") {
-			t.Errorf("namespace %q does not end with ':' — all namespaces must be prefix-safe", ns)
-		}
+		assert.NotEqual(t, "", ns)
+		assert.True(t,
+			strings.HasSuffix(ns,
+				":",
+			))
+
 	}
 }

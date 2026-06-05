@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"strait/internal/domain"
 	"strait/internal/store"
@@ -34,17 +36,11 @@ func TestRotateAuditSigningKey_EmitsAnchor(t *testing.T) {
 	insertTestChain(ctx, t, q, projectID, 3)
 
 	newEpoch, err := q.RotateAuditSigningKey(ctx, projectID, "actor-rotator")
-	if err != nil {
-		t.Fatalf("RotateAuditSigningKey: %v", err)
-	}
-	if newEpoch != 1 {
-		t.Errorf("newEpoch = %d, want 1", newEpoch)
-	}
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, newEpoch)
 
 	events, err := q.ListAuditEvents(ctx, projectID, "", "", "", 1000, nil, nil, nil, true)
-	if err != nil {
-		t.Fatalf("ListAuditEvents: %v", err)
-	}
+	require.NoError(t, err)
 
 	var anchors []domain.AuditEvent
 	for _, ev := range events {
@@ -52,29 +48,33 @@ func TestRotateAuditSigningKey_EmitsAnchor(t *testing.T) {
 			anchors = append(anchors, ev)
 		}
 	}
-	if len(anchors) != 1 {
-		t.Fatalf("expected 1 anchor, got %d", len(anchors))
-	}
+	require.Len(t, anchors,
+
+		1)
+
 	a := anchors[0]
-	if !a.IsAnchor {
-		t.Error("anchor is_anchor = false")
-	}
-	if a.RotationEpoch != 1 {
-		t.Errorf("anchor rotation_epoch = %d, want 1", a.RotationEpoch)
-	}
+	assert.True(t, a.IsAnchor)
+	assert.EqualValues(t, 1, a.RotationEpoch)
 
 	var details map[string]any
-	if err := json.Unmarshal(a.Details, &details); err != nil {
-		t.Fatalf("unmarshal details: %v", err)
-	}
+	require.NoError(t, json.
+		Unmarshal(a.Details,
+			&details))
+
 	if got, want := details["previous_epoch"], float64(0); got != want {
-		t.Errorf("previous_epoch = %v, want %v", got, want)
+		assert.Failf(t, "test failure",
+
+			"previous_epoch = %v, want %v", got, want)
 	}
 	if got, want := details["new_epoch"], float64(1); got != want {
-		t.Errorf("new_epoch = %v, want %v", got, want)
+		assert.Failf(t, "test failure",
+
+			"new_epoch = %v, want %v", got, want)
 	}
 	if got, want := details["rotated_by"], "actor-rotator"; got != want {
-		t.Errorf("rotated_by = %v, want %v", got, want)
+		assert.Failf(t, "test failure",
+
+			"rotated_by = %v, want %v", got, want)
 	}
 }
 
@@ -97,17 +97,13 @@ func TestVerifyAuditChain_AcceptsAnchorBoundary(t *testing.T) {
 
 	// Rotate → anchor row under epoch 1.
 	newEpoch, err := q.RotateAuditSigningKey(ctx, projectID, "actor-boundary")
-	if err != nil {
-		t.Fatalf("RotateAuditSigningKey: %v", err)
-	}
-	if newEpoch != 1 {
-		t.Fatalf("newEpoch = %d, want 1", newEpoch)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 1, newEpoch)
 
 	// Epoch 1: 5 more events. CreateAuditEvent must assign the current
 	// rotation epoch automatically; callers should not need to know the
 	// current per-project signing epoch.
-	for i := range 5 {
+	for range 5 {
 		ev := &domain.AuditEvent{
 			ProjectID:    projectID,
 			ActorID:      "actor",
@@ -117,25 +113,24 @@ func TestVerifyAuditChain_AcceptsAnchorBoundary(t *testing.T) {
 			ResourceID:   "post-rotation",
 			Details:      json.RawMessage(`{"post":true}`),
 		}
-		if err := q.CreateAuditEvent(ctx, ev); err != nil {
-			t.Fatalf("CreateAuditEvent post-rotation %d: %v", i, err)
-		}
-		if ev.RotationEpoch != 1 {
-			t.Fatalf("post-rotation event epoch = %d, want 1", ev.RotationEpoch)
-		}
+		require.NoError(t, q.CreateAuditEvent(ctx, ev))
+		require.EqualValues(t, 1, ev.
+			RotationEpoch,
+		)
+
 	}
 
 	result, err := q.VerifyAuditChain(ctx, projectID)
-	if err != nil {
-		t.Fatalf("VerifyAuditChain: %v", err)
-	}
-	if !result.Valid {
-		t.Fatalf("chain invalid: %s (broken at %q)", result.Error, result.BrokenAtID)
-	}
+	require.NoError(t, err)
+	require.True(t, result.
+		Valid,
+	)
+	assert.EqualValues(t, 11, result.
+		EventsChecked,
+	)
+
 	// 5 pre + 1 anchor + 5 post = 11.
-	if result.EventsChecked != 11 {
-		t.Errorf("EventsChecked = %d, want 11", result.EventsChecked)
-	}
+
 }
 
 func TestVerifyAuditChain_MissingNonzeroEpochKeyFailsClosed(t *testing.T) {
@@ -150,22 +145,27 @@ func TestVerifyAuditChain_MissingNonzeroEpochKeyFailsClosed(t *testing.T) {
 	projectID := "proj-missing-epoch-key"
 	insertTestChain(ctx, t, q, projectID, 2)
 	if _, err := q.RotateAuditSigningKey(ctx, projectID, "actor-rotator"); err != nil {
-		t.Fatalf("RotateAuditSigningKey: %v", err)
+		require.Failf(t, "test failure",
+
+			"RotateAuditSigningKey: %v", err)
 	}
 
 	if _, err := testDB.Pool.Exec(ctx, `
 		DELETE FROM audit_signing_keys
 		WHERE project_id = $1 AND rotation_epoch = 1
 	`, projectID); err != nil {
-		t.Fatalf("delete epoch key: %v", err)
+		require.Failf(t, "test failure",
+
+			"delete epoch key: %v", err)
 	}
 
 	_, err := q.VerifyAuditChain(ctx, projectID)
-	if err == nil {
-		t.Fatal("expected missing nonzero epoch key to fail verification")
-	}
+	require.Error(t, err)
+
 	if got := err.Error(); !strings.Contains(got, "no stored key for epoch 1") {
-		t.Fatalf("VerifyAuditChain error = %v, want missing epoch key", err)
+		require.Failf(t, "test failure",
+
+			"VerifyAuditChain error = %v, want missing epoch key", err)
 	}
 }
 
@@ -188,7 +188,9 @@ func TestVerifyAuditChain_ForgedAnchor_Fails(t *testing.T) {
 	insertTestChain(ctx, t, q, projectID, 3)
 
 	if _, err := q.RotateAuditSigningKey(ctx, projectID, "actor-forge"); err != nil {
-		t.Fatalf("RotateAuditSigningKey: %v", err)
+		require.Failf(t, "test failure",
+
+			"RotateAuditSigningKey: %v", err)
 	}
 
 	// Tamper: rewrite the anchor's signature. This simulates an attacker
@@ -198,19 +200,20 @@ func TestVerifyAuditChain_ForgedAnchor_Fails(t *testing.T) {
 		SET signature = '00000000000000000000000000000000000000000000000000000000deadbeef'
 		WHERE project_id = $1 AND is_anchor = TRUE
 	`, projectID); err != nil {
-		t.Fatalf("tamper anchor signature: %v", err)
+		require.Failf(t, "test failure",
+
+			"tamper anchor signature: %v", err)
 	}
 
 	result, err := q.VerifyAuditChain(ctx, projectID)
-	if err != nil {
-		t.Fatalf("VerifyAuditChain: %v", err)
-	}
-	if result.Valid {
-		t.Fatal("expected chain invalid after anchor signature tamper")
-	}
-	if result.BrokenAtID == "" {
-		t.Error("BrokenAtID is empty — expected anchor id")
-	}
+	require.NoError(t, err)
+	require.False(t, result.
+		Valid)
+	assert.NotEqual(t, "",
+		result.
+			BrokenAtID,
+	)
+
 }
 
 // TestRotateAuditSigningKey_SerializedUnderContention asserts that two
@@ -247,25 +250,21 @@ func TestRotateAuditSigningKey_SerializedUnderContention(t *testing.T) {
 		})
 	}
 	wg.Wait()
-
-	if len(errs) > 0 {
-		t.Fatalf("rotation errors: %v", errs)
-	}
-	if len(epochs) != 2 {
-		t.Fatalf("got %d epochs, want 2", len(epochs))
-	}
-	if epochs[0] == epochs[1] {
-		t.Errorf("duplicate epochs %v — serialization failed", epochs)
-	}
+	require.LessOrEqual(t,
+		len(errs),
+		0)
+	require.Len(t, epochs,
+		2,
+	)
+	assert.NotEqual(t, epochs[1], epochs[0])
 
 	// Chain must still verify.
 	result, err := q.VerifyAuditChain(ctx, projectID)
-	if err != nil {
-		t.Fatalf("VerifyAuditChain: %v", err)
-	}
-	if !result.Valid {
-		t.Fatalf("chain invalid after concurrent rotations: %s", result.Error)
-	}
+	require.NoError(t, err)
+	require.True(t, result.
+		Valid,
+	)
+
 }
 
 // TestRotateAuditSigningKey_UniqueAnchorPerEpoch_Integration drives 50
@@ -306,18 +305,20 @@ func TestRotateAuditSigningKey_UniqueAnchorPerEpoch_Integration(t *testing.T) {
 		})
 	}
 	wg.Wait()
+	require.LessOrEqual(t,
+		len(errs),
+		0)
+	require.Len(t, epochs,
+		n,
+	)
 
-	if len(errs) > 0 {
-		t.Fatalf("rotation errors leaked: %v", errs)
-	}
-	if len(epochs) != n {
-		t.Fatalf("got %d epochs, want %d", len(epochs), n)
-	}
 	seen := make(map[int]struct{}, n)
 	minEpoch, maxEpoch := epochs[0], epochs[0]
 	for _, e := range epochs {
 		if _, dup := seen[e]; dup {
-			t.Errorf("duplicate epoch %d", e)
+			assert.Failf(t, "test failure",
+
+				"duplicate epoch %d", e)
 		}
 		seen[e] = struct{}{}
 		if e < minEpoch {
@@ -327,19 +328,19 @@ func TestRotateAuditSigningKey_UniqueAnchorPerEpoch_Integration(t *testing.T) {
 			maxEpoch = e
 		}
 	}
-	if minEpoch != 1 || maxEpoch != n {
-		t.Errorf("epoch range = [%d,%d], want [1,%d]", minEpoch, maxEpoch, n)
-	}
+	assert.False(t, minEpoch !=
+		1 ||
+		maxEpoch !=
+			n)
 
 	// Verify the chain is still intact — every rotation's anchor verifies
 	// under its own epoch's stored key.
 	result, err := q.VerifyAuditChain(ctx, projectID)
-	if err != nil {
-		t.Fatalf("VerifyAuditChain: %v", err)
-	}
-	if !result.Valid {
-		t.Fatalf("chain invalid after %d rotations: %s (broken at %s)", n, result.Error, result.BrokenAtID)
-	}
+	require.NoError(t, err)
+	require.True(t, result.
+		Valid,
+	)
+
 }
 
 // TestVerifyAuditChain_RealPerEpochKeys asserts that post-rotation events
@@ -360,7 +361,9 @@ func TestVerifyAuditChain_RealPerEpochKeys(t *testing.T) {
 	insertTestChain(ctx, t, q, projectID, 3)
 
 	if _, err := q.RotateAuditSigningKey(ctx, projectID, "actor"); err != nil {
-		t.Fatalf("rotate: %v", err)
+		require.Failf(t, "test failure",
+
+			"rotate: %v", err)
 	}
 
 	// Emit post-rotation events under epoch 1. CreateAuditEvent signs
@@ -369,15 +372,12 @@ func TestVerifyAuditChain_RealPerEpochKeys(t *testing.T) {
 	// events to verify, we need to emit them signed under the epoch-1
 	// key. Do that by fetching the stored key and switching it in.
 	epochKey, err := q.GetAuditSigningKey(ctx, projectID, 1)
-	if err != nil {
-		t.Fatalf("GetAuditSigningKey: %v", err)
-	}
-	if epochKey == nil {
-		t.Fatal("expected stored epoch-1 key, got nil")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, epochKey)
+
 	q.SetAuditSigningKey(epochKey)
 
-	for i := range 3 {
+	for range 3 {
 		ev := &domain.AuditEvent{
 			ProjectID:     projectID,
 			ActorID:       "actor",
@@ -388,21 +388,19 @@ func TestVerifyAuditChain_RealPerEpochKeys(t *testing.T) {
 			Details:       json.RawMessage(`{"i":0}`),
 			RotationEpoch: 1,
 		}
-		if err := q.CreateAuditEvent(ctx, ev); err != nil {
-			t.Fatalf("CreateAuditEvent post %d: %v", i, err)
-		}
+		require.NoError(t, q.CreateAuditEvent(ctx, ev))
+
 	}
 
 	result, err := q.VerifyAuditChain(ctx, projectID)
-	if err != nil {
-		t.Fatalf("VerifyAuditChain: %v", err)
-	}
-	if !result.Valid {
-		t.Fatalf("chain invalid: %s", result.Error)
-	}
-	if result.EventsChecked != 7 {
-		t.Errorf("EventsChecked = %d, want 7", result.EventsChecked)
-	}
+	require.NoError(t, err)
+	require.True(t, result.
+		Valid,
+	)
+	assert.EqualValues(t, 7, result.
+		EventsChecked,
+	)
+
 }
 
 // TestVerifyAuditChain_WrongEpochKey_Fails corrupts the stored key
@@ -421,7 +419,9 @@ func TestVerifyAuditChain_WrongEpochKey_Fails(t *testing.T) {
 	insertTestChain(ctx, t, q, projectID, 2)
 
 	if _, err := q.RotateAuditSigningKey(ctx, projectID, "actor"); err != nil {
-		t.Fatalf("rotate: %v", err)
+		require.Failf(t, "test failure",
+
+			"rotate: %v", err)
 	}
 
 	// Overwrite the stored epoch-1 key material with garbage bytes.
@@ -435,17 +435,23 @@ func TestVerifyAuditChain_WrongEpochKey_Fails(t *testing.T) {
 		SET key_material = $1
 		WHERE project_id = $2 AND rotation_epoch = 1
 	`, garbage, projectID); err != nil {
-		t.Fatalf("overwrite key_material: %v", err)
+		require.Failf(t, "test failure",
+
+			"overwrite key_material: %v", err)
 	}
 
 	result, verr := q.VerifyAuditChain(ctx, projectID)
+	require.False(t, verr ==
+
+		nil && result.
+		Valid,
+	)
+
 	// Either the decrypt fails (returned as error) or the HMAC check
 	// fails (returned with result.Valid=false). Both are acceptable
 	// negative outcomes — they prove the verifier actually consults the
 	// per-epoch stored key.
-	if verr == nil && result.Valid {
-		t.Fatal("expected verification failure after corrupting epoch-1 key")
-	}
+
 }
 
 // TestRotateAuditSigningKey_StoresDistinctKeyPerEpoch asserts that two
@@ -465,21 +471,28 @@ func TestRotateAuditSigningKey_StoresDistinctKeyPerEpoch(t *testing.T) {
 
 	for i := range 2 {
 		if _, err := q.RotateAuditSigningKey(ctx, projectID, "actor"); err != nil {
-			t.Fatalf("rotate %d: %v", i, err)
+			require.Failf(t, "test failure",
+
+				"rotate %d: %v", i, err)
 		}
 	}
 
 	k1, err := q.GetAuditSigningKey(ctx, projectID, 1)
-	if err != nil || k1 == nil {
-		t.Fatalf("epoch 1 key: %v / nil=%v", err, k1 == nil)
-	}
+	require.False(t, err !=
+
+		nil || k1 ==
+		nil)
+
 	k2, err := q.GetAuditSigningKey(ctx, projectID, 2)
-	if err != nil || k2 == nil {
-		t.Fatalf("epoch 2 key: %v / nil=%v", err, k2 == nil)
-	}
-	if len(k1) != 32 || len(k2) != 32 {
-		t.Errorf("key lengths = %d,%d, want 32,32", len(k1), len(k2))
-	}
+	require.False(t, err !=
+
+		nil || k2 ==
+		nil)
+	assert.False(t, len(k1) !=
+		32 ||
+		len(k2) !=
+			32)
+
 	same := true
 	for i := range k1 {
 		if k1[i] != k2[i] {
@@ -487,9 +500,7 @@ func TestRotateAuditSigningKey_StoresDistinctKeyPerEpoch(t *testing.T) {
 			break
 		}
 	}
-	if same {
-		t.Error("epoch 1 and epoch 2 keys are identical")
-	}
+	assert.False(t, same)
 
 	// Expected rows: 3.
 	//   - epoch 0: bootstrapped by the first insertTestChain CreateAuditEvent
@@ -499,14 +510,16 @@ func TestRotateAuditSigningKey_StoresDistinctKeyPerEpoch(t *testing.T) {
 	//   - epoch 1: written explicitly by the first RotateAuditSigningKey.
 	//   - epoch 2: written explicitly by the second RotateAuditSigningKey.
 	var count int
-	if err := testDB.Pool.QueryRow(ctx, `
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`
 		SELECT COUNT(*) FROM audit_signing_keys WHERE project_id = $1
-	`, projectID).Scan(&count); err != nil {
-		t.Fatalf("count: %v", err)
-	}
-	if count != 3 {
-		t.Errorf("audit_signing_keys rows = %d, want 3 (epoch 0 bootstrap + 2 rotations)", count)
-	}
+	`,
+
+		projectID).Scan(
+		&count))
+	assert.EqualValues(t, 3, count)
+
 }
 
 // TestBootstrapKey_PerProjectUniqueness asserts that the per-epoch key
@@ -529,17 +542,19 @@ func TestBootstrapKey_PerProjectUniqueness(t *testing.T) {
 	insertTestChain(ctx, t, q, projectB, 1)
 
 	keyA, err := q.GetAuditSigningKey(ctx, projectA, 0)
-	if err != nil || keyA == nil {
-		t.Fatalf("GetAuditSigningKey(A, 0): err=%v key=%v", err, keyA)
-	}
-	keyB, err := q.GetAuditSigningKey(ctx, projectB, 0)
-	if err != nil || keyB == nil {
-		t.Fatalf("GetAuditSigningKey(B, 0): err=%v key=%v", err, keyB)
-	}
+	require.False(t, err !=
 
-	if len(keyA) != 32 || len(keyB) != 32 {
-		t.Fatalf("key lengths = %d,%d, want 32,32", len(keyA), len(keyB))
-	}
+		nil || keyA ==
+		nil)
+
+	keyB, err := q.GetAuditSigningKey(ctx, projectB, 0)
+	require.False(t, err !=
+
+		nil || keyB ==
+		nil)
+	require.False(t, len(keyA) != 32 ||
+		len(keyB) != 32)
+
 	identical := true
 	for i := range keyA {
 		if keyA[i] != keyB[i] {
@@ -547,9 +562,8 @@ func TestBootstrapKey_PerProjectUniqueness(t *testing.T) {
 			break
 		}
 	}
-	if identical {
-		t.Fatal("epoch-0 bootstrap keys for distinct projects are identical — per-project isolation defeated")
-	}
+	require.False(t, identical)
+
 	// Both must differ from the global in-memory signing key too.
 	sameAsGlobalA := true
 	for i := range keyA {
@@ -558,9 +572,8 @@ func TestBootstrapKey_PerProjectUniqueness(t *testing.T) {
 			break
 		}
 	}
-	if sameAsGlobalA {
-		t.Fatal("bootstrap key for project A equals global q.auditSigningKey — bootstrap must derive per-epoch key")
-	}
+	require.False(t, sameAsGlobalA)
+
 }
 
 func TestAuditEpochKeys_DeriveFromAuditSigningRootNotEnvelopeKey(t *testing.T) {
@@ -576,9 +589,10 @@ func TestAuditEpochKeys_DeriveFromAuditSigningRootNotEnvelopeKey(t *testing.T) {
 	qA.SetAuditSigningKey(auditRootA)
 	insertTestChain(ctx, t, qA, projectID, 1)
 	keyA, err := qA.GetAuditSigningKey(ctx, projectID, 0)
-	if err != nil || keyA == nil {
-		t.Fatalf("GetAuditSigningKey(root A): key nil=%v err=%v", keyA == nil, err)
-	}
+	require.False(t, err !=
+
+		nil || keyA ==
+		nil)
 
 	mustClean(t, ctx)
 	qB := mustStore(t)
@@ -587,20 +601,19 @@ func TestAuditEpochKeys_DeriveFromAuditSigningRootNotEnvelopeKey(t *testing.T) {
 	qB.SetAuditSigningKey(auditRootB)
 	insertTestChain(ctx, t, qB, projectID, 1)
 	keyB, err := qB.GetAuditSigningKey(ctx, projectID, 0)
-	if err != nil || keyB == nil {
-		t.Fatalf("GetAuditSigningKey(root B): key nil=%v err=%v", keyB == nil, err)
-	}
+	require.False(t, err !=
 
-	if string(keyA) == string(keyB) {
-		t.Fatal("epoch keys matched despite different audit signing roots and identical envelope key")
-	}
+		nil || keyB ==
+		nil)
+	require.NotEqual(t, string(keyB),
+		string(keyA))
+
 	expectedA, err := store.DeriveAuditSigningKeyForEpochFromRoot(auditRootA, projectID, 0)
-	if err != nil {
-		t.Fatalf("DeriveAuditSigningKeyForEpochFromRoot(A): %v", err)
-	}
-	if string(keyA) != string(expectedA) {
-		t.Fatal("epoch key was not derived from the configured audit signing root")
-	}
+	require.NoError(t, err)
+	require.Equal(t, string(
+		expectedA,
+	), string(keyA))
+
 }
 
 func TestAuditSigningKeyDecryptsWithOldEnvelopeKey(t *testing.T) {
@@ -620,18 +633,16 @@ func TestAuditSigningKeyDecryptsWithOldEnvelopeKey(t *testing.T) {
 	newQ.SetAuditSigningKey(auditRoot)
 
 	key, err := newQ.GetAuditSigningKey(ctx, projectID, 0)
-	if err != nil {
-		t.Fatalf("GetAuditSigningKey(with old envelope): %v", err)
-	}
-	if len(key) == 0 {
-		t.Fatal("GetAuditSigningKey(with old envelope) returned empty key")
-	}
+	require.NoError(t, err)
+	require.NotEmpty(t, key)
 
 	withoutOld := mustStore(t)
 	withoutOld.SetSecretEncryptionKey("new-audit-envelope-key")
 	withoutOld.SetAuditSigningKey(auditRoot)
 	if _, err := withoutOld.GetAuditSigningKey(ctx, projectID, 0); err == nil {
-		t.Fatal("GetAuditSigningKey(without old envelope) error = nil, want decrypt failure")
+		require.Fail(t,
+
+			"GetAuditSigningKey(without old envelope) error = nil, want decrypt failure")
 	}
 }
 
@@ -656,44 +667,39 @@ func TestVerifyAuditChain_EpochZeroBootstrapPreservesLegacyRows(t *testing.T) {
 		ResourceID:   "job-new",
 		Details:      json.RawMessage(`{"new":true}`),
 	}
-	if err := q.CreateAuditEvent(ctx, ev); err != nil {
-		t.Fatalf("CreateAuditEvent(new epoch-0 row): %v", err)
-	}
-	if ev.RotationEpoch != 0 {
-		t.Fatalf("new event rotation_epoch = %d, want 0", ev.RotationEpoch)
-	}
+	require.NoError(t, q.CreateAuditEvent(ctx, ev))
+	require.EqualValues(t, 0, ev.
+		RotationEpoch,
+	)
+	require.Equal(t, "job",
+
+		ev.ShardID,
+	)
+	require.Equal(t, store.
+		ZeroHash,
+
+		ev.PreviousHash,
+	)
+
 	// Auto-shard-derivation: the new event with ResourceType "job" lands in
 	// shard "job" while the legacy row carries the migration-default ''
 	// shard. Each is the head of its own sub-chain; the legacy row no
 	// longer serves as a chain ancestor for new writes.
-	if ev.ShardID != "job" {
-		t.Fatalf("new event shard_id = %q, want %q", ev.ShardID, "job")
-	}
-	if ev.PreviousHash != store.ZeroHash {
-		t.Fatalf("new event previous_hash = %q, want ZeroHash (new shard chain head)", ev.PreviousHash)
-	}
 
 	epochKey, err := q.GetAuditSigningKey(ctx, projectID, 0)
-	if err != nil {
-		t.Fatalf("GetAuditSigningKey(epoch 0): %v", err)
-	}
-	if epochKey == nil {
-		t.Fatal("expected epoch-0 bootstrap key")
-	}
-	if string(epochKey) == string(globalKey) {
-		t.Fatal("epoch-0 bootstrap key should differ from legacy global key")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, epochKey)
+	require.NotEqual(t, string(globalKey), string(epochKey))
 
 	result, err := q.VerifyAuditChain(ctx, projectID)
-	if err != nil {
-		t.Fatalf("VerifyAuditChain: %v", err)
-	}
-	if !result.Valid {
-		t.Fatalf("VerifyAuditChain valid = false: %s", result.Error)
-	}
-	if result.EventsChecked != 2 {
-		t.Fatalf("EventsChecked = %d, want 2", result.EventsChecked)
-	}
+	require.NoError(t, err)
+	require.True(t, result.
+		Valid,
+	)
+	require.EqualValues(t, 2, result.
+		EventsChecked,
+	)
+
 }
 
 func insertLegacyEpochZeroAuditEvent(ctx context.Context, t *testing.T, projectID string, key []byte) domain.AuditEvent {
@@ -713,7 +719,9 @@ func insertLegacyEpochZeroAuditEvent(ctx context.Context, t *testing.T, projectI
 		SchemaVersion: domain.AuditEventSchemaVersionCurrent,
 		RotationEpoch: 0,
 	}
-	if err := testDB.Pool.QueryRow(ctx, `
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`
 		INSERT INTO audit_events (
 			id, project_id, actor_id, actor_type, action, resource_type, resource_id,
 			details, signature, previous_hash, created_at,
@@ -727,19 +735,26 @@ func insertLegacyEpochZeroAuditEvent(ctx context.Context, t *testing.T, projectI
 			$16, $17
 		)
 		RETURNING details
-	`, ev.ID, ev.ProjectID, ev.ActorID, ev.ActorType, ev.Action, ev.ResourceType, ev.ResourceID,
-		ev.Details, ev.PreviousHash, ev.CreatedAt,
-		ev.RemoteIP, ev.UserAgent, ev.RequestID, ev.TraceID, ev.SchemaVersion,
-		ev.IsAnchor, ev.RotationEpoch).Scan(&ev.Details); err != nil {
-		t.Fatalf("insert legacy audit event: %v", err)
-	}
+	`,
+
+		ev.ID, ev.ProjectID, ev.
+			ActorID, ev.ActorType, ev.Action, ev.ResourceType, ev.ResourceID,
+		ev.Details, ev.PreviousHash,
+		ev.CreatedAt,
+
+		ev.RemoteIP, ev.UserAgent,
+		ev.RequestID, ev.TraceID, ev.SchemaVersion, ev.IsAnchor,
+		ev.RotationEpoch).Scan(&ev.Details))
+
 	ev.Signature = store.ComputeAuditSignature(&ev, key)
 	if _, err := testDB.Pool.Exec(ctx, `
 		UPDATE audit_events
 		SET signature = $1
 		WHERE id = $2
 	`, ev.Signature, ev.ID); err != nil {
-		t.Fatalf("sign legacy audit event: %v", err)
+		require.Failf(t, "test failure",
+
+			"sign legacy audit event: %v", err)
 	}
 	return ev
 }
@@ -762,22 +777,27 @@ func TestRotateAuditSigningKey_WritesCreatedBy(t *testing.T) {
 	insertTestChain(ctx, t, q, projectID, 1)
 
 	if _, err := q.RotateAuditSigningKey(ctx, projectID, "actor-rotator-42"); err != nil {
-		t.Fatalf("RotateAuditSigningKey: %v", err)
+		require.Failf(t, "test failure",
+
+			"RotateAuditSigningKey: %v", err)
 	}
 
 	var createdBy *string
-	if err := testDB.Pool.QueryRow(ctx, `
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`
 		SELECT created_by FROM audit_signing_keys
 		WHERE project_id = $1 AND rotation_epoch = 1
-	`, projectID).Scan(&createdBy); err != nil {
-		t.Fatalf("read created_by: %v", err)
-	}
-	if createdBy == nil {
-		t.Fatal("created_by is NULL on rotation insert; want actor id")
-	}
-	if *createdBy != "actor-rotator-42" {
-		t.Errorf("created_by = %q, want %q", *createdBy, "actor-rotator-42")
-	}
+	`,
+
+		projectID).Scan(
+		&createdBy))
+	require.NotNil(t, createdBy)
+	assert.Equal(t, "actor-rotator-42",
+
+		*createdBy,
+	)
+
 }
 
 // TestStoreAuditSigningKey_RejectsTooShortMaterial exercises migration
@@ -795,10 +815,10 @@ func TestStoreAuditSigningKey_RejectsTooShortMaterial(t *testing.T) {
 		INSERT INTO audit_signing_keys (project_id, rotation_epoch, key_material)
 		VALUES ($1, $2, $3)
 	`, "proj-short-key", 1, []byte{0x00, 0x01, 0x02, 0x03})
-	if err == nil {
-		t.Fatal("expected CHECK violation for 4-byte key_material, got nil")
-	}
-	if !strings.Contains(err.Error(), "audit_signing_keys_key_material_length") {
-		t.Errorf("error = %v, expected CHECK constraint violation", err)
-	}
+	require.Error(t, err)
+	assert.True(t, strings.Contains(err.
+		Error(),
+		"audit_signing_keys_key_material_length",
+	))
+
 }

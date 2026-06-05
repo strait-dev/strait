@@ -5,6 +5,9 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestParseSnapshotDefinition_RoundTrip(t *testing.T) {
@@ -95,32 +98,25 @@ func TestParseSnapshotDefinition_RoundTrip(t *testing.T) {
 
 	// Serialize
 	data, err := json.Marshal(def)
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Deserialize
 	parsed, err := ParseSnapshotDefinition(json.RawMessage(data))
-	if err != nil {
-		t.Fatalf("parse: %v", err)
-	}
-
-	if parsed.Workflow.ID != "wf-1" {
-		t.Errorf("workflow ID = %q, want wf-1", parsed.Workflow.ID)
-	}
-	if parsed.Workflow.Name != "My Workflow" {
-		t.Errorf("workflow Name = %q, want My Workflow", parsed.Workflow.Name)
-	}
-	if parsed.Workflow.Version != 3 {
-		t.Errorf("workflow Version = %d, want 3", parsed.Workflow.Version)
-	}
-	if parsed.Workflow.Tags["team"] != "platform" {
-		t.Errorf("workflow Tags[team] = %q, want platform", parsed.Workflow.Tags["team"])
-	}
-
-	if len(parsed.Steps) != 5 {
-		t.Fatalf("steps count = %d, want 5", len(parsed.Steps))
-	}
+	require.NoError(t, err)
+	assert.Equal(t, "wf-1",
+		parsed.Workflow.
+			ID)
+	assert.Equal(t, "My Workflow",
+		parsed.
+			Workflow.Name)
+	assert.EqualValues(t, 3, parsed.
+		Workflow.
+		Version)
+	assert.Equal(t, "platform",
+		parsed.
+			Workflow.Tags["team"])
+	require.Len(t, parsed.
+		Steps, 5)
 
 	stepTypes := map[string]domain.WorkflowStepType{
 		"build":      domain.WorkflowStepTypeJob,
@@ -132,66 +128,74 @@ func TestParseSnapshotDefinition_RoundTrip(t *testing.T) {
 	for _, step := range parsed.Steps {
 		expected, ok := stepTypes[step.StepRef]
 		if !ok {
-			t.Errorf("unexpected step ref %q", step.StepRef)
+			assert.Failf(t, "test failure",
+
+				"unexpected step ref %q", step.StepRef)
 			continue
 		}
-		if step.StepType != expected {
-			t.Errorf("step %q type = %q, want %q", step.StepRef, step.StepType, expected)
-		}
+		assert.Equal(t, expected,
+			step.StepType,
+		)
+
 	}
 
 	s := parsed.Steps[0]
-	if s.JobID != "job-1" {
-		t.Errorf("step[0].JobID = %q, want job-1", s.JobID)
-	}
-	if s.RetryMaxAttempts != 3 {
-		t.Errorf("step[0].RetryMaxAttempts = %d, want 3", s.RetryMaxAttempts)
-	}
-	if s.RetryBackoff != domain.RetryBackoffExponential {
-		t.Errorf("step[0].RetryBackoff = %q, want exponential", s.RetryBackoff)
-	}
-	if s.RetryInitialDelaySecs != 5 {
-		t.Errorf("step[0].RetryInitialDelaySecs = %d, want 5", s.RetryInitialDelaySecs)
-	}
-	if s.TimeoutSecsOverride != 120 {
-		t.Errorf("step[0].TimeoutSecsOverride = %d, want 120", s.TimeoutSecsOverride)
-	}
-	if s.OutputTransform != "$.result" {
-		t.Errorf("step[0].OutputTransform = %q, want $.result", s.OutputTransform)
-	}
-	if s.EventKey != "my-event" {
-		t.Errorf("step[0].EventKey = %q, want my-event", s.EventKey)
-	}
-	if s.EventNotifyURL != "https://example.com/notify" {
-		t.Errorf("step[0].EventNotifyURL = %q", s.EventNotifyURL)
-	}
-	if s.ConcurrencyKey != "ck-1" {
-		t.Errorf("step[0].ConcurrencyKey = %q, want ck-1", s.ConcurrencyKey)
-	}
-	if s.ResourceClass != "medium" {
-		t.Errorf("step[0].ResourceClass = %q, want medium", s.ResourceClass)
-	}
-	if s.OnFailure != domain.FailWorkflow {
-		t.Errorf("step[0].OnFailure = %q, want fail_workflow", s.OnFailure)
-	}
-	if string(s.Condition) != `{"all_of":["deploy"]}` {
-		t.Errorf("step[0].Condition = %s", s.Condition)
-	}
-	if string(s.Payload) != `{"key":"value"}` {
-		t.Errorf("step[0].Payload = %s", s.Payload)
-	}
-	if s.ApprovalTimeoutSecs != 600 {
-		t.Errorf("step[0].ApprovalTimeoutSecs = %d, want 600", s.ApprovalTimeoutSecs)
-	}
-	if len(s.ApprovalApprovers) != 2 || s.ApprovalApprovers[0] != "alice" {
-		t.Errorf("step[0].ApprovalApprovers = %v", s.ApprovalApprovers)
-	}
-	if s.SleepDurationSecs != 30 {
-		t.Errorf("step[0].SleepDurationSecs = %d, want 30", s.SleepDurationSecs)
-	}
-	if s.EventEmitKey != "emit-key" {
-		t.Errorf("step[0].EventEmitKey = %q, want emit-key", s.EventEmitKey)
-	}
+	assert.Equal(t, "job-1",
+		s.JobID,
+	)
+	assert.EqualValues(t, 3, s.
+		RetryMaxAttempts,
+	)
+	assert.Equal(t, domain.
+		RetryBackoffExponential,
+
+		s.RetryBackoff,
+	)
+	assert.EqualValues(t, 5, s.
+		RetryInitialDelaySecs,
+	)
+	assert.EqualValues(t, 120,
+		s.TimeoutSecsOverride,
+	)
+	assert.Equal(t, "$.result",
+		s.OutputTransform,
+	)
+	assert.Equal(t, "my-event",
+		s.EventKey,
+	)
+	assert.Equal(t, "https://example.com/notify",
+
+		s.EventNotifyURL,
+	)
+	assert.Equal(t, "ck-1",
+		s.ConcurrencyKey,
+	)
+	assert.Equal(t, "medium",
+		s.ResourceClass,
+	)
+	assert.Equal(t, domain.
+		FailWorkflow,
+
+		s.OnFailure)
+	assert.Equal(t, `{"all_of":["deploy"]}`,
+
+		string(s.Condition))
+	assert.Equal(t, `{"key":"value"}`,
+
+		string(s.Payload))
+	assert.EqualValues(t, 600,
+		s.ApprovalTimeoutSecs,
+	)
+	assert.False(t, len(s.
+		ApprovalApprovers,
+	) != 2 || s.ApprovalApprovers[0] != "alice")
+	assert.EqualValues(t, 30, s.
+		SleepDurationSecs,
+	)
+	assert.Equal(t, "emit-key",
+		s.EventEmitKey,
+	)
+
 }
 
 func TestParseSnapshotDefinition_ComplexConditions(t *testing.T) {
@@ -206,13 +210,11 @@ func TestParseSnapshotDefinition_ComplexConditions(t *testing.T) {
 
 	data, _ := json.Marshal(def)
 	parsed, err := ParseSnapshotDefinition(data)
-	if err != nil {
-		t.Fatalf("parse: %v", err)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, `{"any_of":[{"all_of":["a","b"]},{"none_of":["c"]}]}`,
 
-	if string(parsed.Steps[0].Condition) != `{"any_of":[{"all_of":["a","b"]},{"none_of":["c"]}]}` {
-		t.Errorf("nested condition not preserved: %s", parsed.Steps[0].Condition)
-	}
+		string(parsed.Steps[0].Condition))
+
 }
 
 func TestParseSnapshotDefinition_EmptyOptionalFields(t *testing.T) {
@@ -228,26 +230,20 @@ func TestParseSnapshotDefinition_EmptyOptionalFields(t *testing.T) {
 
 	data, _ := json.Marshal(def)
 	parsed, err := ParseSnapshotDefinition(data)
-	if err != nil {
-		t.Fatalf("parse: %v", err)
-	}
+	require.NoError(t, err)
 
 	s := parsed.Steps[0]
-	if s.OutputTransform != "" {
-		t.Errorf("OutputTransform = %q, want empty", s.OutputTransform)
-	}
-	if s.EventKey != "" {
-		t.Errorf("EventKey = %q, want empty", s.EventKey)
-	}
-	if s.SubWorkflowID != "" {
-		t.Errorf("SubWorkflowID = %q, want empty", s.SubWorkflowID)
-	}
-	if s.Condition != nil {
-		t.Errorf("Condition = %s, want nil", s.Condition)
-	}
-	if s.Payload != nil {
-		t.Errorf("Payload = %s, want nil", s.Payload)
-	}
+	assert.Equal(t, "", s.
+		OutputTransform,
+	)
+	assert.Equal(t, "", s.
+		EventKey)
+	assert.Equal(t, "", s.
+		SubWorkflowID,
+	)
+	assert.Nil(t, s.Condition)
+	assert.Nil(t, s.Payload)
+
 }
 
 func TestParseSnapshotDefinition_AllRetryFields(t *testing.T) {
@@ -265,23 +261,23 @@ func TestParseSnapshotDefinition_AllRetryFields(t *testing.T) {
 
 	data, _ := json.Marshal(def)
 	parsed, err := ParseSnapshotDefinition(data)
-	if err != nil {
-		t.Fatalf("parse: %v", err)
-	}
+	require.NoError(t, err)
 
 	s := parsed.Steps[0]
-	if s.RetryMaxAttempts != 5 {
-		t.Errorf("RetryMaxAttempts = %d, want 5", s.RetryMaxAttempts)
-	}
-	if s.RetryBackoff != domain.RetryBackoffFixed {
-		t.Errorf("RetryBackoff = %q, want fixed", s.RetryBackoff)
-	}
-	if s.RetryInitialDelaySecs != 10 {
-		t.Errorf("RetryInitialDelaySecs = %d, want 10", s.RetryInitialDelaySecs)
-	}
-	if s.RetryMaxDelaySecs != 120 {
-		t.Errorf("RetryMaxDelaySecs = %d, want 120", s.RetryMaxDelaySecs)
-	}
+	assert.EqualValues(t, 5, s.
+		RetryMaxAttempts,
+	)
+	assert.Equal(t, domain.
+		RetryBackoffFixed,
+
+		s.RetryBackoff)
+	assert.EqualValues(t, 10, s.
+		RetryInitialDelaySecs,
+	)
+	assert.EqualValues(t, 120,
+		s.RetryMaxDelaySecs,
+	)
+
 }
 
 func TestParseSnapshotDefinition_ExhaustiveFieldCheck(t *testing.T) {
@@ -322,9 +318,7 @@ func TestParseSnapshotDefinition_ExhaustiveFieldCheck(t *testing.T) {
 
 	data, _ := json.Marshal(def)
 	parsed, err := ParseSnapshotDefinition(data)
-	if err != nil {
-		t.Fatalf("parse: %v", err)
-	}
+	require.NoError(t, err)
 
 	got := parsed.Steps[0]
 
@@ -361,30 +355,27 @@ func TestParseSnapshotDefinition_ExhaustiveFieldCheck(t *testing.T) {
 	}
 
 	for _, c := range checks {
-		if c.got != c.want {
-			t.Errorf("%s = %v, want %v", c.name, c.got, c.want)
-		}
+		assert.Equal(t, c.want,
+			c.got)
+
 	}
 }
 
 func TestParseSnapshotDefinition_EmptyDefinition(t *testing.T) {
 	t.Parallel()
 	_, err := ParseSnapshotDefinition(nil)
-	if err == nil {
-		t.Error("expected error for nil definition")
-	}
+	assert.Error(t, err)
+
 	_, err = ParseSnapshotDefinition(json.RawMessage(``))
-	if err == nil {
-		t.Error("expected error for empty definition")
-	}
+	assert.Error(t, err)
+
 }
 
 func TestParseSnapshotDefinition_InvalidJSON(t *testing.T) {
 	t.Parallel()
 	_, err := ParseSnapshotDefinition(json.RawMessage(`{broken`))
-	if err == nil {
-		t.Error("expected error for invalid JSON")
-	}
+	assert.Error(t, err)
+
 }
 
 func TestParseSnapshotDefinition_DuplicateStepRefs(t *testing.T) {
@@ -397,9 +388,8 @@ func TestParseSnapshotDefinition_DuplicateStepRefs(t *testing.T) {
 	}
 	data, _ := json.Marshal(def)
 	_, err := ParseSnapshotDefinition(data)
-	if err == nil {
-		t.Error("expected error for duplicate step_ref")
-	}
+	assert.Error(t, err)
+
 }
 
 func TestParseSnapshotDefinition_ZeroSteps(t *testing.T) {
@@ -412,12 +402,10 @@ func TestParseSnapshotDefinition_ZeroSteps(t *testing.T) {
 	// Zero steps is valid — a workflow can have no steps at trigger time
 	// (e.g., all steps disabled via overrides).
 	parsed, err := ParseSnapshotDefinition(data)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(parsed.Steps) != 0 {
-		t.Errorf("steps = %d, want 0", len(parsed.Steps))
-	}
+	require.NoError(t, err)
+	assert.Len(t, parsed.
+		Steps, 0)
+
 }
 
 func TestParseSnapshotDefinition_UniqueStepRefs_Pass(t *testing.T) {
@@ -431,10 +419,8 @@ func TestParseSnapshotDefinition_UniqueStepRefs_Pass(t *testing.T) {
 	}
 	data, _ := json.Marshal(def)
 	parsed, err := ParseSnapshotDefinition(data)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(parsed.Steps) != 3 {
-		t.Errorf("steps = %d, want 3", len(parsed.Steps))
-	}
+	require.NoError(t, err)
+	assert.Len(t, parsed.
+		Steps, 3)
+
 }

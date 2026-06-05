@@ -4,6 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestErrAPIKeyNotFound_IsExportedSentinel guards the package-level
@@ -11,12 +14,12 @@ import (
 // that switched off the legacy err.Error() string compare.
 func TestErrAPIKeyNotFound_IsExportedSentinel(t *testing.T) {
 	t.Parallel()
-	if ErrAPIKeyNotFound == nil {
-		t.Fatal("ErrAPIKeyNotFound must be a non-nil sentinel")
-	}
-	if ErrAPIKeyNotFound.Error() != "api key not found" {
-		t.Errorf("sentinel message changed; downstream string-comparing callers may break: %q", ErrAPIKeyNotFound.Error())
-	}
+	require.NotNil(t, ErrAPIKeyNotFound)
+	assert.Equal(t,
+		"api key not found",
+
+		ErrAPIKeyNotFound.Error())
+
 }
 
 // TestErrAPIKeyNotFound_MatchableThroughWrapping is the regression guard:
@@ -26,9 +29,12 @@ func TestErrAPIKeyNotFound_IsExportedSentinel(t *testing.T) {
 func TestErrAPIKeyNotFound_MatchableThroughWrapping(t *testing.T) {
 	t.Parallel()
 	wrapped := fmt.Errorf("seed pentest: %w", ErrAPIKeyNotFound)
-	if !errors.Is(wrapped, ErrAPIKeyNotFound) {
-		t.Errorf("wrapped sentinel must match via errors.Is; got %v", wrapped)
-	}
+	assert.True(t,
+		errors.Is(wrapped,
+
+			ErrAPIKeyNotFound,
+		))
+
 }
 
 // TestErrAPIKeyNotFound_DoesNotMatchUnrelatedError keeps the matcher
@@ -36,11 +42,15 @@ func TestErrAPIKeyNotFound_MatchableThroughWrapping(t *testing.T) {
 func TestErrAPIKeyNotFound_DoesNotMatchUnrelatedError(t *testing.T) {
 	t.Parallel()
 	other := errors.New("some unrelated error")
-	if errors.Is(other, ErrAPIKeyNotFound) {
-		t.Errorf("unrelated error wrongly matched ErrAPIKeyNotFound")
-	}
+	assert.False(t,
+		errors.Is(other,
+			ErrAPIKeyNotFound,
+		))
+
 	otherWithSameMessage := errors.New("api key not found")
-	if errors.Is(otherWithSameMessage, ErrAPIKeyNotFound) {
-		t.Errorf("string-equal but identity-distinct error must NOT match — that defeats the sentinel")
-	}
+	assert.False(t,
+		errors.Is(otherWithSameMessage,
+
+			ErrAPIKeyNotFound))
+
 }

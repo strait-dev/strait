@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/stretchr/testify/require"
 )
 
 func TestAuditEventsDMLRestricted_ChecksTableAndColumnPrivileges(t *testing.T) {
@@ -33,14 +34,19 @@ func TestAuditEventsDMLRestricted_ChecksTableAndColumnPrivileges(t *testing.T) {
 			q := New(&mockDBTX{
 				queryRowFn: func(_ context.Context, sql string, _ ...any) pgx.Row {
 					for _, privilege := range []string{"UPDATE", "DELETE", "TRUNCATE"} {
-						if !strings.Contains(sql, privilege) {
-							t.Fatalf("privilege query %q missing %s check", sql, privilege)
-						}
+						require.True(t,
+							strings.Contains(sql,
+								privilege,
+							),
+						)
+
 					}
 					for _, required := range []string{"has_column_privilege", "attname != 'signature'"} {
-						if !strings.Contains(sql, required) {
-							t.Fatalf("privilege query %q missing %s check", sql, required)
-						}
+						require.True(t,
+							strings.Contains(sql,
+								required),
+						)
+
 					}
 					return &mockRow{
 						scanFn: func(dest ...any) error {
@@ -55,12 +61,11 @@ func TestAuditEventsDMLRestricted_ChecksTableAndColumnPrivileges(t *testing.T) {
 			})
 
 			got, err := q.AuditEventsDMLRestricted(context.Background())
-			if err != nil {
-				t.Fatalf("AuditEventsDMLRestricted() error = %v", err)
-			}
-			if got != tc.want {
-				t.Fatalf("AuditEventsDMLRestricted() = %v, want %v", got, tc.want)
-			}
+			require.NoError(t, err)
+			require.Equal(t,
+				tc.want,
+				got)
+
 		})
 	}
 }
@@ -75,10 +80,11 @@ func TestAuditEventsDMLRestricted_PropagatesProbeErrors(t *testing.T) {
 	})
 
 	_, err := q.AuditEventsDMLRestricted(context.Background())
-	if err == nil {
-		t.Fatal("expected probe error")
-	}
-	if !strings.Contains(err.Error(), "audit dml privilege check") {
-		t.Fatalf("error = %v, want audit dml privilege context", err)
-	}
+	require.Error(t,
+		err)
+	require.True(t,
+		strings.Contains(err.
+			Error(), "audit dml privilege check",
+		))
+
 }

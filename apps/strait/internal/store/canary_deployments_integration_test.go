@@ -11,6 +11,8 @@ import (
 	"strait/internal/domain"
 	"strait/internal/store"
 	"strait/internal/testutil"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestCreateCanaryDeployment(t *testing.T) {
@@ -32,15 +34,16 @@ func TestCreateCanaryDeployment(t *testing.T) {
 		Status:        "active",
 		AutoPromote:   json.RawMessage(`{"enabled":true}`),
 	}
-	if err := q.CreateCanaryDeployment(ctx, canary); err != nil {
-		t.Fatalf("CreateCanaryDeployment() error = %v", err)
-	}
-	if canary.ID == "" {
-		t.Fatal("CreateCanaryDeployment() did not set ID")
-	}
-	if canary.CreatedAt.IsZero() {
-		t.Fatal("CreateCanaryDeployment() did not set CreatedAt")
-	}
+	require.NoError(t, q.CreateCanaryDeployment(
+		ctx, canary))
+	require.NotEqual(t, "",
+
+		canary.ID,
+	)
+	require.False(t, canary.
+		CreatedAt.
+		IsZero())
+
 }
 
 func TestCreateCanaryDeployment_DuplicateActive(t *testing.T) {
@@ -61,9 +64,8 @@ func TestCreateCanaryDeployment_DuplicateActive(t *testing.T) {
 		TrafficPct:    10,
 		Status:        "active",
 	}
-	if err := q.CreateCanaryDeployment(ctx, canary); err != nil {
-		t.Fatalf("CreateCanaryDeployment() error = %v", err)
-	}
+	require.NoError(t, q.CreateCanaryDeployment(
+		ctx, canary))
 
 	dup := &domain.CanaryDeployment{
 		WorkflowID:    wf.ID,
@@ -74,9 +76,10 @@ func TestCreateCanaryDeployment_DuplicateActive(t *testing.T) {
 		Status:        "active",
 	}
 	err := q.CreateCanaryDeployment(ctx, dup)
-	if !errors.Is(err, store.ErrCanaryAlreadyActive) {
-		t.Fatalf("CreateCanaryDeployment(dup) error = %v, want ErrCanaryAlreadyActive", err)
-	}
+	require.True(t, errors.Is(err, store.
+		ErrCanaryAlreadyActive,
+	))
+
 }
 
 func TestGetActiveCanaryDeployment(t *testing.T) {
@@ -97,26 +100,24 @@ func TestGetActiveCanaryDeployment(t *testing.T) {
 		TrafficPct:    15,
 		Status:        "active",
 	}
-	if err := q.CreateCanaryDeployment(ctx, canary); err != nil {
-		t.Fatalf("CreateCanaryDeployment() error = %v", err)
-	}
+	require.NoError(t, q.CreateCanaryDeployment(
+		ctx, canary))
 
 	got, err := q.GetActiveCanaryDeployment(ctx, wf.ID)
-	if err != nil {
-		t.Fatalf("GetActiveCanaryDeployment() error = %v", err)
-	}
-	if got.ID != canary.ID {
-		t.Fatalf("ID = %q, want %q", got.ID, canary.ID)
-	}
-	if got.TrafficPct != 15 {
-		t.Fatalf("TrafficPct = %d, want 15", got.TrafficPct)
-	}
+	require.NoError(t, err)
+	require.Equal(t, canary.
+		ID, got.ID,
+	)
+	require.EqualValues(t, 15, got.
+		TrafficPct,
+	)
 
 	// Not found.
 	_, err = q.GetActiveCanaryDeployment(ctx, newID())
-	if !errors.Is(err, store.ErrCanaryNotFound) {
-		t.Fatalf("GetActiveCanaryDeployment(notfound) error = %v, want ErrCanaryNotFound", err)
-	}
+	require.True(t, errors.Is(err, store.
+		ErrCanaryNotFound,
+	))
+
 }
 
 func TestUpdateCanaryDeploymentTraffic(t *testing.T) {
@@ -137,27 +138,23 @@ func TestUpdateCanaryDeploymentTraffic(t *testing.T) {
 		TrafficPct:    10,
 		Status:        "active",
 	}
-	if err := q.CreateCanaryDeployment(ctx, canary); err != nil {
-		t.Fatalf("CreateCanaryDeployment() error = %v", err)
-	}
-
-	if err := q.UpdateCanaryDeploymentTraffic(ctx, wf.ID, 50); err != nil {
-		t.Fatalf("UpdateCanaryDeploymentTraffic() error = %v", err)
-	}
+	require.NoError(t, q.CreateCanaryDeployment(
+		ctx, canary))
+	require.NoError(t, q.UpdateCanaryDeploymentTraffic(ctx, wf.ID,
+		50))
 
 	got, err := q.GetActiveCanaryDeployment(ctx, wf.ID)
-	if err != nil {
-		t.Fatalf("GetActiveCanaryDeployment() error = %v", err)
-	}
-	if got.TrafficPct != 50 {
-		t.Fatalf("TrafficPct = %d, want 50", got.TrafficPct)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 50, got.
+		TrafficPct,
+	)
 
 	// Not found.
 	err = q.UpdateCanaryDeploymentTraffic(ctx, newID(), 50)
-	if !errors.Is(err, store.ErrCanaryNotFound) {
-		t.Fatalf("UpdateCanaryDeploymentTraffic(notfound) error = %v, want ErrCanaryNotFound", err)
-	}
+	require.True(t, errors.Is(err, store.
+		ErrCanaryNotFound,
+	))
+
 }
 
 func TestCompleteCanaryDeployment(t *testing.T) {
@@ -178,23 +175,20 @@ func TestCompleteCanaryDeployment(t *testing.T) {
 		TrafficPct:    10,
 		Status:        "active",
 	}
-	if err := q.CreateCanaryDeployment(ctx, canary); err != nil {
-		t.Fatalf("CreateCanaryDeployment() error = %v", err)
-	}
-
-	if err := q.CompleteCanaryDeployment(ctx, wf.ID, "completed"); err != nil {
-		t.Fatalf("CompleteCanaryDeployment() error = %v", err)
-	}
+	require.NoError(t, q.CreateCanaryDeployment(
+		ctx, canary))
+	require.NoError(t, q.CompleteCanaryDeployment(ctx, wf.ID, "completed"))
 
 	// Should now be not found (no longer active).
 	_, err := q.GetActiveCanaryDeployment(ctx, wf.ID)
-	if !errors.Is(err, store.ErrCanaryNotFound) {
-		t.Fatalf("GetActiveCanaryDeployment(after complete) error = %v, want ErrCanaryNotFound", err)
-	}
+	require.True(t, errors.Is(err, store.
+		ErrCanaryNotFound,
+	))
 
 	// Not found.
 	err = q.CompleteCanaryDeployment(ctx, newID(), "completed")
-	if !errors.Is(err, store.ErrCanaryNotFound) {
-		t.Fatalf("CompleteCanaryDeployment(notfound) error = %v, want ErrCanaryNotFound", err)
-	}
+	require.True(t, errors.Is(err, store.
+		ErrCanaryNotFound,
+	))
+
 }

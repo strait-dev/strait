@@ -10,6 +10,9 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestAuditChain_FullSurface_Verifiable is the compliance backbone test:
@@ -24,9 +27,8 @@ func TestAuditChain_FullSurface_Verifiable(t *testing.T) {
 
 	q := mustStore(t)
 	signingKey, err := store.DeriveAuditSigningKey("chain-integration-secret")
-	if err != nil {
-		t.Fatalf("derive signing key: %v", err)
-	}
+	require.NoError(t, err)
+
 	q.SetAuditSigningKey(signingKey)
 
 	projectID := "proj-chain-full"
@@ -42,36 +44,31 @@ func TestAuditChain_FullSurface_Verifiable(t *testing.T) {
 			ResourceID:   "probe-" + action,
 			Details:      json.RawMessage(`{"probe":true}`),
 		}
-		if err := q.CreateAuditEvent(ctx, ev); err != nil {
-			t.Fatalf("CreateAuditEvent(%q): %v", action, err)
-		}
+		require.NoError(t, q.CreateAuditEvent(ctx, ev))
+
 	}
 
 	result, err := q.VerifyAuditChain(ctx, projectID)
-	if err != nil {
-		t.Fatalf("VerifyAuditChain: %v", err)
-	}
-	if !result.Valid {
-		t.Fatalf("chain invalid: %s (broken at %q)", result.Error, result.BrokenAtID)
-	}
-	if result.EventsChecked != len(actions) {
-		t.Errorf("events_checked = %d, want %d", result.EventsChecked, len(actions))
-	}
+	require.NoError(t, err)
+	require.True(t, result.
+		Valid,
+	)
+	assert.Equal(t, len(actions), result.
+		EventsChecked,
+	)
 
 	// Cross-check against ListAuditEvents: every action must appear at
 	// least once and the chronological order must match insertion order.
 	events, err := q.ListAuditEvents(ctx, projectID, "", "", "", 1000, nil, nil, nil, true)
-	if err != nil {
-		t.Fatalf("ListAuditEvents: %v", err)
-	}
+	require.NoError(t, err)
+
 	seen := map[string]bool{}
 	for _, ev := range events {
 		seen[ev.Action] = true
 	}
 	for _, action := range actions {
-		if !seen[action] {
-			t.Errorf("action %q missing from list", action)
-		}
+		assert.True(t, seen[action])
+
 	}
 }
 
@@ -90,31 +87,27 @@ func TestAuditChain_Tamper_DetailsRewrite(t *testing.T) {
 
 	// Before tampering — chain is valid.
 	v1, err := q.VerifyAuditChain(ctx, projectID)
-	if err != nil {
-		t.Fatalf("verify before tamper: %v", err)
-	}
-	if !v1.Valid {
-		t.Fatalf("chain invalid before tamper: %s", v1.Error)
-	}
+	require.NoError(t, err)
+	require.True(t, v1.Valid)
 
 	// Tamper with the middle event's details.
 	tamperID := ids[2]
 	if _, err := testDB.Pool.Exec(ctx,
 		`UPDATE audit_events SET details = '{"tampered":true}'::jsonb WHERE id = $1`, tamperID,
 	); err != nil {
-		t.Fatalf("tamper update: %v", err)
+		require.Failf(t, "test failure",
+
+			"tamper update: %v", err)
 	}
 
 	v2, err := q.VerifyAuditChain(ctx, projectID)
-	if err != nil {
-		t.Fatalf("verify after tamper: %v", err)
-	}
-	if v2.Valid {
-		t.Fatal("expected chain invalid after details rewrite")
-	}
-	if v2.BrokenAtID != tamperID {
-		t.Errorf("broken_at_id = %q, want %q", v2.BrokenAtID, tamperID)
-	}
+	require.NoError(t, err)
+	require.False(t, v2.Valid)
+	assert.Equal(t, tamperID,
+
+		v2.BrokenAtID,
+	)
+
 }
 
 // TestAuditChain_Tamper_TimestampShift asserts that shifting the
@@ -136,19 +129,20 @@ func TestAuditChain_Tamper_TimestampShift(t *testing.T) {
 		`UPDATE audit_events SET created_at = created_at + interval '1 second' WHERE id = $1`,
 		ids[0],
 	); err != nil {
-		t.Fatalf("tamper timestamp: %v", err)
+		require.Failf(t, "test failure",
+
+			"tamper timestamp: %v", err)
 	}
 
 	result, err := q.VerifyAuditChain(ctx, projectID)
-	if err != nil {
-		t.Fatalf("verify: %v", err)
-	}
-	if result.Valid {
-		t.Fatal("expected chain invalid after timestamp shift")
-	}
-	if result.BrokenAtID == "" {
-		t.Error("broken_at_id is empty")
-	}
+	require.NoError(t, err)
+	require.False(t, result.
+		Valid)
+	assert.NotEqual(t, "",
+		result.
+			BrokenAtID,
+	)
+
 }
 
 // TestAuditChain_Tamper_EventDelete asserts that deleting the middle
@@ -167,22 +161,23 @@ func TestAuditChain_Tamper_EventDelete(t *testing.T) {
 
 	// Delete the middle event.
 	if _, err := testDB.Pool.Exec(ctx, `DELETE FROM audit_events WHERE id = $1`, ids[2]); err != nil {
-		t.Fatalf("delete middle: %v", err)
+		require.Failf(t, "test failure",
+
+			"delete middle: %v", err)
 	}
 
 	result, err := q.VerifyAuditChain(ctx, projectID)
-	if err != nil {
-		t.Fatalf("verify: %v", err)
-	}
-	if result.Valid {
-		t.Fatal("expected chain invalid after middle delete")
-	}
+	require.NoError(t, err)
+	require.False(t, result.
+		Valid)
+	assert.Equal(t, ids[3],
+
+		result.BrokenAtID,
+	)
+
 	// The break should be at the first surviving event after the deleted one
 	// (its previous_hash still points at the deleted event).
-	if result.BrokenAtID != ids[3] {
-		t.Errorf("broken_at_id = %q, want %q (the event after the deleted one)",
-			result.BrokenAtID, ids[3])
-	}
+
 }
 
 // TestAuditChain_Tamper_ForgeEvent asserts that inserting a forged event
@@ -200,24 +195,21 @@ func TestAuditChain_Tamper_ForgeEvent(t *testing.T) {
 
 	// Insert a forged event at current time with a fabricated signature.
 	// Include the forensic columns (empty strings) so the SELECT in
-	// VerifyAuditChain can scan them without hitting NULL→string errors.
-	if _, err := testDB.Pool.Exec(ctx, `
+	// VerifyAuditChain can scan them without hitting NULL string errors.
+	_, err := testDB.Pool.Exec(ctx, `
 		INSERT INTO audit_events (id, project_id, actor_id, actor_type, action, resource_type, resource_id, details, signature, previous_hash, created_at, remote_ip, user_agent, request_id, trace_id, schema_version)
 		VALUES ($1, $2, 'forged', 'user', $3, 'probe', 'forged', '{}'::jsonb, $4, $5, NOW() + interval '1 minute', '', '', '', '', 2)
 	`, "forged-id", projectID, domain.AuditActionJobCreated,
 		"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
 		"0000000000000000000000000000000000000000000000000000000000000000",
-	); err != nil {
-		t.Fatalf("insert forged: %v", err)
-	}
+	)
+	require.NoError(t, err)
 
 	result, err := q.VerifyAuditChain(ctx, projectID)
-	if err != nil {
-		t.Fatalf("verify: %v", err)
-	}
-	if result.Valid {
-		t.Fatal("expected chain invalid after forge")
-	}
+	require.NoError(t, err)
+	require.False(t, result.
+		Valid)
+
 }
 
 // TestAuditChain_Concurrent_ProjectsAreIndependent verifies the advisory
@@ -248,22 +240,19 @@ func TestAuditChain_Concurrent_ProjectsAreIndependent(t *testing.T) {
 			ResourceID:   "probe",
 			Details:      json.RawMessage(`{}`),
 		}
-		if err := q.CreateAuditEvent(ctx, ev); err != nil {
-			t.Fatalf("CreateAuditEvent iter %d: %v", i, err)
-		}
+		require.NoError(t, q.CreateAuditEvent(ctx, ev))
+
 	}
 
 	vA, _ := q.VerifyAuditChain(ctx, pA)
 	vB, _ := q.VerifyAuditChain(ctx, pB)
-	if !vA.Valid {
-		t.Errorf("project A chain invalid: %s", vA.Error)
-	}
-	if !vB.Valid {
-		t.Errorf("project B chain invalid: %s", vB.Error)
-	}
-	if vA.EventsChecked != 5 || vB.EventsChecked != 5 {
-		t.Errorf("A=%d B=%d, want 5 each", vA.EventsChecked, vB.EventsChecked)
-	}
+	assert.True(t, vA.Valid)
+	assert.True(t, vB.Valid)
+	assert.False(t, vA.EventsChecked !=
+		5 || vB.
+		EventsChecked !=
+		5)
+
 }
 
 // TestAuditChain_KeyRotation_DetectsOldEventsAsBroken documents the
@@ -284,27 +273,21 @@ func TestAuditChain_KeyRotation_DetectsOldEventsAsBroken(t *testing.T) {
 	insertTestChain(ctx, t, q, projectID, 3)
 
 	v1, err := q.VerifyAuditChain(ctx, projectID)
-	if err != nil {
-		t.Fatalf("verify with key A: %v", err)
-	}
-	if !v1.Valid {
-		t.Fatal("chain should verify with key A")
-	}
+	require.NoError(t, err)
+	require.True(t, v1.Valid)
 
 	// Rotate to key B.
 	keyB, _ := store.DeriveAuditSigningKey("key-b")
 	q.SetAuditSigningKey(keyB)
 
 	v2, err := q.VerifyAuditChain(ctx, projectID)
-	if err != nil {
-		t.Fatalf("verify with key B: %v", err)
-	}
-	if v2.Valid {
-		t.Fatal("chain should appear invalid under rotated key (documented limitation)")
-	}
-	if v2.BrokenAtID == "" {
-		t.Error("broken_at_id should be set under rotated key")
-	}
+	require.NoError(t, err)
+	require.False(t, v2.Valid)
+	assert.NotEqual(t, "",
+		v2.
+			BrokenAtID,
+	)
+
 }
 
 // TestAuditChain_WithDeadletter verifies that rows in
@@ -332,26 +315,21 @@ func TestAuditChain_WithDeadletter(t *testing.T) {
 			Details:      json.RawMessage(`{}`),
 			CreatedAt:    time.Now().UTC(),
 		}
-		if err := q.CreateAuditEventDeadletter(ctx, ev, "forced", 3); err != nil {
-			t.Fatalf("CreateAuditEventDeadletter: %v", err)
-		}
+		require.NoError(t, q.CreateAuditEventDeadletter(ctx, ev, "forced",
+			3))
+
 	}
 
 	result, err := q.VerifyAuditChain(ctx, projectID)
-	if err != nil {
-		t.Fatalf("verify: %v", err)
-	}
-	if !result.Valid {
-		t.Errorf("main chain should still be valid: %s", result.Error)
-	}
-	if result.EventsChecked != 3 {
-		t.Errorf("events_checked = %d, want 3 (deadletter does not participate)", result.EventsChecked)
-	}
+	require.NoError(t, err)
+	assert.True(t, result.Valid)
+	assert.EqualValues(t, 3, result.
+		EventsChecked,
+	)
 
 	count, _ := q.CountAuditEventsDeadletter(ctx)
-	if count != 2 {
-		t.Errorf("deadletter count = %d, want 2", count)
-	}
+	assert.EqualValues(t, 2, count)
+
 }
 
 // insertTestChain inserts n events into projectID and returns their ids
@@ -369,9 +347,8 @@ func insertTestChain(ctx context.Context, t *testing.T, q *store.Queries, projec
 			ResourceID:   "job-" + projectID,
 			Details:      json.RawMessage(`{"i":` + itoaBench(i) + `}`),
 		}
-		if err := q.CreateAuditEvent(ctx, ev); err != nil {
-			t.Fatalf("CreateAuditEvent iter %d: %v", i, err)
-		}
+		require.NoError(t, q.CreateAuditEvent(ctx, ev))
+
 		ids[i] = ev.ID
 	}
 	return ids

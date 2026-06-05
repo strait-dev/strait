@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"strait/internal/testutil"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestCreateWorkflowRunLabels(t *testing.T) {
@@ -26,23 +28,19 @@ func TestCreateWorkflowRunLabels(t *testing.T) {
 		"env":    "production",
 		"region": "us-east-1",
 	}
-	if err := q.CreateWorkflowRunLabels(ctx, wfRun.ID, labels); err != nil {
-		t.Fatalf("CreateWorkflowRunLabels() error = %v", err)
-	}
+	require.NoError(t, q.CreateWorkflowRunLabels(ctx, wfRun.
+		ID, labels))
 
 	got, err := q.ListWorkflowRunLabels(ctx, wfRun.ID)
-	if err != nil {
-		t.Fatalf("ListWorkflowRunLabels() error = %v", err)
-	}
-	if len(got) != 2 {
-		t.Fatalf("ListWorkflowRunLabels() len = %d, want 2", len(got))
-	}
-	if got["env"] != "production" {
-		t.Fatalf("label[env] = %q, want %q", got["env"], "production")
-	}
-	if got["region"] != "us-east-1" {
-		t.Fatalf("label[region] = %q, want %q", got["region"], "us-east-1")
-	}
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	require.Equal(t, "production",
+
+		got["env"])
+	require.Equal(t, "us-east-1",
+
+		got["region"])
+
 }
 
 func TestCreateWorkflowRunLabels_Upsert(t *testing.T) {
@@ -57,23 +55,19 @@ func TestCreateWorkflowRunLabels_Upsert(t *testing.T) {
 	wfRun := testutil.MustCreateWorkflowRun(t, ctx, q, wf.ID, &testutil.WorkflowRunOpts{
 		ProjectID: new(projectID),
 	})
-
-	if err := q.CreateWorkflowRunLabels(ctx, wfRun.ID, map[string]string{"env": "staging"}); err != nil {
-		t.Fatalf("CreateWorkflowRunLabels() error = %v", err)
-	}
+	require.NoError(t, q.CreateWorkflowRunLabels(ctx, wfRun.
+		ID, map[string]string{"env": "staging"}))
+	require.NoError(t, q.CreateWorkflowRunLabels(ctx, wfRun.
+		ID, map[string]string{"env": "production"}))
 
 	// Upsert with new value.
-	if err := q.CreateWorkflowRunLabels(ctx, wfRun.ID, map[string]string{"env": "production"}); err != nil {
-		t.Fatalf("CreateWorkflowRunLabels(upsert) error = %v", err)
-	}
 
 	got, err := q.ListWorkflowRunLabels(ctx, wfRun.ID)
-	if err != nil {
-		t.Fatalf("ListWorkflowRunLabels() error = %v", err)
-	}
-	if got["env"] != "production" {
-		t.Fatalf("label[env] = %q, want %q", got["env"], "production")
-	}
+	require.NoError(t, err)
+	require.Equal(t, "production",
+
+		got["env"])
+
 }
 
 func TestCreateWorkflowRunLabels_SameValueNoOpDoesNotRewrite(t *testing.T) {
@@ -88,68 +82,68 @@ func TestCreateWorkflowRunLabels_SameValueNoOpDoesNotRewrite(t *testing.T) {
 	wfRun := testutil.MustCreateWorkflowRun(t, ctx, q, wf.ID, &testutil.WorkflowRunOpts{
 		ProjectID: new(projectID),
 	})
-
-	if err := q.CreateWorkflowRunLabels(ctx, wfRun.ID, map[string]string{"env": "production"}); err != nil {
-		t.Fatalf("CreateWorkflowRunLabels() error = %v", err)
-	}
+	require.NoError(t, q.CreateWorkflowRunLabels(ctx, wfRun.
+		ID, map[string]string{"env": "production"}))
 
 	var xminBefore string
-	if err := testDB.Pool.QueryRow(ctx, `
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`
 		SELECT xmin::text
 		FROM workflow_run_labels
 		WHERE workflow_run_id = $1 AND label_key = $2`,
-		wfRun.ID, "env",
-	).Scan(&xminBefore); err != nil {
-		t.Fatalf("query workflow run label xmin before no-op: %v", err)
-	}
 
-	if err := q.CreateWorkflowRunLabels(ctx, wfRun.ID, map[string]string{"env": "production"}); err != nil {
-		t.Fatalf("CreateWorkflowRunLabels(no-op) error = %v", err)
-	}
+		wfRun.ID, "env").Scan(&xminBefore))
+	require.NoError(t, q.CreateWorkflowRunLabels(ctx, wfRun.
+		ID, map[string]string{"env": "production"}))
 
 	var xminAfterNoOp string
-	if err := testDB.Pool.QueryRow(ctx, `
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`
 		SELECT xmin::text
 		FROM workflow_run_labels
 		WHERE workflow_run_id = $1 AND label_key = $2`,
-		wfRun.ID, "env",
-	).Scan(&xminAfterNoOp); err != nil {
-		t.Fatalf("query workflow run label xmin after no-op: %v", err)
-	}
-	if xminAfterNoOp != xminBefore {
-		t.Fatalf("same-value upsert changed xmin from %s to %s", xminBefore, xminAfterNoOp)
-	}
 
-	if err := q.CreateWorkflowRunLabels(ctx, wfRun.ID, map[string]string{"env": "staging"}); err != nil {
-		t.Fatalf("CreateWorkflowRunLabels(update) error = %v", err)
-	}
+		wfRun.ID, "env").Scan(&xminAfterNoOp))
+	require.Equal(t, xminBefore,
+
+		xminAfterNoOp,
+	)
+	require.NoError(t, q.CreateWorkflowRunLabels(ctx, wfRun.
+		ID, map[string]string{"env": "staging"}))
 
 	var xminAfterUpdate, labelValue string
-	if err := testDB.Pool.QueryRow(ctx, `
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`
 		SELECT xmin::text, label_value
 		FROM workflow_run_labels
 		WHERE workflow_run_id = $1 AND label_key = $2`,
-		wfRun.ID, "env",
-	).Scan(&xminAfterUpdate, &labelValue); err != nil {
-		t.Fatalf("query workflow run label after update: %v", err)
-	}
-	if labelValue != "staging" {
-		t.Fatalf("label value = %q, want %q", labelValue, "staging")
-	}
-	if xminAfterUpdate == xminBefore {
-		t.Fatalf("changed-value upsert preserved xmin %s", xminAfterUpdate)
-	}
+
+		wfRun.ID,
+		"env").Scan(&xminAfterUpdate,
+		&labelValue,
+	))
+	require.Equal(t, "staging",
+
+		labelValue,
+	)
+	require.NotEqual(t, xminBefore,
+
+		xminAfterUpdate,
+	)
+
 }
 
 func TestCreateWorkflowRunLabels_EmptyLabels(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
 	mustClean(t, ctx)
+	require.NoError(t, q.CreateWorkflowRunLabels(ctx, newID(), map[string]string{}))
 
 	// Should be a no-op.
-	if err := q.CreateWorkflowRunLabels(ctx, newID(), map[string]string{}); err != nil {
-		t.Fatalf("CreateWorkflowRunLabels(empty) error = %v", err)
-	}
+
 }
 
 func TestListWorkflowRunLabels_Empty(t *testing.T) {
@@ -158,10 +152,7 @@ func TestListWorkflowRunLabels_Empty(t *testing.T) {
 	mustClean(t, ctx)
 
 	got, err := q.ListWorkflowRunLabels(ctx, newID())
-	if err != nil {
-		t.Fatalf("ListWorkflowRunLabels(empty) error = %v", err)
-	}
-	if len(got) != 0 {
-		t.Fatalf("ListWorkflowRunLabels(empty) len = %d, want 0", len(got))
-	}
+	require.NoError(t, err)
+	require.Len(t, got, 0)
+
 }

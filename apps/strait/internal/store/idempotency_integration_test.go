@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/require"
 
 	"strait/internal/store"
 )
@@ -27,15 +28,16 @@ func TestIdempotency_TryAcquire_NewKey_Acquired(t *testing.T) {
 	mustClean(t, ctx)
 
 	status, code, _, body, err := q.TryAcquireIdempotencyKey(ctx, "proj-idem-"+newID(), "key-"+newID(), time.Hour)
-	if err != nil {
-		t.Fatalf("TryAcquireIdempotencyKey error = %v", err)
-	}
-	if status != store.IdempotencyAcquired {
-		t.Fatalf("status = %q, want acquired", status)
-	}
-	if code != 0 || body != nil {
-		t.Fatalf("fresh key returned code=%d body=%q, want zero values", code, body)
-	}
+	require.NoError(t, err)
+	require.Equal(t, store.
+		IdempotencyAcquired,
+
+		status)
+	require.False(t, code !=
+
+		0 || body !=
+		nil)
+
 }
 
 func TestIdempotency_TryAcquire_Pending_ReturnsPending(t *testing.T) {
@@ -48,21 +50,21 @@ func TestIdempotency_TryAcquire_Pending_ReturnsPending(t *testing.T) {
 
 	// First call wins and acquires.
 	status, _, _, _, err := q.TryAcquireIdempotencyKey(ctx, projectID, key, time.Hour)
-	if err != nil {
-		t.Fatalf("first TryAcquire: %v", err)
-	}
-	if status != store.IdempotencyAcquired {
-		t.Fatalf("first status = %q, want acquired", status)
-	}
+	require.NoError(t, err)
+	require.Equal(t, store.
+		IdempotencyAcquired,
+
+		status)
 
 	// Second call sees a pending row.
 	status, _, _, _, err = q.TryAcquireIdempotencyKey(ctx, projectID, key, time.Hour)
-	if err != nil {
-		t.Fatalf("second TryAcquire: %v", err)
-	}
-	if status != store.IdempotencyPending {
-		t.Fatalf("second status = %q, want pending", status)
-	}
+	require.NoError(t, err)
+	require.Equal(t, store.
+		IdempotencyPending,
+
+		status,
+	)
+
 }
 
 func TestIdempotency_TryAcquire_Completed_ReturnsCachedResponse(t *testing.T) {
@@ -74,36 +76,37 @@ func TestIdempotency_TryAcquire_Completed_ReturnsCachedResponse(t *testing.T) {
 	key := "key-" + newID()
 
 	if _, _, _, _, err := q.TryAcquireIdempotencyKey(ctx, projectID, key, time.Hour); err != nil {
-		t.Fatalf("acquire: %v", err)
+		require.Failf(t, "test failure",
+
+			"acquire: %v", err)
 	}
 	wantBody := []byte(`{"id":"abc"}`)
-	if err := q.CompleteIdempotencyKey(ctx, projectID, key, 201, nil, wantBody); err != nil {
-		t.Fatalf("complete: %v", err)
-	}
+	require.NoError(t, q.CompleteIdempotencyKey(
+		ctx, projectID, key,
+		201, nil,
+		wantBody))
 
 	status, code, _, body, err := q.TryAcquireIdempotencyKey(ctx, projectID, key, time.Hour)
-	if err != nil {
-		t.Fatalf("re-acquire: %v", err)
-	}
-	if status != store.IdempotencyComplete {
-		t.Fatalf("status = %q, want completed", status)
-	}
-	if code != 201 {
-		t.Fatalf("cached status code = %d, want 201", code)
-	}
+	require.NoError(t, err)
+	require.Equal(t, store.
+		IdempotencyComplete,
+
+		status)
+	require.EqualValues(t, 201, code)
+
 	// Postgres reformats JSONB on ingestion (adds a space after colons
 	// and reorders keys), so byte-equal comparison is too strict. Parse
 	// and compare semantically.
 	var got, want map[string]any
-	if err := json.Unmarshal(body, &got); err != nil {
-		t.Fatalf("unmarshal cached body: %v", err)
-	}
-	if err := json.Unmarshal(wantBody, &want); err != nil {
-		t.Fatalf("unmarshal want body: %v", err)
-	}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("cached body = %v, want %v", got, want)
-	}
+	require.NoError(t, json.
+		Unmarshal(body, &got))
+	require.NoError(t, json.
+		Unmarshal(wantBody,
+			&want))
+	require.True(t, reflect.
+		DeepEqual(got, want),
+	)
+
 }
 
 func TestIdempotency_TryAcquire_ExpiredReacquire(t *testing.T) {
@@ -118,17 +121,19 @@ func TestIdempotency_TryAcquire_ExpiredReacquire(t *testing.T) {
 	// is committed — the expires_at check in the SELECT will trigger
 	// the stale-row cleanup and retry path.
 	if _, _, _, _, err := q.TryAcquireIdempotencyKey(ctx, projectID, key, -time.Second); err != nil {
-		t.Fatalf("first acquire: %v", err)
+		require.Failf(t, "test failure",
+
+			"first acquire: %v", err)
 	}
 
 	// Second call should delete the expired row and reacquire.
 	status, _, _, _, err := q.TryAcquireIdempotencyKey(ctx, projectID, key, time.Hour)
-	if err != nil {
-		t.Fatalf("reacquire: %v", err)
-	}
-	if status != store.IdempotencyAcquired {
-		t.Fatalf("status = %q, want acquired (expired reacquire path)", status)
-	}
+	require.NoError(t, err)
+	require.Equal(t, store.
+		IdempotencyAcquired,
+
+		status)
+
 }
 
 func TestIdempotency_TryAcquire_RaceBetweenGoroutines(t *testing.T) {
@@ -171,17 +176,18 @@ func TestIdempotency_TryAcquire_RaceBetweenGoroutines(t *testing.T) {
 	wg.Wait()
 
 	if errors.Load() > 0 {
-		if p := firstErrMsg.Load(); p != nil {
-			t.Fatalf("race produced %d errors, first: %s", errors.Load(), *p)
-		}
-		t.Fatalf("race produced %d errors", errors.Load())
+		require.Nil(t, firstErrMsg.
+			Load())
+		require.Failf(t, "test failure",
+
+			"race produced %d errors", errors.Load())
 	}
-	if got := acquired.Load(); got != 1 {
-		t.Fatalf("acquired = %d, want exactly 1 (race not exclusive)", got)
-	}
-	if got := pending.Load(); got != goroutines-1 {
-		t.Fatalf("pending = %d, want %d", got, goroutines-1)
-	}
+	require.EqualValues(t, 1, acquired.
+		Load())
+	require.EqualValues(t, goroutines-
+		1,
+		pending.Load())
+
 }
 
 // CompleteIdempotencyKey
@@ -195,30 +201,31 @@ func TestIdempotency_Complete_UpdatesRow(t *testing.T) {
 	key := "key-" + newID()
 
 	if _, _, _, _, err := q.TryAcquireIdempotencyKey(ctx, projectID, key, time.Hour); err != nil {
-		t.Fatalf("acquire: %v", err)
+		require.Failf(t, "test failure",
+
+			"acquire: %v", err)
 	}
-	if err := q.CompleteIdempotencyKey(ctx, projectID, key, 200, nil, []byte(`"ok"`)); err != nil {
-		t.Fatalf("complete: %v", err)
-	}
+	require.NoError(t, q.CompleteIdempotencyKey(
+		ctx, projectID, key,
+		200, nil,
+		[]byte(`"ok"`)))
 
 	// Read back directly via TryAcquire's completed branch.
 	status, code, _, body, err := q.TryAcquireIdempotencyKey(ctx, projectID, key, time.Hour)
-	if err != nil {
-		t.Fatalf("verify: %v", err)
-	}
-	if status != store.IdempotencyComplete {
-		t.Fatalf("status = %q, want completed", status)
-	}
-	if code != 200 {
-		t.Fatalf("code = %d, want 200", code)
-	}
+	require.NoError(t, err)
+	require.Equal(t, store.
+		IdempotencyComplete,
+
+		status)
+	require.EqualValues(t, 200, code)
+
 	var got any
-	if err := json.Unmarshal(body, &got); err != nil {
-		t.Fatalf("unmarshal body: %v", err)
-	}
-	if got != "ok" {
-		t.Fatalf("body = %v, want \"ok\"", got)
-	}
+	require.NoError(t, json.
+		Unmarshal(body, &got))
+	require.Equal(t, "ok",
+		got,
+	)
+
 }
 
 func TestIdempotency_Complete_NotFound_NoError(t *testing.T) {
@@ -231,9 +238,8 @@ func TestIdempotency_Complete_NotFound_NoError(t *testing.T) {
 	// status != pending" — both are silently ignored, which is the
 	// correct behavior for an idempotent retry path.
 	err := q.CompleteIdempotencyKey(ctx, "proj-missing-"+newID(), "key-missing", 200, nil, []byte(`"ok"`))
-	if err != nil {
-		t.Fatalf("complete(not found) should be no-op, got %v", err)
-	}
+	require.NoError(t, err)
+
 }
 
 // DeleteIdempotencyKey
@@ -247,25 +253,23 @@ func TestIdempotency_Delete_RemovesRow(t *testing.T) {
 	key := "key-" + newID()
 
 	if _, _, _, _, err := q.TryAcquireIdempotencyKey(ctx, projectID, key, time.Hour); err != nil {
-		t.Fatalf("acquire: %v", err)
+		require.Failf(t, "test failure",
+
+			"acquire: %v", err)
 	}
 
 	rows, err := q.DeleteIdempotencyKey(ctx, projectID, key)
-	if err != nil {
-		t.Fatalf("delete: %v", err)
-	}
-	if rows != 1 {
-		t.Fatalf("deleted rows = %d, want 1", rows)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 1, rows)
 
 	// After delete, the key should be reacquirable.
 	status, _, _, _, err := q.TryAcquireIdempotencyKey(ctx, projectID, key, time.Hour)
-	if err != nil {
-		t.Fatalf("reacquire after delete: %v", err)
-	}
-	if status != store.IdempotencyAcquired {
-		t.Fatalf("status = %q, want acquired", status)
-	}
+	require.NoError(t, err)
+	require.Equal(t, store.
+		IdempotencyAcquired,
+
+		status)
+
 }
 
 func TestIdempotency_Delete_NotFound_Zero(t *testing.T) {
@@ -274,12 +278,9 @@ func TestIdempotency_Delete_NotFound_Zero(t *testing.T) {
 	mustClean(t, ctx)
 
 	rows, err := q.DeleteIdempotencyKey(ctx, "proj-missing-"+newID(), "key-missing")
-	if err != nil {
-		t.Fatalf("delete(not found): %v", err)
-	}
-	if rows != 0 {
-		t.Fatalf("deleted rows = %d, want 0", rows)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 0, rows)
+
 }
 
 // CleanExpiredIdempotencyKeys
@@ -294,34 +295,36 @@ func TestIdempotency_CleanExpired_DeletesOnlyExpired(t *testing.T) {
 	// 25 expired rows.
 	for i := range 25 {
 		if _, _, _, _, err := q.TryAcquireIdempotencyKey(ctx, projectID, "expired-"+newID(), -time.Minute); err != nil {
-			t.Fatalf("insert expired %d: %v", i, err)
+			require.Failf(t, "test failure",
+
+				"insert expired %d: %v", i, err)
 		}
 	}
 	// 10 non-expired rows.
 	for i := range 10 {
 		if _, _, _, _, err := q.TryAcquireIdempotencyKey(ctx, projectID, "fresh-"+newID(), time.Hour); err != nil {
-			t.Fatalf("insert fresh %d: %v", i, err)
+			require.Failf(t, "test failure",
+
+				"insert fresh %d: %v", i, err)
 		}
 	}
 
 	deleted, err := q.CleanExpiredIdempotencyKeys(ctx)
-	if err != nil {
-		t.Fatalf("cleanup: %v", err)
-	}
-	if deleted < 25 {
-		t.Fatalf("cleanup deleted %d, want at least 25 expired", deleted)
-	}
+	require.NoError(t, err)
+	require.GreaterOrEqual(
+		t,
+		deleted,
+		int64(25))
 
 	// Verify 10 fresh rows remain by directly counting under the test
 	// project. idempotency_keys has no RLS policy so a direct pool
 	// count works.
 	var remaining int
-	if err := testDB.Pool.QueryRow(ctx,
-		`SELECT COUNT(*) FROM idempotency_keys WHERE project_id = $1`, projectID,
-	).Scan(&remaining); err != nil {
-		t.Fatalf("count remaining: %v", err)
-	}
-	if remaining != 10 {
-		t.Fatalf("remaining fresh rows = %d, want 10", remaining)
-	}
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM idempotency_keys WHERE project_id = $1`,
+
+		projectID).Scan(&remaining))
+	require.EqualValues(t, 10, remaining)
+
 }

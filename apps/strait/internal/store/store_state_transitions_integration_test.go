@@ -19,6 +19,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/require"
 )
 
 // Helpers local to this file
@@ -29,17 +30,19 @@ func stID() string {
 
 func stStore(t *testing.T) *store.Queries {
 	t.Helper()
-	if testDB == nil || testDB.Pool == nil {
-		t.Fatal("testDB is not initialized")
-	}
+	require.False(t, testDB ==
+		nil ||
+		testDB.Pool ==
+			nil)
+
 	return store.New(testDB.Pool)
 }
 
 func stClean(t *testing.T, ctx context.Context) {
 	t.Helper()
-	if err := testDB.CleanTables(ctx); err != nil {
-		t.Fatalf("CleanTables() error = %v", err)
-	}
+	require.NoError(t, testDB.
+		CleanTables(ctx))
+
 	for _, tbl := range []string{
 		"workflow_step_decisions",
 		"workflow_snapshots",
@@ -51,7 +54,9 @@ func stClean(t *testing.T, ctx context.Context) {
 		"audit_events",
 	} {
 		if _, err := testDB.Pool.Exec(ctx, "DELETE FROM "+tbl); err != nil {
-			t.Fatalf("clean %s: %v", tbl, err)
+			require.Failf(t, "test failure",
+
+				"clean %s: %v", tbl, err)
 		}
 	}
 }
@@ -70,9 +75,11 @@ func stCreateStepWithJob(t *testing.T, ctx context.Context, q *store.Queries, wf
 
 func stQueue(t *testing.T) *queue.PgQueQueue {
 	t.Helper()
-	if testDB == nil || testDB.Pool == nil {
-		t.Fatal("testDB is not initialized")
-	}
+	require.False(t, testDB ==
+		nil ||
+		testDB.Pool ==
+			nil)
+
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 
@@ -97,9 +104,9 @@ func stCreateJob(t *testing.T, ctx context.Context, q *store.Queries, projectID 
 		TimeoutSecs: 300,
 		Enabled:     true,
 	}
-	if err := q.CreateJob(ctx, job); err != nil {
-		t.Fatalf("CreateJob() error = %v", err)
-	}
+	require.NoError(t, q.CreateJob(ctx,
+		job))
+
 	return job
 }
 
@@ -126,33 +133,28 @@ func TestWorkflowRunStatus_ValidTransition_PendingToRunningToCompleted(t *testin
 	err := q.UpdateWorkflowRunStatus(ctx, run.ID, domain.WfStatusPending, domain.WfStatusRunning, map[string]any{
 		"started_at": now,
 	})
-	if err != nil {
-		t.Fatalf("UpdateWorkflowRunStatus(pending->running) error = %v", err)
-	}
+	require.NoError(t, err)
 
 	got, err := q.GetWorkflowRun(ctx, run.ID)
-	if err != nil {
-		t.Fatalf("GetWorkflowRun() error = %v", err)
-	}
-	if got.Status != domain.WfStatusRunning {
-		t.Fatalf("status = %q, want %q", got.Status, domain.WfStatusRunning)
-	}
+	require.NoError(t, err)
+	require.Equal(t, domain.
+		WfStatusRunning,
+		got.
+			Status)
 
 	// running -> completed
 	err = q.UpdateWorkflowRunStatus(ctx, run.ID, domain.WfStatusRunning, domain.WfStatusCompleted, map[string]any{
 		"finished_at": time.Now().UTC(),
 	})
-	if err != nil {
-		t.Fatalf("UpdateWorkflowRunStatus(running->completed) error = %v", err)
-	}
+	require.NoError(t, err)
 
 	got, err = q.GetWorkflowRun(ctx, run.ID)
-	if err != nil {
-		t.Fatalf("GetWorkflowRun() error = %v", err)
-	}
-	if got.Status != domain.WfStatusCompleted {
-		t.Fatalf("status = %q, want %q", got.Status, domain.WfStatusCompleted)
-	}
+	require.NoError(t, err)
+	require.Equal(t, domain.
+		WfStatusCompleted,
+		got.
+			Status)
+
 }
 
 func TestWorkflowRunStatus_ValidTransition_PendingToRunningToFailed(t *testing.T) {
@@ -175,29 +177,26 @@ func TestWorkflowRunStatus_ValidTransition_PendingToRunningToFailed(t *testing.T
 	err := q.UpdateWorkflowRunStatus(ctx, run.ID, domain.WfStatusPending, domain.WfStatusRunning, map[string]any{
 		"started_at": time.Now().UTC(),
 	})
-	if err != nil {
-		t.Fatalf("UpdateWorkflowRunStatus(pending->running) error = %v", err)
-	}
+	require.NoError(t, err)
 
 	// running -> failed with error message
 	err = q.UpdateWorkflowRunStatus(ctx, run.ID, domain.WfStatusRunning, domain.WfStatusFailed, map[string]any{
 		"error":       "step timeout exceeded",
 		"finished_at": time.Now().UTC(),
 	})
-	if err != nil {
-		t.Fatalf("UpdateWorkflowRunStatus(running->failed) error = %v", err)
-	}
+	require.NoError(t, err)
 
 	got, err := q.GetWorkflowRun(ctx, run.ID)
-	if err != nil {
-		t.Fatalf("GetWorkflowRun() error = %v", err)
-	}
-	if got.Status != domain.WfStatusFailed {
-		t.Fatalf("status = %q, want %q", got.Status, domain.WfStatusFailed)
-	}
-	if got.Error != "step timeout exceeded" {
-		t.Fatalf("error = %q, want %q", got.Error, "step timeout exceeded")
-	}
+	require.NoError(t, err)
+	require.Equal(t, domain.
+		WfStatusFailed,
+		got.
+			Status)
+	require.Equal(t, "step timeout exceeded",
+
+		got.
+			Error)
+
 }
 
 func TestWorkflowRunStatus_InvalidTransition_CompletedToRunning(t *testing.T) {
@@ -218,14 +217,11 @@ func TestWorkflowRunStatus_InvalidTransition_CompletedToRunning(t *testing.T) {
 	})
 
 	err := q.UpdateWorkflowRunStatus(ctx, run.ID, domain.WfStatusCompleted, domain.WfStatusRunning, nil)
-	if err == nil {
-		t.Fatal("expected error for completed->running transition, got nil")
-	}
+	require.Error(t, err)
 
 	var te *domain.TransitionError
-	if !errors.As(err, &te) {
-		t.Fatalf("expected TransitionError, got %T: %v", err, err)
-	}
+	require.True(t, errors.As(err, &te))
+
 }
 
 func TestWorkflowRunStatus_InvalidTransition_FailedToPending(t *testing.T) {
@@ -246,14 +242,11 @@ func TestWorkflowRunStatus_InvalidTransition_FailedToPending(t *testing.T) {
 	})
 
 	err := q.UpdateWorkflowRunStatus(ctx, run.ID, domain.WfStatusFailed, domain.WfStatusPending, nil)
-	if err == nil {
-		t.Fatal("expected error for failed->pending transition, got nil")
-	}
+	require.Error(t, err)
 
 	var te *domain.TransitionError
-	if !errors.As(err, &te) {
-		t.Fatalf("expected TransitionError, got %T: %v", err, err)
-	}
+	require.True(t, errors.As(err, &te))
+
 }
 
 func TestWorkflowRunStatus_ConcurrentUpdates(t *testing.T) {
@@ -276,9 +269,7 @@ func TestWorkflowRunStatus_ConcurrentUpdates(t *testing.T) {
 	err := q.UpdateWorkflowRunStatus(ctx, run.ID, domain.WfStatusPending, domain.WfStatusRunning, map[string]any{
 		"started_at": time.Now().UTC(),
 	})
-	if err != nil {
-		t.Fatalf("UpdateWorkflowRunStatus(pending->running) error = %v", err)
-	}
+	require.NoError(t, err)
 
 	// Two concurrent attempts to move from running -> completed and running -> failed.
 	// Only one should succeed; the other should hit a conflict.
@@ -311,22 +302,21 @@ func TestWorkflowRunStatus_ConcurrentUpdates(t *testing.T) {
 			conflicts++
 		}
 	}
-
-	if successes != 1 {
-		t.Fatalf("expected exactly 1 success, got %d", successes)
-	}
-	if conflicts != 1 {
-		t.Fatalf("expected exactly 1 conflict, got %d", conflicts)
-	}
+	require.EqualValues(t, 1, successes)
+	require.EqualValues(t, 1, conflicts)
 
 	// Final state must be terminal.
 	got, err := q.GetWorkflowRun(ctx, run.ID)
-	if err != nil {
-		t.Fatalf("GetWorkflowRun() error = %v", err)
-	}
-	if got.Status != domain.WfStatusCompleted && got.Status != domain.WfStatusFailed {
-		t.Fatalf("final status = %q, want completed or failed", got.Status)
-	}
+	require.NoError(t, err)
+	require.False(t, got.Status !=
+		domain.
+			WfStatusCompleted &&
+		got.
+			Status !=
+			domain.
+				WfStatusFailed,
+	)
+
 }
 
 func TestWorkflowRunStatus_IdempotentTransition(t *testing.T) {
@@ -349,19 +339,17 @@ func TestWorkflowRunStatus_IdempotentTransition(t *testing.T) {
 	err := q.UpdateWorkflowRunStatus(ctx, run.ID, domain.WfStatusPending, domain.WfStatusRunning, map[string]any{
 		"started_at": time.Now().UTC(),
 	})
-	if err != nil {
-		t.Fatalf("first transition error = %v", err)
-	}
+	require.NoError(t, err)
 
 	// Attempt same transition again -- should succeed idempotently or return conflict.
 	// The code returns nil if already in target state (idempotent).
 	err = q.UpdateWorkflowRunStatus(ctx, run.ID, domain.WfStatusPending, domain.WfStatusRunning, nil)
+	require.NoError(t, err)
+
 	// This might fail with conflict because from=pending but current=running.
 	// The implementation checks: if rows affected == 0 and current == target, returns nil.
 	// But here from=pending, current=running, target=running -- it should return nil (idempotent).
-	if err != nil {
-		t.Fatalf("idempotent transition error = %v, expected nil", err)
-	}
+
 }
 
 // 2. Step run status transitions
@@ -389,34 +377,29 @@ func TestStepRunStatus_WaitingToRunningToCompleted(t *testing.T) {
 	err := q.UpdateStepRunStatusFrom(ctx, sr.ID, domain.StepWaiting, domain.StepRunning, map[string]any{
 		"started_at": time.Now().UTC(),
 	})
-	if err != nil {
-		t.Fatalf("UpdateStepRunStatusFrom(waiting->running) error = %v", err)
-	}
+	require.NoError(t, err)
 
 	got, err := q.GetWorkflowStepRun(ctx, sr.ID)
-	if err != nil {
-		t.Fatalf("GetWorkflowStepRun() error = %v", err)
-	}
-	if got.Status != domain.StepRunning {
-		t.Fatalf("status = %q, want %q", got.Status, domain.StepRunning)
-	}
+	require.NoError(t, err)
+	require.Equal(t, domain.
+		StepRunning,
+		got.Status,
+	)
 
 	// running -> completed
 	err = q.UpdateStepRunStatusFrom(ctx, sr.ID, domain.StepRunning, domain.StepCompleted, map[string]any{
 		"output":      json.RawMessage(`{"result":"ok"}`),
 		"finished_at": time.Now().UTC(),
 	})
-	if err != nil {
-		t.Fatalf("UpdateStepRunStatusFrom(running->completed) error = %v", err)
-	}
+	require.NoError(t, err)
 
 	got, err = q.GetWorkflowStepRun(ctx, sr.ID)
-	if err != nil {
-		t.Fatalf("GetWorkflowStepRun() error = %v", err)
-	}
-	if got.Status != domain.StepCompleted {
-		t.Fatalf("status = %q, want %q", got.Status, domain.StepCompleted)
-	}
+	require.NoError(t, err)
+	require.Equal(t, domain.
+		StepCompleted,
+		got.Status,
+	)
+
 }
 
 func TestStepRunStatus_WaitingToRunningToFailed(t *testing.T) {
@@ -442,29 +425,26 @@ func TestStepRunStatus_WaitingToRunningToFailed(t *testing.T) {
 	err := q.UpdateStepRunStatusFrom(ctx, sr.ID, domain.StepWaiting, domain.StepRunning, map[string]any{
 		"started_at": time.Now().UTC(),
 	})
-	if err != nil {
-		t.Fatalf("UpdateStepRunStatusFrom(waiting->running) error = %v", err)
-	}
+	require.NoError(t, err)
 
 	// running -> failed
 	err = q.UpdateStepRunStatusFrom(ctx, sr.ID, domain.StepRunning, domain.StepFailed, map[string]any{
 		"error":       "connection refused",
 		"finished_at": time.Now().UTC(),
 	})
-	if err != nil {
-		t.Fatalf("UpdateStepRunStatusFrom(running->failed) error = %v", err)
-	}
+	require.NoError(t, err)
 
 	got, err := q.GetWorkflowStepRun(ctx, sr.ID)
-	if err != nil {
-		t.Fatalf("GetWorkflowStepRun() error = %v", err)
-	}
-	if got.Status != domain.StepFailed {
-		t.Fatalf("status = %q, want %q", got.Status, domain.StepFailed)
-	}
-	if got.Error != "connection refused" {
-		t.Fatalf("error = %q, want %q", got.Error, "connection refused")
-	}
+	require.NoError(t, err)
+	require.Equal(t, domain.
+		StepFailed,
+		got.Status,
+	)
+	require.Equal(t, "connection refused",
+
+		got.Error,
+	)
+
 }
 
 func TestStepRunStatus_ConcurrentUpdatesWithinSameWorkflow(t *testing.T) {
@@ -522,26 +502,24 @@ func TestStepRunStatus_ConcurrentUpdatesWithinSameWorkflow(t *testing.T) {
 	close(errCh)
 
 	for err := range errCh {
-		if err != nil {
-			t.Fatalf("concurrent step update error = %v", err)
-		}
+		require.NoError(t, err)
+
 	}
 
 	gotA, err := q.GetWorkflowStepRun(ctx, srA.ID)
-	if err != nil {
-		t.Fatalf("GetWorkflowStepRun(A) error = %v", err)
-	}
-	if gotA.Status != domain.StepCompleted {
-		t.Fatalf("step A status = %q, want %q", gotA.Status, domain.StepCompleted)
-	}
+	require.NoError(t, err)
+	require.Equal(t, domain.
+		StepCompleted,
+		gotA.
+			Status)
 
 	gotB, err := q.GetWorkflowStepRun(ctx, srB.ID)
-	if err != nil {
-		t.Fatalf("GetWorkflowStepRun(B) error = %v", err)
-	}
-	if gotB.Status != domain.StepFailed {
-		t.Fatalf("step B status = %q, want %q", gotB.Status, domain.StepFailed)
-	}
+	require.NoError(t, err)
+	require.Equal(t, domain.
+		StepFailed,
+		gotB.Status,
+	)
+
 }
 
 func TestStepRunStatus_ConflictOnSameStepRun(t *testing.T) {
@@ -593,21 +571,19 @@ func TestStepRunStatus_ConflictOnSameStepRun(t *testing.T) {
 			conflicts++
 		}
 	}
-
-	if successes != 1 {
-		t.Fatalf("expected exactly 1 success, got %d", successes)
-	}
-	if conflicts != 1 {
-		t.Fatalf("expected exactly 1 conflict, got %d", conflicts)
-	}
+	require.EqualValues(t, 1, successes)
+	require.EqualValues(t, 1, conflicts)
 
 	got, err := q.GetWorkflowStepRun(ctx, sr.ID)
-	if err != nil {
-		t.Fatalf("GetWorkflowStepRun() error = %v", err)
-	}
-	if got.Status != domain.StepCompleted && got.Status != domain.StepFailed {
-		t.Fatalf("final status = %q, want completed or failed", got.Status)
-	}
+	require.NoError(t, err)
+	require.False(t, got.Status !=
+		domain.
+			StepCompleted &&
+		got.Status !=
+			domain.
+				StepFailed,
+	)
+
 }
 
 func TestStepRunStatus_UpdateStepRunStatus_SetsFields(t *testing.T) {
@@ -632,17 +608,15 @@ func TestStepRunStatus_UpdateStepRunStatus_SetsFields(t *testing.T) {
 		"started_at": now,
 		"attempt":    2,
 	})
-	if err != nil {
-		t.Fatalf("UpdateStepRunStatus() error = %v", err)
-	}
+	require.NoError(t, err)
 
 	got, err := q.GetWorkflowStepRun(ctx, sr.ID)
-	if err != nil {
-		t.Fatalf("GetWorkflowStepRun() error = %v", err)
-	}
-	if got.Status != domain.StepRunning {
-		t.Fatalf("status = %q, want %q", got.Status, domain.StepRunning)
-	}
+	require.NoError(t, err)
+	require.Equal(t, domain.
+		StepRunning,
+		got.Status,
+	)
+
 }
 
 func TestStepRunStatus_UpdateStepRunStatusSkipsNoOp(t *testing.T) {
@@ -667,48 +641,55 @@ func TestStepRunStatus_UpdateStepRunStatusSkipsNoOp(t *testing.T) {
 		"started_at": startedAt,
 		"attempt":    2,
 	}
-	if err := q.UpdateStepRunStatus(ctx, sr.ID, domain.StepRunning, fields); err != nil {
-		t.Fatalf("initial UpdateStepRunStatus() error = %v", err)
-	}
+	require.NoError(t, q.UpdateStepRunStatus(ctx,
+		sr.ID, domain.StepRunning,
+
+		fields,
+	))
 
 	var xminBefore string
-	if err := testDB.Pool.QueryRow(ctx, `
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`
 		SELECT xmin::text
 		FROM workflow_step_runs
 		WHERE id = $1`,
-		sr.ID,
-	).Scan(&xminBefore); err != nil {
-		t.Fatalf("query workflow_step_runs xmin before no-op: %v", err)
-	}
 
-	if err := q.UpdateStepRunStatus(ctx, sr.ID, domain.StepRunning, fields); err != nil {
-		t.Fatalf("no-op UpdateStepRunStatus() error = %v", err)
-	}
+		sr.ID,
+	).
+		Scan(&xminBefore))
+	require.NoError(t, q.UpdateStepRunStatus(ctx,
+		sr.ID, domain.StepRunning,
+
+		fields,
+	))
 
 	var xminAfter string
 	var status domain.StepRunStatus
 	var attempt int
 	var gotStartedAt time.Time
-	if err := testDB.Pool.QueryRow(ctx, `
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`
 		SELECT xmin::text, status, attempt, started_at
 		FROM workflow_step_runs
 		WHERE id = $1`,
-		sr.ID,
-	).Scan(&xminAfter, &status, &attempt, &gotStartedAt); err != nil {
-		t.Fatalf("query workflow_step_runs after no-op: %v", err)
-	}
-	if xminAfter != xminBefore {
-		t.Fatalf("workflow_step_runs no-op update changed xmin from %s to %s", xminBefore, xminAfter)
-	}
-	if status != domain.StepRunning {
-		t.Fatalf("status = %q, want %q", status, domain.StepRunning)
-	}
-	if attempt != 2 {
-		t.Fatalf("attempt = %d, want 2", attempt)
-	}
-	if !gotStartedAt.Equal(startedAt) {
-		t.Fatalf("started_at = %v, want %v", gotStartedAt, startedAt)
-	}
+
+		sr.
+			ID).Scan(&xminAfter, &status,
+		&attempt, &gotStartedAt,
+	))
+	require.Equal(t, xminBefore,
+
+		xminAfter,
+	)
+	require.Equal(t, domain.
+		StepRunning,
+		status)
+	require.EqualValues(t, 2, attempt)
+	require.True(t, gotStartedAt.
+		Equal(startedAt))
+
 }
 
 func TestStepRunStatus_RejectsDisallowedField(t *testing.T) {
@@ -731,13 +712,11 @@ func TestStepRunStatus_RejectsDisallowedField(t *testing.T) {
 	err := q.UpdateStepRunStatus(ctx, sr.ID, domain.StepRunning, map[string]any{
 		"evil_column": "drop table",
 	})
-	if err == nil {
-		t.Fatal("expected error for disallowed field, got nil")
-	}
+	require.Error(t, err)
+
 	var fe *domain.FieldError
-	if !errors.As(err, &fe) {
-		t.Fatalf("expected FieldError, got %T: %v", err, err)
-	}
+	require.True(t, errors.As(err, &fe))
+
 }
 
 // 3. Dequeue race conditions
@@ -751,9 +730,9 @@ func TestDequeue_ConcurrentDequeuesNoDuplicates(t *testing.T) {
 	job := stCreateJob(t, ctx, st, "proj-dequeue-race-"+stID())
 	for range 20 {
 		run := &domain.JobRun{ID: stID(), JobID: job.ID, ProjectID: job.ProjectID}
-		if err := q.Enqueue(ctx, run); err != nil {
-			t.Fatalf("Enqueue() error = %v", err)
-		}
+		require.NoError(t, q.Enqueue(ctx,
+			run))
+
 	}
 
 	var (
@@ -782,19 +761,18 @@ func TestDequeue_ConcurrentDequeuesNoDuplicates(t *testing.T) {
 	close(errCh)
 
 	for err := range errCh {
-		if err != nil {
-			t.Fatalf("DequeueN() error = %v", err)
-		}
+		require.NoError(t, err)
+
 	}
 
-	for runID, count := range seen {
-		if count > 1 {
-			t.Fatalf("run %s dequeued %d times, want exactly 1", runID, count)
-		}
+	for _, count := range seen {
+		require.LessOrEqual(t,
+			count,
+			1)
+
 	}
-	if len(seen) != 20 {
-		t.Fatalf("total unique dequeued = %d, want 20", len(seen))
-	}
+	require.Len(t, seen, 20)
+
 }
 
 func TestDequeue_ByProjectRespectsIsolation(t *testing.T) {
@@ -811,39 +789,39 @@ func TestDequeue_ByProjectRespectsIsolation(t *testing.T) {
 
 	for range 5 {
 		run := &domain.JobRun{ID: stID(), JobID: jobA.ID, ProjectID: projA}
-		if err := q.Enqueue(ctx, run); err != nil {
-			t.Fatalf("Enqueue(A) error = %v", err)
-		}
+		require.NoError(t, q.Enqueue(ctx,
+			run))
+
 	}
 	for range 5 {
 		run := &domain.JobRun{ID: stID(), JobID: jobB.ID, ProjectID: projB}
-		if err := q.Enqueue(ctx, run); err != nil {
-			t.Fatalf("Enqueue(B) error = %v", err)
-		}
+		require.NoError(t, q.Enqueue(ctx,
+			run))
+
 	}
 
 	// DequeueNByProject should only return runs from project A.
 	dequeued, err := q.DequeueNByProject(ctx, 10, projA)
-	if err != nil {
-		t.Fatalf("DequeueNByProject() error = %v", err)
-	}
-	if len(dequeued) != 5 {
-		t.Fatalf("DequeueNByProject() len = %d, want 5", len(dequeued))
-	}
+	require.NoError(t, err)
+	require.Len(t, dequeued,
+
+		5)
+
 	for i := range dequeued {
-		if dequeued[i].ProjectID != projA {
-			t.Fatalf("dequeued run project = %q, want %q", dequeued[i].ProjectID, projA)
-		}
+		require.Equal(t, projA,
+
+			dequeued[i].ProjectID,
+		)
+
 	}
 
 	// Project B runs should still be queued.
 	dequeuedB, err := q.DequeueNByProject(ctx, 10, projB)
-	if err != nil {
-		t.Fatalf("DequeueNByProject(B) error = %v", err)
-	}
-	if len(dequeuedB) != 5 {
-		t.Fatalf("DequeueNByProject(B) len = %d, want 5", len(dequeuedB))
-	}
+	require.NoError(t, err)
+	require.Len(t, dequeuedB,
+
+		5)
+
 }
 
 func TestDequeue_EmptyQueueReturnsEmptySlice(t *testing.T) {
@@ -852,12 +830,11 @@ func TestDequeue_EmptyQueueReturnsEmptySlice(t *testing.T) {
 	stClean(t, ctx)
 
 	dequeued, err := q.DequeueN(ctx, 10)
-	if err != nil {
-		t.Fatalf("DequeueN() error = %v", err)
-	}
-	if len(dequeued) != 0 {
-		t.Fatalf("DequeueN() len = %d, want 0", len(dequeued))
-	}
+	require.NoError(t, err)
+	require.Len(t, dequeued,
+
+		0)
+
 }
 
 func TestDequeue_RespectsPriorityOrdering(t *testing.T) {
@@ -877,18 +854,16 @@ func TestDequeue_RespectsPriorityOrdering(t *testing.T) {
 			ProjectID: projectID,
 			Priority:  prio,
 		}
-		if err := q.Enqueue(ctx, run); err != nil {
-			t.Fatalf("Enqueue(priority=%d) error = %v", prio, err)
-		}
+		require.NoError(t, q.Enqueue(ctx,
+			run))
+
 	}
 
 	dequeued, err := q.DequeueN(ctx, 3)
-	if err != nil {
-		t.Fatalf("DequeueN() error = %v", err)
-	}
-	if len(dequeued) != 3 {
-		t.Fatalf("DequeueN() len = %d, want 3", len(dequeued))
-	}
+	require.NoError(t, err)
+	require.Len(t, dequeued,
+
+		3)
 
 	// The highest-priority run should be dequeued -- verify that priority 10
 	// was included. The exact return order of DequeueN is by created_at ASC
@@ -898,9 +873,9 @@ func TestDequeue_RespectsPriorityOrdering(t *testing.T) {
 	for i := range dequeued {
 		priorities[dequeued[i].Priority] = true
 	}
-	if !priorities[10] || !priorities[5] || !priorities[0] {
-		t.Fatalf("expected priorities {0,5,10}, got %v", priorities)
-	}
+	require.False(t, !priorities[10] ||
+		!priorities[5] || !priorities[0])
+
 }
 
 // 4. Audit event creation
@@ -921,30 +896,27 @@ func TestAuditEvent_CreateAndList(t *testing.T) {
 		ResourceID:   stID(),
 		Details:      json.RawMessage(`{"name":"test-job"}`),
 	}
+	require.NoError(t, q.CreateAuditEvent(ctx, ev))
+	require.NotEqual(t, "",
 
-	if err := q.CreateAuditEvent(ctx, ev); err != nil {
-		t.Fatalf("CreateAuditEvent() error = %v", err)
-	}
-	if ev.ID == "" {
-		t.Fatal("CreateAuditEvent() did not set ID")
-	}
-	if ev.CreatedAt.IsZero() {
-		t.Fatal("CreateAuditEvent() did not set CreatedAt")
-	}
+		ev.ID)
+	require.False(t, ev.CreatedAt.
+		IsZero())
 
 	events, err := q.ListAuditEvents(ctx, projectID, "", "", "", 10, nil, nil, nil, false)
-	if err != nil {
-		t.Fatalf("ListAuditEvents() error = %v", err)
-	}
-	if len(events) != 1 {
-		t.Fatalf("ListAuditEvents() len = %d, want 1", len(events))
-	}
-	if events[0].ID != ev.ID {
-		t.Fatalf("event ID = %q, want %q", events[0].ID, ev.ID)
-	}
-	if events[0].Action != "job.create" {
-		t.Fatalf("event action = %q, want %q", events[0].Action, "job.create")
-	}
+	require.NoError(t, err)
+	require.Len(t, events,
+		1,
+	)
+	require.Equal(t, ev.ID,
+
+		events[0].
+			ID)
+	require.Equal(t, "job.create",
+
+		events[0].Action,
+	)
+
 }
 
 func TestAuditEvent_FilterByActorAndResourceType(t *testing.T) {
@@ -962,40 +934,35 @@ func TestAuditEvent_FilterByActorAndResourceType(t *testing.T) {
 		{ProjectID: projectID, ActorID: "system", ActorType: "system", Action: "run.complete", ResourceType: "run", ResourceID: stID()},
 	}
 	for i := range events {
-		if err := q.CreateAuditEvent(ctx, &events[i]); err != nil {
-			t.Fatalf("CreateAuditEvent(%d) error = %v", i, err)
-		}
+		require.NoError(t, q.CreateAuditEvent(ctx, &events[i]))
+
 	}
 
 	// Filter by actor.
 	byActor, err := q.ListAuditEvents(ctx, projectID, "user-1", "", "", 10, nil, nil, nil, false)
-	if err != nil {
-		t.Fatalf("ListAuditEvents(actor=user-1) error = %v", err)
-	}
-	if len(byActor) != 2 {
-		t.Fatalf("ListAuditEvents(actor=user-1) len = %d, want 2", len(byActor))
-	}
+	require.NoError(t, err)
+	require.Len(t, byActor,
+
+		2)
 
 	// Filter by resource type.
 	byResource, err := q.ListAuditEvents(ctx, projectID, "", "job", "", 10, nil, nil, nil, false)
-	if err != nil {
-		t.Fatalf("ListAuditEvents(resource=job) error = %v", err)
-	}
-	if len(byResource) != 2 {
-		t.Fatalf("ListAuditEvents(resource=job) len = %d, want 2", len(byResource))
-	}
+	require.NoError(t, err)
+	require.Len(t, byResource,
+
+		2)
 
 	// Filter by both actor and resource type.
 	byBoth, err := q.ListAuditEvents(ctx, projectID, "user-1", "job", "", 10, nil, nil, nil, false)
-	if err != nil {
-		t.Fatalf("ListAuditEvents(actor=user-1,resource=job) error = %v", err)
-	}
-	if len(byBoth) != 1 {
-		t.Fatalf("ListAuditEvents(actor+resource) len = %d, want 1", len(byBoth))
-	}
-	if byBoth[0].Action != "job.create" {
-		t.Fatalf("filtered event action = %q, want %q", byBoth[0].Action, "job.create")
-	}
+	require.NoError(t, err)
+	require.Len(t, byBoth,
+		1,
+	)
+	require.Equal(t, "job.create",
+
+		byBoth[0].Action,
+	)
+
 }
 
 func TestAuditEvent_StreamAuditEvents(t *testing.T) {
@@ -1015,9 +982,8 @@ func TestAuditEvent_StreamAuditEvents(t *testing.T) {
 			ResourceID:   stID(),
 			Details:      json.RawMessage(fmt.Sprintf(`{"index":%d}`, i)),
 		}
-		if err := q.CreateAuditEvent(ctx, ev); err != nil {
-			t.Fatalf("CreateAuditEvent(%d) error = %v", i, err)
-		}
+		require.NoError(t, q.CreateAuditEvent(ctx, ev))
+
 	}
 
 	from := time.Now().UTC().Add(-1 * time.Hour)
@@ -1028,18 +994,16 @@ func TestAuditEvent_StreamAuditEvents(t *testing.T) {
 		streamed = append(streamed, *ev)
 		return nil
 	})
-	if err != nil {
-		t.Fatalf("StreamAuditEvents() error = %v", err)
-	}
-	if len(streamed) != 5 {
-		t.Fatalf("StreamAuditEvents() count = %d, want 5", len(streamed))
-	}
+	require.NoError(t, err)
+	require.Len(t, streamed,
+
+		5)
 
 	// Verify ascending order.
 	for i := 1; i < len(streamed); i++ {
-		if streamed[i].CreatedAt.Before(streamed[i-1].CreatedAt) {
-			t.Fatalf("stream not in ascending order at index %d", i)
-		}
+		require.False(t, streamed[i].CreatedAt.
+			Before(streamed[i-1].CreatedAt))
+
 	}
 }
 
@@ -1059,9 +1023,8 @@ func TestAuditEvent_StreamFiltersByActor(t *testing.T) {
 		Action: "job.delete", ResourceType: "job", ResourceID: stID(),
 	}
 	for _, ev := range []*domain.AuditEvent{ev1, ev2} {
-		if err := q.CreateAuditEvent(ctx, ev); err != nil {
-			t.Fatalf("CreateAuditEvent() error = %v", err)
-		}
+		require.NoError(t, q.CreateAuditEvent(ctx, ev))
+
 	}
 
 	from := time.Now().UTC().Add(-1 * time.Hour)
@@ -1072,15 +1035,15 @@ func TestAuditEvent_StreamFiltersByActor(t *testing.T) {
 		streamed = append(streamed, *ev)
 		return nil
 	})
-	if err != nil {
-		t.Fatalf("StreamAuditEvents(actor=actor-a) error = %v", err)
-	}
-	if len(streamed) != 1 {
-		t.Fatalf("StreamAuditEvents(actor-a) count = %d, want 1", len(streamed))
-	}
-	if streamed[0].ActorID != "actor-a" {
-		t.Fatalf("streamed actor = %q, want %q", streamed[0].ActorID, "actor-a")
-	}
+	require.NoError(t, err)
+	require.Len(t, streamed,
+
+		1)
+	require.Equal(t, "actor-a",
+
+		streamed[0].ActorID,
+	)
+
 }
 
 func TestAuditEvent_LargePayload(t *testing.T) {
@@ -1103,21 +1066,17 @@ func TestAuditEvent_LargePayload(t *testing.T) {
 		ResourceID:   stID(),
 		Details:      details,
 	}
-
-	if err := q.CreateAuditEvent(ctx, ev); err != nil {
-		t.Fatalf("CreateAuditEvent() with large payload error = %v", err)
-	}
+	require.NoError(t, q.CreateAuditEvent(ctx, ev))
 
 	events, err := q.ListAuditEvents(ctx, projectID, "", "", "", 1, nil, nil, nil, false)
-	if err != nil {
-		t.Fatalf("ListAuditEvents() error = %v", err)
-	}
-	if len(events) != 1 {
-		t.Fatalf("ListAuditEvents() len = %d, want 1", len(events))
-	}
-	if len(events[0].Details) < 100_000 {
-		t.Fatalf("details size = %d, want >= 100000", len(events[0].Details))
-	}
+	require.NoError(t, err)
+	require.Len(t, events,
+		1,
+	)
+	require.GreaterOrEqual(
+		t,
+		len(events[0].Details), 100_000)
+
 }
 
 func TestAuditEvent_EmptyDetails(t *testing.T) {
@@ -1135,20 +1094,16 @@ func TestAuditEvent_EmptyDetails(t *testing.T) {
 		ResourceType: "job",
 		ResourceID:   stID(),
 	}
-
-	if err := q.CreateAuditEvent(ctx, ev); err != nil {
-		t.Fatalf("CreateAuditEvent() with nil details error = %v", err)
-	}
+	require.NoError(t, q.CreateAuditEvent(ctx, ev))
 
 	events, err := q.ListAuditEvents(ctx, projectID, "", "", "", 1, nil, nil, nil, false)
-	if err != nil {
-		t.Fatalf("ListAuditEvents() error = %v", err)
-	}
-	if len(events) != 1 {
-		t.Fatalf("ListAuditEvents() len = %d, want 1", len(events))
-	}
+	require.NoError(t, err)
+	require.Len(t, events,
+		1,
+	)
+	require.Equal(t, "{}",
+		string(events[0].Details))
+
 	// Empty details should be stored as {}.
-	if string(events[0].Details) != "{}" {
-		t.Fatalf("details = %q, want %q", string(events[0].Details), "{}")
-	}
+
 }

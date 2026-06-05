@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/require"
 )
 
 // Remaining methods.
@@ -25,16 +27,11 @@ func TestStore_TryAdvisoryLock_AcquireAndRelease(t *testing.T) {
 	lockID := int64(999999)
 
 	acquired, err := q.TryAdvisoryLock(ctx, lockID)
-	if err != nil {
-		t.Fatalf("TryAdvisoryLock() error = %v", err)
-	}
-	if !acquired {
-		t.Fatal("expected lock to be acquired")
-	}
+	require.NoError(t, err)
+	require.True(t, acquired)
+	require.NoError(t, q.ReleaseAdvisoryLock(ctx,
+		lockID))
 
-	if err := q.ReleaseAdvisoryLock(ctx, lockID); err != nil {
-		t.Fatalf("ReleaseAdvisoryLock() error = %v", err)
-	}
 }
 
 func TestStore_TryAdvisoryLock_ReacquireAfterRelease(t *testing.T) {
@@ -45,26 +42,17 @@ func TestStore_TryAdvisoryLock_ReacquireAfterRelease(t *testing.T) {
 	lockID := int64(999998)
 
 	acquired, err := q.TryAdvisoryLock(ctx, lockID)
-	if err != nil {
-		t.Fatalf("TryAdvisoryLock() first error = %v", err)
-	}
-	if !acquired {
-		t.Fatal("first acquire should succeed")
-	}
-	if err := q.ReleaseAdvisoryLock(ctx, lockID); err != nil {
-		t.Fatalf("ReleaseAdvisoryLock() error = %v", err)
-	}
+	require.NoError(t, err)
+	require.True(t, acquired)
+	require.NoError(t, q.ReleaseAdvisoryLock(ctx,
+		lockID))
 
 	acquired2, err := q.TryAdvisoryLock(ctx, lockID)
-	if err != nil {
-		t.Fatalf("TryAdvisoryLock() second error = %v", err)
-	}
-	if !acquired2 {
-		t.Fatal("second acquire should succeed after release")
-	}
-	if err := q.ReleaseAdvisoryLock(ctx, lockID); err != nil {
-		t.Fatalf("ReleaseAdvisoryLock() second error = %v", err)
-	}
+	require.NoError(t, err)
+	require.True(t, acquired2)
+	require.NoError(t, q.ReleaseAdvisoryLock(ctx,
+		lockID))
+
 }
 
 func TestStore_TryAdvisoryLock_DifferentLocks(t *testing.T) {
@@ -76,27 +64,17 @@ func TestStore_TryAdvisoryLock_DifferentLocks(t *testing.T) {
 	lockB := int64(888882)
 
 	acquiredA, err := q.TryAdvisoryLock(ctx, lockA)
-	if err != nil {
-		t.Fatalf("TryAdvisoryLock(A) error = %v", err)
-	}
-	if !acquiredA {
-		t.Fatal("lock A should be acquired")
-	}
+	require.NoError(t, err)
+	require.True(t, acquiredA)
 
 	acquiredB, err := q.TryAdvisoryLock(ctx, lockB)
-	if err != nil {
-		t.Fatalf("TryAdvisoryLock(B) error = %v", err)
-	}
-	if !acquiredB {
-		t.Fatal("lock B should be acquired independently")
-	}
+	require.NoError(t, err)
+	require.True(t, acquiredB)
+	require.NoError(t, q.ReleaseAdvisoryLock(ctx,
+		lockA))
+	require.NoError(t, q.ReleaseAdvisoryLock(ctx,
+		lockB))
 
-	if err := q.ReleaseAdvisoryLock(ctx, lockA); err != nil {
-		t.Fatalf("ReleaseAdvisoryLock(A) error = %v", err)
-	}
-	if err := q.ReleaseAdvisoryLock(ctx, lockB); err != nil {
-		t.Fatalf("ReleaseAdvisoryLock(B) error = %v", err)
-	}
 }
 
 // WithTx basic scenarios.
@@ -110,18 +88,15 @@ func TestStore_WithTx_NestedCreateAndRead(t *testing.T) {
 		job := baseJob(jobID, "project-withtx-nested")
 		return q.CreateJob(ctx, job)
 	})
-	if err != nil {
-		t.Fatalf("WithTx() error = %v", err)
-	}
+	require.NoError(t, err)
 
 	q := mustStore(t)
 	got, err := q.GetJob(ctx, jobID)
-	if err != nil {
-		t.Fatalf("GetJob() error = %v", err)
-	}
-	if got.ID != jobID {
-		t.Fatalf("ID = %q, want %q", got.ID, jobID)
-	}
+	require.NoError(t, err)
+	require.Equal(t, jobID,
+
+		got.ID)
+
 }
 
 // AdvisoryXactLock.
@@ -133,7 +108,6 @@ func TestStore_AdvisoryXactLock_InTransaction(t *testing.T) {
 	err := store.WithTx(ctx, testDB.Pool, func(q *store.Queries) error {
 		return q.AdvisoryXactLock(ctx, int64(777777))
 	})
-	if err != nil {
-		t.Fatalf("AdvisoryXactLock in tx error = %v", err)
-	}
+	require.NoError(t, err)
+
 }

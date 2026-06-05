@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestUpsertDebouncePending(t *testing.T) {
@@ -27,15 +29,14 @@ func TestUpsertDebouncePending(t *testing.T) {
 		TriggeredBy: "api",
 		FireAt:      time.Now().UTC().Add(30 * time.Second),
 	}
-	if err := q.UpsertDebouncePending(ctx, d); err != nil {
-		t.Fatalf("UpsertDebouncePending() error = %v", err)
-	}
-	if d.ID == "" {
-		t.Fatal("UpsertDebouncePending() did not set ID")
-	}
-	if d.CreatedAt.IsZero() {
-		t.Fatal("UpsertDebouncePending() did not set CreatedAt")
-	}
+	require.NoError(t, q.UpsertDebouncePending(ctx,
+		d))
+	require.NotEqual(t, "",
+
+		d.ID)
+	require.False(t, d.CreatedAt.
+		IsZero())
+
 }
 
 func TestUpsertDebouncePending_UpsertReplaces(t *testing.T) {
@@ -55,21 +56,21 @@ func TestUpsertDebouncePending_UpsertReplaces(t *testing.T) {
 		TriggeredBy: "api",
 		FireAt:      fireAt,
 	}
-	if err := q.UpsertDebouncePending(ctx, d1); err != nil {
-		t.Fatalf("UpsertDebouncePending(1) error = %v", err)
-	}
+	require.NoError(t, q.UpsertDebouncePending(ctx,
+		d1))
+
 	initialID := d1.ID
 	initialCreatedAt := d1.CreatedAt
 	var xminBeforeNoop string
-	if err := testDB.Pool.QueryRow(ctx, `
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`
 		SELECT xmin::text
 		FROM debounce_pending
 		WHERE job_id = $1 AND debounce_key = $2`,
-		job.ID,
-		"replace-key",
-	).Scan(&xminBeforeNoop); err != nil {
-		t.Fatalf("query debounce_pending xmin before no-op: %v", err)
-	}
+
+		job.ID, "replace-key").
+		Scan(&xminBeforeNoop))
 
 	same := &domain.DebouncePending{
 		JobID:       job.ID,
@@ -80,28 +81,29 @@ func TestUpsertDebouncePending_UpsertReplaces(t *testing.T) {
 		TriggeredBy: "api",
 		FireAt:      fireAt,
 	}
-	if err := q.UpsertDebouncePending(ctx, same); err != nil {
-		t.Fatalf("UpsertDebouncePending(no-op) error = %v", err)
-	}
+	require.NoError(t, q.UpsertDebouncePending(ctx,
+		same))
+
 	var xminAfterNoop string
-	if err := testDB.Pool.QueryRow(ctx, `
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`
 		SELECT xmin::text
 		FROM debounce_pending
 		WHERE job_id = $1 AND debounce_key = $2`,
-		job.ID,
-		"replace-key",
-	).Scan(&xminAfterNoop); err != nil {
-		t.Fatalf("query debounce_pending xmin after no-op: %v", err)
-	}
-	if xminAfterNoop != xminBeforeNoop {
-		t.Fatalf("debounce_pending no-op changed xmin from %s to %s", xminBeforeNoop, xminAfterNoop)
-	}
-	if same.ID != initialID {
-		t.Fatalf("debounce_pending no-op id = %q, want %q", same.ID, initialID)
-	}
-	if !same.CreatedAt.Equal(initialCreatedAt) {
-		t.Fatalf("debounce_pending no-op created_at = %v, want %v", same.CreatedAt, initialCreatedAt)
-	}
+
+		job.ID, "replace-key").
+		Scan(&xminAfterNoop))
+	require.Equal(t, xminBeforeNoop,
+
+		xminAfterNoop,
+	)
+	require.Equal(t, initialID,
+
+		same.
+			ID)
+	require.True(t, same.CreatedAt.
+		Equal(initialCreatedAt))
 
 	d2 := &domain.DebouncePending{
 		JobID:       job.ID,
@@ -112,44 +114,42 @@ func TestUpsertDebouncePending_UpsertReplaces(t *testing.T) {
 		TriggeredBy: "api",
 		FireAt:      time.Now().UTC().Add(60 * time.Second),
 	}
-	if err := q.UpsertDebouncePending(ctx, d2); err != nil {
-		t.Fatalf("UpsertDebouncePending(2) error = %v", err)
-	}
-	if d2.ID != initialID {
-		t.Fatalf("debounce_pending update id = %q, want %q", d2.ID, initialID)
-	}
+	require.NoError(t, q.UpsertDebouncePending(ctx,
+		d2))
+	require.Equal(t, initialID,
+
+		d2.ID,
+	)
 
 	// Should have only one row (replaced).
 	var rowCount int
-	if err := testDB.Pool.QueryRow(ctx, `
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`
 		SELECT COUNT(*)::int
 		FROM debounce_pending
 		WHERE job_id = $1 AND debounce_key = $2`,
-		job.ID,
-		"replace-key",
-	).Scan(&rowCount); err != nil {
-		t.Fatalf("query replaced debounce_pending: %v", err)
-	}
-	if rowCount != 1 {
-		t.Fatalf("debounce_pending row count = %d, want 1", rowCount)
-	}
+
+		job.ID, "replace-key",
+	).Scan(&rowCount))
+	require.EqualValues(t, 1, rowCount)
+
 	var payload json.RawMessage
 	var priority int
-	if err := testDB.Pool.QueryRow(ctx, `
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`
 		SELECT payload, priority
 		FROM debounce_pending
 		WHERE job_id = $1 AND debounce_key = $2`,
-		job.ID,
-		"replace-key",
-	).Scan(&payload, &priority); err != nil {
-		t.Fatalf("query replaced debounce_pending fields: %v", err)
-	}
-	if !jsonEqual(payload, json.RawMessage(`{"v":2}`)) {
-		t.Fatalf("debounce_pending payload = %s, want {\"v\":2}", string(payload))
-	}
-	if priority != 10 {
-		t.Fatalf("debounce_pending priority = %d, want 10", priority)
-	}
+
+		job.ID, "replace-key",
+	).Scan(&payload, &priority))
+	require.True(t, jsonEqual(payload,
+		json.RawMessage(`{"v":2}`),
+	))
+	require.EqualValues(t, 10, priority)
+
 }
 
 func TestListDueDebouncePending(t *testing.T) {
@@ -168,9 +168,8 @@ func TestListDueDebouncePending(t *testing.T) {
 		TriggeredBy: "api",
 		FireAt:      time.Now().UTC().Add(-1 * time.Minute),
 	}
-	if err := q.UpsertDebouncePending(ctx, due); err != nil {
-		t.Fatalf("UpsertDebouncePending(due) error = %v", err)
-	}
+	require.NoError(t, q.UpsertDebouncePending(ctx,
+		due))
 
 	// Create a future debounce.
 	future := &domain.DebouncePending{
@@ -181,20 +180,17 @@ func TestListDueDebouncePending(t *testing.T) {
 		TriggeredBy: "api",
 		FireAt:      time.Now().UTC().Add(10 * time.Minute),
 	}
-	if err := q.UpsertDebouncePending(ctx, future); err != nil {
-		t.Fatalf("UpsertDebouncePending(future) error = %v", err)
-	}
+	require.NoError(t, q.UpsertDebouncePending(ctx,
+		future))
 
 	items, err := q.ListDueDebouncePending(ctx)
-	if err != nil {
-		t.Fatalf("ListDueDebouncePending() error = %v", err)
-	}
-	if len(items) != 1 {
-		t.Fatalf("ListDueDebouncePending() len = %d, want 1", len(items))
-	}
-	if items[0].DebounceKey != "due-key" {
-		t.Fatalf("ListDueDebouncePending() key = %q, want due-key", items[0].DebounceKey)
-	}
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+	require.Equal(t, "due-key",
+
+		items[0].DebounceKey,
+	)
+
 }
 
 func TestListDueDebouncePending_FairAcrossProjects(t *testing.T) {
@@ -216,9 +212,9 @@ func TestListDueDebouncePending_FairAcrossProjects(t *testing.T) {
 			TriggeredBy: "api",
 			FireAt:      fireAt.Add(time.Duration(i) * time.Microsecond),
 		}
-		if err := q.UpsertDebouncePending(ctx, d); err != nil {
-			t.Fatalf("UpsertDebouncePending(projectA %d) error = %v", i, err)
-		}
+		require.NoError(t, q.UpsertDebouncePending(ctx,
+			d))
+
 	}
 	projectBPending := &domain.DebouncePending{
 		JobID:       jobB.ID,
@@ -228,14 +224,12 @@ func TestListDueDebouncePending_FairAcrossProjects(t *testing.T) {
 		TriggeredBy: "api",
 		FireAt:      fireAt.Add(9 * time.Minute),
 	}
-	if err := q.UpsertDebouncePending(ctx, projectBPending); err != nil {
-		t.Fatalf("UpsertDebouncePending(projectB) error = %v", err)
-	}
+	require.NoError(t, q.UpsertDebouncePending(ctx,
+		projectBPending,
+	))
 
 	items, err := q.ListDueDebouncePending(ctx)
-	if err != nil {
-		t.Fatalf("ListDueDebouncePending() error = %v", err)
-	}
+	require.NoError(t, err)
 
 	var projectACount int
 	foundProjectB := false
@@ -249,12 +243,12 @@ func TestListDueDebouncePending_FairAcrossProjects(t *testing.T) {
 			}
 		}
 	}
-	if !foundProjectB {
-		t.Fatalf("due list omitted later project while one project had many older rows: %+v", items)
-	}
-	if projectACount > 5 {
-		t.Fatalf("due list allowed one project to monopolize batch: projectA count = %d", projectACount)
-	}
+	require.True(t, foundProjectB)
+	require.LessOrEqual(t,
+		projectACount,
+
+		5)
+
 }
 
 func TestClaimDueDebouncePending_OnlyClaimsDueRows(t *testing.T) {
@@ -271,9 +265,9 @@ func TestClaimDueDebouncePending_OnlyClaimsDueRows(t *testing.T) {
 		TriggeredBy: "api",
 		FireAt:      time.Now().UTC().Add(-1 * time.Minute),
 	}
-	if err := q.UpsertDebouncePending(ctx, due); err != nil {
-		t.Fatalf("UpsertDebouncePending(due) error = %v", err)
-	}
+	require.NoError(t, q.UpsertDebouncePending(ctx,
+		due))
+
 	future := &domain.DebouncePending{
 		JobID:       job.ID,
 		ProjectID:   job.ProjectID,
@@ -282,32 +276,32 @@ func TestClaimDueDebouncePending_OnlyClaimsDueRows(t *testing.T) {
 		TriggeredBy: "api",
 		FireAt:      time.Now().UTC().Add(10 * time.Minute),
 	}
-	if err := q.UpsertDebouncePending(ctx, future); err != nil {
-		t.Fatalf("UpsertDebouncePending(future) error = %v", err)
-	}
+	require.NoError(t, q.UpsertDebouncePending(ctx,
+		future))
 
 	claimed, ok, err := q.ClaimDueDebouncePending(ctx, due.ID)
-	if err != nil {
-		t.Fatalf("ClaimDueDebouncePending(due) error = %v", err)
-	}
-	if !ok || claimed == nil || claimed.ID != due.ID || claimed.DebounceKey != "claim-due" {
-		t.Fatalf("claimed due row = %+v ok=%v", claimed, ok)
-	}
+	require.NoError(t, err)
+	require.False(t, !ok ||
+
+		claimed ==
+			nil || claimed.
+		ID != due.ID ||
+		claimed.
+			DebounceKey !=
+			"claim-due")
+
 	stillDue, err := q.ListDueDebouncePending(ctx)
-	if err != nil {
-		t.Fatalf("ListDueDebouncePending(after claim) error = %v", err)
-	}
-	if len(stillDue) != 1 || stillDue[0].ID != due.ID {
-		t.Fatalf("claim removed due row before completion: %+v", stillDue)
-	}
+	require.NoError(t, err)
+	require.False(t, len(stillDue) !=
+		1 || stillDue[0].ID != due.
+		ID)
 
 	claimed, ok, err = q.ClaimDueDebouncePending(ctx, future.ID)
-	if err != nil {
-		t.Fatalf("ClaimDueDebouncePending(future) error = %v", err)
-	}
-	if ok || claimed != nil {
-		t.Fatalf("future row was claimed: %+v ok=%v", claimed, ok)
-	}
+	require.NoError(t, err)
+	require.False(t, ok ||
+		claimed !=
+			nil)
+
 }
 
 func TestRescheduleDebouncePending_OnlyIfFireAtUnchanged(t *testing.T) {
@@ -325,40 +319,30 @@ func TestRescheduleDebouncePending_OnlyIfFireAtUnchanged(t *testing.T) {
 		TriggeredBy: "api",
 		FireAt:      originalFireAt,
 	}
-	if err := q.UpsertDebouncePending(ctx, due); err != nil {
-		t.Fatalf("UpsertDebouncePending(due) error = %v", err)
-	}
+	require.NoError(t, q.UpsertDebouncePending(ctx,
+		due))
 
 	staleUpdated, err := q.RescheduleDebouncePending(ctx, due.ID, originalFireAt.Add(time.Second), time.Now().UTC().Add(5*time.Minute))
-	if err != nil {
-		t.Fatalf("RescheduleDebouncePending(stale) error = %v", err)
-	}
-	if staleUpdated {
-		t.Fatal("stale fire_at rescheduled pending row")
-	}
+	require.NoError(t, err)
+	require.False(t, staleUpdated)
+
 	stillDue, err := q.ListDueDebouncePending(ctx)
-	if err != nil {
-		t.Fatalf("ListDueDebouncePending(after stale reschedule) error = %v", err)
-	}
-	if len(stillDue) != 1 || stillDue[0].ID != due.ID {
-		t.Fatalf("stale reschedule changed due row: %+v", stillDue)
-	}
+	require.NoError(t, err)
+	require.False(t, len(stillDue) !=
+		1 || stillDue[0].ID != due.
+		ID)
 
 	nextFireAt := time.Now().UTC().Add(5 * time.Minute).Truncate(time.Microsecond)
 	rescheduled, err := q.RescheduleDebouncePending(ctx, due.ID, originalFireAt, nextFireAt)
-	if err != nil {
-		t.Fatalf("RescheduleDebouncePending(current) error = %v", err)
-	}
-	if !rescheduled {
-		t.Fatal("current fire_at did not reschedule pending row")
-	}
+	require.NoError(t, err)
+	require.True(t, rescheduled)
+
 	claimed, ok, err := q.ClaimDueDebouncePending(ctx, due.ID)
-	if err != nil {
-		t.Fatalf("ClaimDueDebouncePending(rescheduled) error = %v", err)
-	}
-	if ok || claimed != nil {
-		t.Fatalf("rescheduled future row was claimable: %+v ok=%v", claimed, ok)
-	}
+	require.NoError(t, err)
+	require.False(t, ok ||
+		claimed !=
+			nil)
+
 }
 
 func TestCompleteDebouncePending_DeletesOnlyUnchangedClaim(t *testing.T) {
@@ -376,32 +360,23 @@ func TestCompleteDebouncePending_DeletesOnlyUnchangedClaim(t *testing.T) {
 		TriggeredBy: "api",
 		FireAt:      originalFireAt,
 	}
-	if err := q.UpsertDebouncePending(ctx, due); err != nil {
-		t.Fatalf("UpsertDebouncePending(due) error = %v", err)
-	}
+	require.NoError(t, q.UpsertDebouncePending(ctx,
+		due))
 
 	updated := *due
 	updated.FireAt = time.Now().UTC().Add(10 * time.Minute).Truncate(time.Microsecond)
 	updated.Payload = json.RawMessage(`{"v":2}`)
-	if err := q.UpsertDebouncePending(ctx, &updated); err != nil {
-		t.Fatalf("UpsertDebouncePending(updated) error = %v", err)
-	}
+	require.NoError(t, q.UpsertDebouncePending(ctx,
+		&updated))
 
 	completed, err := q.CompleteDebouncePending(ctx, due.ID, originalFireAt)
-	if err != nil {
-		t.Fatalf("CompleteDebouncePending(stale) error = %v", err)
-	}
-	if completed {
-		t.Fatal("stale completion deleted updated pending row")
-	}
+	require.NoError(t, err)
+	require.False(t, completed)
 
 	completed, err = q.CompleteDebouncePending(ctx, due.ID, updated.FireAt)
-	if err != nil {
-		t.Fatalf("CompleteDebouncePending(current) error = %v", err)
-	}
-	if !completed {
-		t.Fatal("current completion did not delete pending row")
-	}
+	require.NoError(t, err)
+	require.True(t, completed)
+
 }
 
 func TestInsertDebouncePendingIfAbsent_PreservesNewerPending(t *testing.T) {
@@ -418,9 +393,9 @@ func TestInsertDebouncePendingIfAbsent_PreservesNewerPending(t *testing.T) {
 		TriggeredBy: "api",
 		FireAt:      time.Now().UTC().Add(10 * time.Minute),
 	}
-	if err := q.UpsertDebouncePending(ctx, newer); err != nil {
-		t.Fatalf("UpsertDebouncePending(newer) error = %v", err)
-	}
+	require.NoError(t, q.UpsertDebouncePending(ctx,
+		newer))
+
 	oldClaim := &domain.DebouncePending{
 		ID:          "old-claim",
 		JobID:       job.ID,
@@ -431,20 +406,13 @@ func TestInsertDebouncePendingIfAbsent_PreservesNewerPending(t *testing.T) {
 		FireAt:      time.Now().UTC().Add(-1 * time.Minute),
 	}
 	inserted, err := q.InsertDebouncePendingIfAbsent(ctx, oldClaim)
-	if err != nil {
-		t.Fatalf("InsertDebouncePendingIfAbsent() error = %v", err)
-	}
-	if inserted {
-		t.Fatal("expected old pending restore to be skipped while newer pending exists")
-	}
+	require.NoError(t, err)
+	require.False(t, inserted)
 
 	items, err := q.ListDueDebouncePending(ctx)
-	if err != nil {
-		t.Fatalf("ListDueDebouncePending() error = %v", err)
-	}
-	if len(items) != 0 {
-		t.Fatalf("old due pending was restored over newer future row: %+v", items)
-	}
+	require.NoError(t, err)
+	require.Len(t, items, 0)
+
 }
 
 func TestDeleteDebouncePending(t *testing.T) {
@@ -462,22 +430,20 @@ func TestDeleteDebouncePending(t *testing.T) {
 		TriggeredBy: "api",
 		FireAt:      time.Now().UTC().Add(-1 * time.Minute),
 	}
-	if err := q.UpsertDebouncePending(ctx, d); err != nil {
-		t.Fatalf("UpsertDebouncePending() error = %v", err)
-	}
-
-	if err := q.DeleteDebouncePending(ctx, d.ID); err != nil {
-		t.Fatalf("DeleteDebouncePending() error = %v", err)
-	}
+	require.NoError(t, q.UpsertDebouncePending(ctx,
+		d))
+	require.NoError(t, q.DeleteDebouncePending(ctx,
+		d.ID))
 
 	// Verify it was deleted by listing due items.
 	items, err := q.ListDueDebouncePending(ctx)
-	if err != nil {
-		t.Fatalf("ListDueDebouncePending() error = %v", err)
-	}
+	require.NoError(t, err)
+
 	for _, item := range items {
-		if item.ID == d.ID {
-			t.Fatalf("DeleteDebouncePending() did not delete the item")
-		}
+		require.NotEqual(t, d.ID,
+
+			item.ID,
+		)
+
 	}
 }

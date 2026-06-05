@@ -10,6 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/stretchr/testify/assert"
 )
 
 // queryRecorderDBTX records all SQL queries that pass through it. Used to
@@ -84,11 +85,11 @@ func TestVerifyAuditChain_QueryHasIDTiebreaker(t *testing.T) {
 	q.SetAuditSigningKey(key)
 
 	_, _ = q.VerifyAuditChain(context.Background(), "proj-test")
+	assert.True(t,
+		strings.Contains(
+			lastQuery,
+			expected))
 
-	if !strings.Contains(lastQuery, expected) {
-		t.Errorf("VerifyAuditChain query missing %q tiebreaker.\nGot ORDER BY: %s",
-			expected, extractOrderBy(lastQuery))
-	}
 }
 
 // TestVerifyAuditChainIncremental_QueryHasIDTiebreaker is the same guard for
@@ -107,11 +108,11 @@ func TestVerifyAuditChainIncremental_QueryHasIDTiebreaker(t *testing.T) {
 	q.SetAuditSigningKey(key)
 
 	_, _ = q.VerifyAuditChainIncremental(context.Background(), "proj-test")
+	assert.True(t,
+		strings.Contains(
+			lastQuery,
+			expected))
 
-	if !strings.Contains(lastQuery, expected) {
-		t.Errorf("VerifyAuditChainIncremental query missing %q tiebreaker.\nGot ORDER BY: %s",
-			expected, extractOrderBy(lastQuery))
-	}
 }
 
 // TestCreateAuditEvent_TailReadHasIDTiebreaker verifies the tail-read
@@ -138,7 +139,9 @@ func TestCreateAuditEvent_TailReadHasIDTiebreaker(t *testing.T) {
 			if strings.Contains(sql, expected) {
 				found = true
 			} else {
-				t.Errorf("tail-read query missing %q.\nGot: %s", expected, extractOrderBy(sql))
+				assert.Failf(t, "test failure",
+
+					"tail-read query missing %q.\nGot: %s", expected, extractOrderBy(sql))
 			}
 		}
 	}
@@ -168,11 +171,13 @@ func TestListAuditEvents_QueryHasIDTiebreaker(t *testing.T) {
 			q := New(fake)
 
 			_, _ = q.ListAuditEvents(context.Background(), "proj-test", "", "", "", 50, nil, nil, nil, tc.ascending)
+			assert.True(t,
+				strings.Contains(
+					lastQuery,
+					tc.expected,
+				),
+			)
 
-			if !strings.Contains(lastQuery, tc.expected) {
-				t.Errorf("ListAuditEvents(%s) query missing %q.\nGot ORDER BY: %s",
-					tc.name, tc.expected, extractOrderBy(lastQuery))
-			}
 		})
 	}
 }

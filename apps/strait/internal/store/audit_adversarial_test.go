@@ -9,6 +9,8 @@ import (
 	"strait/internal/domain"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestComputeAuditSignature_StrictDeterminism verifies the same event always
@@ -21,9 +23,9 @@ func TestComputeAuditSignature_StrictDeterminism(t *testing.T) {
 
 	for range 1000 {
 		got := ComputeAuditSignature(ev, key)
-		if got != expected {
-			t.Fatalf("signature changed: %s != %s", got, expected)
-		}
+		require.Equal(t, expected,
+			got)
+
 	}
 }
 
@@ -49,7 +51,9 @@ func TestComputeAuditSignature_ConcurrentSafe(t *testing.T) {
 	close(errs)
 
 	for bad := range errs {
-		t.Fatalf("concurrent signature mismatch: %s != %s", bad, expected)
+		require.Failf(t, "test failure",
+
+			"concurrent signature mismatch: %s != %s", bad, expected)
 	}
 }
 
@@ -84,9 +88,10 @@ func TestComputeAuditSignature_SingleBitChange(t *testing.T) {
 			modified := testAuditEvent("ev-1", "proj-1", "create")
 			f.modify(modified)
 			modSig := ComputeAuditSignature(modified, key)
-			if modSig == baseSig {
-				t.Errorf("changing %s did not change signature", f.name)
-			}
+			assert.NotEqual(t, baseSig,
+				modSig,
+			)
+
 			// Verify signatures differ in at least 25% of characters (avalanche).
 			diffCount := 0
 			for i := range min(len(baseSig), len(modSig)) {
@@ -94,9 +99,11 @@ func TestComputeAuditSignature_SingleBitChange(t *testing.T) {
 					diffCount++
 				}
 			}
-			if diffCount < len(baseSig)/4 {
-				t.Errorf("changing %s: only %d/%d chars differ (poor avalanche)", f.name, diffCount, len(baseSig))
-			}
+			assert.GreaterOrEqual(t, diffCount,
+				len(baseSig)/
+					4,
+			)
+
 		})
 	}
 }
@@ -129,14 +136,17 @@ func TestAuditChain_LongChain(t *testing.T) {
 
 	// Verify entire chain.
 	expectedPrev := ZeroHash
-	for i, ev := range events {
-		if ev.PreviousHash != expectedPrev {
-			t.Fatalf("event %d: chain broken at previous_hash", i)
-		}
+	for _, ev := range events {
+		require.Equal(t, expectedPrev,
+			ev.
+				PreviousHash,
+		)
+
 		recomputed := ComputeAuditSignature(ev, key)
-		if ev.Signature != recomputed {
-			t.Fatalf("event %d: signature mismatch", i)
-		}
+		require.Equal(t, recomputed,
+			ev.
+				Signature)
+
 		expectedPrev = ev.Signature
 	}
 }
@@ -160,11 +170,13 @@ func TestAuditChain_Adversarial_DeleteMiddleEvent(t *testing.T) {
 		events[i] = ev
 		prevHash = ev.Signature
 	}
+	require.NotEqual(t, events[0].Signature,
+		events[2].
+			PreviousHash,
+	)
 
 	// "Delete" middle event -- verify event[2].PreviousHash doesn't match event[0].Signature.
-	if events[2].PreviousHash == events[0].Signature {
-		t.Fatal("event 2 should chain from event 1, not event 0")
-	}
+
 }
 
 // TestAuditChain_Adversarial_ReorderEvents verifies that swapping two events
@@ -194,15 +206,18 @@ func TestAuditChain_Adversarial_ReorderEvents(t *testing.T) {
 	expectedPrev := ZeroHash
 	for i, ev := range swapped {
 		if ev.PreviousHash != expectedPrev {
+			require.NotEqual(t, 0,
+				i)
+
 			// Expected to fail here.
-			if i == 0 {
-				t.Fatal("should not fail at event 0")
-			}
+
 			return // success: reorder detected
 		}
 		expectedPrev = ev.Signature
 	}
-	t.Fatal("reordered chain should have been detected")
+	require.Fail(t,
+
+		"reordered chain should have been detected")
 }
 
 // TestAuditChain_Adversarial_ModifyEventContent verifies that modifying event
@@ -219,9 +234,11 @@ func TestAuditChain_Adversarial_ModifyEventContent(t *testing.T) {
 	ev.Action = "delete"
 
 	recomputed := ComputeAuditSignature(ev, key)
-	if ev.Signature == recomputed {
-		t.Fatal("tampered event should have different signature")
-	}
+	require.NotEqual(t, recomputed,
+
+		ev.Signature,
+	)
+
 }
 
 // TestAuditChain_Adversarial_InsertForgedEvent verifies that inserting a
@@ -243,9 +260,11 @@ func TestAuditChain_Adversarial_InsertForgedEvent(t *testing.T) {
 
 	// Verification with the real key should detect the forgery.
 	recomputed := ComputeAuditSignature(forged, realKey)
-	if forged.Signature == recomputed {
-		t.Fatal("forged event signed with different key should not verify")
-	}
+	require.NotEqual(t, recomputed,
+
+		forged.Signature,
+	)
+
 }
 
 // TestDeriveAuditSigningKey_DifferentSecrets produces different keys.
@@ -253,10 +272,9 @@ func TestDeriveAuditSigningKey_DifferentSecrets(t *testing.T) {
 	t.Parallel()
 	key1, _ := DeriveAuditSigningKey("secret-one")
 	key2, _ := DeriveAuditSigningKey("secret-two")
+	require.NotEqual(t, string(key2),
+		string(key1))
 
-	if string(key1) == string(key2) {
-		t.Fatal("different secrets should produce different keys")
-	}
 }
 
 // TestDeriveAuditSigningKey_SimilarSecrets verifies that similar secrets
@@ -272,10 +290,11 @@ func TestDeriveAuditSigningKey_SimilarSecrets(t *testing.T) {
 			diffBytes++
 		}
 	}
+	assert.GreaterOrEqual(t, diffBytes,
+		16)
+
 	// HKDF should cause most bytes to differ.
-	if diffBytes < 16 {
-		t.Errorf("similar secrets: only %d/32 bytes differ (poor HKDF avalanche)", diffBytes)
-	}
+
 }
 
 // TestComputeAuditSignature_EmptyFields verifies signature works with all
@@ -296,12 +315,10 @@ func TestComputeAuditSignature_EmptyFields(t *testing.T) {
 		CreatedAt:    time.Time{},
 	}
 	sig := ComputeAuditSignature(ev, key)
-	if sig == "" {
-		t.Fatal("signature should not be empty even for empty fields")
-	}
-	if len(sig) != 64 {
-		t.Errorf("signature length = %d, want 64", len(sig))
-	}
+	require.NotEqual(t, "",
+		sig)
+	assert.Len(t, sig, 64)
+
 }
 
 // TestComputeAuditSignature_NullBytesInFields verifies null bytes don't
@@ -315,10 +332,9 @@ func TestComputeAuditSignature_NullBytesInFields(t *testing.T) {
 
 	sig1 := ComputeAuditSignature(ev1, key)
 	sig2 := ComputeAuditSignature(ev2, key)
+	require.NotEqual(t, sig2,
+		sig1)
 
-	if sig1 == sig2 {
-		t.Fatal("null bytes in different positions should produce different signatures")
-	}
 }
 
 // TestComputeAuditSignature_LargeDetails verifies signature works with
@@ -332,9 +348,10 @@ func TestComputeAuditSignature_LargeDetails(t *testing.T) {
 	ev.Details = json.RawMessage(largeJSON)
 
 	sig := ComputeAuditSignature(ev, key)
-	if sig == "" || len(sig) != 64 {
-		t.Fatalf("signature for large payload: len=%d, want 64", len(sig))
-	}
+	require.False(t, sig ==
+		"" || len(sig) != 64,
+	)
+
 }
 
 // FuzzComputeAuditSignature_Deterministic verifies that computing the same
@@ -355,9 +372,9 @@ func FuzzComputeAuditSignature_Deterministic(f *testing.F) {
 		}
 		sig1 := ComputeAuditSignature(ev, key)
 		sig2 := ComputeAuditSignature(ev, key)
-		if sig1 != sig2 {
-			t.Fatal("non-deterministic signature")
-		}
+		require.Equal(t, sig2,
+			sig1)
+
 	})
 }
 
@@ -371,16 +388,12 @@ func FuzzDeriveAuditSigningKey_NoPanic(f *testing.F) {
 	f.Fuzz(func(t *testing.T, secret string) {
 		key, err := DeriveAuditSigningKey(secret)
 		if secret == "" {
-			if err == nil {
-				t.Fatal("empty secret should error")
-			}
+			require.Error(t, err)
+
 			return
 		}
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if len(key) != 32 {
-			t.Fatalf("key length = %d, want 32", len(key))
-		}
+		require.NoError(t, err)
+		require.Len(t, key, 32)
+
 	})
 }
