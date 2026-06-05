@@ -10,6 +10,7 @@ import (
 	"strait/internal/store"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/require"
 )
 
 // stubNotificationStore implements store.NotificationStore with no-ops.
@@ -78,18 +79,21 @@ func TestNewWorkerWithEmail_RegistersEmailSenderWhenConfigured(t *testing.T) {
 	t.Parallel()
 
 	w := NewWorkerWithEmail(&stubNotificationStore{}, &http.Client{}, "re_test_key", "alerts@example.com")
-	if !w.HasSender(domain.ChannelTypeEmail) {
-		t.Fatal("email sender was not registered when Resend API key was configured")
-	}
+	require.True(t, w.HasSender(domain.
+		ChannelTypeEmail,
+	))
+
 }
 
 func TestNewWorkerWithEmail_SkipsEmailSenderWithoutAPIKey(t *testing.T) {
 	t.Parallel()
 
 	w := NewWorkerWithEmail(&stubNotificationStore{}, &http.Client{}, "", "alerts@example.com")
-	if w.HasSender(domain.ChannelTypeEmail) {
-		t.Fatal("email sender was registered without Resend API key")
-	}
+	require.False(t, w.HasSender(domain.
+		ChannelTypeEmail,
+	),
+	)
+
 }
 
 // panicNotificationStore panics on ClaimPendingNotificationDeliveries to test recovery.
@@ -120,7 +124,7 @@ func TestWorker_PanicRecovery(t *testing.T) {
 	select {
 	case <-store.called:
 	case <-time.After(2 * time.Second):
-		t.Fatal("ClaimPendingNotificationDeliveries was never called")
+		require.FailNow(t, "ClaimPendingNotificationDeliveries was never called")
 	}
 
 	cancel()
@@ -133,7 +137,7 @@ func TestWorker_PanicRecovery(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(2 * time.Second):
-		t.Fatal("worker did not stop after panic; recovery may not be working")
+		require.FailNow(t, "worker did not stop after panic; recovery may not be working")
 	}
 }
 
@@ -153,6 +157,6 @@ func TestWorker_StopAfterContextCancel(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(2 * time.Second):
-		t.Fatal("Stop did not return within 2s after context cancel")
+		require.FailNow(t, "Stop did not return within 2s after context cancel")
 	}
 }

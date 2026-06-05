@@ -7,6 +7,9 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // FuzzSlackConfigParsing exercises Slack config JSON unmarshalling with
@@ -92,9 +95,8 @@ func FuzzSubjectForEvent(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, eventType string) {
 		result := subjectForEvent(eventType, nil)
-		if result == "" {
-			t.Error("subjectForEvent returned empty string")
-		}
+		assert.NotEqual(t, "", result)
+
 	})
 }
 
@@ -116,9 +118,8 @@ func FuzzHTMLBodyForEvent(f *testing.F) {
 	f.Fuzz(func(t *testing.T, eventType string, payload []byte) {
 		// Must never panic regardless of input.
 		result := htmlBodyForEvent(eventType, json.RawMessage(payload))
-		if result == "" {
-			t.Error("htmlBodyForEvent returned empty string")
-		}
+		assert.NotEqual(t, "", result)
+
 	})
 }
 
@@ -221,11 +222,8 @@ func FuzzSlackPayloadConstruction(f *testing.F) {
 		// Reproduce the payload construction from slack.go Send:
 		text := "[" + delivery.EventType + "] " + string(delivery.Payload)
 		body, err := json.Marshal(map[string]any{"text": text})
-		if err != nil {
-			t.Fatalf("json.Marshal should not fail for string values: %v", err)
-		}
-		if len(body) == 0 {
-			t.Error("marshaled body should not be empty")
-		}
+		require.NoError(t, err)
+		assert.NotEmpty(t, body)
+
 	})
 }

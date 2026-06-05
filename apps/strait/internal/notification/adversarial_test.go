@@ -18,6 +18,8 @@ import (
 
 	"github.com/jarcoal/httpmock"
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Helpers
@@ -155,9 +157,8 @@ func TestSlackSender_MalformedConfig(t *testing.T) {
 			sendCtx, sendCancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer sendCancel()
 			err := sender.Send(sendCtx, ch, del)
-			if err == nil {
-				t.Fatal("expected error for malformed config")
-			}
+			require.Error(t, err)
+
 		})
 	}
 }
@@ -190,9 +191,8 @@ func TestDiscordSender_MalformedConfig(t *testing.T) {
 			sendCtx, sendCancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer sendCancel()
 			err := sender.Send(sendCtx, ch, del)
-			if err == nil {
-				t.Fatal("expected error for malformed config")
-			}
+			require.Error(t, err)
+
 		})
 	}
 }
@@ -231,14 +231,12 @@ func TestWebhookSender_SpecialCharacterPayloads(t *testing.T) {
 			sendCtx, sendCancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer sendCancel()
 			err := sender.Send(sendCtx, ch, del)
-			if err != nil {
-				t.Fatalf("Send failed: %v", err)
-			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.payload,
+				string(capturedBody))
 
 			// Payload must arrive verbatim.
-			if string(capturedBody) != tt.payload {
-				t.Errorf("body mismatch:\n  got:  %q\n  want: %q", capturedBody, tt.payload)
-			}
+
 		})
 	}
 }
@@ -283,19 +281,19 @@ func TestWorker_DispatchUnsupportedChannelType(t *testing.T) {
 	processCtx, processCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer processCancel()
 	w.process(processCtx)
+	require.NotNil(t, updatedDelivery)
+	assert.Equal(t, "failed",
+		updatedDelivery.
+			Status)
+	assert.Equal(t, 1, updatedDelivery.
+		Attempts,
+	)
+	assert.True(t, strings.Contains(updatedDelivery.
+		LastError,
 
-	if updatedDelivery == nil {
-		t.Fatal("expected delivery to be updated")
-	}
-	if updatedDelivery.Status != "failed" {
-		t.Errorf("status = %q, want %q", updatedDelivery.Status, "failed")
-	}
-	if updatedDelivery.Attempts != 1 {
-		t.Errorf("Attempts = %d, want 1", updatedDelivery.Attempts)
-	}
-	if !strings.Contains(updatedDelivery.LastError, "unsupported channel type") {
-		t.Errorf("LastError = %q, want it to contain 'unsupported channel type'", updatedDelivery.LastError)
-	}
+		"unsupported channel type",
+	))
+
 }
 
 func TestWorker_RedactsSenderURLSecretsFromLastError(t *testing.T) {
@@ -341,16 +339,19 @@ func TestWorker_RedactsSenderURLSecretsFromLastError(t *testing.T) {
 	processCtx, processCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer processCancel()
 	w.process(processCtx)
+	require.NotNil(t, updatedDelivery)
+	require.False(t, strings.Contains(updatedDelivery.
+		LastError,
+		"secret-token",
+	) || strings.Contains(updatedDelivery.
+		LastError,
+		"hooks.slack.com/services",
+	))
+	require.True(t, strings.Contains(updatedDelivery.
+		LastError,
+		"[redacted-url]",
+	))
 
-	if updatedDelivery == nil {
-		t.Fatal("expected delivery to be updated")
-	}
-	if strings.Contains(updatedDelivery.LastError, "secret-token") || strings.Contains(updatedDelivery.LastError, "hooks.slack.com/services") {
-		t.Fatalf("LastError leaked webhook URL secret: %q", updatedDelivery.LastError)
-	}
-	if !strings.Contains(updatedDelivery.LastError, "[redacted-url]") {
-		t.Fatalf("LastError = %q, want redacted URL marker", updatedDelivery.LastError)
-	}
 }
 
 func TestSlackSender_RedactsWebhookURLInTransportError(t *testing.T) {
@@ -365,16 +366,15 @@ func TestSlackSender_RedactsWebhookURLInTransportError(t *testing.T) {
 		&domain.NotificationChannel{Config: json.RawMessage(`{"webhook_url":"https://hooks.slack.com/services/T00/B00/secret-token"}`)},
 		&domain.NotificationDelivery{EventType: "test.event", Payload: json.RawMessage(`{}`)},
 	)
-	if err == nil {
-		t.Fatal("expected send error")
-	}
+	require.Error(t, err)
+
 	msg := err.Error()
-	if strings.Contains(msg, "secret-token") || strings.Contains(msg, "hooks.slack.com/services") {
-		t.Fatalf("slack error leaked webhook URL secret: %q", msg)
-	}
-	if !strings.Contains(msg, "[redacted-url]") {
-		t.Fatalf("slack error = %q, want redacted URL marker", msg)
-	}
+	require.False(t, strings.Contains(msg,
+		"secret-token",
+	) ||
+		strings.Contains(msg, "hooks.slack.com/services"))
+	require.True(t, strings.Contains(msg, "[redacted-url]"))
+
 }
 
 func TestDiscordSender_RedactsWebhookURLInTransportError(t *testing.T) {
@@ -389,16 +389,15 @@ func TestDiscordSender_RedactsWebhookURLInTransportError(t *testing.T) {
 		&domain.NotificationChannel{Config: json.RawMessage(`{"webhook_url":"https://discord.com/api/webhooks/123/secret-token"}`)},
 		&domain.NotificationDelivery{EventType: "test.event", Payload: json.RawMessage(`{}`)},
 	)
-	if err == nil {
-		t.Fatal("expected send error")
-	}
+	require.Error(t, err)
+
 	msg := err.Error()
-	if strings.Contains(msg, "secret-token") || strings.Contains(msg, "discord.com/api/webhooks") {
-		t.Fatalf("discord error leaked webhook URL secret: %q", msg)
-	}
-	if !strings.Contains(msg, "[redacted-url]") {
-		t.Fatalf("discord error = %q, want redacted URL marker", msg)
-	}
+	require.False(t, strings.Contains(msg,
+		"secret-token",
+	) ||
+		strings.Contains(msg, "discord.com/api/webhooks"))
+	require.True(t, strings.Contains(msg, "[redacted-url]"))
+
 }
 
 func TestWorker_DispatchChannelNotFound(t *testing.T) {
@@ -432,16 +431,14 @@ func TestWorker_DispatchChannelNotFound(t *testing.T) {
 	processCtx, processCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer processCancel()
 	w.process(processCtx)
+	require.NotNil(t, updatedDelivery)
+	assert.Equal(t, "failed",
+		updatedDelivery.
+			Status)
+	assert.Equal(t, 1, updatedDelivery.
+		Attempts,
+	)
 
-	if updatedDelivery == nil {
-		t.Fatal("expected delivery to be updated after channel-not-found")
-	}
-	if updatedDelivery.Status != "failed" {
-		t.Errorf("status = %q, want %q", updatedDelivery.Status, "failed")
-	}
-	if updatedDelivery.Attempts != 1 {
-		t.Errorf("attempts = %d, want 1", updatedDelivery.Attempts)
-	}
 }
 
 func TestWorker_DispatchSkipsDisabledChannel(t *testing.T) {
@@ -485,25 +482,25 @@ func TestWorker_DispatchSkipsDisabledChannel(t *testing.T) {
 	processCtx, processCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer processCancel()
 	w.process(processCtx)
+	require.Equal(t, int32(0), sender.
+		calls.Load(),
+	)
+	require.NotNil(t, updatedDelivery)
+	require.Equal(t, "failed",
+		updatedDelivery.
+			Status,
+	)
+	require.Equal(t, 0, updatedDelivery.
+		Attempts,
+	)
+	require.Nil(t,
+		updatedDelivery.NextRetryAt,
+	)
+	require.True(t, strings.Contains(updatedDelivery.
+		LastError,
+		"disabled",
+	))
 
-	if sender.calls.Load() != 0 {
-		t.Fatalf("sender was called for disabled channel")
-	}
-	if updatedDelivery == nil {
-		t.Fatal("expected disabled delivery to be marked terminal")
-	}
-	if updatedDelivery.Status != "failed" {
-		t.Fatalf("status = %q, want failed", updatedDelivery.Status)
-	}
-	if updatedDelivery.Attempts != 0 {
-		t.Fatalf("attempts = %d, want 0 because no send was attempted", updatedDelivery.Attempts)
-	}
-	if updatedDelivery.NextRetryAt != nil {
-		t.Fatal("disabled channel delivery should not retry")
-	}
-	if !strings.Contains(updatedDelivery.LastError, "disabled") {
-		t.Fatalf("last error = %q, want disabled reason", updatedDelivery.LastError)
-	}
 }
 
 func TestWorker_DispatchSenderError_RetriesWithBackoff(t *testing.T) {
@@ -556,21 +553,14 @@ func TestWorker_DispatchSenderError_RetriesWithBackoff(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-
-	if len(updates) == 0 {
-		t.Fatal("expected at least one delivery update")
-	}
+	require.NotEmpty(t, updates)
 
 	d := updates[0]
-	if d.Status != "pending" {
-		t.Errorf("status = %q, want %q (should retry)", d.Status, "pending")
-	}
-	if d.NextRetryAt == nil {
-		t.Fatal("expected NextRetryAt to be set for retry")
-	}
-	if d.Attempts != 1 {
-		t.Errorf("attempts = %d, want 1", d.Attempts)
-	}
+	assert.Equal(t, "pending",
+		d.Status)
+	require.NotNil(t, d.NextRetryAt)
+	assert.Equal(t, 1, d.Attempts)
+
 }
 
 func TestWorker_DispatchSenderError_ExhaustsMaxAttempts(t *testing.T) {
@@ -615,19 +605,17 @@ func TestWorker_DispatchSenderError_ExhaustsMaxAttempts(t *testing.T) {
 	processCtx, processCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer processCancel()
 	w.process(processCtx)
+	require.NotNil(t, updatedDelivery)
+	assert.Equal(t, "failed",
+		updatedDelivery.
+			Status)
+	assert.Nil(t, updatedDelivery.
+		NextRetryAt,
+	)
+	assert.Equal(t, 3, updatedDelivery.
+		Attempts,
+	)
 
-	if updatedDelivery == nil {
-		t.Fatal("expected delivery to be updated")
-	}
-	if updatedDelivery.Status != "failed" {
-		t.Errorf("status = %q, want %q after exhausting retries", updatedDelivery.Status, "failed")
-	}
-	if updatedDelivery.NextRetryAt != nil {
-		t.Error("NextRetryAt should be nil after exhausting retries")
-	}
-	if updatedDelivery.Attempts != 3 {
-		t.Errorf("attempts = %d, want 3", updatedDelivery.Attempts)
-	}
 }
 
 func TestWorker_LeaseLostDuringUpdate(t *testing.T) {
@@ -784,10 +772,10 @@ func TestWebhookSender_ConcurrentSends(t *testing.T) {
 		})
 	}
 	wg.Wait()
+	assert.Equal(t, int64(goroutines),
+		hits.Load(),
+	)
 
-	if hits.Load() != goroutines {
-		t.Errorf("hits = %d, want %d", hits.Load(), goroutines)
-	}
 }
 
 func TestSlackSender_ConcurrentSends(t *testing.T) {
@@ -820,10 +808,10 @@ func TestSlackSender_ConcurrentSends(t *testing.T) {
 		})
 	}
 	wg.Wait()
+	assert.Equal(t, int64(goroutines),
+		hits.Load(),
+	)
 
-	if hits.Load() != goroutines {
-		t.Errorf("hits = %d, want %d", hits.Load(), goroutines)
-	}
 }
 
 func TestDiscordSender_ConcurrentSends(t *testing.T) {
@@ -856,10 +844,10 @@ func TestDiscordSender_ConcurrentSends(t *testing.T) {
 		})
 	}
 	wg.Wait()
+	assert.Equal(t, int64(goroutines),
+		hits.Load(),
+	)
 
-	if hits.Load() != goroutines {
-		t.Errorf("hits = %d, want %d", hits.Load(), goroutines)
-	}
 }
 
 // 4. Retry exhaustion and backoff edge cases
@@ -952,27 +940,31 @@ func TestWorker_BackoffCalculation(t *testing.T) {
 			processCtx, processCancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer processCancel()
 			w.process(processCtx)
-
-			if updatedDelivery == nil {
-				t.Fatal("expected delivery to be updated")
-			}
-			if updatedDelivery.Status != tt.wantStatus {
-				t.Errorf("status = %q, want %q", updatedDelivery.Status, tt.wantStatus)
-			}
+			require.NotNil(t, updatedDelivery)
+			assert.Equal(t, tt.wantStatus,
+				updatedDelivery.
+					Status,
+			)
 
 			if tt.wantStatus == "pending" {
-				if updatedDelivery.NextRetryAt == nil {
-					t.Fatal("expected NextRetryAt to be set")
-				}
-				backoff := time.Until(*updatedDelivery.NextRetryAt)
-				if backoff < tt.wantMinBackoff || backoff > tt.wantMaxBackoff {
-					t.Errorf("backoff = %v, want between %v and %v", backoff, tt.wantMinBackoff, tt.wantMaxBackoff)
-				}
-			}
+				require.NotNil(t, updatedDelivery.
+					NextRetryAt,
+				)
 
-			if tt.wantStatus == "failed" && updatedDelivery.NextRetryAt != nil {
-				t.Error("NextRetryAt should be nil when status is failed")
+				backoff := time.Until(*updatedDelivery.NextRetryAt)
+				assert.False(t, backoff <
+					tt.wantMinBackoff ||
+					backoff >
+						tt.wantMaxBackoff,
+				)
+
 			}
+			assert.False(t, tt.wantStatus ==
+				"failed" &&
+				updatedDelivery.
+					NextRetryAt !=
+					nil)
+
 		})
 	}
 }
@@ -1019,14 +1011,13 @@ func TestWorker_ZeroMaxAttempts_FailsImmediately(t *testing.T) {
 	processCtx, processCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer processCancel()
 	w.process(processCtx)
+	require.NotNil(t, updatedDelivery)
+	assert.Equal(t, "failed",
+		updatedDelivery.
+			Status)
 
-	if updatedDelivery == nil {
-		t.Fatal("expected delivery to be updated")
-	}
 	// With MaxAttempts=0, Attempts(1) >= MaxAttempts(0), so it should fail.
-	if updatedDelivery.Status != "failed" {
-		t.Errorf("status = %q, want %q for zero max attempts", updatedDelivery.Status, "failed")
-	}
+
 }
 
 // 5. Duplicate notification prevention (delivery deduplication at worker level)
@@ -1076,22 +1067,21 @@ func TestWorker_SuccessfulDelivery_SetsDeliveredAt(t *testing.T) {
 	processCtx, processCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer processCancel()
 	w.process(processCtx)
+	require.NotNil(t, updatedDelivery)
+	assert.Equal(t, "delivered",
+		updatedDelivery.
+			Status,
+	)
+	assert.NotNil(t, updatedDelivery.
+		DeliveredAt,
+	)
+	assert.Equal(t, "", updatedDelivery.
+		LastError,
+	)
+	assert.Nil(t, updatedDelivery.
+		NextRetryAt,
+	)
 
-	if updatedDelivery == nil {
-		t.Fatal("expected delivery to be updated")
-	}
-	if updatedDelivery.Status != "delivered" {
-		t.Errorf("status = %q, want %q", updatedDelivery.Status, "delivered")
-	}
-	if updatedDelivery.DeliveredAt == nil {
-		t.Error("DeliveredAt should be set on successful delivery")
-	}
-	if updatedDelivery.LastError != "" {
-		t.Errorf("LastError = %q, want empty on success", updatedDelivery.LastError)
-	}
-	if updatedDelivery.NextRetryAt != nil {
-		t.Error("NextRetryAt should be nil on success")
-	}
 }
 
 func TestWorker_ClaimsBatches(t *testing.T) {
@@ -1148,10 +1138,8 @@ func TestWorker_ClaimsBatches(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 
-	for i, limit := range claimedLimits {
-		if limit != notificationClaimBatchSize {
-			t.Errorf("claim call %d: limit = %d, want %d", i, limit, notificationClaimBatchSize)
-		}
+	for _, limit := range claimedLimits {
+		assert.Equal(t, notificationClaimBatchSize, limit)
 	}
 }
 
@@ -1223,18 +1211,18 @@ func TestWorker_DispatchesClaimedDeliveriesConcurrently(t *testing.T) {
 	select {
 	case <-slowStarted:
 	case <-time.After(time.Second):
-		t.Fatal("slow delivery was not started")
+		require.FailNow(t, "slow delivery was not started")
 	}
 	select {
 	case <-fastSent:
 	case <-time.After(250 * time.Millisecond):
-		t.Fatal("fast delivery was blocked behind slow delivery")
+		require.FailNow(t, "fast delivery was blocked behind slow delivery")
 	}
 	close(releaseSlow)
 	select {
 	case <-done:
 	case <-time.After(time.Second):
-		t.Fatal("dispatch batch did not finish after slow delivery released")
+		require.FailNow(t, "dispatch batch did not finish after slow delivery released")
 	}
 }
 
@@ -1266,19 +1254,16 @@ func TestEmailSender_XSSInPayloadFields(t *testing.T) {
 	sendCtx, sendCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer sendCancel()
 	err := sender.Send(sendCtx, channel, delivery)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if len(mock.calls) != 1 {
-		t.Fatalf("expected 1 call, got %d", len(mock.calls))
-	}
+	require.NoError(t, err)
+	require.Len(t, mock.calls,
+		1)
 
 	// The HTML body must escape the XSS attempt.
 	body := mock.calls[0].Html
-	if strings.Contains(body, "<script>") {
-		t.Error("HTML body contains unescaped <script> tag -- XSS vulnerability")
-	}
+	assert.False(t, strings.Contains(body,
+		"<script>",
+	))
+
 }
 
 func TestEmailSender_InvalidPayloadJSON(t *testing.T) {
@@ -1299,18 +1284,15 @@ func TestEmailSender_InvalidPayloadJSON(t *testing.T) {
 	sendCtx, sendCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer sendCancel()
 	err := sender.Send(sendCtx, channel, delivery)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if len(mock.calls) != 1 {
-		t.Fatalf("expected 1 call, got %d", len(mock.calls))
-	}
+	require.NoError(t, err)
+	require.Len(t, mock.calls,
+		1)
+	assert.NotEqual(t, "",
+		mock.calls[0].Html,
+	)
 
 	// The fallback should still produce some HTML body.
-	if mock.calls[0].Html == "" {
-		t.Error("expected non-empty HTML body for invalid payload JSON")
-	}
+
 }
 
 func TestEmailSender_NilPayload(t *testing.T) {
@@ -1331,9 +1313,8 @@ func TestEmailSender_NilPayload(t *testing.T) {
 	sendCtx, sendCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer sendCancel()
 	err := sender.Send(sendCtx, channel, delivery)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, err)
+
 }
 
 func TestWebhookSender_InvalidJSON_Config(t *testing.T) {
@@ -1349,9 +1330,8 @@ func TestWebhookSender_InvalidJSON_Config(t *testing.T) {
 	sendCtx, sendCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer sendCancel()
 	err := sender.Send(sendCtx, ch, del)
-	if err == nil {
-		t.Fatal("expected error for invalid config JSON")
-	}
+	require.Error(t, err)
+
 }
 
 // Worker with concurrent Start/Stop
