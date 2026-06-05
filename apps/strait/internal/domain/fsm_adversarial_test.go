@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"slices"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 // allRunStatuses enumerates every RunStatus constant for exhaustive testing.
@@ -51,13 +53,15 @@ func TestFSM_ExhaustiveTransitionMatrix(t *testing.T) {
 				if targets, ok := validTransitions[from]; ok {
 					allowed = slices.Contains(targets, to)
 				}
+				require.False(t,
+					allowed &&
+						err !=
+							nil)
+				require.False(t,
+					!allowed &&
+						err ==
+							nil)
 
-				if allowed && err != nil {
-					t.Fatalf("expected valid transition %s -> %s but got error: %v", from, to, err)
-				}
-				if !allowed && err == nil {
-					t.Fatalf("expected invalid transition %s -> %s but got nil error", from, to)
-				}
 			})
 		}
 	}
@@ -67,29 +71,31 @@ func TestFSM_UnknownFromStatus(t *testing.T) {
 	t.Parallel()
 
 	err := ValidateTransition(RunStatus("bogus_status"), StatusQueued)
-	if err == nil {
-		t.Fatal("expected error for unknown from status, got nil")
-	}
+	require.Error(t,
+		err)
+
 	var unknownErr *UnknownStatusError
-	if !errors.As(err, &unknownErr) {
-		t.Fatalf("expected UnknownStatusError, got %T: %v", err, err)
-	}
-	if unknownErr.Status != RunStatus("bogus_status") {
-		t.Fatalf("expected status bogus_status in error, got %s", unknownErr.Status)
-	}
+	require.True(t,
+		errors.As(err, &unknownErr),
+	)
+	require.Equal(t,
+		RunStatus("bogus_status"),
+		unknownErr.
+			Status)
+
 }
 
 func TestFSM_UnknownToStatus(t *testing.T) {
 	t.Parallel()
 
 	err := ValidateTransition(StatusQueued, RunStatus("nonexistent"))
-	if err == nil {
-		t.Fatal("expected error for unknown to status, got nil")
-	}
+	require.Error(t,
+		err)
+
 	var transErr *TransitionError
-	if !errors.As(err, &transErr) {
-		t.Fatalf("expected TransitionError, got %T: %v", err, err)
-	}
+	require.True(t,
+		errors.As(err, &transErr))
+
 }
 
 func TestFSM_EmptyStatus(t *testing.T) {
@@ -97,33 +103,32 @@ func TestFSM_EmptyStatus(t *testing.T) {
 
 	// Empty from should return unknown status error.
 	err := ValidateTransition(RunStatus(""), RunStatus(""))
-	if err == nil {
-		t.Fatal("expected error for empty from status, got nil")
-	}
+	require.Error(t,
+		err)
+
 	var unknownErr *UnknownStatusError
-	if !errors.As(err, &unknownErr) {
-		t.Fatalf("expected UnknownStatusError for empty from, got %T: %v", err, err)
-	}
+	require.True(t,
+		errors.As(err, &unknownErr),
+	)
 
 	// Empty to with valid from should return transition error.
 	err = ValidateTransition(StatusQueued, RunStatus(""))
-	if err == nil {
-		t.Fatal("expected error for empty to status, got nil")
-	}
+	require.Error(t,
+		err)
+
 }
 
 func TestFSM_NullByteStatus(t *testing.T) {
 	t.Parallel()
 
 	err := ValidateTransition(RunStatus("\x00"), StatusQueued)
-	if err == nil {
-		t.Fatal("expected error for null byte from status, got nil")
-	}
+	require.Error(t,
+		err)
 
 	err = ValidateTransition(StatusQueued, RunStatus("\x00"))
-	if err == nil {
-		t.Fatal("expected error for null byte to status, got nil")
-	}
+	require.Error(t,
+		err)
+
 }
 
 func FuzzFSMTransitionAdversarial(f *testing.F) {
@@ -158,13 +163,15 @@ func TestWorkflowFSM_ExhaustiveMatrix(t *testing.T) {
 				if targets, ok := validWorkflowTransitions[from]; ok {
 					allowed = slices.Contains(targets, to)
 				}
+				require.False(t,
+					allowed &&
+						err !=
+							nil)
+				require.False(t,
+					!allowed &&
+						err ==
+							nil)
 
-				if allowed && err != nil {
-					t.Fatalf("expected valid workflow transition %s -> %s but got error: %v", from, to, err)
-				}
-				if !allowed && err == nil {
-					t.Fatalf("expected invalid workflow transition %s -> %s but got nil error", from, to)
-				}
 			})
 		}
 	}
@@ -174,22 +181,22 @@ func TestWorkflowFSM_UnknownStatus(t *testing.T) {
 	t.Parallel()
 
 	err := ValidateWorkflowTransition(WorkflowRunStatus("imaginary"), WfStatusRunning)
-	if err == nil {
-		t.Fatal("expected error for unknown workflow from status, got nil")
-	}
+	require.Error(t,
+		err)
+
 	var unknownErr *UnknownStatusError
-	if !errors.As(err, &unknownErr) {
-		t.Fatalf("expected UnknownStatusError, got %T: %v", err, err)
-	}
+	require.True(t,
+		errors.As(err, &unknownErr),
+	)
 
 	err = ValidateWorkflowTransition(WfStatusPending, WorkflowRunStatus("imaginary"))
-	if err == nil {
-		t.Fatal("expected error for invalid workflow to status, got nil")
-	}
+	require.Error(t,
+		err)
+
 	var transErr *TransitionError
-	if !errors.As(err, &transErr) {
-		t.Fatalf("expected TransitionError, got %T: %v", err, err)
-	}
+	require.True(t,
+		errors.As(err, &transErr))
+
 }
 
 func FuzzWorkflowFSMTransition(f *testing.F) {
@@ -211,14 +218,11 @@ func TestValidateScopes_EmptySlice(t *testing.T) {
 	t.Parallel()
 
 	err := ValidateScopes([]string{})
-	if err != nil {
-		t.Fatalf("expected nil error for empty scopes, got: %v", err)
-	}
+	require.NoError(t, err)
 
 	err = ValidateScopes(nil)
-	if err != nil {
-		t.Fatalf("expected nil error for nil scopes, got: %v", err)
-	}
+	require.NoError(t, err)
+
 }
 
 func TestValidateScopes_DuplicateScopes(t *testing.T) {
@@ -226,15 +230,13 @@ func TestValidateScopes_DuplicateScopes(t *testing.T) {
 
 	// Duplicate valid scopes should still pass.
 	err := ValidateScopes([]string{ScopeJobsRead, ScopeJobsRead, ScopeJobsRead})
-	if err != nil {
-		t.Fatalf("expected nil error for duplicate valid scopes, got: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Duplicate invalid scopes should fail.
 	err = ValidateScopes([]string{"fake:scope", "fake:scope"})
-	if err == nil {
-		t.Fatal("expected error for duplicate invalid scopes, got nil")
-	}
+	require.Error(t,
+		err)
+
 }
 
 func FuzzValidateScopesAdversarial(f *testing.F) {

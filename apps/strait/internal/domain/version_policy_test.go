@@ -4,6 +4,9 @@ import (
 	"encoding/json"
 	"slices"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestVersionPolicy_IsValid(t *testing.T) {
@@ -30,9 +33,7 @@ func TestVersionPolicy_IsValid(t *testing.T) {
 		}
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			if got := tt.policy.IsValid(); got != tt.want {
-				t.Errorf("VersionPolicy(%q).IsValid() = %v, want %v", tt.policy, got, tt.want)
-			}
+			assert.Equal(t, tt.want, tt.policy.IsValid())
 		})
 	}
 }
@@ -49,16 +50,16 @@ func TestVersionPolicy_JSONRoundtrip(t *testing.T) {
 			t.Parallel()
 			w := wrapper{Policy: policy}
 			data, err := json.Marshal(w)
-			if err != nil {
-				t.Fatalf("Marshal: %v", err)
-			}
+			require.NoError(t, err)
+
 			var got wrapper
-			if err := json.Unmarshal(data, &got); err != nil {
-				t.Fatalf("Unmarshal: %v", err)
-			}
-			if got.Policy != policy {
-				t.Fatalf("roundtrip: got %q, want %q", got.Policy, policy)
-			}
+			require.NoError(t, json.
+				Unmarshal(data, &got),
+			)
+			require.Equal(t, policy,
+				got.Policy,
+			)
+
 		})
 	}
 }
@@ -67,9 +68,10 @@ func TestSystemRolePermissions_AdminHasWildcard(t *testing.T) {
 	t.Parallel()
 
 	perms := SystemRolePermissions["admin"]
-	if len(perms) != 1 || perms[0] != "*" {
-		t.Fatalf("admin permissions = %v, want [*]", perms)
-	}
+	require.False(t, len(perms) != 1 ||
+		perms[0] !=
+			"*")
+
 }
 
 func TestSystemRolePermissions_ViewerCannotWrite(t *testing.T) {
@@ -77,10 +79,17 @@ func TestSystemRolePermissions_ViewerCannotWrite(t *testing.T) {
 
 	viewerPerms := SystemRolePermissions["viewer"]
 	for _, p := range viewerPerms {
-		if p == ScopeJobsWrite || p == ScopeRunsWrite || p == ScopeWorkflowsWrite ||
-			p == ScopeSecretsWrite || p == ScopeJobsTrigger || p == ScopeWorkflowsTrigger {
-			t.Fatalf("viewer should not have write/trigger scope %q", p)
-		}
+		require.False(t, p ==
+			ScopeJobsWrite ||
+			p ==
+
+				ScopeRunsWrite ||
+			p == ScopeWorkflowsWrite || p ==
+			ScopeSecretsWrite ||
+			p == ScopeJobsTrigger ||
+			p == ScopeWorkflowsTrigger,
+		)
+
 	}
 }
 
@@ -88,9 +97,12 @@ func TestSystemRolePermissions_OperatorHasRBACManage(t *testing.T) {
 	t.Parallel()
 
 	operatorPerms := SystemRolePermissions["operator"]
-	if !slices.Contains(operatorPerms, ScopeRBACManage) {
-		t.Fatal("operator should have rbac:manage permission")
-	}
+	require.True(t, slices.
+		Contains(
+			operatorPerms,
+
+			ScopeRBACManage))
+
 }
 
 func TestSystemRolePermissions_OperatorHasOutboxMutationScopes(t *testing.T) {
@@ -98,9 +110,12 @@ func TestSystemRolePermissions_OperatorHasOutboxMutationScopes(t *testing.T) {
 
 	operatorPerms := SystemRolePermissions["operator"]
 	for _, scope := range []string{ScopeOutboxRead, ScopeOutboxRetry, ScopeOutboxPurge} {
-		if !slices.Contains(operatorPerms, scope) {
-			t.Fatalf("operator should have %s permission", scope)
-		}
+		require.True(t, slices.
+			Contains(
+				operatorPerms,
+
+				scope))
+
 	}
 }
 
@@ -109,9 +124,11 @@ func TestSystemRolePermissions_TriggererCannotManageKeys(t *testing.T) {
 
 	triggererPerms := SystemRolePermissions["triggerer"]
 	for _, p := range triggererPerms {
-		if p == ScopeAPIKeysManage || p == ScopeRBACManage {
-			t.Fatalf("triggerer should not have %q", p)
-		}
+		require.False(t, p ==
+			ScopeAPIKeysManage ||
+			p ==
+				ScopeRBACManage)
+
 	}
 }
 
@@ -120,13 +137,12 @@ func TestSystemRolePermissions_AllRolesDefined(t *testing.T) {
 
 	expected := []string{"admin", "operator", "viewer", "triggerer"}
 	for _, role := range expected {
-		if _, ok := SystemRolePermissions[role]; !ok {
-			t.Fatalf("system role %q missing from SystemRolePermissions", role)
-		}
+		require.Contains(t, SystemRolePermissions, role)
 	}
-	if len(SystemRolePermissions) != len(expected) {
-		t.Fatalf("SystemRolePermissions has %d roles, want %d", len(SystemRolePermissions), len(expected))
-	}
+	require.Len(t, SystemRolePermissions,
+
+		len(expected))
+
 }
 
 func TestSystemRolePermissions_NonAdminScopesAllValid(t *testing.T) {
@@ -138,9 +154,8 @@ func TestSystemRolePermissions_NonAdminScopesAllValid(t *testing.T) {
 			continue // admin has "*" which is special
 		}
 		for _, p := range perms {
-			if !ValidScopes[p] {
-				t.Errorf("role %q has invalid scope %q", roleName, p)
-			}
+			assert.True(t, ValidScopes[p])
+
 		}
 	}
 }

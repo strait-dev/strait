@@ -3,6 +3,9 @@ package domain
 import (
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestValidateScopes(t *testing.T) {
@@ -36,9 +39,11 @@ func TestValidateScopes(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			err := ValidateScopes(tt.scopes)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("ValidateScopes(%v) error = %v, wantErr %v", tt.scopes, err, tt.wantErr)
-			}
+			assert.Equal(t,
+				tt.wantErr,
+				(err !=
+					nil))
+
 		})
 	}
 }
@@ -60,34 +65,32 @@ func TestValidateScopes_AllConstants(t *testing.T) {
 		ScopeOutboxRead, ScopeOutboxRetry, ScopeOutboxPurge,
 	}
 	for _, scope := range allScopes {
-		if err := ValidateScopes([]string{scope}); err != nil {
-			t.Errorf("scope constant %q failed validation: %v", scope, err)
-		}
+		assert.NoError(t,
+			ValidateScopes([]string{scope}))
+
 	}
 
 	// Every constant should also be in ValidScopes map.
 	for _, scope := range allScopes {
-		if !ValidScopes[scope] {
-			t.Errorf("scope constant %q missing from ValidScopes map", scope)
-		}
+		assert.True(t, ValidScopes[scope])
+
 	}
+	assert.Len(t, ValidScopes,
+
+		len(allScopes))
 
 	// ValidScopes map should have same count as allScopes.
-	if len(ValidScopes) != len(allScopes) {
-		t.Errorf("ValidScopes has %d entries, but %d scope constants defined", len(ValidScopes), len(allScopes))
-	}
+
 }
 
 func TestValidateScopes_ErrorMessage(t *testing.T) {
 	t.Parallel()
 
 	err := ValidateScopes([]string{"banana"})
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !strings.Contains(err.Error(), "banana") {
-		t.Errorf("error %q should mention invalid scope 'banana'", err.Error())
-	}
+	require.Error(t,
+		err)
+	assert.True(t, strings.Contains(err.Error(), "banana"))
+
 }
 
 func TestHasScope(t *testing.T) {
@@ -118,9 +121,10 @@ func TestHasScope(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			got := HasScope(tt.scopes, tt.required)
-			if got != tt.want {
-				t.Errorf("HasScope(%v, %q) = %v, want %v", tt.scopes, tt.required, got, tt.want)
-			}
+			assert.Equal(t,
+				tt.want, got,
+			)
+
 		})
 	}
 }
@@ -144,9 +148,7 @@ func TestHasScopeStrict(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			if got := HasScopeStrict(tt.scopes, tt.required); got != tt.want {
-				t.Fatalf("HasScopeStrict(%v, %q) = %v, want %v", tt.scopes, tt.required, got, tt.want)
-			}
+			require.Equal(t, tt.want, HasScopeStrict(tt.scopes, tt.required))
 		})
 	}
 }

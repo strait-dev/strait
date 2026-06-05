@@ -2,7 +2,11 @@
 
 package domain
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+)
 
 func TestParseEdition_Cloud(t *testing.T) {
 	// In the cloud build, ParseEdition always returns EditionCloud
@@ -12,9 +16,11 @@ func TestParseEdition_Cloud(t *testing.T) {
 	for _, input := range inputs {
 		t.Run(input, func(t *testing.T) {
 			got := ParseEdition(input)
-			if got != EditionCloud {
-				t.Errorf("ParseEdition(%q) = %q, want %q (cloud build always returns cloud)", input, got, EditionCloud)
-			}
+			assert.Equal(
+				t,
+				EditionCloud, got,
+			)
+
 		})
 	}
 }

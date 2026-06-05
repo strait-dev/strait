@@ -2,6 +2,8 @@ package domain
 
 import (
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 // TestAPIKeyPrefixLen_MatchesStraitTagPlusFiveHex locks the constant's
@@ -10,9 +12,9 @@ import (
 // test is the canary that breaks first.
 func TestAPIKeyPrefixLen_MatchesStraitTagPlusFiveHex(t *testing.T) {
 	t.Parallel()
-	if APIKeyPrefixLen != len("strait_")+5 {
-		t.Errorf("APIKeyPrefixLen drifted from spec (strait_ + 5 hex), got %d", APIKeyPrefixLen)
-	}
+	assert.Equal(t,
+		len("strait_")+5, APIKeyPrefixLen)
+
 }
 
 // TestAPIKeyPrefixLen_LongerThanTagAlone guards against an accidental
@@ -21,9 +23,10 @@ func TestAPIKeyPrefixLen_MatchesStraitTagPlusFiveHex(t *testing.T) {
 // identifier in audit logs and the UI.
 func TestAPIKeyPrefixLen_LongerThanTagAlone(t *testing.T) {
 	t.Parallel()
-	if APIKeyPrefixLen <= len("strait_") {
-		t.Errorf("APIKeyPrefixLen must include random body chars, got %d", APIKeyPrefixLen)
-	}
+	assert.False(t,
+		APIKeyPrefixLen <=
+			len("strait_"))
+
 }
 
 // TestAPIKeyPrefixLen_FitsRawKey asserts the prefix length is safely below
@@ -32,8 +35,11 @@ func TestAPIKeyPrefixLen_LongerThanTagAlone(t *testing.T) {
 // length is later trimmed.
 func TestAPIKeyPrefixLen_FitsRawKey(t *testing.T) {
 	t.Parallel()
-	const minRawKeyLen = len("strait_") + 32 // 32 hex chars = 16 random bytes
-	if APIKeyPrefixLen >= minRawKeyLen {
-		t.Errorf("APIKeyPrefixLen %d would slice past the smallest raw key (%d)", APIKeyPrefixLen, minRawKeyLen)
-	}
+	const minRawKeyLen = len("strait_") + 32
+	assert.False(t,
+		APIKeyPrefixLen >=
+			minRawKeyLen)
+
+	// 32 hex chars = 16 random bytes
+
 }

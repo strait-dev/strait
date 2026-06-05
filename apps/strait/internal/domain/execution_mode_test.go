@@ -1,6 +1,10 @@
 package domain
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+)
 
 func TestExecutionMode_IsValid(t *testing.T) {
 	t.Parallel()
@@ -18,18 +22,17 @@ func TestExecutionMode_IsValid(t *testing.T) {
 		{"unknown", false},
 	}
 	for _, tt := range tests {
-		if got := tt.mode.IsValid(); got != tt.want {
-			t.Errorf("ExecutionMode(%q).IsValid() = %v, want %v", tt.mode, got, tt.want)
-		}
+		assert.Equal(t, tt.want, tt.mode.IsValid())
 	}
 }
 
 func TestExecutionMode_Constants(t *testing.T) {
 	t.Parallel()
-	if ExecutionModeHTTP != "http" {
-		t.Errorf("ExecutionModeHTTP = %q, want http", ExecutionModeHTTP)
-	}
-	if ExecutionModeWorker != "worker" {
-		t.Errorf("ExecutionModeWorker = %q, want worker", ExecutionModeWorker)
-	}
+	assert.Equal(
+		t,
+		ExecutionMode("http"), ExecutionModeHTTP)
+	assert.Equal(
+		t,
+		ExecutionMode("worker"), ExecutionModeWorker)
+
 }

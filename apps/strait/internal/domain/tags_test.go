@@ -1,6 +1,10 @@
 package domain
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
 
 func TestWorkflow_TagsField(t *testing.T) {
 	t.Parallel()
@@ -12,13 +16,11 @@ func TestWorkflow_TagsField(t *testing.T) {
 		Slug:      "test",
 		Tags:      map[string]string{"team": "platform", "env": "prod"},
 	}
+	require.Equal(
+		t, "platform", wf.Tags["team"])
+	require.Equal(
+		t, "prod", wf.Tags["env"])
 
-	if wf.Tags["team"] != "platform" {
-		t.Fatalf("tags[team] = %q, want %q", wf.Tags["team"], "platform")
-	}
-	if wf.Tags["env"] != "prod" {
-		t.Fatalf("tags[env] = %q, want %q", wf.Tags["env"], "prod")
-	}
 }
 
 func TestJobRun_TagsField(t *testing.T) {
@@ -29,10 +31,9 @@ func TestJobRun_TagsField(t *testing.T) {
 		JobID: "job-1",
 		Tags:  map[string]string{"release": "v2.1"},
 	}
+	require.Equal(
+		t, "v2.1", run.Tags["release"])
 
-	if run.Tags["release"] != "v2.1" {
-		t.Fatalf("tags[release] = %q, want %q", run.Tags["release"], "v2.1")
-	}
 }
 
 func TestWorkflowRun_TagsField(t *testing.T) {
@@ -43,8 +44,7 @@ func TestWorkflowRun_TagsField(t *testing.T) {
 		WorkflowID: "wf-1",
 		Tags:       map[string]string{"deploy": "canary"},
 	}
+	require.Equal(
+		t, "canary", run.Tags["deploy"])
 
-	if run.Tags["deploy"] != "canary" {
-		t.Fatalf("tags[deploy] = %q, want %q", run.Tags["deploy"], "canary")
-	}
 }

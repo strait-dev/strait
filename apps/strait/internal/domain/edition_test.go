@@ -1,6 +1,10 @@
 package domain
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+)
 
 func TestEditionCapabilities(t *testing.T) {
 	tests := []struct {
@@ -17,9 +21,7 @@ func TestEditionCapabilities(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(string(tt.edition)+"/"+tt.method, func(t *testing.T) {
-			if got := tt.fn(); got != tt.want {
-				t.Errorf("%s.%s() = %v, want %v", tt.edition, tt.method, got, tt.want)
-			}
+			assert.Equal(t, tt.want, tt.fn())
 		})
 	}
 }

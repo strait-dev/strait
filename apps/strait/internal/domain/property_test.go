@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/robfig/cron/v3"
+	"github.com/stretchr/testify/require"
 )
 
 // allStatuses is the complete set of run statuses used for random selection.
@@ -45,9 +46,8 @@ func TestProperty_FSM_NoTerminalToTerminal(t *testing.T) {
 		}
 
 		err := ValidateTransition(from, to)
-		if err == nil {
-			t.Fatalf("terminal-to-terminal transition accepted: %s -> %s", from, to)
-		}
+		require.Error(t, err)
+
 	}
 }
 
@@ -67,9 +67,8 @@ func TestProperty_HealthScore_AlwaysInRange(t *testing.T) {
 		score := rand.Float64()*300 - 100
 		h := &EndpointHealthScore{HealthScore: score}
 		level := h.HealthLevel()
-		if !validLevels[level] {
-			t.Fatalf("HealthLevel(%f) = %q, not a valid level", score, level)
-		}
+		require.True(t, validLevels[level])
+
 	}
 }
 
@@ -87,9 +86,8 @@ func TestProperty_Scope_WildcardAlwaysTrue(t *testing.T) {
 			buf[j] = charset[rand.IntN(len(charset))]
 		}
 		required := string(buf)
-		if !HasScope([]string{ScopeAll}, required) {
-			t.Fatalf("HasScope([*], %q) = false, want true", required)
-		}
+		require.True(t, HasScope([]string{ScopeAll}, required))
+
 	}
 }
 
@@ -126,9 +124,8 @@ func TestProperty_CronNextFireFuture(t *testing.T) {
 
 		now := time.Now()
 		next := schedule.Next(now)
-		if !next.After(now) {
-			t.Fatalf("cron %q: next=%v is not after now=%v", expr, next, now)
-		}
+		require.True(t, next.After(now))
+
 	}
 }
 
@@ -139,9 +136,9 @@ func TestProperty_FSM_ValidTransitionsAreReflected(t *testing.T) {
 
 	for from, targets := range validTransitions {
 		for _, to := range targets {
-			if err := ValidateTransition(from, to); err != nil {
-				t.Fatalf("declared valid transition %s -> %s returned error: %v", from, to, err)
-			}
+			require.NoError(t, ValidateTransition(
+				from, to))
+
 		}
 	}
 }
@@ -159,17 +156,11 @@ func TestProperty_HealthScore_BoundaryConsistency(t *testing.T) {
 
 		switch {
 		case score < 30:
-			if level != "unhealthy" {
-				t.Fatalf("score=%f: got %q, want unhealthy", score, level)
-			}
+			require.Equal(t, "unhealthy", level)
 		case score <= 60:
-			if level != "degraded" {
-				t.Fatalf("score=%f: got %q, want degraded", score, level)
-			}
+			require.Equal(t, "degraded", level)
 		default:
-			if level != "healthy" {
-				t.Fatalf("score=%f: got %q, want healthy", score, level)
-			}
+			require.Equal(t, "healthy", level)
 		}
 	}
 }
@@ -187,9 +178,8 @@ func TestProperty_Scope_EmptyScopesGrantAll(t *testing.T) {
 			buf[j] = charset[rand.IntN(len(charset))]
 		}
 		required := string(buf)
-		if !HasScope([]string{}, required) {
-			t.Fatalf("HasScope([], %q) = false, want true (empty = full access)", required)
-		}
+		require.True(t, HasScope([]string{}, required))
+
 	}
 }
 

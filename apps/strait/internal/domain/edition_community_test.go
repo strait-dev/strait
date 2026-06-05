@@ -2,7 +2,11 @@
 
 package domain
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+)
 
 func TestParseEdition_Community(t *testing.T) {
 	// In the community build, ParseEdition always returns EditionCommunity
@@ -22,9 +26,12 @@ func TestParseEdition_Community(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
 			got := ParseEdition(tt.input)
-			if got != EditionCommunity {
-				t.Errorf("ParseEdition(%q) = %q, want %q (community build)", tt.input, got, EditionCommunity)
-			}
+			assert.Equal(t,
+
+				EditionCommunity,
+
+				got)
+
 		})
 	}
 }

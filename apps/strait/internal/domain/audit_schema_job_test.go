@@ -3,6 +3,8 @@ package domain
 import (
 	"slices"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestForbiddenKeysFor_JobUpdatedIncludesSigningSecretAliases(t *testing.T) {
@@ -10,8 +12,8 @@ func TestForbiddenKeysFor_JobUpdatedIncludesSigningSecretAliases(t *testing.T) {
 
 	forbidden := ForbiddenKeysFor(AuditActionJobUpdated)
 	for _, must := range []string{"endpoint_signing_secret", "webhook_secret", "signing_secret"} {
-		if !slices.Contains(forbidden, must) {
-			t.Fatalf("ForbiddenKeysFor(%s) missing %q, have %v", AuditActionJobUpdated, must, forbidden)
-		}
+		require.True(t,
+			slices.Contains(forbidden, must))
+
 	}
 }

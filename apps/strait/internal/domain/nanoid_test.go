@@ -7,15 +7,19 @@ import (
 	"unicode"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewVersionID_HasPrefix(t *testing.T) {
 	t.Parallel()
 
 	id := NewVersionID()
-	if !strings.HasPrefix(id, VersionIDPrefix) {
-		t.Fatalf("NewVersionID() = %q, want prefix %q", id, VersionIDPrefix)
-	}
+	require.True(t,
+		strings.HasPrefix(id,
+			VersionIDPrefix,
+		))
+
 }
 
 func TestNewVersionID_CorrectLength(t *testing.T) {
@@ -23,9 +27,10 @@ func TestNewVersionID_CorrectLength(t *testing.T) {
 
 	id := NewVersionID()
 	expected := len(VersionIDPrefix) + VersionIDLength
-	if len(id) != expected {
-		t.Fatalf("len(NewVersionID()) = %d, want %d (got %q)", len(id), expected, id)
-	}
+	require.Len(t, id,
+		expected,
+	)
+
 }
 
 func TestNewVersionID_Unique(t *testing.T) {
@@ -34,9 +39,9 @@ func TestNewVersionID_Unique(t *testing.T) {
 	seen := make(map[string]bool, 1000)
 	for range 1000 {
 		id := NewVersionID()
-		if seen[id] {
-			t.Fatalf("duplicate version ID: %q", id)
-		}
+		require.False(t,
+			seen[id])
+
 		seen[id] = true
 	}
 }
@@ -48,9 +53,11 @@ func TestNewVersionID_OnlyValidChars(t *testing.T) {
 		id := NewVersionID()
 		body := strings.TrimPrefix(id, VersionIDPrefix)
 		for _, c := range body {
-			if !strings.ContainsRune(VersionIDAlphabet, c) {
-				t.Fatalf("invalid char %q in version ID %q", string(c), id)
-			}
+			require.True(t,
+				strings.ContainsRune(VersionIDAlphabet,
+
+					c))
+
 		}
 	}
 }
@@ -62,9 +69,11 @@ func TestNewVersionID_NoUpperCase(t *testing.T) {
 		id := NewVersionID()
 		body := strings.TrimPrefix(id, VersionIDPrefix)
 		for _, c := range body {
-			if unicode.IsUpper(c) {
-				t.Fatalf("uppercase char %q found in version ID %q", string(c), id)
-			}
+			require.False(t,
+				unicode.
+					IsUpper(c),
+			)
+
 		}
 	}
 }
@@ -88,18 +97,20 @@ func TestNewVersionID_Concurrent(t *testing.T) {
 			mu.Lock()
 			defer mu.Unlock()
 			for _, id := range local {
-				if seen[id] {
-					t.Errorf("duplicate version ID: %q", id)
-				}
+				assert.False(t,
+					seen[id],
+				)
+
 				seen[id] = true
 			}
 		})
 	}
 	wg.Wait()
+	require.Len(t, seen,
+		goroutines*
+			perGoroutine,
+	)
 
-	if len(seen) != goroutines*perGoroutine {
-		t.Fatalf("expected %d unique IDs, got %d", goroutines*perGoroutine, len(seen))
-	}
 }
 
 func TestNewVersionID_AlphabetConsistency(t *testing.T) {
@@ -107,7 +118,9 @@ func TestNewVersionID_AlphabetConsistency(t *testing.T) {
 
 	// Verify the alphabet is exactly what we expect: 0-9 + a-z.
 	expected := "0123456789abcdefghijklmnopqrstuvwxyz"
-	if VersionIDAlphabet != expected {
-		t.Fatalf("VersionIDAlphabet = %q, want %q", VersionIDAlphabet, expected)
-	}
+	require.Equal(t,
+		expected,
+		VersionIDAlphabet,
+	)
+
 }

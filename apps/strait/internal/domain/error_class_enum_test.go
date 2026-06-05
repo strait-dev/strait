@@ -1,8 +1,10 @@
 package domain
 
 import (
-	"errors"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestErrorClassEnum_IsValid(t *testing.T) {
@@ -12,33 +14,33 @@ func TestErrorClassEnum_IsValid(t *testing.T) {
 		ErrorClassBudget, ErrorClassUnknown,
 	}
 	for _, e := range valid {
-		if !ErrorClassEnum(e).IsValid() {
-			t.Errorf("%q should be valid", e)
-		}
+		assert.True(t,
+			ErrorClassEnum(e).IsValid())
+
 	}
 	invalid := []string{"", "FATAL", "retry", "http_500"}
 	for _, e := range invalid {
-		if ErrorClassEnum(e).IsValid() && e != "" {
-			t.Errorf("%q should not be valid", e)
-		}
+		assert.False(t,
+			ErrorClassEnum(e).IsValid() && e != "")
+
 	}
 }
 
 func TestErrorClassEnum_IsRetryable(t *testing.T) {
 	nonRetryable := []string{ErrorClassClient, ErrorClassAuth, ErrorClassBudget, ErrorClassOOM}
 	for _, e := range nonRetryable {
-		if ErrorClassEnum(e).IsRetryable() {
-			t.Errorf("%q should not be retryable", e)
-		}
+		assert.False(t,
+			ErrorClassEnum(e).IsRetryable())
+
 	}
 	retryable := []string{
 		ErrorClassServer, ErrorClassTransient, ErrorClassTimeout,
 		ErrorClassConnection, ErrorClassRateLimited, ErrorClassUnknown,
 	}
 	for _, e := range retryable {
-		if !ErrorClassEnum(e).IsRetryable() {
-			t.Errorf("%q should be retryable", e)
-		}
+		assert.True(t,
+			ErrorClassEnum(e).IsRetryable())
+
 	}
 }
 
@@ -47,66 +49,70 @@ func TestErrorClassEnum_IsTransient(t *testing.T) {
 		ErrorClassRateLimited, ErrorClassTransient, ErrorClassConnection, ErrorClassTimeout,
 	}
 	for _, e := range transient {
-		if !ErrorClassEnum(e).IsTransient() {
-			t.Errorf("%q should be transient", e)
-		}
+		assert.True(t,
+			ErrorClassEnum(e).IsTransient())
+
 	}
 	nonTransient := []string{
 		ErrorClassClient, ErrorClassAuth, ErrorClassBudget, ErrorClassOOM, ErrorClassServer,
 	}
 	for _, e := range nonTransient {
-		if ErrorClassEnum(e).IsTransient() {
-			t.Errorf("%q should not be transient", e)
-		}
+		assert.False(t,
+			ErrorClassEnum(e).IsTransient())
+
 	}
 }
 
 func TestErrorClassEnum_Scan(t *testing.T) {
 	var e ErrorClassEnum
-	if err := e.Scan("timeout"); err != nil {
-		t.Fatalf("scan: %v", err)
-	}
-	if e != ErrorClassEnum(ErrorClassTimeout) {
-		t.Errorf("e = %q", e)
-	}
+	require.NoError(t, e.Scan(
+		"timeout",
+	))
+	assert.Equal(t,
+		ErrorClassEnum(ErrorClassTimeout), e)
+	require.NoError(t, e.Scan(
+		nil,
+	))
+	assert.Equal(t,
+		ErrorClassEnum(""), e)
+	assert.Error(t,
+		e.Scan("garbage"))
 
 	// nil resets.
-	if err := e.Scan(nil); err != nil {
-		t.Fatalf("scan nil: %v", err)
-	}
-	if e != "" {
-		t.Errorf("expected empty, got %q", e)
-	}
 
 	// unknown errors.
-	if err := e.Scan("garbage"); err == nil {
-		t.Error("expected error for garbage")
-	}
+
 }
 
 func TestErrorClassEnum_Value(t *testing.T) {
 	v, err := ErrorClassEnum(ErrorClassAuth).Value()
-	if err != nil || v != "auth" {
-		t.Errorf("value = %v %v", v, err)
-	}
+	assert.False(t,
+		err != nil ||
+
+			v != "auth")
+
 	empty, err := ErrorClassEnum("").Value()
-	if empty != nil || err != nil {
-		t.Errorf("empty = %v %v", empty, err)
-	}
+	assert.False(t,
+		empty != nil ||
+			err != nil)
+
 }
 
 func TestParseErrorClass(t *testing.T) {
 	e, err := ParseErrorClass("server")
-	if err != nil || e != ErrorClassEnum(ErrorClassServer) {
-		t.Errorf("got %q %v", e, err)
-	}
+	assert.False(t,
+		err != nil ||
+
+			e != ErrorClassEnum(ErrorClassServer))
+
 	e, err = ParseErrorClass("")
-	if err != nil || e != "" {
-		t.Errorf("empty passthrough got %q %v", e, err)
-	}
-	if _, err := ParseErrorClass("nonsense"); !errors.Is(err, ErrUnknownErrorClass) {
-		t.Errorf("want ErrUnknownErrorClass, got %v", err)
-	}
+	assert.False(t,
+		err != nil ||
+
+			e != "")
+
+	_, err = ParseErrorClass("nonsense")
+	assert.ErrorIs(t, err, ErrUnknownErrorClass)
 }
 
 func FuzzErrorClassScan(f *testing.F) {
@@ -117,12 +123,14 @@ func FuzzErrorClassScan(f *testing.F) {
 		var e ErrorClassEnum
 		defer func() {
 			if r := recover(); r != nil {
-				t.Fatalf("Scan panic on %q: %v", raw, r)
+				require.Failf(t, "Scan panic", "raw=%q panic=%v", raw, r)
 			}
 		}()
 		err := e.Scan(raw)
-		if err == nil && raw != "" && !e.IsValid() {
-			t.Errorf("Scan accepted invalid %q → %q", raw, e)
-		}
+		assert.False(t,
+			err == nil &&
+
+				raw != "" && !e.IsValid())
+
 	})
 }
