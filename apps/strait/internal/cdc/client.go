@@ -249,7 +249,9 @@ func (c *Client) SinkConsumerHealth(ctx context.Context) error {
 	if result.Status != "active" {
 		return fmt.Errorf("sequin sink consumer %q is %s", c.consumerName, result.Status)
 	}
-	if result.Health.Status != "healthy" {
+	switch result.Health.Status {
+	case "healthy", "waiting":
+	default:
 		return fmt.Errorf("sequin sink consumer %q health is %s", c.consumerName, result.Health.Status)
 	}
 	return nil
