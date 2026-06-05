@@ -1,10 +1,12 @@
 package worker
 
 import (
+	"context"
 	"fmt"
 	"hash/fnv"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/sourcegraph/conc"
 )
@@ -252,6 +254,63 @@ func TestShardedBulkhead_ExplicitLimitOne(t *testing.T) {
 	if !b.TryAcquire("job-1", 1) {
 		t.Fatal("acquire after release should succeed")
 	}
+}
+
+func TestExecutorBulkhead_DefaultAppliedWhenJobHasNoLimit(t *testing.T) {
+	t.Parallel()
+
+	exec := newBulkheadTestExecutor(t, 3)
+
+	for i := range 3 {
+		if !exec.tryAcquireBulkheadSlot("job-1", 0) {
+			t.Fatalf("slot %d should be acquired", i+1)
+		}
+	}
+	if exec.tryAcquireBulkheadSlot("job-1", 0) {
+		t.Fatal("4th slot should be rejected with default concurrency 3")
+	}
+}
+
+func TestExecutorBulkhead_ExplicitOverridesDefault(t *testing.T) {
+	t.Parallel()
+
+	exec := newBulkheadTestExecutor(t, 3)
+
+	for i := range 5 {
+		if !exec.tryAcquireBulkheadSlot("job-1", 5) {
+			t.Fatalf("slot %d should be acquired with explicit limit 5", i+1)
+		}
+	}
+	if exec.tryAcquireBulkheadSlot("job-1", 5) {
+		t.Fatal("6th slot should be rejected with explicit limit 5")
+	}
+}
+
+func TestExecutorBulkhead_DefaultZeroDisabled(t *testing.T) {
+	t.Parallel()
+
+	exec := newBulkheadTestExecutor(t, 0)
+
+	for i := range 100 {
+		if !exec.tryAcquireBulkheadSlot("job-1", 0) {
+			t.Fatalf("slot %d should be acquired with no limit", i+1)
+		}
+	}
+}
+
+func newBulkheadTestExecutor(t *testing.T, defaultLimit int) *Executor {
+	t.Helper()
+
+	pool := NewPool(10)
+	t.Cleanup(func() { _ = pool.Shutdown(context.Background()) })
+
+	return NewExecutor(ExecutorConfig{
+		Pool:                     pool,
+		Queue:                    &mockExecQueue{},
+		Store:                    &mockExecutorStore{},
+		PollInterval:             time.Hour,
+		DefaultJobMaxConcurrency: defaultLimit,
+	})
 }
 
 func BenchmarkShardedBulkhead_Contention(b *testing.B) {
