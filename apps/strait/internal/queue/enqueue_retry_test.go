@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 type retryTestQueue struct {
@@ -43,15 +45,10 @@ func TestEnqueueWithRetry_SucceedsAfterThrottle(t *testing.T) {
 			return nil
 		},
 	})
-	if err != nil {
-		t.Fatalf("EnqueueWithRetry() error = %v", err)
-	}
-	if attempts != 3 {
-		t.Fatalf("attempts = %d, want 3", attempts)
-	}
-	if sleeps != 2 {
-		t.Fatalf("sleeps = %d, want 2", sleeps)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 3, attempts)
+	require.EqualValues(t, 2, sleeps)
+
 }
 
 func TestEnqueueWithRetry_StopsOnNonThrottle(t *testing.T) {
@@ -68,13 +65,15 @@ func TestEnqueueWithRetry_StopsOnNonThrottle(t *testing.T) {
 		MaxDelay:   10 * time.Millisecond,
 		JitterFrac: 0,
 		sleep: func(context.Context, time.Duration) error {
-			t.Fatal("sleep should not be called for non-throttle errors")
+			require.Fail(t,
+
+				"sleep should not be called for non-throttle errors")
 			return nil
 		},
 	})
-	if !errors.Is(err, wantErr) {
-		t.Fatalf("EnqueueWithRetry() error = %v, want %v", err, wantErr)
-	}
+	require.True(t,
+		errors.Is(err, wantErr))
+
 }
 
 func TestEnqueueWithRetry_ReturnsThrottleWhenBudgetExceeded(t *testing.T) {
@@ -92,16 +91,16 @@ func TestEnqueueWithRetry_ReturnsThrottleWhenBudgetExceeded(t *testing.T) {
 		MaxDelay:   10 * time.Millisecond,
 		JitterFrac: 0,
 		sleep: func(context.Context, time.Duration) error {
-			t.Fatal("sleep should not run once budget is exceeded")
+			require.Fail(t,
+
+				"sleep should not run once budget is exceeded")
 			return nil
 		},
 	})
-	if !errors.Is(err, ErrEnqueueThrottled) {
-		t.Fatalf("EnqueueWithRetry() error = %v, want throttle", err)
-	}
-	if attempts != 1 {
-		t.Fatalf("attempts = %d, want 1", attempts)
-	}
+	require.True(t,
+		errors.Is(err, ErrEnqueueThrottled))
+	require.EqualValues(t, 1, attempts)
+
 }
 
 func TestEnqueueWithRetry_StopsWhenContextCanceled(t *testing.T) {
@@ -128,15 +127,13 @@ func TestEnqueueWithRetry_StopsWhenContextCanceled(t *testing.T) {
 			return ctx.Err()
 		},
 	})
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("EnqueueWithRetry() error = %v, want %v", err, context.Canceled)
-	}
-	if attempts != 1 {
-		t.Fatalf("attempts = %d, want 1", attempts)
-	}
-	if sleeps != 1 {
-		t.Fatalf("sleeps = %d, want 1", sleeps)
-	}
+	require.True(t,
+		errors.Is(err, context.
+			Canceled,
+		))
+	require.EqualValues(t, 1, attempts)
+	require.EqualValues(t, 1, sleeps)
+
 }
 
 func TestEnqueueWithRetry_StopsWhenContextDeadlineExceeded(t *testing.T) {
@@ -162,13 +159,11 @@ func TestEnqueueWithRetry_StopsWhenContextDeadlineExceeded(t *testing.T) {
 			return ctx.Err()
 		},
 	})
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("EnqueueWithRetry() error = %v, want %v", err, context.DeadlineExceeded)
-	}
-	if attempts != 1 {
-		t.Fatalf("attempts = %d, want 1", attempts)
-	}
-	if sleeps != 1 {
-		t.Fatalf("sleeps = %d, want 1", sleeps)
-	}
+	require.True(t,
+		errors.Is(err, context.
+			DeadlineExceeded,
+		))
+	require.EqualValues(t, 1, attempts)
+	require.EqualValues(t, 1, sleeps)
+
 }

@@ -14,6 +14,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/stretchr/testify/require"
 )
 
 // mockBatchDB implements store.DBTX + CopyFromer for unit testing EnqueueBatch.
@@ -101,12 +102,9 @@ func TestEnqueueBatch_EmptySlice(t *testing.T) {
 	t.Parallel()
 	q := NewPostgresRunWriter(&mockBatchDB{})
 	n, err := q.EnqueueBatch(context.Background(), nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if n != 0 {
-		t.Fatalf("expected 0, got %d", n)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 0, n)
+
 }
 
 func TestEnqueueBatch_SingleRun(t *testing.T) {
@@ -116,12 +114,9 @@ func TestEnqueueBatch_SingleRun(t *testing.T) {
 
 	runs := []*domain.JobRun{{JobID: "job-1", ProjectID: "proj-1"}}
 	n, err := q.EnqueueBatch(context.Background(), runs)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if n != 1 {
-		t.Fatalf("expected 1, got %d", n)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 1, n)
+
 }
 
 func TestEnqueueBatch_AssignsIDs(t *testing.T) {
@@ -134,17 +129,15 @@ func TestEnqueueBatch_AssignsIDs(t *testing.T) {
 		{JobID: "job-1", ProjectID: "proj-1"},
 	}
 	_, err := q.EnqueueBatch(context.Background(), runs)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	require.NoError(t, err)
+
+	for _, run := range runs {
+		require.NotEqual(t, "", run.
+			ID)
+
 	}
-	for i, run := range runs {
-		if run.ID == "" {
-			t.Fatalf("run %d: expected ID to be assigned", i)
-		}
-	}
-	if runs[0].ID == runs[1].ID {
-		t.Fatal("expected different IDs for different runs")
-	}
+	require.NotEqual(t, runs[1].ID, runs[0].ID)
+
 }
 
 func TestEnqueueBatch_PreservesExistingIDs(t *testing.T) {
@@ -156,12 +149,11 @@ func TestEnqueueBatch_PreservesExistingIDs(t *testing.T) {
 		{ID: "preset-id-1", JobID: "job-1", ProjectID: "proj-1"},
 	}
 	_, err := q.EnqueueBatch(context.Background(), runs)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if runs[0].ID != "preset-id-1" {
-		t.Fatalf("expected ID to be preserved, got %s", runs[0].ID)
-	}
+	require.NoError(t, err)
+	require.Equal(t,
+		"preset-id-1",
+		runs[0].ID)
+
 }
 
 func TestEnqueueBatch_DefaultAttemptToOne(t *testing.T) {
@@ -171,12 +163,9 @@ func TestEnqueueBatch_DefaultAttemptToOne(t *testing.T) {
 
 	runs := []*domain.JobRun{{JobID: "job-1", ProjectID: "proj-1", Attempt: 0}}
 	_, err := q.EnqueueBatch(context.Background(), runs)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if runs[0].Attempt != 1 {
-		t.Fatalf("expected attempt=1, got %d", runs[0].Attempt)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 1, runs[0].Attempt)
+
 }
 
 func TestEnqueueBatch_DefaultTriggeredByManual(t *testing.T) {
@@ -186,12 +175,14 @@ func TestEnqueueBatch_DefaultTriggeredByManual(t *testing.T) {
 
 	runs := []*domain.JobRun{{JobID: "job-1", ProjectID: "proj-1"}}
 	_, err := q.EnqueueBatch(context.Background(), runs)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if runs[0].TriggeredBy != domain.TriggerManual {
-		t.Fatalf("expected triggered_by=manual, got %s", runs[0].TriggeredBy)
-	}
+	require.NoError(t, err)
+	require.Equal(t,
+		domain.TriggerManual,
+
+		runs[0].
+			TriggeredBy,
+	)
+
 }
 
 func TestEnqueueBatch_FutureScheduledAt_StatusDelayed(t *testing.T) {
@@ -202,12 +193,13 @@ func TestEnqueueBatch_FutureScheduledAt_StatusDelayed(t *testing.T) {
 	future := time.Now().Add(time.Hour)
 	runs := []*domain.JobRun{{JobID: "job-1", ProjectID: "proj-1", ScheduledAt: &future}}
 	_, err := q.EnqueueBatch(context.Background(), runs)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if runs[0].Status != domain.StatusDelayed {
-		t.Fatalf("expected StatusDelayed for future scheduled_at, got %s", runs[0].Status)
-	}
+	require.NoError(t, err)
+	require.Equal(t,
+		domain.StatusDelayed,
+
+		runs[0].
+			Status)
+
 }
 
 func TestEnqueueBatch_PastScheduledAt_StatusQueued(t *testing.T) {
@@ -218,12 +210,13 @@ func TestEnqueueBatch_PastScheduledAt_StatusQueued(t *testing.T) {
 	past := time.Now().Add(-time.Hour)
 	runs := []*domain.JobRun{{JobID: "job-1", ProjectID: "proj-1", ScheduledAt: &past}}
 	_, err := q.EnqueueBatch(context.Background(), runs)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if runs[0].Status != domain.StatusQueued {
-		t.Fatalf("expected StatusQueued for past scheduled_at, got %s", runs[0].Status)
-	}
+	require.NoError(t, err)
+	require.Equal(t,
+		domain.StatusQueued,
+
+		runs[0].
+			Status)
+
 }
 
 func TestEnqueueBatch_CopyFromError(t *testing.T) {
@@ -235,12 +228,13 @@ func TestEnqueueBatch_CopyFromError(t *testing.T) {
 
 	runs := []*domain.JobRun{{JobID: "job-1", ProjectID: "proj-1"}}
 	_, err := q.EnqueueBatch(context.Background(), runs)
-	if err == nil {
-		t.Fatal("expected error from CopyFrom")
-	}
-	if got := err.Error(); got != "enqueue batch: copy from: copy protocol error" {
-		t.Fatalf("unexpected error message: %s", got)
-	}
+	require.Error(t,
+		err)
+	require.Equal(t,
+		"enqueue batch: copy from: copy protocol error",
+
+		err.Error())
+
 }
 
 func TestEnqueueBatch_NoCopyFromSupport(t *testing.T) {
@@ -249,12 +243,13 @@ func TestEnqueueBatch_NoCopyFromSupport(t *testing.T) {
 
 	runs := []*domain.JobRun{{JobID: "job-1", ProjectID: "proj-1"}}
 	_, err := q.EnqueueBatch(context.Background(), runs)
-	if err == nil {
-		t.Fatal("expected error when db lacks CopyFromer")
-	}
-	if got := err.Error(); got != "enqueue batch: underlying db does not support CopyFrom" {
-		t.Fatalf("unexpected error: %s", got)
-	}
+	require.Error(t,
+		err)
+	require.Equal(t,
+		"enqueue batch: underlying db does not support CopyFrom",
+
+		err.Error())
+
 }
 
 func TestEnqueueBatch_DoesNotIssueExplicitNotify(t *testing.T) {
@@ -267,18 +262,15 @@ func TestEnqueueBatch_DoesNotIssueExplicitNotify(t *testing.T) {
 		{JobID: "job-1", ProjectID: "proj-1"},
 	}
 	n, err := q.EnqueueBatch(context.Background(), runs)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if n != 2 {
-		t.Fatalf("expected 2, got %d", n)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 2, n)
 
 	calls := db.getExecCalls()
 	for _, c := range calls {
-		if c.sql == "SELECT pg_notify($1, $2)" {
-			t.Fatalf("unexpected explicit pg_notify call: %+v", c)
-		}
+		require.NotEqual(t, "SELECT pg_notify($1, $2)",
+
+			c.sql)
+
 	}
 }
 
@@ -302,23 +294,22 @@ func TestEnqueueBatch_TagsSerialized(t *testing.T) {
 		Tags:      map[string]string{"env": "prod", "region": "us-east-1"},
 	}}
 	_, err := q.EnqueueBatch(context.Background(), runs)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, err)
+	require.Len(t,
+		capturedRows,
+		1)
 
-	if len(capturedRows) != 1 {
-		t.Fatalf("expected 1 row, got %d", len(capturedRows))
-	}
 	// tags is at index 23 in copyFromColumns.
 	tagsVal, ok := capturedRows[0][23].([]byte)
-	if !ok {
-		t.Fatalf("expected tags as []byte, got %T", capturedRows[0][23])
-	}
+	require.True(t,
+		ok)
+
 	tagsStr := string(tagsVal)
+	require.False(t,
+		len(tagsStr) <= 2)
+
 	// JSON should contain both keys (order may vary).
-	if len(tagsStr) <= 2 {
-		t.Fatalf("expected non-empty tags JSON, got %q", tagsStr)
-	}
+
 }
 
 // Adversarial batch tests.
@@ -338,17 +329,15 @@ func TestEnqueueBatch_LargeBatch_100Runs(t *testing.T) {
 	}
 
 	n, err := q.EnqueueBatch(context.Background(), runs)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if n != 100 {
-		t.Fatalf("expected 100, got %d", n)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 100, n)
+
 	ids := make(map[string]bool)
 	for _, run := range runs {
-		if ids[run.ID] {
-			t.Fatalf("duplicate ID: %s", run.ID)
-		}
+		require.False(t,
+			ids[run.
+				ID])
+
 		ids[run.ID] = true
 	}
 }
@@ -372,18 +361,15 @@ func TestEnqueueBatch_NilTags_DefaultsToEmptyJSON(t *testing.T) {
 		{JobID: "job-1", ProjectID: "proj-1", Tags: map[string]string{}},
 	}
 	_, err := q.EnqueueBatch(context.Background(), runs)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, err)
 
-	for i, row := range capturedRows {
+	for _, row := range capturedRows {
 		tagsVal, ok := row[23].([]byte)
-		if !ok {
-			t.Fatalf("row %d: tags value type = %T, want []byte", i, row[23])
-		}
-		if string(tagsVal) != "{}" {
-			t.Fatalf("row %d: expected '{}', got %q", i, string(tagsVal))
-		}
+		require.True(t,
+			ok)
+		require.Equal(t,
+			"{}", string(tagsVal))
+
 	}
 }
 
@@ -401,19 +387,23 @@ func TestEnqueueBatch_MixedScheduledAt(t *testing.T) {
 	}
 
 	_, err := q.EnqueueBatch(context.Background(), runs)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, err)
+	require.Equal(t,
+		domain.StatusDelayed,
 
-	if runs[0].Status != domain.StatusDelayed {
-		t.Fatalf("future: expected Delayed, got %s", runs[0].Status)
-	}
-	if runs[1].Status != domain.StatusQueued {
-		t.Fatalf("past: expected Queued, got %s", runs[1].Status)
-	}
-	if runs[2].Status != domain.StatusQueued {
-		t.Fatalf("nil: expected Queued, got %s", runs[2].Status)
-	}
+		runs[0].
+			Status)
+	require.Equal(t,
+		domain.StatusQueued,
+
+		runs[1].
+			Status)
+	require.Equal(t,
+		domain.StatusQueued,
+
+		runs[2].
+			Status)
+
 }
 
 func TestEnqueueBatch_PreservesExistingAttempt(t *testing.T) {
@@ -426,10 +416,7 @@ func TestEnqueueBatch_PreservesExistingAttempt(t *testing.T) {
 	}
 
 	_, err := q.EnqueueBatch(context.Background(), runs)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if runs[0].Attempt != 5 {
-		t.Fatalf("expected attempt=5 preserved, got %d", runs[0].Attempt)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 5, runs[0].Attempt)
+
 }

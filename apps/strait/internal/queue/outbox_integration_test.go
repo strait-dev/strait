@@ -12,6 +12,8 @@ import (
 	"strait/internal/store"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestOutbox_WriteInTxHappyPath(t *testing.T) {
@@ -22,9 +24,8 @@ func TestOutbox_WriteInTxHappyPath(t *testing.T) {
 	job := mustCreateJob(t, ctx, st, "project-outbox-happy")
 
 	tx, err := testDB.Pool.Begin(ctx)
-	if err != nil {
-		t.Fatalf("begin: %v", err)
-	}
+	require.NoError(t, err)
+
 	defer tx.Rollback(ctx)
 
 	entries := []queue.OutboxEntry{{
@@ -34,21 +35,16 @@ func TestOutbox_WriteInTxHappyPath(t *testing.T) {
 		Metadata:  map[string]any{"source": "test"},
 		Priority:  5,
 	}}
-	if err := queue.WriteOutboxInTx(ctx, tx, entries); err != nil {
-		t.Fatalf("write: %v", err)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		t.Fatalf("commit: %v", err)
-	}
+	require.NoError(t, queue.
+		WriteOutboxInTx(ctx,
+			tx, entries))
+	require.NoError(t, tx.Commit(ctx))
 
 	// Verify the row is present and unconsumed.
 	count, err := st.CountUnconsumedOutbox(ctx)
-	if err != nil {
-		t.Fatalf("count: %v", err)
-	}
-	if count != 1 {
-		t.Errorf("unconsumed = %d, want 1", count)
-	}
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, count)
+
 }
 
 func TestOutbox_RollbackLeavesNothing(t *testing.T) {
@@ -59,22 +55,16 @@ func TestOutbox_RollbackLeavesNothing(t *testing.T) {
 	job := mustCreateJob(t, ctx, st, "project-outbox-rollback")
 
 	tx, err := testDB.Pool.Begin(ctx)
-	if err != nil {
-		t.Fatalf("begin: %v", err)
-	}
-	if err := queue.WriteOutboxInTx(ctx, tx, []queue.OutboxEntry{{
-		ProjectID: job.ProjectID,
-		JobID:     job.ID,
-	}}); err != nil {
-		t.Fatalf("write: %v", err)
-	}
-	if err := tx.Rollback(ctx); err != nil {
-		t.Fatalf("rollback: %v", err)
-	}
+	require.NoError(t, err)
+	require.NoError(t, queue.
+		WriteOutboxInTx(ctx,
+			tx, []queue.OutboxEntry{{ProjectID: job.ProjectID, JobID: job.
+				ID}}))
+	require.NoError(t, tx.Rollback(ctx))
+
 	count, _ := st.CountUnconsumedOutbox(ctx)
-	if count != 0 {
-		t.Errorf("count = %d, want 0 after rollback", count)
-	}
+	assert.EqualValues(t, 0, count)
+
 }
 
 func TestOutbox_IdempotentOnIDConflict(t *testing.T) {
@@ -85,26 +75,21 @@ func TestOutbox_IdempotentOnIDConflict(t *testing.T) {
 	job := mustCreateJob(t, ctx, st, "project-outbox-idem")
 
 	fixedID := newID()
-	for i := range 3 {
+	for range 3 {
 		tx, err := testDB.Pool.Begin(ctx)
-		if err != nil {
-			t.Fatalf("begin: %v", err)
-		}
-		if err := queue.WriteOutboxInTx(ctx, tx, []queue.OutboxEntry{{
-			ID:        fixedID,
-			ProjectID: job.ProjectID,
-			JobID:     job.ID,
-		}}); err != nil {
-			t.Fatalf("write %d: %v", i, err)
-		}
-		if err := tx.Commit(ctx); err != nil {
-			t.Fatalf("commit %d: %v", i, err)
-		}
+		require.NoError(t, err)
+		require.NoError(t, queue.
+			WriteOutboxInTx(ctx,
+				tx, []queue.OutboxEntry{{ID: fixedID,
+
+					ProjectID: job.ProjectID,
+					JobID:     job.ID}}))
+		require.NoError(t, tx.Commit(ctx))
+
 	}
 	count, _ := st.CountUnconsumedOutbox(ctx)
-	if count != 1 {
-		t.Errorf("count = %d, want 1 (idempotent)", count)
-	}
+	assert.EqualValues(t, 1, count)
+
 }
 
 func TestOutbox_ClaimMarkCycle(t *testing.T) {
@@ -125,30 +110,25 @@ func TestOutbox_ClaimMarkCycle(t *testing.T) {
 
 	// Flusher-style claim + mark in the same transaction.
 	flushTx, err := testDB.Pool.Begin(ctx)
-	if err != nil {
-		t.Fatalf("flush begin: %v", err)
-	}
+	require.NoError(t, err)
+
 	rows, err := st.ClaimUnconsumedOutbox(ctx, 10)
-	if err != nil {
-		t.Fatalf("claim: %v", err)
-	}
-	if len(rows) != 3 {
-		t.Errorf("claim = %d, want 3", len(rows))
-	}
+	require.NoError(t, err)
+	assert.Len(t, rows, 3)
+
 	var ids []string
 	for _, r := range rows {
 		ids = append(ids, r.ID)
 	}
-	if err := st.MarkOutboxConsumed(ctx, ids); err != nil {
-		t.Fatalf("mark: %v", err)
-	}
+	require.NoError(t, st.MarkOutboxConsumed(ctx,
+		ids))
+
 	_ = flushTx.Commit(ctx)
 
 	// All consumed now.
 	count, _ := st.CountUnconsumedOutbox(ctx)
-	if count != 0 {
-		t.Errorf("count after mark = %d", count)
-	}
+	assert.EqualValues(t, 0, count)
+
 }
 
 func TestOutbox_OldestAge(t *testing.T) {
@@ -166,30 +146,30 @@ func TestOutbox_OldestAge(t *testing.T) {
 
 	time.Sleep(100 * time.Millisecond)
 	age, err := st.OldestUnconsumedOutboxAge(ctx)
-	if err != nil {
-		t.Fatalf("age: %v", err)
-	}
-	if age < 50*time.Millisecond {
-		t.Errorf("age = %v, want >= 50ms", age)
-	}
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t,
+
+		age, 50*
+			time.Millisecond,
+	)
+
 }
 
 func TestOutbox_ValidationErrors(t *testing.T) {
 	ctx := context.Background()
 	tx, err := testDB.Pool.Begin(ctx)
-	if err != nil {
-		t.Fatalf("begin: %v", err)
-	}
+	require.NoError(t, err)
+
 	defer tx.Rollback(ctx)
 
 	cases := []queue.OutboxEntry{
 		{JobID: "j1"},     // missing project
 		{ProjectID: "p1"}, // missing job
 	}
-	for i, e := range cases {
-		if err := queue.WriteOutboxInTx(ctx, tx, []queue.OutboxEntry{e}); err == nil {
-			t.Errorf("case %d: expected error", i)
-		}
+	for _, e := range cases {
+		assert.Error(t, queue.WriteOutboxInTx(ctx, tx,
+			[]queue.OutboxEntry{e}))
+
 	}
 }
 
@@ -197,12 +177,13 @@ func TestOutbox_EmptyWriteNoOp(t *testing.T) {
 	ctx := context.Background()
 	tx, _ := testDB.Pool.Begin(ctx)
 	defer tx.Rollback(ctx)
-	if err := queue.WriteOutboxInTx(ctx, tx, nil); err != nil {
-		t.Errorf("nil entries: %v", err)
-	}
-	if err := queue.WriteOutboxInTx(ctx, tx, []queue.OutboxEntry{}); err != nil {
-		t.Errorf("empty slice: %v", err)
-	}
+	assert.NoError(t, queue.
+		WriteOutboxInTx(ctx,
+			tx, nil))
+	assert.NoError(t, queue.
+		WriteOutboxInTx(ctx,
+			tx, []queue.OutboxEntry{}))
+
 }
 
 func TestOutbox_ConcurrentFlushersDoNotDuplicate(t *testing.T) {
@@ -256,17 +237,14 @@ func TestOutbox_ConcurrentFlushersDoNotDuplicate(t *testing.T) {
 	for range 2 {
 		r := <-ch
 		for _, id := range r.ids {
-			if seen[id] {
-				t.Errorf("duplicate claim of %s", id)
-			}
+			assert.False(t, seen[id])
+
 			seen[id] = true
 		}
 	}
-	if len(seen) != 20 {
-		t.Errorf("claimed %d unique, want 20", len(seen))
-	}
+	assert.Len(t, seen, 20)
+
 	count, _ := st.CountUnconsumedOutbox(ctx)
-	if count != 0 {
-		t.Errorf("remaining = %d, want 0", count)
-	}
+	assert.EqualValues(t, 0, count)
+
 }

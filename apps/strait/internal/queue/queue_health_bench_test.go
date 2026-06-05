@@ -23,6 +23,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Queue Health Benchmark.
@@ -155,9 +157,13 @@ type healthBenchQueue struct {
 
 func mustHealthBenchQueue(t *testing.T, ctx context.Context, cfg benchConfig) healthBenchQueue {
 	t.Helper()
-	if testDB == nil || testDB.Pool == nil {
-		t.Fatal("testDB is not initialized")
-	}
+	require.False(t,
+
+		testDB == nil || testDB.
+			Pool ==
+			nil,
+	)
+
 	runWriter := queue.NewPostgresRunWriter(testDB.Pool)
 	q := queue.NewPgQueQueue(testDB.Pool, runWriter, queue.PgQueConfig{
 		TickInterval:  50 * time.Millisecond,
@@ -260,9 +266,13 @@ func newSnapshotCollector(
 	t.Helper()
 
 	var startWALLSN string
-	if err := testDB.Pool.QueryRow(ctx, `SELECT pg_current_wal_lsn()::text`).Scan(&startWALLSN); err != nil {
-		t.Fatalf("capture start WAL LSN: %v", err)
-	}
+	require.NoError(
+		t, testDB.Pool.QueryRow(ctx,
+			`SELECT pg_current_wal_lsn()::text`,
+		).Scan(
+			&startWALLSN,
+		))
+
 	now := time.Now()
 	return &snapshotCollector{
 		ctx:          ctx,
@@ -424,7 +434,9 @@ func TestQueueHealthBench(t *testing.T) {
 	}
 
 	if _, err := testDB.Pool.Exec(ctx, "ANALYZE job_runs, job_run_state"); err != nil {
-		t.Fatalf("analyze: %v", err)
+		require.Failf(t, "test failure",
+
+			"analyze: %v", err)
 	}
 	if _, err := testDB.Pool.Exec(ctx, "SELECT pg_stat_reset()"); err != nil {
 		t.Logf("pg_stat_reset: %v (non-fatal)", err)
@@ -571,7 +583,9 @@ func TestQueueHealthBench_WithLongTxn(t *testing.T) {
 	benchQ := mustHealthBenchQueue(t, ctx, cfg)
 
 	if _, err := testDB.Pool.Exec(ctx, "ANALYZE job_runs, job_run_state"); err != nil {
-		t.Fatalf("analyze: %v", err)
+		require.Failf(t, "test failure",
+
+			"analyze: %v", err)
 	}
 
 	t.Logf("=== Queue Health Benchmark WITH LONG TRANSACTION (PlanetScale scenario) ===")
@@ -583,11 +597,13 @@ func TestQueueHealthBench_WithLongTxn(t *testing.T) {
 		IsoLevel:   pgx.RepeatableRead,
 		AccessMode: pgx.ReadOnly,
 	})
-	if err != nil {
-		t.Fatalf("begin long txn: %v", err)
-	}
+	require.NoError(
+		t, err)
+
 	if _, err := longTx.Exec(ctx, "SELECT count(*) FROM job_runs LEFT JOIN job_run_state ON job_run_state.run_id = job_runs.id"); err != nil {
-		t.Fatalf("long txn read: %v", err)
+		require.Failf(t, "test failure",
+
+			"long txn read: %v", err)
 	}
 	t.Logf("Long transaction started (xmin pinned)")
 
@@ -732,19 +748,24 @@ func TestQueueHealthBench_WithLogicalSlot(t *testing.T) {
 	benchQ := mustHealthBenchQueue(t, ctx, cfg)
 
 	var walLevel string
-	if err := testDB.Pool.QueryRow(ctx, "SHOW wal_level").Scan(&walLevel); err != nil {
-		t.Fatalf("show wal_level: %v", err)
-	}
-	if walLevel != "logical" {
-		t.Fatalf("wal_level = %q, want logical", walLevel)
-	}
+	require.NoError(
+		t, testDB.Pool.QueryRow(ctx,
+			"SHOW wal_level",
+		).
+			Scan(&walLevel))
+	require.Equal(t,
+
+		"logical", walLevel,
+	)
 
 	slotName := fmt.Sprintf("strait_bench_%d", time.Now().UnixNano())
 	if _, err := testDB.Pool.Exec(ctx,
 		`SELECT pg_create_logical_replication_slot($1, 'pgoutput')`,
 		slotName,
 	); err != nil {
-		t.Fatalf("create logical replication slot: %v", err)
+		require.Failf(t, "test failure",
+
+			"create logical replication slot: %v", err)
 	}
 	defer func() {
 		_, _ = testDB.Pool.Exec(context.Background(), `
@@ -755,7 +776,9 @@ func TestQueueHealthBench_WithLogicalSlot(t *testing.T) {
 	}()
 
 	if _, err := testDB.Pool.Exec(ctx, "ANALYZE job_runs, job_run_state"); err != nil {
-		t.Fatalf("analyze: %v", err)
+		require.Failf(t, "test failure",
+
+			"analyze: %v", err)
 	}
 	if _, err := testDB.Pool.Exec(ctx, "SELECT pg_stat_reset()"); err != nil {
 		t.Logf("pg_stat_reset: %v (non-fatal)", err)
@@ -864,10 +887,10 @@ finished:
 	snapshots = append(snapshots, final)
 
 	printReport(t, cfg, benchQ.engine, snapshots)
+	assert.False(t,
 
-	if final.SlotWalLagBytes <= 0 {
-		t.Errorf("expected stalled logical slot to accumulate WAL lag")
-	}
+		final.SlotWalLagBytes <=
+			0)
 
 	writeResults(t, "queue_health_bench_logical_slot_results.json", map[string]any{
 		"config": cfg, "scenario": "logical_slot_wal_retention", "slot_name": slotName, "snapshots": snapshots,
@@ -1050,45 +1073,58 @@ func enforceQueueHealthBenchThresholds(t *testing.T, snapshots []healthSnapshot)
 	maxWALPerRun := maxSnapshotFloat64(snapshots, func(s healthSnapshot) float64 { return s.WALBytesPerRun })
 
 	maxDeadRatio := benchFloatThreshold(t, "BENCH_MAX_DEAD_TUPLE_RATIO", 0.50)
-	if final.DeadTupleRatio > maxDeadRatio {
-		t.Errorf("CRITICAL: final dead tuple ratio %.4f exceeds %.4f threshold", final.DeadTupleRatio, maxDeadRatio)
-	}
+	assert.LessOrEqual(t, final.DeadTupleRatio,
+
+		maxDeadRatio,
+	)
 
 	maxLatestDequeueP99 := benchDurationThreshold(t, "BENCH_MAX_DEQUEUE_P99", time.Second)
-	if time.Duration(latencySnap.DequeueP99us)*time.Microsecond > maxLatestDequeueP99 {
-		t.Errorf(
-			"CRITICAL: latest P99 dequeue latency %dus exceeds %s threshold",
-			latencySnap.DequeueP99us,
-			maxLatestDequeueP99,
-		)
-	}
+	assert.LessOrEqual(t, time.Duration(
+		latencySnap.
+			DequeueP99us,
+	)*
+		time.Microsecond,
+		maxLatestDequeueP99,
+	)
 
 	if maxMaxDequeueP99, ok := optionalBenchDurationThreshold(t, "BENCH_MAX_DEQUEUE_MAX_P99"); ok {
-		if time.Duration(maxP99)*time.Microsecond > maxMaxDequeueP99 {
-			t.Errorf("CRITICAL: max P99 dequeue latency %dus exceeds %s threshold", maxP99, maxMaxDequeueP99)
-		}
+		assert.LessOrEqual(t, time.Duration(
+			maxP99)*
+			time.Microsecond,
+
+			maxMaxDequeueP99,
+		)
+
 	}
 	if maxLatestCompletionP99, ok := optionalBenchDurationThreshold(t, "BENCH_MAX_COMPLETION_P99"); ok {
-		if time.Duration(latencySnap.CompletionP99us)*time.Microsecond > maxLatestCompletionP99 {
-			t.Errorf(
-				"CRITICAL: latest P99 completion latency %dus exceeds %s threshold",
-				latencySnap.CompletionP99us,
-				maxLatestCompletionP99,
-			)
-		}
+		assert.LessOrEqual(t, time.Duration(
+			latencySnap.
+				CompletionP99us,
+		)*time.Microsecond,
+			maxLatestCompletionP99,
+		)
+
 	}
 	if maxMaxCompletionP99, ok := optionalBenchDurationThreshold(t, "BENCH_MAX_COMPLETION_MAX_P99"); ok {
-		if time.Duration(maxCompletionP99)*time.Microsecond > maxMaxCompletionP99 {
-			t.Errorf("CRITICAL: max P99 completion latency %dus exceeds %s threshold", maxCompletionP99, maxMaxCompletionP99)
-		}
+		assert.LessOrEqual(t, time.Duration(
+			maxCompletionP99,
+		)*time.Microsecond,
+			maxMaxCompletionP99,
+		)
+
 	}
 	if maxOldestQueuedAge, ok := optionalBenchDurationThreshold(t, "BENCH_MAX_OLDEST_QUEUED_AGE"); ok {
-		if time.Duration(maxOldestAge*float64(time.Second)) > maxOldestQueuedAge {
-			t.Errorf("CRITICAL: oldest queued age %.1fs exceeds %s threshold", maxOldestAge, maxOldestQueuedAge)
-		}
+		assert.LessOrEqual(t, time.Duration(
+			maxOldestAge*
+				float64(time.
+					Second)), maxOldestQueuedAge,
+		)
+
 	}
 	if maxWAL, ok := optionalBenchFloatThreshold(t, "BENCH_MAX_WAL_PER_RUN"); ok && maxWALPerRun > maxWAL {
-		t.Errorf("CRITICAL: max WAL/run %.0f exceeds %.0f threshold", maxWALPerRun, maxWAL)
+		assert.Failf(t, "test failure",
+
+			"CRITICAL: max WAL/run %.0f exceeds %.0f threshold", maxWALPerRun, maxWAL)
 	}
 }
 
@@ -1118,9 +1154,9 @@ func optionalBenchDurationThreshold(t *testing.T, env string) (time.Duration, bo
 		return 0, false
 	}
 	threshold, err := time.ParseDuration(value)
-	if err != nil {
-		t.Fatalf("%s=%q is not a valid duration: %v", env, value, err)
-	}
+	require.NoError(
+		t, err)
+
 	return threshold, true
 }
 
@@ -1139,12 +1175,12 @@ func optionalBenchFloatThreshold(t *testing.T, env string) (float64, bool) {
 		return 0, false
 	}
 	threshold, err := strconv.ParseFloat(value, 64)
-	if err != nil {
-		t.Fatalf("%s=%q is not a valid float: %v", env, value, err)
-	}
-	if threshold <= 0 {
-		t.Fatalf("%s=%q must be greater than zero", env, value)
-	}
+	require.NoError(
+		t, err)
+	require.False(t,
+
+		threshold <= 0)
+
 	return threshold, true
 }
 
@@ -1203,13 +1239,15 @@ func TestQueueHealthBench_Compare(t *testing.T) {
 	loadResult := func(path string) result {
 		t.Helper()
 		data, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatalf("read %s: %v", path, err)
-		}
+		require.NoError(
+			t, err)
+
 		var r result
-		if err := json.Unmarshal(data, &r); err != nil {
-			t.Fatalf("parse %s: %v", path, err)
-		}
+		require.NoError(
+			t, json.Unmarshal(data,
+
+				&r))
+
 		return r
 	}
 

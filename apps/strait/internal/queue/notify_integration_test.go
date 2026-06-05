@@ -15,39 +15,42 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewQueueNotifier(t *testing.T) {
-	if testDB == nil || testDB.ConnStr == "" {
-		t.Fatal("testDB is not initialized")
-	}
+	require.False(t, testDB ==
+		nil ||
+		testDB.ConnStr ==
+			"",
+	)
 
 	notifier := queue.NewQueueNotifier(testDB.ConnStr, slog.Default())
-	if notifier == nil {
-		t.Fatal("NewQueueNotifier returned nil")
-	}
+	require.NotNil(t, notifier)
 
 	ch := notifier.Wake()
-	if ch == nil {
-		t.Fatal("Wake() channel is nil")
-	}
+	require.NotNil(t, ch)
+
 }
 
 func TestNewQueueNotifier_NilLogger(t *testing.T) {
-	if testDB == nil || testDB.ConnStr == "" {
-		t.Fatal("testDB is not initialized")
-	}
+	require.False(t, testDB ==
+		nil ||
+		testDB.ConnStr ==
+			"",
+	)
 
 	notifier := queue.NewQueueNotifier(testDB.ConnStr, nil)
-	if notifier == nil {
-		t.Fatal("NewQueueNotifier with nil logger returned nil")
-	}
+	require.NotNil(t, notifier)
+
 }
 
 func TestQueueNotifier_WakeReceivesNotification(t *testing.T) {
-	if testDB == nil || testDB.ConnStr == "" {
-		t.Fatal("testDB is not initialized")
-	}
+	require.False(t, testDB ==
+		nil ||
+		testDB.ConnStr ==
+			"",
+	)
 
 	notifier := queue.NewQueueNotifier(testDB.ConnStr, slog.Default())
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -60,29 +63,32 @@ func TestQueueNotifier_WakeReceivesNotification(t *testing.T) {
 
 	// Send a NOTIFY on the queue wake channel via a separate connection.
 	conn, err := pgx.Connect(ctx, testDB.ConnStr)
-	if err != nil {
-		t.Fatalf("connect for NOTIFY: %v", err)
-	}
+	require.NoError(t, err)
+
 	defer conn.Close(context.Background())
 
 	if _, err := conn.Exec(ctx, fmt.Sprintf("NOTIFY %s", queue.QueueWakeChannel)); err != nil {
-		t.Fatalf("NOTIFY error: %v", err)
+		require.Failf(t, "test failure",
+
+			"NOTIFY error: %v", err)
 	}
 
 	select {
 	case <-notifier.Wake():
 		// Received the wake signal.
 	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for wake signal after NOTIFY")
+		require.Fail(t, "timed out waiting for wake signal after NOTIFY")
 	}
 }
 
 func TestQueueNotifier_RunStopsOnContextCancel(t *testing.T) {
 	var concWG conc.WaitGroup
 	defer concWG.Wait()
-	if testDB == nil || testDB.ConnStr == "" {
-		t.Fatal("testDB is not initialized")
-	}
+	require.False(t, testDB ==
+		nil ||
+		testDB.ConnStr ==
+			"",
+	)
 
 	notifier := queue.NewQueueNotifier(testDB.ConnStr, slog.Default())
 	ctx, cancel := context.WithCancel(context.Background())
@@ -101,14 +107,16 @@ func TestQueueNotifier_RunStopsOnContextCancel(t *testing.T) {
 	case <-done:
 		// Run exited cleanly.
 	case <-time.After(5 * time.Second):
-		t.Fatal("Run did not stop after context cancellation")
+		require.Fail(t, "Run did not stop after context cancellation")
 	}
 }
 
 func TestQueueNotifier_MultipleWakesCoalesced(t *testing.T) {
-	if testDB == nil || testDB.ConnStr == "" {
-		t.Fatal("testDB is not initialized")
-	}
+	require.False(t, testDB ==
+		nil ||
+		testDB.ConnStr ==
+			"",
+	)
 
 	notifier := queue.NewQueueNotifier(testDB.ConnStr, slog.Default())
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -120,15 +128,16 @@ func TestQueueNotifier_MultipleWakesCoalesced(t *testing.T) {
 	time.Sleep(500 * time.Millisecond)
 
 	conn, err := pgx.Connect(ctx, testDB.ConnStr)
-	if err != nil {
-		t.Fatalf("connect for NOTIFY: %v", err)
-	}
+	require.NoError(t, err)
+
 	defer conn.Close(context.Background())
 
 	// Send multiple NOTIFY signals rapidly without draining the channel.
 	for range 10 {
 		if _, err := conn.Exec(ctx, fmt.Sprintf("NOTIFY %s", queue.QueueWakeChannel)); err != nil {
-			t.Fatalf("NOTIFY error: %v", err)
+			require.Failf(t, "test failure",
+
+				"NOTIFY error: %v", err)
 		}
 	}
 
@@ -141,7 +150,7 @@ func TestQueueNotifier_MultipleWakesCoalesced(t *testing.T) {
 	case <-notifier.Wake():
 		// First wake received.
 	case <-time.After(3 * time.Second):
-		t.Fatal("timed out waiting for first wake")
+		require.Fail(t, "timed out waiting for first wake")
 	}
 
 	// The channel should be empty now (coalesced).
@@ -151,7 +160,7 @@ func TestQueueNotifier_MultipleWakesCoalesced(t *testing.T) {
 		// after we drained the first. A third would indicate no coalescing.
 		select {
 		case <-notifier.Wake():
-			t.Fatal("wake channel received more than 2 signals from 10 notifications; coalescing is broken")
+			require.Fail(t, "wake channel received more than 2 signals from 10 notifications; coalescing is broken")
 		case <-time.After(200 * time.Millisecond):
 			// At most 2 signals from 10 notifications -- coalescing works.
 		}
@@ -181,7 +190,7 @@ func TestQueueNotifier_RunReconnectsAfterBadURL(t *testing.T) {
 	case <-done:
 		// Exited cleanly after context timeout.
 	case <-time.After(5 * time.Second):
-		t.Fatal("Run did not stop after context cancellation with bad URL")
+		require.Fail(t, "Run did not stop after context cancellation with bad URL")
 	}
 }
 
@@ -197,13 +206,12 @@ func TestQueueNotifyTrigger_SingleEnqueueEmitsOneWake(t *testing.T) {
 	defer listener.Close(context.Background())
 
 	run := &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID}
-	if err := q.Enqueue(ctx, run); err != nil {
-		t.Fatalf("Enqueue() error = %v", err)
-	}
+	require.NoError(t, q.Enqueue(ctx,
+		run))
+	require.EqualValues(t, 1, countQueueWakeNotifications(t, ctx,
+		listener,
+	))
 
-	if got := countQueueWakeNotifications(t, ctx, listener); got != 1 {
-		t.Fatalf("queue wake notifications = %d, want 1", got)
-	}
 }
 
 func TestQueueNotifyTrigger_BatchEnqueueEmitsOneWake(t *testing.T) {
@@ -222,16 +230,14 @@ func TestQueueNotifyTrigger_BatchEnqueueEmitsOneWake(t *testing.T) {
 		runs[i] = &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID}
 	}
 	inserted, err := q.EnqueueBatch(ctx, runs)
-	if err != nil {
-		t.Fatalf("EnqueueBatch() error = %v", err)
-	}
-	if inserted != int64(len(runs)) {
-		t.Fatalf("EnqueueBatch inserted = %d, want %d", inserted, len(runs))
-	}
+	require.NoError(t, err)
+	require.Equal(t, int64(
+		len(runs)),
+		inserted)
+	require.EqualValues(t, 1, countQueueWakeNotifications(t, ctx,
+		listener,
+	))
 
-	if got := countQueueWakeNotifications(t, ctx, listener); got != 1 {
-		t.Fatalf("queue wake notifications = %d, want 1", got)
-	}
 }
 
 func TestQueueNotifyTrigger_StatusUpdateQueuedEmitsOneWakePerStatement(t *testing.T) {
@@ -253,9 +259,9 @@ func TestQueueNotifyTrigger_StatusUpdateQueuedEmitsOneWakePerStatement(t *testin
 			ProjectID:   job.ProjectID,
 			ScheduledAt: &future,
 		}
-		if err := q.Enqueue(ctx, run); err != nil {
-			t.Fatalf("Enqueue delayed run %d: %v", i, err)
-		}
+		require.NoError(t, q.Enqueue(ctx,
+			run))
+
 	}
 
 	listener := listenQueueWake(t, ctx)
@@ -265,12 +271,14 @@ func TestQueueNotifyTrigger_StatusUpdateQueuedEmitsOneWakePerStatement(t *testin
 		SET status = 'queued', scheduled_at = NULL
 		WHERE id = ANY($1)
 	`, ids); err != nil {
-		t.Fatalf("update delayed runs to queued: %v", err)
-	}
+		require.Failf(t, "test failure",
 
-	if got := countQueueWakeNotifications(t, ctx, listener); got != 1 {
-		t.Fatalf("queue wake notifications = %d, want 1", got)
+			"update delayed runs to queued: %v", err)
 	}
+	require.EqualValues(t, 1, countQueueWakeNotifications(t, ctx,
+		listener,
+	))
+
 }
 
 func TestQueueNotifyTrigger_NonQueuedTransitionEmitsNoWake(t *testing.T) {
@@ -282,9 +290,8 @@ func TestQueueNotifyTrigger_NonQueuedTransitionEmitsNoWake(t *testing.T) {
 	mustClean(t, ctx)
 	job := mustCreateJob(t, ctx, st, "project-notify-nonqueued")
 	run := &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID}
-	if err := q.Enqueue(ctx, run); err != nil {
-		t.Fatalf("Enqueue() error = %v", err)
-	}
+	require.NoError(t, q.Enqueue(ctx,
+		run))
 
 	listener := listenQueueWake(t, ctx)
 	defer listener.Close(context.Background())
@@ -293,23 +300,26 @@ func TestQueueNotifyTrigger_NonQueuedTransitionEmitsNoWake(t *testing.T) {
 		SET status = 'executing', started_at = NOW()
 		WHERE id = $1
 	`, run.ID); err != nil {
-		t.Fatalf("update run to executing: %v", err)
-	}
+		require.Failf(t, "test failure",
 
-	if got := countQueueWakeNotifications(t, ctx, listener); got != 0 {
-		t.Fatalf("queue wake notifications = %d, want 0", got)
+			"update run to executing: %v", err)
 	}
+	require.EqualValues(t, 0, countQueueWakeNotifications(t, ctx,
+		listener,
+	))
+
 }
 
 func listenQueueWake(t *testing.T, ctx context.Context) *pgx.Conn {
 	t.Helper()
 	listener, err := pgx.Connect(ctx, testDB.ConnStr)
-	if err != nil {
-		t.Fatalf("listen conn: %v", err)
-	}
+	require.NoError(t, err)
+
 	if _, err := listener.Exec(ctx, "LISTEN "+queue.QueueWakeChannel); err != nil {
 		_ = listener.Close(context.Background())
-		t.Fatalf("listen queue wake: %v", err)
+		require.Failf(t, "test failure",
+
+			"listen queue wake: %v", err)
 	}
 	return listener
 }
@@ -336,7 +346,9 @@ func countQueueWakeNotifications(t *testing.T, ctx context.Context, listener *pg
 			if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
 				return count
 			}
-			t.Fatalf("wait for queue wake notification: %v", err)
+			require.Failf(t, "test failure",
+
+				"wait for queue wake notification: %v", err)
 		}
 		if note != nil && note.Channel == queue.QueueWakeChannel {
 			count++

@@ -12,6 +12,8 @@ import (
 	"strait/internal/domain"
 	"strait/internal/queue"
 	"strait/internal/testutil"
+
+	"github.com/stretchr/testify/require"
 )
 
 func mustPgQueQueue(t *testing.T) *queue.PgQueQueue {
@@ -28,7 +30,9 @@ func assertCurrentGenerationActiveClaim(t *testing.T, ctx context.Context, runID
 	t.Helper()
 	var readyGeneration int64
 	var activeClaims int
-	if err := testDB.Pool.QueryRow(ctx, `
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`
 		SELECT s.ready_generation, COUNT(c.run_id)
 		FROM job_run_state s
 		LEFT JOIN job_run_active_claims c
@@ -36,19 +40,17 @@ func assertCurrentGenerationActiveClaim(t *testing.T, ctx context.Context, runID
 		 AND c.ready_generation = s.ready_generation
 		WHERE s.run_id = $1
 		GROUP BY s.ready_generation`,
-		runID,
-	).Scan(&readyGeneration, &activeClaims); err != nil {
-		t.Fatalf("query current-generation active claim: %v", err)
-	}
-	if activeClaims != 1 {
-		t.Fatalf("current ready_generation %d active claims = %d, want 1", readyGeneration, activeClaims)
-	}
+
+		runID).Scan(&readyGeneration, &activeClaims))
+	require.EqualValues(t, 1, activeClaims)
+
 }
 
 func TestPgQue_ConstructsQueue(t *testing.T) {
-	if q := mustPgQueQueue(t); q == nil {
-		t.Fatal("mustPgQueQueue() returned nil")
-	}
+	require.NotNil(t,
+
+		mustPgQueQueue(t))
+
 }
 
 func TestPgQue_EnqueueInTxRollbackLeavesNoClaimableEvent(t *testing.T) {
@@ -60,25 +62,23 @@ func TestPgQue_EnqueueInTxRollbackLeavesNoClaimableEvent(t *testing.T) {
 	q := mustPgQueQueue(t)
 
 	tx, err := testDB.Pool.Begin(ctx)
-	if err != nil {
-		t.Fatalf("begin tx: %v", err)
-	}
+	require.NoError(t, err)
+
 	run := &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID}
 	if err := q.EnqueueInTx(ctx, tx, run); err != nil {
 		_ = tx.Rollback(ctx)
-		t.Fatalf("EnqueueInTx: %v", err)
+		require.Failf(t, "test failure",
+
+			"EnqueueInTx: %v", err)
 	}
-	if err := tx.Rollback(ctx); err != nil {
-		t.Fatalf("rollback: %v", err)
-	}
+	require.NoError(t, tx.Rollback(ctx))
 
 	claimed, err := q.DequeueN(ctx, 10)
-	if err != nil {
-		t.Fatalf("DequeueN: %v", err)
-	}
-	if len(claimed) != 0 {
-		t.Fatalf("claimed len = %d, want 0 after rollback", len(claimed))
-	}
+	require.NoError(t, err)
+	require.Len(t, claimed,
+
+		0)
+
 }
 
 func TestPgQue_EnqueueReadyRunRecordsEmitMarker(t *testing.T) {
@@ -96,33 +96,27 @@ func TestPgQue_EnqueueReadyRunRecordsEmitMarker(t *testing.T) {
 		Status:    domain.StatusQueued,
 		Priority:  5,
 	}
-	if err := q.Enqueue(ctx, run); err != nil {
-		t.Fatalf("Enqueue: %v", err)
-	}
+	require.NoError(t, q.Enqueue(ctx,
+		run))
 
 	var markers int
-	if err := testDB.Pool.QueryRow(ctx, `
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`
 		SELECT COUNT(*)
 		FROM strait_pgque_ready_events emit
 		JOIN job_run_state s
 		  ON s.run_id = emit.run_id
 		 AND s.ready_generation = emit.ready_generation
 		WHERE emit.run_id = $1`,
-		run.ID,
-	).Scan(&markers); err != nil {
-		t.Fatalf("query ready emit marker: %v", err)
-	}
-	if markers != 1 {
-		t.Fatalf("ready emit markers = %d, want 1", markers)
-	}
+
+		run.ID).Scan(&markers))
+	require.EqualValues(t, 1, markers)
 
 	repaired, err := q.ReconcileReadyRuns(ctx, 10)
-	if err != nil {
-		t.Fatalf("ReconcileReadyRuns: %v", err)
-	}
-	if repaired != 0 {
-		t.Fatalf("ReconcileReadyRuns repaired = %d, want 0 for already-emitted run", repaired)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 0, repaired)
+
 }
 
 func TestPgQue_ReconcileReadyRunsReemitsUnmarkedReadyRunOnce(t *testing.T) {
@@ -140,44 +134,32 @@ func TestPgQue_ReconcileReadyRunsReemitsUnmarkedReadyRunOnce(t *testing.T) {
 		Status:    domain.StatusQueued,
 		Priority:  11,
 	}
-	if err := st.CreateRun(ctx, run); err != nil {
-		t.Fatalf("CreateRun: %v", err)
-	}
+	require.NoError(t, st.CreateRun(ctx,
+		run))
 
 	claimed, err := q.DequeueN(ctx, 1)
-	if err != nil {
-		t.Fatalf("DequeueN before repair: %v", err)
-	}
-	if len(claimed) != 0 {
-		t.Fatalf("claimed before repair = %+v, want no pgque event", claimed)
-	}
+	require.NoError(t, err)
+	require.Len(t, claimed,
+
+		0)
 
 	repaired, err := q.ReconcileReadyRuns(ctx, 10)
-	if err != nil {
-		t.Fatalf("ReconcileReadyRuns: %v", err)
-	}
-	if repaired != 1 {
-		t.Fatalf("ReconcileReadyRuns repaired = %d, want 1", repaired)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 1, repaired)
 
 	repairedAgain, err := q.ReconcileReadyRuns(ctx, 10)
-	if err != nil {
-		t.Fatalf("ReconcileReadyRuns second pass: %v", err)
-	}
-	if repairedAgain != 0 {
-		t.Fatalf("second repair pass = %d, want 0 after emit marker", repairedAgain)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 0, repairedAgain)
+	require.NoError(t, q.ForceTick(ctx,
+		"http"))
 
-	if err := q.ForceTick(ctx, "http"); err != nil {
-		t.Fatalf("ForceTick: %v", err)
-	}
 	claimed, err = q.DequeueN(ctx, 1)
-	if err != nil {
-		t.Fatalf("DequeueN after repair: %v", err)
-	}
-	if len(claimed) != 1 || claimed[0].ID != run.ID {
-		t.Fatalf("claimed after repair = %+v, want run %s", claimed, run.ID)
-	}
+	require.NoError(t, err)
+	require.False(t, len(claimed) !=
+		1 || claimed[0].ID !=
+		run.
+			ID)
+
 	assertCurrentGenerationActiveClaim(t, ctx, run.ID)
 }
 
@@ -191,28 +173,28 @@ func TestPgQue_CreatesRouteIdempotently(t *testing.T) {
 
 	for range 2 {
 		run := &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID}
-		if err := q.Enqueue(ctx, run); err != nil {
-			t.Fatalf("Enqueue: %v", err)
-		}
+		require.NoError(t, q.Enqueue(ctx,
+			run))
+
 	}
 
 	var routeRows, queueRows int
-	if err := testDB.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM strait_pgque_routes WHERE route_key = 'http'`).Scan(&routeRows); err != nil {
-		t.Fatalf("route count: %v", err)
-	}
-	if routeRows != 1 {
-		t.Fatalf("route rows = %d, want 1", routeRows)
-	}
-	if err := testDB.Pool.QueryRow(ctx, `
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM strait_pgque_routes WHERE route_key = 'http'`,
+	).Scan(&routeRows),
+	)
+	require.EqualValues(t, 1, routeRows)
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`
 		SELECT COUNT(*)
 		FROM pgque.queue q
 		JOIN strait_pgque_routes r ON r.queue_name = q.queue_name
-		WHERE r.route_key = 'http'`).Scan(&queueRows); err != nil {
-		t.Fatalf("pgque queue count: %v", err)
-	}
-	if queueRows != 1 {
-		t.Fatalf("pgque queue rows = %d, want 1", queueRows)
-	}
+		WHERE r.route_key = 'http'`,
+	).Scan(&queueRows))
+	require.EqualValues(t, 1, queueRows)
+
 }
 
 func TestPgQue_MaintainRotatesEventTables(t *testing.T) {
@@ -232,29 +214,30 @@ func TestPgQue_MaintainRotatesEventTables(t *testing.T) {
 	})
 
 	run := &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID}
-	if err := q.Enqueue(ctx, run); err != nil {
-		t.Fatalf("Enqueue: %v", err)
-	}
-	if err := q.ForceTick(ctx, "http"); err != nil {
-		t.Fatalf("ForceTick: %v", err)
-	}
+	require.NoError(t, q.Enqueue(ctx,
+		run))
+	require.NoError(t, q.ForceTick(ctx,
+		"http"))
+
 	claimed, err := q.DequeueN(ctx, 1)
-	if err != nil {
-		t.Fatalf("DequeueN: %v", err)
-	}
-	if len(claimed) != 1 {
-		t.Fatalf("claimed %d runs, want 1", len(claimed))
-	}
+	require.NoError(t, err)
+	require.Len(t, claimed,
+
+		1)
 
 	var queueName string
 	var beforeTable int
-	if err := testDB.Pool.QueryRow(ctx, `
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`
 		SELECT r.queue_name, q.queue_cur_table
 		FROM strait_pgque_routes r
 		JOIN pgque.queue q ON q.queue_name = r.queue_name
-		WHERE r.route_key = 'http'`).Scan(&queueName, &beforeTable); err != nil {
-		t.Fatalf("query route queue before maintenance: %v", err)
-	}
+		WHERE r.route_key = 'http'`,
+	).Scan(&queueName,
+		&beforeTable,
+	))
+
 	if _, err := testDB.Pool.Exec(ctx, `
 		DELETE FROM pgque.subscription s
 		USING pgque.consumer c, pgque.queue q
@@ -262,21 +245,28 @@ func TestPgQue_MaintainRotatesEventTables(t *testing.T) {
 		  AND s.sub_queue = q.queue_id
 		  AND q.queue_name = $1
 		  AND c.co_name <> $2`, queueName, consumerName); err != nil {
-		t.Fatalf("clean stale test subscriptions: %v", err)
+		require.Failf(t, "test failure",
+
+			"clean stale test subscriptions: %v", err)
 	}
-	if err := q.ForceTick(ctx, "http"); err != nil {
-		t.Fatalf("ForceTick after ack: %v", err)
-	}
+	require.NoError(t, q.ForceTick(ctx,
+		"http"))
+
 	var latestTick int64
-	if err := testDB.Pool.QueryRow(ctx, `
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`
 		SELECT max(t.tick_id)
 		FROM pgque.tick t
 		JOIN pgque.queue q ON q.queue_id = t.tick_queue
-		WHERE q.queue_name = $1`, queueName).Scan(&latestTick); err != nil {
-		t.Fatalf("query latest tick: %v", err)
-	}
+		WHERE q.queue_name = $1`,
+
+		queueName).Scan(&latestTick))
+
 	if _, err := testDB.Pool.Exec(ctx, `SELECT pgque.register_consumer_at($1, $2, $3)`, queueName, consumerName, latestTick); err != nil {
-		t.Fatalf("advance consumer tick: %v", err)
+		require.Failf(t, "test failure",
+
+			"advance consumer tick: %v", err)
 	}
 	if _, err := testDB.Pool.Exec(ctx, `
 		UPDATE pgque.queue
@@ -288,22 +278,25 @@ func TestPgQue_MaintainRotatesEventTables(t *testing.T) {
 		          AND t.tick_id = $2
 		    )
 		WHERE queue_name = $1`, queueName, latestTick); err != nil {
-		t.Fatalf("age pgque route queue: %v", err)
-	}
+		require.Failf(t, "test failure",
 
-	if err := q.Maintain(ctx); err != nil {
-		t.Fatalf("Maintain: %v", err)
+			"age pgque route queue: %v", err)
 	}
+	require.NoError(t, q.Maintain(ctx))
 
 	var operations string
-	if err := testDB.Pool.QueryRow(ctx, `
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`
 		SELECT coalesce(string_agg(func_name || ':' || coalesce(func_arg, ''), ','), '')
-		FROM pgque.maint_operations()`).Scan(&operations); err != nil {
-		t.Fatalf("query maint operations: %v", err)
-	}
+		FROM pgque.maint_operations()`,
+	).Scan(&operations))
+
 	var rotationPeriod, switchAge string
 	var switchStep2, tickXmin int64
-	if err := testDB.Pool.QueryRow(ctx, `
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`
 		SELECT q.queue_rotation_period::text,
 		       age(now(), q.queue_switch_time)::text,
 		       q.queue_switch_step2,
@@ -311,29 +304,24 @@ func TestPgQue_MaintainRotatesEventTables(t *testing.T) {
 		FROM pgque.queue q
 		JOIN pgque.tick t ON t.tick_queue = q.queue_id
 		WHERE q.queue_name = $1
-		  AND t.tick_id = $2`, queueName, latestTick).Scan(&rotationPeriod, &switchAge, &switchStep2, &tickXmin); err != nil {
-		t.Fatalf("query rotation diagnostics: %v", err)
-	}
+		  AND t.tick_id = $2`,
+
+		queueName, latestTick).Scan(&rotationPeriod, &switchAge, &switchStep2,
+		&tickXmin))
 
 	var afterTable int
-	if err := testDB.Pool.QueryRow(ctx, `
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`
 		SELECT queue_cur_table
 		FROM pgque.queue
-		WHERE queue_name = $1`, queueName).Scan(&afterTable); err != nil {
-		t.Fatalf("query route queue after maintenance: %v", err)
-	}
-	if afterTable == beforeTable {
-		t.Fatalf("queue_cur_table = %d after maintenance, want rotation from %d; queue=%s operations=%q rotation_period=%s switch_age=%s switch_step2=%d tick_xmin=%d",
-			afterTable,
-			beforeTable,
-			queueName,
-			operations,
-			rotationPeriod,
-			switchAge,
-			switchStep2,
-			tickXmin,
-		)
-	}
+		WHERE queue_name = $1`,
+
+		queueName).Scan(&afterTable))
+	require.NotEqual(t, beforeTable,
+
+		afterTable)
+
 }
 
 func TestPgQue_DoesNotCreateLegacyQueueEntries(t *testing.T) {
@@ -345,56 +333,58 @@ func TestPgQue_DoesNotCreateLegacyQueueEntries(t *testing.T) {
 	q := mustPgQueQueue(t)
 
 	run := &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID}
-	if err := q.Enqueue(ctx, run); err != nil {
-		t.Fatalf("Enqueue: %v", err)
-	}
+	require.NoError(t, q.Enqueue(ctx,
+		run))
 
 	var queueEntries int
-	if err := testDB.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM queue_entries WHERE run_id = $1`, run.ID).Scan(&queueEntries); err != nil {
-		t.Fatalf("queue_entries count after enqueue: %v", err)
-	}
-	if queueEntries != 0 {
-		t.Fatalf("queue_entries after PgQue enqueue = %d, want 0", queueEntries)
-	}
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM queue_entries WHERE run_id = $1`,
 
-	if err := q.ForceTick(ctx, "http"); err != nil {
-		t.Fatalf("ForceTick: %v", err)
-	}
+		run.
+			ID).Scan(&queueEntries))
+	require.EqualValues(t, 0, queueEntries)
+	require.NoError(t, q.ForceTick(ctx,
+		"http"))
+
 	claimed, err := q.DequeueN(ctx, 1)
-	if err != nil {
-		t.Fatalf("DequeueN: %v", err)
-	}
-	if len(claimed) != 1 || claimed[0].ID != run.ID {
-		t.Fatalf("claimed = %+v, want run %s", claimed, run.ID)
-	}
-	if err := st.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusCompleted, map[string]any{"finished_at": time.Now()}); err != nil {
-		t.Fatalf("UpdateRunStatus completed: %v", err)
-	}
+	require.NoError(t, err)
+	require.False(t, len(claimed) !=
+		1 || claimed[0].ID !=
+		run.
+			ID)
+	require.NoError(t, st.UpdateRunStatus(ctx, run.
+		ID,
+		domain.StatusExecuting,
 
-	if err := testDB.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM queue_entries WHERE run_id = $1`, run.ID).Scan(&queueEntries); err != nil {
-		t.Fatalf("queue_entries count after complete: %v", err)
-	}
-	if queueEntries != 0 {
-		t.Fatalf("queue_entries after PgQue completion = %d, want 0", queueEntries)
-	}
+		domain.
+			StatusCompleted, map[string]any{"finished_at": time.
+			Now()}))
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM queue_entries WHERE run_id = $1`,
+
+		run.
+			ID).Scan(&queueEntries))
+	require.EqualValues(t, 0, queueEntries)
 
 	batchRuns := []*domain.JobRun{
 		{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID},
 		{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID},
 	}
 	inserted, err := q.EnqueueBatch(ctx, batchRuns)
-	if err != nil {
-		t.Fatalf("EnqueueBatch: %v", err)
-	}
-	if inserted != int64(len(batchRuns)) {
-		t.Fatalf("EnqueueBatch inserted = %d, want %d", inserted, len(batchRuns))
-	}
-	if err := testDB.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM queue_entries WHERE run_id = ANY($1)`, []string{batchRuns[0].ID, batchRuns[1].ID}).Scan(&queueEntries); err != nil {
-		t.Fatalf("queue_entries count after batch enqueue: %v", err)
-	}
-	if queueEntries != 0 {
-		t.Fatalf("queue_entries after PgQue batch enqueue = %d, want 0", queueEntries)
-	}
+	require.NoError(t, err)
+	require.Equal(t, int64(
+		len(batchRuns)), inserted,
+	)
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM queue_entries WHERE run_id = ANY($1)`,
+
+		[]string{batchRuns[0].ID,
+			batchRuns[1].ID}).Scan(&queueEntries))
+	require.EqualValues(t, 0, queueEntries)
+
 }
 
 func TestPgQue_ReplayedDeadLetterRunBecomesClaimable(t *testing.T) {
@@ -410,69 +400,67 @@ func TestPgQue_ReplayedDeadLetterRunBecomesClaimable(t *testing.T) {
 		JobID:     job.ID,
 		ProjectID: job.ProjectID,
 	}
-	if err := q.Enqueue(ctx, run); err != nil {
-		t.Fatalf("Enqueue: %v", err)
-	}
-	if err := q.ForceTick(ctx, "http"); err != nil {
-		t.Fatalf("ForceTick: %v", err)
-	}
+	require.NoError(t, q.Enqueue(ctx,
+		run))
+	require.NoError(t, q.ForceTick(ctx,
+		"http"))
+
 	claimed, err := q.DequeueN(ctx, 1)
-	if err != nil {
-		t.Fatalf("DequeueN initial: %v", err)
-	}
-	if len(claimed) != 1 || claimed[0].ID != run.ID {
-		t.Fatalf("initial claimed = %+v, want run %s", claimed, run.ID)
-	}
+	require.NoError(t, err)
+	require.False(t, len(claimed) !=
+		1 || claimed[0].ID !=
+		run.
+			ID)
+
 	assertCurrentGenerationActiveClaim(t, ctx, run.ID)
 
 	from := claimed[0].Status
 	if from != domain.StatusExecuting {
-		if err := st.UpdateRunStatus(ctx, run.ID, from, domain.StatusExecuting, nil); err != nil {
-			t.Fatalf("UpdateRunStatus(executing): %v", err)
-		}
+		require.NoError(t, st.UpdateRunStatus(ctx, run.
+			ID,
+			from, domain.
+				StatusExecuting,
+
+			nil))
+
 	}
-	if err := st.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusDeadLetter, map[string]any{
-		"error":       "manual replay regression",
-		"error_class": "test",
-	}); err != nil {
-		t.Fatalf("UpdateRunStatus(dead_letter): %v", err)
-	}
+	require.NoError(t, st.UpdateRunStatus(ctx, run.
+		ID,
+		domain.StatusExecuting,
+
+		domain.
+			StatusDeadLetter, map[string]any{"error": "manual replay regression",
+			"error_class": "test"}))
 
 	replayed, err := st.ReplayDeadLetterRun(ctx, run.ID)
-	if err != nil {
-		t.Fatalf("ReplayDeadLetterRun: %v", err)
-	}
-	if err := q.EnqueueExisting(ctx, replayed); err != nil {
-		t.Fatalf("EnqueueExisting: %v", err)
-	}
-	if err := q.ForceTick(ctx, "http"); err != nil {
-		t.Fatalf("ForceTick replayed: %v", err)
-	}
+	require.NoError(t, err)
+	require.NoError(t, q.EnqueueExisting(ctx, replayed))
+	require.NoError(t, q.ForceTick(ctx,
+		"http"))
 
 	var reclaimed []domain.JobRun
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		reclaimed, err = q.DequeueN(ctx, 1)
-		if err != nil {
-			t.Fatalf("DequeueN replayed: %v", err)
-		}
+		require.NoError(t, err)
+
 		if len(reclaimed) != 0 {
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	if len(reclaimed) != 1 || reclaimed[0].ID != run.ID {
-		t.Fatalf("replayed claimed = %+v, want run %s", reclaimed, run.ID)
-	}
+	require.False(t, len(reclaimed) !=
+		1 || reclaimed[0].ID !=
+		run.ID)
+
 	assertCurrentGenerationActiveClaim(t, ctx, run.ID)
 
 	duplicate, err := q.DequeueN(ctx, 1)
-	if err != nil {
-		t.Fatalf("DequeueN duplicate check: %v", err)
-	}
-	if len(duplicate) != 0 {
-		t.Fatalf("duplicate claimed = %+v, want no duplicate replay claim", duplicate)
-	}
+	require.NoError(t, err)
+	require.Len(t, duplicate,
+
+		0)
+
 }
 
 func TestPgQue_ActivateDueRunsAppendsReadyEventWithoutMutatingState(t *testing.T) {
@@ -493,99 +481,104 @@ func TestPgQue_ActivateDueRunsAppendsReadyEventWithoutMutatingState(t *testing.T
 		TriggeredBy: domain.TriggerManual,
 		ScheduledAt: &past,
 	}
-	if err := st.CreateRun(ctx, run); err != nil {
-		t.Fatalf("CreateRun delayed: %v", err)
-	}
+	require.NoError(t, st.CreateRun(ctx,
+		run))
 
 	var beforeGeneration int64
-	if err := testDB.Pool.QueryRow(ctx, `
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`
 		SELECT ready_generation
 		FROM job_run_state
 		WHERE run_id = $1`,
-		run.ID,
-	).Scan(&beforeGeneration); err != nil {
-		t.Fatalf("query ready_generation before promotion: %v", err)
-	}
+
+		run.ID).Scan(&beforeGeneration))
 
 	promoted, err := q.ActivateDueRuns(ctx, 10)
-	if err != nil {
-		t.Fatalf("ActivateDueRuns: %v", err)
-	}
-	if promoted != 1 {
-		t.Fatalf("ActivateDueRuns promoted = %d, want 1", promoted)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 1, promoted)
 
 	var ledgerStatus, stateStatus, readStatus domain.RunStatus
 	var afterGeneration int64
 	var readyEvents int
-	if err := testDB.Pool.QueryRow(ctx, `
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`
 		SELECT jr.status, s.status, rs.status, s.ready_generation,
 		       (SELECT COUNT(*) FROM job_run_ready_events WHERE run_id = jr.id AND reason = 'delayed_due')
 		FROM job_runs jr
 		JOIN job_run_state s ON s.run_id = jr.id
 		JOIN job_run_read_state rs ON rs.run_id = jr.id
 		WHERE jr.id = $1`,
-		run.ID,
-	).Scan(&ledgerStatus, &stateStatus, &readStatus, &afterGeneration, &readyEvents); err != nil {
-		t.Fatalf("query promoted state: %v", err)
-	}
-	if ledgerStatus != domain.StatusDelayed {
-		t.Fatalf("job_runs status = %q, want immutable delayed ledger status", ledgerStatus)
-	}
-	if stateStatus != domain.StatusDelayed {
-		t.Fatalf("job_run_state status = %q, want delayed hot state", stateStatus)
-	}
-	if readStatus != domain.StatusQueued {
-		t.Fatalf("job_run_read_state status = %q, want queued readiness overlay", readStatus)
-	}
-	if afterGeneration != beforeGeneration {
-		t.Fatalf("ready_generation = %d, want unchanged %d", afterGeneration, beforeGeneration)
-	}
-	if readyEvents != 1 {
-		t.Fatalf("ready events = %d, want 1", readyEvents)
-	}
+
+		run.ID).Scan(&ledgerStatus,
+		&stateStatus, &readStatus, &afterGeneration,
+		&readyEvents))
+	require.Equal(t, domain.
+		StatusDelayed,
+		ledgerStatus,
+	)
+	require.Equal(t, domain.
+		StatusDelayed,
+		stateStatus,
+	)
+	require.Equal(t, domain.
+		StatusQueued,
+		readStatus,
+	)
+	require.Equal(t, beforeGeneration,
+
+		afterGeneration,
+	)
+	require.EqualValues(t, 1, readyEvents)
 
 	promotedAgain, err := q.ActivateDueRuns(ctx, 10)
-	if err != nil {
-		t.Fatalf("ActivateDueRuns duplicate: %v", err)
-	}
-	if promotedAgain != 0 {
-		t.Fatalf("duplicate promotion = %d, want 0", promotedAgain)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 0, promotedAgain)
 
 	var queueEntries int
-	if err := testDB.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM queue_entries WHERE run_id = $1`, run.ID).Scan(&queueEntries); err != nil {
-		t.Fatalf("queue_entries count: %v", err)
-	}
-	if queueEntries != 0 {
-		t.Fatalf("queue_entries rows = %d, want 0 for PgQue promotion", queueEntries)
-	}
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM queue_entries WHERE run_id = $1`,
 
-	if err := q.ForceTick(ctx, "http"); err != nil {
-		t.Fatalf("ForceTick: %v", err)
-	}
+		run.
+			ID).Scan(&queueEntries))
+	require.EqualValues(t, 0, queueEntries)
+	require.NoError(t, q.ForceTick(ctx,
+		"http"))
+
 	claimed, err := q.DequeueN(ctx, 1)
-	if err != nil {
-		t.Fatalf("DequeueN promoted run: %v", err)
-	}
-	if len(claimed) != 1 || claimed[0].ID != run.ID {
-		t.Fatalf("DequeueN promoted = %+v, want run %s", claimed, run.ID)
-	}
-	if claimed[0].Status != domain.StatusExecuting {
-		t.Fatalf("claimed status = %q, want executing", claimed[0].Status)
-	}
-	assertCurrentGenerationActiveClaim(t, ctx, run.ID)
+	require.NoError(t, err)
+	require.False(t, len(claimed) !=
+		1 || claimed[0].ID !=
+		run.
+			ID)
+	require.Equal(t, domain.
+		StatusExecuting,
+		claimed[0].
+			Status)
 
-	if err := st.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusCompleted, map[string]any{"finished_at": time.Now().UTC()}); err != nil {
-		t.Fatalf("UpdateRunStatus delayed-ready claim to terminal: %v", err)
-	}
+	assertCurrentGenerationActiveClaim(t, ctx, run.ID)
+	require.NoError(t, st.UpdateRunStatus(ctx, run.
+		ID,
+		domain.StatusExecuting,
+
+		domain.
+			StatusCompleted, map[string]any{"finished_at": time.
+			Now().UTC()}))
+
 	var terminalStatus domain.RunStatus
-	if err := testDB.Pool.QueryRow(ctx, `SELECT status FROM job_run_read_state WHERE run_id = $1`, run.ID).Scan(&terminalStatus); err != nil {
-		t.Fatalf("query terminal read state: %v", err)
-	}
-	if terminalStatus != domain.StatusCompleted {
-		t.Fatalf("terminal read status = %q, want completed", terminalStatus)
-	}
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`SELECT status FROM job_run_read_state WHERE run_id = $1`,
+
+		run.
+			ID).Scan(&terminalStatus))
+	require.Equal(t, domain.
+		StatusCompleted,
+		terminalStatus,
+	)
+
 }
 
 func TestPgQue_WorkerRecoveredReadyEventOverridesDelayedSchedule(t *testing.T) {
@@ -607,9 +600,9 @@ func TestPgQue_WorkerRecoveredReadyEventOverridesDelayedSchedule(t *testing.T) {
 		ScheduledAt: &future,
 		NextRetryAt: &future,
 	}
-	if err := st.CreateRun(ctx, run); err != nil {
-		t.Fatalf("CreateRun delayed: %v", err)
-	}
+	require.NoError(t, st.CreateRun(ctx,
+		run))
+
 	if _, err := testDB.Pool.Exec(ctx, `
 		INSERT INTO job_run_ready_events (run_id, ready_generation, attempt, reason)
 		SELECT run_id, ready_generation, attempt, 'worker_recovered'
@@ -617,42 +610,47 @@ func TestPgQue_WorkerRecoveredReadyEventOverridesDelayedSchedule(t *testing.T) {
 		WHERE run_id = $1`,
 		run.ID,
 	); err != nil {
-		t.Fatalf("insert worker_recovered ready event: %v", err)
+		require.Failf(t, "test failure",
+
+			"insert worker_recovered ready event: %v", err)
 	}
 
 	readyRun, err := st.GetRun(ctx, run.ID)
-	if err != nil {
-		t.Fatalf("GetRun worker recovered: %v", err)
-	}
-	if readyRun.Status != domain.StatusQueued {
-		t.Fatalf("read status = %q, want queued worker recovery overlay", readyRun.Status)
-	}
-	if err := q.EnqueueExisting(ctx, readyRun); err != nil {
-		t.Fatalf("EnqueueExisting worker recovered: %v", err)
-	}
-	if err := q.ForceTick(ctx, "http"); err != nil {
-		t.Fatalf("ForceTick: %v", err)
-	}
+	require.NoError(t, err)
+	require.Equal(t, domain.
+		StatusQueued,
+		readyRun.
+			Status,
+	)
+	require.NoError(t, q.EnqueueExisting(ctx, readyRun))
+	require.NoError(t, q.ForceTick(ctx,
+		"http"))
 
 	claimed, err := q.DequeueN(ctx, 1)
-	if err != nil {
-		t.Fatalf("DequeueN worker recovered: %v", err)
-	}
-	if len(claimed) != 1 || claimed[0].ID != run.ID {
-		t.Fatalf("DequeueN worker recovered = %+v, want run %s", claimed, run.ID)
-	}
-	if claimed[0].Status != domain.StatusExecuting {
-		t.Fatalf("claimed status = %q, want executing", claimed[0].Status)
-	}
+	require.NoError(t, err)
+	require.False(t, len(claimed) !=
+		1 || claimed[0].ID !=
+		run.
+			ID)
+	require.Equal(t, domain.
+		StatusExecuting,
+		claimed[0].
+			Status)
+
 	assertCurrentGenerationActiveClaim(t, ctx, run.ID)
 
 	var stateStatus domain.RunStatus
-	if err := testDB.Pool.QueryRow(ctx, `SELECT status FROM job_run_state WHERE run_id = $1`, run.ID).Scan(&stateStatus); err != nil {
-		t.Fatalf("query state status: %v", err)
-	}
-	if stateStatus != domain.StatusDelayed {
-		t.Fatalf("job_run_state status = %q, want delayed hot state", stateStatus)
-	}
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`SELECT status FROM job_run_state WHERE run_id = $1`,
+
+		run.ID,
+	).Scan(&stateStatus))
+	require.Equal(t, domain.
+		StatusDelayed,
+		stateStatus,
+	)
+
 }
 
 func TestPgQue_RequeuePausedJobRunsAppendsReadyEventWithoutStatusFlip(t *testing.T) {
@@ -677,20 +675,21 @@ func TestPgQue_RequeuePausedJobRunsAppendsReadyEventWithoutStatusFlip(t *testing
 		Priority:    5,
 		TriggeredBy: domain.TriggerWorkflow,
 	}
-	if err := st.CreateRun(ctx, run); err != nil {
-		t.Fatalf("CreateRun paused: %v", err)
-	}
+	require.NoError(t, st.CreateRun(ctx,
+		run))
+
 	testutil.MustCreateWorkflowStepRun(t, ctx, st, wfRun.ID, step.ID, &testutil.WorkflowStepRunOpts{JobRunID: &run.ID})
 
 	var beforeGeneration int64
-	if err := testDB.Pool.QueryRow(ctx, `
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`
 		SELECT ready_generation
 		FROM job_run_state
 		WHERE run_id = $1`,
-		run.ID,
-	).Scan(&beforeGeneration); err != nil {
-		t.Fatalf("query ready_generation before requeue: %v", err)
-	}
+
+		run.ID).Scan(&beforeGeneration))
+
 	if _, err := testDB.Pool.Exec(ctx, `
 		INSERT INTO job_run_active_claims (run_id, ready_generation, attempt, started_at)
 		VALUES ($1, $2, $3, NOW())`,
@@ -698,128 +697,135 @@ func TestPgQue_RequeuePausedJobRunsAppendsReadyEventWithoutStatusFlip(t *testing
 		beforeGeneration,
 		run.Attempt,
 	); err != nil {
-		t.Fatalf("insert stale paused active claim: %v", err)
+		require.Failf(t, "test failure",
+
+			"insert stale paused active claim: %v", err)
 	}
 
 	requeued, err := q.RequeuePausedJobRuns(ctx, wfRun.ID)
-	if err != nil {
-		t.Fatalf("RequeuePausedJobRuns: %v", err)
-	}
-	if requeued != 1 {
-		t.Fatalf("RequeuePausedJobRuns requeued = %d, want 1", requeued)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 1, requeued)
 
 	var ledgerStatus, stateStatus, readStatus domain.RunStatus
 	var afterGeneration int64
 	var readyEvents int
-	if err := testDB.Pool.QueryRow(ctx, `
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`
 		SELECT jr.status, s.status, rs.status, s.ready_generation,
 		       (SELECT COUNT(*) FROM job_run_ready_events WHERE run_id = jr.id AND reason = 'paused_resume')
 		FROM job_runs jr
 		JOIN job_run_state s ON s.run_id = jr.id
 		JOIN job_run_read_state rs ON rs.run_id = jr.id
 		WHERE jr.id = $1`,
-		run.ID,
-	).Scan(&ledgerStatus, &stateStatus, &readStatus, &afterGeneration, &readyEvents); err != nil {
-		t.Fatalf("query requeued state: %v", err)
-	}
-	if ledgerStatus != domain.StatusPaused {
-		t.Fatalf("job_runs status = %q, want immutable paused ledger status", ledgerStatus)
-	}
-	if stateStatus != domain.StatusPaused {
-		t.Fatalf("job_run_state status = %q, want paused hot state", stateStatus)
-	}
-	if afterGeneration != beforeGeneration+1 {
-		t.Fatalf("ready_generation = %d, want %d", afterGeneration, beforeGeneration+1)
-	}
-	if readStatus != domain.StatusQueued {
-		t.Fatalf("job_run_read_state status = %q, want queued readiness overlay", readStatus)
-	}
-	if readyEvents != 1 {
-		t.Fatalf("paused_resume ready events = %d, want 1", readyEvents)
-	}
+
+		run.ID).Scan(&ledgerStatus,
+		&stateStatus, &readStatus, &afterGeneration,
+		&readyEvents))
+	require.Equal(t, domain.
+		StatusPaused,
+		ledgerStatus,
+	)
+	require.Equal(t, domain.
+		StatusPaused,
+		stateStatus,
+	)
+	require.Equal(t, beforeGeneration+
+		1, afterGeneration,
+	)
+	require.Equal(t, domain.
+		StatusQueued,
+		readStatus,
+	)
+	require.EqualValues(t, 1, readyEvents)
 
 	var firstResumeLifecycleEvents, firstResumeCacheVersions int
-	if err := testDB.Pool.QueryRow(ctx, `
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`
 		SELECT
 		       (SELECT COUNT(*) FROM job_run_lifecycle_events WHERE run_id = s.run_id AND from_status = 'paused' AND to_status = 'queued'),
 		       (SELECT COUNT(*) FROM job_run_cache_versions WHERE run_id = s.run_id)
 		FROM job_run_state s
 		WHERE s.run_id = $1`,
-		run.ID,
-	).Scan(&firstResumeLifecycleEvents, &firstResumeCacheVersions); err != nil {
-		t.Fatalf("query first requeue side rows: %v", err)
-	}
-	if firstResumeLifecycleEvents != 1 {
-		t.Fatalf("paused resume lifecycle events = %d, want 1", firstResumeLifecycleEvents)
-	}
+
+		run.ID).Scan(&firstResumeLifecycleEvents, &firstResumeCacheVersions))
+	require.EqualValues(t, 1, firstResumeLifecycleEvents)
 
 	requeued, err = q.RequeuePausedJobRuns(ctx, wfRun.ID)
-	if err != nil {
-		t.Fatalf("second RequeuePausedJobRuns: %v", err)
-	}
-	if requeued != 0 {
-		t.Fatalf("second RequeuePausedJobRuns requeued = %d, want 0", requeued)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 0, requeued)
 
 	var duplicateGeneration int64
 	var duplicateReadyEvents, duplicateLifecycleEvents, duplicateCacheVersions int
-	if err := testDB.Pool.QueryRow(ctx, `
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`
 		SELECT s.ready_generation,
 		       (SELECT COUNT(*) FROM job_run_ready_events WHERE run_id = s.run_id AND reason = 'paused_resume'),
 		       (SELECT COUNT(*) FROM job_run_lifecycle_events WHERE run_id = s.run_id AND from_status = 'paused' AND to_status = 'queued'),
 		       (SELECT COUNT(*) FROM job_run_cache_versions WHERE run_id = s.run_id)
 		FROM job_run_state s
 		WHERE s.run_id = $1`,
-		run.ID,
-	).Scan(&duplicateGeneration, &duplicateReadyEvents, &duplicateLifecycleEvents, &duplicateCacheVersions); err != nil {
-		t.Fatalf("query duplicate requeue state: %v", err)
-	}
-	if duplicateGeneration != afterGeneration {
-		t.Fatalf("ready_generation after duplicate requeue = %d, want %d", duplicateGeneration, afterGeneration)
-	}
-	if duplicateReadyEvents != 1 {
-		t.Fatalf("paused_resume ready events after duplicate requeue = %d, want 1", duplicateReadyEvents)
-	}
-	if duplicateLifecycleEvents != 1 {
-		t.Fatalf("paused resume lifecycle events after duplicate requeue = %d, want 1", duplicateLifecycleEvents)
-	}
-	if duplicateCacheVersions != firstResumeCacheVersions {
-		t.Fatalf("cache versions after duplicate requeue = %d, want %d", duplicateCacheVersions, firstResumeCacheVersions)
-	}
+
+		run.
+			ID).Scan(&duplicateGeneration,
+
+		&duplicateReadyEvents, &duplicateLifecycleEvents, &duplicateCacheVersions))
+	require.Equal(t, afterGeneration,
+
+		duplicateGeneration,
+	)
+	require.EqualValues(t, 1, duplicateReadyEvents)
+	require.EqualValues(t, 1, duplicateLifecycleEvents)
+	require.Equal(t, firstResumeCacheVersions,
+
+		duplicateCacheVersions,
+	)
 
 	var queueEntries int
-	if err := testDB.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM queue_entries WHERE run_id = $1`, run.ID).Scan(&queueEntries); err != nil {
-		t.Fatalf("queue_entries count: %v", err)
-	}
-	if queueEntries != 0 {
-		t.Fatalf("queue_entries rows = %d, want 0 for PgQue requeue", queueEntries)
-	}
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM queue_entries WHERE run_id = $1`,
 
-	if err := q.ForceTick(ctx, "http"); err != nil {
-		t.Fatalf("ForceTick: %v", err)
-	}
+		run.
+			ID).Scan(&queueEntries))
+	require.EqualValues(t, 0, queueEntries)
+	require.NoError(t, q.ForceTick(ctx,
+		"http"))
+
 	claimed, err := q.DequeueN(ctx, 1)
-	if err != nil {
-		t.Fatalf("DequeueN requeued run: %v", err)
-	}
-	if len(claimed) != 1 || claimed[0].ID != run.ID {
-		t.Fatalf("DequeueN requeued = %+v, want run %s", claimed, run.ID)
-	}
-	if claimed[0].Status != domain.StatusExecuting {
-		t.Fatalf("claimed status = %q, want executing", claimed[0].Status)
-	}
+	require.NoError(t, err)
+	require.False(t, len(claimed) !=
+		1 || claimed[0].ID !=
+		run.
+			ID)
+	require.Equal(t, domain.
+		StatusExecuting,
+		claimed[0].
+			Status)
+
 	assertCurrentGenerationActiveClaim(t, ctx, run.ID)
-	if err := st.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusCompleted, map[string]any{"finished_at": time.Now().UTC()}); err != nil {
-		t.Fatalf("UpdateRunStatus paused-ready claim to terminal: %v", err)
-	}
+	require.NoError(t, st.UpdateRunStatus(ctx, run.
+		ID,
+		domain.StatusExecuting,
+
+		domain.
+			StatusCompleted, map[string]any{"finished_at": time.
+			Now().UTC()}))
+
 	var terminalStatus domain.RunStatus
-	if err := testDB.Pool.QueryRow(ctx, `SELECT status FROM job_run_read_state WHERE run_id = $1`, run.ID).Scan(&terminalStatus); err != nil {
-		t.Fatalf("query terminal read state: %v", err)
-	}
-	if terminalStatus != domain.StatusCompleted {
-		t.Fatalf("terminal read status = %q, want completed", terminalStatus)
-	}
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`SELECT status FROM job_run_read_state WHERE run_id = $1`,
+
+		run.
+			ID).Scan(&terminalStatus))
+	require.Equal(t, domain.
+		StatusCompleted,
+		terminalStatus,
+	)
+
 }
 
 func TestPgQue_ActivateDueRunsPromotesReadyRetries(t *testing.T) {
@@ -838,48 +844,43 @@ func TestPgQue_ActivateDueRunsPromotesReadyRetries(t *testing.T) {
 		Priority:    3,
 		TriggeredBy: domain.TriggerManual,
 	}
-	if err := st.CreateRun(ctx, run); err != nil {
-		t.Fatalf("CreateRun queued: %v", err)
-	}
+	require.NoError(t, st.CreateRun(ctx,
+		run))
 
 	future := time.Now().UTC().Add(time.Hour)
-	if err := st.ScheduleRetry(ctx, run.ID, future, 2); err != nil {
-		t.Fatalf("ScheduleRetry future: %v", err)
-	}
+	require.NoError(t, st.ScheduleRetry(ctx, run.
+		ID, future,
+		2),
+	)
+
 	promoted, err := q.ActivateDueRuns(ctx, 10)
-	if err != nil {
-		t.Fatalf("ActivateDueRuns future retry: %v", err)
-	}
-	if promoted != 0 {
-		t.Fatalf("future retry promoted = %d, want 0", promoted)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 0, promoted)
 
 	var beforeGeneration int64
-	if err := testDB.Pool.QueryRow(ctx,
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
 		`SELECT ready_generation FROM job_run_state WHERE run_id = $1`,
-		run.ID,
-	).Scan(&beforeGeneration); err != nil {
-		t.Fatalf("query ready_generation before ready retry: %v", err)
-	}
+
+		run.ID).Scan(&beforeGeneration))
 
 	past := time.Now().UTC().Add(-time.Second)
-	if err := st.ScheduleRetry(ctx, run.ID, past, 2); err != nil {
-		t.Fatalf("ScheduleRetry past: %v", err)
-	}
+	require.NoError(t, st.ScheduleRetry(ctx, run.
+		ID, past,
+		2))
+
 	promoted, err = q.ActivateDueRuns(ctx, 10)
-	if err != nil {
-		t.Fatalf("ActivateDueRuns ready retry: %v", err)
-	}
-	if promoted != 1 {
-		t.Fatalf("ready retry promoted = %d, want 1", promoted)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 1, promoted)
 
 	var stateStatus, readStatus domain.RunStatus
 	var stateAttempt, readAttempt int
 	var afterGeneration int64
 	var rawRetryRows, pendingRetries, readyEvents int
 	var latestRetryCleared bool
-	if err := testDB.Pool.QueryRow(ctx, `
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`
 		SELECT s.status, s.attempt, rs.status, rs.attempt, s.ready_generation,
 		       (SELECT COUNT(*) FROM job_retries WHERE run_id = s.run_id),
 		       COALESCE((SELECT cleared FROM job_retries WHERE run_id = s.run_id ORDER BY id DESC LIMIT 1), FALSE),
@@ -894,51 +895,41 @@ func TestPgQue_ActivateDueRunsPromotesReadyRetries(t *testing.T) {
 		FROM job_run_state s
 		JOIN job_run_read_state rs ON rs.run_id = s.run_id
 		WHERE s.run_id = $1`,
-		run.ID,
-	).Scan(&stateStatus, &stateAttempt, &readStatus, &readAttempt, &afterGeneration, &rawRetryRows, &latestRetryCleared, &pendingRetries, &readyEvents); err != nil {
-		t.Fatalf("query retry promotion state: %v", err)
-	}
-	if stateStatus != domain.StatusQueued {
-		t.Fatalf("job_run_state status = %q, want queued", stateStatus)
-	}
-	if stateAttempt != 1 {
-		t.Fatalf("job_run_state attempt = %d, want unchanged 1", stateAttempt)
-	}
-	if readStatus != domain.StatusQueued {
-		t.Fatalf("job_run_read_state status = %q, want queued", readStatus)
-	}
-	if readAttempt != 2 {
-		t.Fatalf("job_run_read_state attempt = %d, want retry attempt 2", readAttempt)
-	}
-	if afterGeneration != beforeGeneration {
-		t.Fatalf("ready_generation = %d, want unchanged %d", afterGeneration, beforeGeneration)
-	}
-	if rawRetryRows != 3 {
-		t.Fatalf("raw retry rows = %d, want future schedule, due schedule, and clear tombstone", rawRetryRows)
-	}
-	if !latestRetryCleared {
-		t.Fatal("latest retry row must be clear tombstone after promotion")
-	}
-	if pendingRetries != 0 {
-		t.Fatalf("pending retries = %d, want 0", pendingRetries)
-	}
-	if readyEvents != 1 {
-		t.Fatalf("ready events = %d, want 1", readyEvents)
-	}
 
-	if err := q.ForceTick(ctx, "http"); err != nil {
-		t.Fatalf("ForceTick: %v", err)
-	}
+		run.ID).Scan(&stateStatus, &stateAttempt,
+		&readStatus, &readAttempt,
+		&afterGeneration, &rawRetryRows,
+
+		&latestRetryCleared, &pendingRetries, &readyEvents))
+	require.Equal(t, domain.
+		StatusQueued,
+		stateStatus,
+	)
+	require.EqualValues(t, 1, stateAttempt)
+	require.Equal(t, domain.
+		StatusQueued,
+		readStatus,
+	)
+	require.EqualValues(t, 2, readAttempt)
+	require.Equal(t, beforeGeneration,
+
+		afterGeneration,
+	)
+	require.EqualValues(t, 3, rawRetryRows)
+	require.True(t, latestRetryCleared)
+	require.EqualValues(t, 0, pendingRetries)
+	require.EqualValues(t, 1, readyEvents)
+	require.NoError(t, q.ForceTick(ctx,
+		"http"))
+
 	claimed, err := q.DequeueN(ctx, 1)
-	if err != nil {
-		t.Fatalf("DequeueN ready retry: %v", err)
-	}
-	if len(claimed) != 1 || claimed[0].ID != run.ID {
-		t.Fatalf("DequeueN ready retry = %+v, want run %s", claimed, run.ID)
-	}
-	if claimed[0].Attempt != 2 {
-		t.Fatalf("claimed attempt = %d, want 2", claimed[0].Attempt)
-	}
+	require.NoError(t, err)
+	require.False(t, len(claimed) !=
+		1 || claimed[0].ID !=
+		run.
+			ID)
+	require.EqualValues(t, 2, claimed[0].Attempt)
+
 	assertCurrentGenerationActiveClaim(t, ctx, run.ID)
 }
 
@@ -963,9 +954,9 @@ func TestPgQue_ActivateDueRunsPromotesRetriesWithDelayedBacklog(t *testing.T) {
 			ScheduledAt: &past,
 			TriggeredBy: domain.TriggerManual,
 		}
-		if err := st.CreateRun(ctx, run); err != nil {
-			t.Fatalf("CreateRun delayed: %v", err)
-		}
+		require.NoError(t, st.CreateRun(ctx,
+			run))
+
 		delayedIDs = append(delayedIDs, run.ID)
 	}
 	retryRun := &domain.JobRun{
@@ -977,24 +968,23 @@ func TestPgQue_ActivateDueRunsPromotesRetriesWithDelayedBacklog(t *testing.T) {
 		Priority:    3,
 		TriggeredBy: domain.TriggerManual,
 	}
-	if err := st.CreateRun(ctx, retryRun); err != nil {
-		t.Fatalf("CreateRun retry: %v", err)
-	}
-	if err := st.ScheduleRetry(ctx, retryRun.ID, past, 2); err != nil {
-		t.Fatalf("ScheduleRetry due: %v", err)
-	}
+	require.NoError(t, st.CreateRun(ctx,
+		retryRun,
+	))
+	require.NoError(t, st.ScheduleRetry(ctx, retryRun.
+		ID,
+		past,
+		2))
 
 	promoted, err := q.ActivateDueRuns(ctx, 2)
-	if err != nil {
-		t.Fatalf("ActivateDueRuns: %v", err)
-	}
-	if promoted != 2 {
-		t.Fatalf("ActivateDueRuns promoted = %d, want 2", promoted)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 2, promoted)
 
 	var delayedReady, retryReady, rawRetryRows, pendingRetries int
 	var latestRetryCleared bool
-	if err := testDB.Pool.QueryRow(ctx, `
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`
 		SELECT
 			(SELECT COUNT(*) FROM job_run_ready_events WHERE run_id = ANY($1) AND reason = 'delayed_due'),
 			(SELECT COUNT(*) FROM job_run_ready_events WHERE run_id = $2 AND reason = 'retry_ready'),
@@ -1007,46 +997,32 @@ func TestPgQue_ActivateDueRunsPromotesRetriesWithDelayedBacklog(t *testing.T) {
 			   AND NOT EXISTS (
 			       SELECT 1 FROM job_retries newer WHERE newer.run_id = r.run_id AND newer.id > r.id
 			   ))`,
+
 		delayedIDs,
-		retryRun.ID,
-	).Scan(&delayedReady, &retryReady, &rawRetryRows, &latestRetryCleared, &pendingRetries); err != nil {
-		t.Fatalf("query promotion state: %v", err)
-	}
-	if delayedReady != 1 {
-		t.Fatalf("delayed ready events = %d, want 1 with half-batch delayed reservation", delayedReady)
-	}
-	if retryReady != 1 {
-		t.Fatalf("retry ready events = %d, want 1 despite delayed backlog", retryReady)
-	}
-	if rawRetryRows != 2 {
-		t.Fatalf("raw retry rows = %d, want schedule plus clear tombstone", rawRetryRows)
-	}
-	if !latestRetryCleared {
-		t.Fatal("latest retry row must be clear tombstone after promotion")
-	}
-	if pendingRetries != 0 {
-		t.Fatalf("pending retries = %d, want 0", pendingRetries)
-	}
+		retryRun.ID).Scan(&delayedReady, &retryReady,
+		&rawRetryRows, &latestRetryCleared,
+		&pendingRetries))
+	require.EqualValues(t, 1, delayedReady)
+	require.EqualValues(t, 1, retryReady)
+	require.EqualValues(t, 2, rawRetryRows)
+	require.True(t, latestRetryCleared)
+	require.EqualValues(t, 0, pendingRetries)
 
 	promoted, err = q.ActivateDueRuns(ctx, 2)
-	if err != nil {
-		t.Fatalf("ActivateDueRuns remaining delayed: %v", err)
-	}
-	if promoted != 1 {
-		t.Fatalf("remaining delayed promoted = %d, want 1", promoted)
-	}
-	if err := testDB.Pool.QueryRow(ctx, `
+	require.NoError(t, err)
+	require.EqualValues(t, 1, promoted)
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`
 		SELECT COUNT(*)
 		FROM job_run_ready_events
 		WHERE run_id = ANY($1)
 		  AND reason = 'delayed_due'`,
+
 		delayedIDs,
-	).Scan(&delayedReady); err != nil {
-		t.Fatalf("query delayed ready events after refill: %v", err)
-	}
-	if delayedReady != 2 {
-		t.Fatalf("delayed ready events after refill = %d, want 2", delayedReady)
-	}
+	).Scan(&delayedReady))
+	require.EqualValues(t, 2, delayedReady)
+
 }
 
 func TestPgQue_DequeueWindowDoesNotLoseUnseenBatchMessages(t *testing.T) {
@@ -1065,35 +1041,34 @@ func TestPgQue_DequeueWindowDoesNotLoseUnseenBatchMessages(t *testing.T) {
 	want := 25
 	for i := 0; i < want; i++ {
 		run := &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID}
-		if err := q.Enqueue(ctx, run); err != nil {
-			t.Fatalf("Enqueue(%d): %v", i, err)
-		}
+		require.NoError(t, q.Enqueue(ctx,
+			run))
+
 	}
-	if err := q.ForceTick(ctx, "http"); err != nil {
-		t.Fatalf("ForceTick: %v", err)
-	}
+	require.NoError(t, q.ForceTick(ctx,
+		"http"))
 
 	seen := make(map[string]struct{}, want)
 	deadline := time.Now().Add(5 * time.Second)
 	for len(seen) < want && time.Now().Before(deadline) {
 		runs, err := q.DequeueN(ctx, 5)
-		if err != nil {
-			t.Fatalf("DequeueN: %v", err)
-		}
+		require.NoError(t, err)
+
 		if len(runs) == 0 {
 			time.Sleep(10 * time.Millisecond)
 			continue
 		}
 		for _, run := range runs {
 			if _, ok := seen[run.ID]; ok {
-				t.Fatalf("duplicate claim for run %s", run.ID)
+				require.Failf(t, "test failure",
+
+					"duplicate claim for run %s", run.ID)
 			}
 			seen[run.ID] = struct{}{}
 		}
 	}
-	if len(seen) != want {
-		t.Fatalf("claimed %d runs, want %d; small PgQue receive windows must not ack away unseen batch messages", len(seen), want)
-	}
+	require.Len(t, seen, want)
+
 }
 
 func TestPgQue_ConcurrentDequeueDrainsSingleBatchWithoutDuplicates(t *testing.T) {
@@ -1115,15 +1090,12 @@ func TestPgQue_ConcurrentDequeueDrainsSingleBatchWithoutDuplicates(t *testing.T)
 		runs = append(runs, &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID})
 	}
 	inserted, err := q.EnqueueBatch(ctx, runs)
-	if err != nil {
-		t.Fatalf("EnqueueBatch: %v", err)
-	}
-	if inserted != want {
-		t.Fatalf("EnqueueBatch inserted = %d, want %d", inserted, want)
-	}
-	if err := q.ForceTick(ctx, "http"); err != nil {
-		t.Fatalf("ForceTick: %v", err)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, want,
+		inserted,
+	)
+	require.NoError(t, q.ForceTick(ctx,
+		"http"))
 
 	var mu sync.Mutex
 	seen := make(map[string]struct{}, want)
@@ -1180,14 +1152,13 @@ func TestPgQue_ConcurrentDequeueDrainsSingleBatchWithoutDuplicates(t *testing.T)
 
 	select {
 	case err := <-errCh:
-		t.Fatalf("concurrent dequeue: %v", err)
+		require.Failf(t, "test failure", "concurrent dequeue: %v", err)
 	case <-done:
 	case <-ctx.Done():
-		t.Fatalf("timed out waiting for concurrent dequeue: claimed %d of %d", len(seen), want)
+		require.Failf(t, "test failure", "timed out waiting for concurrent dequeue: claimed %d of %d", len(seen), want)
 	}
-	if len(seen) != want {
-		t.Fatalf("claimed %d runs, want %d", len(seen), want)
-	}
+	require.Len(t, seen, want)
+
 }
 
 func TestPgQue_DequeueUsesAppendOnlyPriorityEvents(t *testing.T) {
@@ -1210,49 +1181,45 @@ func TestPgQue_DequeueUsesAppendOnlyPriorityEvents(t *testing.T) {
 		ProjectID: job.ProjectID,
 		Priority:  50,
 	}
-	if err := q.Enqueue(ctx, low); err != nil {
-		t.Fatalf("enqueue low priority run: %v", err)
-	}
-	if err := q.Enqueue(ctx, high); err != nil {
-		t.Fatalf("enqueue high priority run: %v", err)
-	}
+	require.NoError(t, q.Enqueue(ctx,
+		low))
+	require.NoError(t, q.Enqueue(ctx,
+		high))
+
 	if _, err := testDB.Pool.Exec(ctx, `
 		INSERT INTO job_run_priority_events (run_id, priority)
 		VALUES ($1, 100)`,
 		low.ID,
 	); err != nil {
-		t.Fatalf("append priority event: %v", err)
-	}
+		require.Failf(t, "test failure",
 
-	if err := q.ForceTick(ctx, "http"); err != nil {
-		t.Fatalf("ForceTick: %v", err)
+			"append priority event: %v", err)
 	}
+	require.NoError(t, q.ForceTick(ctx,
+		"http"))
+
 	claimed, err := q.DequeueN(ctx, 1)
-	if err != nil {
-		t.Fatalf("DequeueN: %v", err)
-	}
-	if len(claimed) != 1 {
-		t.Fatalf("claimed = %d, want 1", len(claimed))
-	}
-	if claimed[0].ID != low.ID {
-		t.Fatalf("claimed run = %s, want promoted low-priority run %s", claimed[0].ID, low.ID)
-	}
-	if claimed[0].Priority != 100 {
-		t.Fatalf("claimed priority = %d, want promoted priority 100", claimed[0].Priority)
-	}
+	require.NoError(t, err)
+	require.Len(t, claimed,
+
+		1)
+	require.Equal(t, low.ID,
+
+		claimed[0].ID)
+	require.EqualValues(t, 100, claimed[0].
+		Priority)
 
 	var statePriority int
-	if err := testDB.Pool.QueryRow(ctx, `
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`
 		SELECT priority
 		FROM job_run_state
 		WHERE run_id = $1`,
-		low.ID,
-	).Scan(&statePriority); err != nil {
-		t.Fatalf("query state priority: %v", err)
-	}
-	if statePriority != 1 {
-		t.Fatalf("state priority = %d, want unchanged 1", statePriority)
-	}
+
+		low.ID).Scan(&statePriority))
+	require.EqualValues(t, 1, statePriority)
+
 }
 
 func TestPgQue_ClaimUsesRunStateNotFatLedger(t *testing.T) {
@@ -1264,70 +1231,85 @@ func TestPgQue_ClaimUsesRunStateNotFatLedger(t *testing.T) {
 	q := mustPgQueQueue(t)
 
 	run := &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID}
-	if err := q.Enqueue(ctx, run); err != nil {
-		t.Fatalf("Enqueue: %v", err)
-	}
-	if err := q.ForceTick(ctx, "http"); err != nil {
-		t.Fatalf("ForceTick: %v", err)
-	}
+	require.NoError(t, q.Enqueue(ctx,
+		run))
+	require.NoError(t, q.ForceTick(ctx,
+		"http"))
+
 	claimed, err := q.DequeueN(ctx, 1)
-	if err != nil {
-		t.Fatalf("DequeueN: %v", err)
-	}
-	if len(claimed) != 1 || claimed[0].Status != domain.StatusExecuting {
-		t.Fatalf("claimed = %+v, want one executing run", claimed)
-	}
+	require.NoError(t, err)
+	require.False(t, len(claimed) !=
+		1 || claimed[0].Status !=
+		domain.StatusExecuting,
+	)
 
 	var ledgerStatus, stateStatus string
-	if err := testDB.Pool.QueryRow(ctx, `SELECT status FROM job_runs WHERE id = $1`, run.ID).Scan(&ledgerStatus); err != nil {
-		t.Fatalf("ledger status: %v", err)
-	}
-	if err := testDB.Pool.QueryRow(ctx, `SELECT status FROM job_run_state WHERE run_id = $1`, run.ID).Scan(&stateStatus); err != nil {
-		t.Fatalf("state status: %v", err)
-	}
-	if ledgerStatus != string(domain.StatusQueued) {
-		t.Fatalf("ledger status = %q, want queued to avoid fat-row claim churn", ledgerStatus)
-	}
-	if stateStatus != string(domain.StatusQueued) {
-		t.Fatalf("state status = %q, want queued to avoid hot-row claim churn", stateStatus)
-	}
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`SELECT status FROM job_runs WHERE id = $1`,
+
+		run.ID).Scan(&ledgerStatus))
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`SELECT status FROM job_run_state WHERE run_id = $1`,
+
+		run.ID,
+	).Scan(&stateStatus))
+	require.Equal(t, string(
+		domain.StatusQueued,
+	),
+		ledgerStatus,
+	)
+	require.Equal(t, string(
+		domain.StatusQueued,
+	),
+		stateStatus,
+	)
+
 	var claimRows int
-	if err := testDB.Pool.QueryRow(ctx, `
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`
 		SELECT COUNT(*)
 		FROM job_run_active_claims
-		WHERE run_id = $1`, run.ID).Scan(&claimRows); err != nil {
-		t.Fatalf("active claims: %v", err)
-	}
-	if claimRows != 1 {
-		t.Fatalf("active claims = %d, want 1 append-only ownership row", claimRows)
-	}
+		WHERE run_id = $1`,
+
+		run.ID).Scan(&claimRows))
+	require.EqualValues(t, 1, claimRows)
+
 	var readStatus string
 	var readStartedAt, readUpdatedAt time.Time
-	if err := testDB.Pool.QueryRow(ctx, `
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`
 		SELECT status, started_at, updated_at
 		FROM job_run_read_state
-		WHERE run_id = $1`, run.ID).Scan(&readStatus, &readStartedAt, &readUpdatedAt); err != nil {
-		t.Fatalf("read state status: %v", err)
-	}
-	if readStatus != string(domain.StatusExecuting) {
-		t.Fatalf("read state status = %q, want executing from active claim overlay", readStatus)
-	}
-	if readStartedAt.IsZero() {
-		t.Fatal("read state started_at is zero, want active claim start time")
-	}
-	if readUpdatedAt.Before(readStartedAt) {
-		t.Fatalf("read state updated_at = %v before started_at = %v", readUpdatedAt, readStartedAt)
-	}
+		WHERE run_id = $1`,
+
+		run.ID).Scan(&readStatus,
+
+		&readStartedAt, &readUpdatedAt))
+	require.Equal(t, string(
+		domain.StatusExecuting,
+	), readStatus,
+	)
+	require.False(t, readStartedAt.
+		IsZero())
+	require.False(t, readUpdatedAt.
+		Before(readStartedAt))
+
 	got, err := st.GetRun(ctx, run.ID)
-	if err != nil {
-		t.Fatalf("GetRun: %v", err)
-	}
-	if got.Status != domain.StatusExecuting {
-		t.Fatalf("GetRun status = %q, want executing from active claim overlay", got.Status)
-	}
-	if got.StartedAt == nil || got.StartedAt.IsZero() {
-		t.Fatalf("GetRun started_at = %v, want active claim start time", got.StartedAt)
-	}
+	require.NoError(t, err)
+	require.Equal(t, domain.
+		StatusExecuting,
+		got.
+			Status,
+	)
+	require.False(t, got.StartedAt ==
+		nil || got.
+		StartedAt.
+		IsZero())
+
 }
 
 func TestPgQue_TerminalTransitionCompletesActiveClaimWithoutUpdatingHotState(t *testing.T) {
@@ -1339,46 +1321,57 @@ func TestPgQue_TerminalTransitionCompletesActiveClaimWithoutUpdatingHotState(t *
 	q := mustPgQueQueue(t)
 
 	run := &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID}
-	if err := q.Enqueue(ctx, run); err != nil {
-		t.Fatalf("Enqueue: %v", err)
-	}
-	if err := q.ForceTick(ctx, "http"); err != nil {
-		t.Fatalf("ForceTick: %v", err)
-	}
+	require.NoError(t, q.Enqueue(ctx,
+		run))
+	require.NoError(t, q.ForceTick(ctx,
+		"http"))
+
 	claimed, err := q.DequeueN(ctx, 1)
-	if err != nil {
-		t.Fatalf("DequeueN: %v", err)
-	}
-	if len(claimed) != 1 || claimed[0].Status != domain.StatusExecuting {
-		t.Fatalf("claimed = %+v, want executing run", claimed)
-	}
+	require.NoError(t, err)
+	require.False(t, len(claimed) !=
+		1 || claimed[0].Status !=
+		domain.StatusExecuting,
+	)
 
 	finishedAt := time.Now().UTC()
-	if err := st.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusCompleted, map[string]any{
-		"finished_at": finishedAt,
-	}); err != nil {
-		t.Fatalf("UpdateRunStatus executing->completed: %v", err)
-	}
+	require.NoError(t, st.UpdateRunStatus(ctx, run.
+		ID,
+		domain.StatusExecuting,
+
+		domain.
+			StatusCompleted, map[string]any{"finished_at": finishedAt}))
 
 	var hotStatus, readStatus, terminalStatus domain.RunStatus
-	if err := testDB.Pool.QueryRow(ctx, `SELECT status FROM job_run_state WHERE run_id = $1`, run.ID).Scan(&hotStatus); err != nil {
-		t.Fatalf("hot status: %v", err)
-	}
-	if hotStatus != domain.StatusQueued {
-		t.Fatalf("hot status = %s, want queued retained after terminal append", hotStatus)
-	}
-	if err := testDB.Pool.QueryRow(ctx, `SELECT status FROM job_run_terminal_state WHERE run_id = $1`, run.ID).Scan(&terminalStatus); err != nil {
-		t.Fatalf("terminal status: %v", err)
-	}
-	if terminalStatus != domain.StatusCompleted {
-		t.Fatalf("terminal status = %s, want completed", terminalStatus)
-	}
-	if err := testDB.Pool.QueryRow(ctx, `SELECT status FROM job_run_read_state WHERE run_id = $1`, run.ID).Scan(&readStatus); err != nil {
-		t.Fatalf("read status: %v", err)
-	}
-	if readStatus != domain.StatusCompleted {
-		t.Fatalf("read status = %s, want completed terminal overlay", readStatus)
-	}
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`SELECT status FROM job_run_state WHERE run_id = $1`,
+
+		run.ID,
+	).Scan(&hotStatus))
+	require.Equal(t, domain.
+		StatusQueued,
+		hotStatus,
+	)
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`SELECT status FROM job_run_terminal_state WHERE run_id = $1`,
+
+		run.ID).Scan(&terminalStatus))
+	require.Equal(t, domain.
+		StatusCompleted,
+		terminalStatus,
+	)
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`SELECT status FROM job_run_read_state WHERE run_id = $1`,
+
+		run.
+			ID).Scan(&readStatus))
+	require.Equal(t, domain.
+		StatusCompleted,
+		readStatus,
+	)
+
 }
 
 func TestPgQue_ActiveClaimEnforcesLimitedConcurrencyWithoutCounterWrites(t *testing.T) {
@@ -1394,23 +1387,26 @@ func TestPgQue_ActiveClaimEnforcesLimitedConcurrencyWithoutCounterWrites(t *test
 		{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID},
 	}
 	for _, run := range runs {
-		if err := q.Enqueue(ctx, run); err != nil {
-			t.Fatalf("Enqueue: %v", err)
-		}
+		require.NoError(t, q.Enqueue(ctx,
+			run))
+
 	}
 	if _, err := testDB.Pool.Exec(ctx, `UPDATE job_run_state SET job_max_concurrency = 1 WHERE job_id = $1`, job.ID); err != nil {
-		t.Fatalf("set max concurrency: %v", err)
+		require.Failf(t, "test failure",
+
+			"set max concurrency: %v", err)
 	}
 
 	claimed, err := q.DequeueN(ctx, 2)
-	if err != nil {
-		t.Fatalf("DequeueN: %v", err)
-	}
-	if len(claimed) != 1 {
-		t.Fatalf("claimed %d runs, want 1 due to max concurrency", len(claimed))
-	}
+	require.NoError(t, err)
+	require.Len(t, claimed,
+
+		1)
+
 	var activeClaims int
-	if err := testDB.Pool.QueryRow(ctx, `
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`
 		SELECT COUNT(*)
 		FROM job_run_active_claims claim
 		JOIN job_run_state s
@@ -1419,22 +1415,24 @@ func TestPgQue_ActiveClaimEnforcesLimitedConcurrencyWithoutCounterWrites(t *test
 		LEFT JOIN job_run_terminal_state terminal ON terminal.run_id = s.run_id
 		WHERE s.job_id = $1
 		  AND s.status = 'queued'
-		  AND terminal.run_id IS NULL`, job.ID).Scan(&activeClaims); err != nil {
-		t.Fatalf("active claims after claim: %v", err)
-	}
-	if activeClaims != 1 {
-		t.Fatalf("active claims after claim = %d, want 1", activeClaims)
-	}
+		  AND terminal.run_id IS NULL`,
+
+		job.ID,
+	).Scan(&activeClaims))
+	require.EqualValues(t, 1, activeClaims)
+
 	var count int
-	if err := testDB.Pool.QueryRow(ctx, `
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`
 		SELECT COALESCE(SUM(count), 0)
 		FROM job_active_counts
-		WHERE job_id = $1`, job.ID).Scan(&count); err != nil {
-		t.Fatalf("active count after claim: %v", err)
-	}
-	if count != 0 {
-		t.Fatalf("job_active_counts after PgQue claim = %d, want 0 append-only claims to avoid counter churn", count)
-	}
+		WHERE job_id = $1`,
+
+		job.
+			ID).Scan(&count))
+	require.EqualValues(t, 0, count)
+
 	counterUpdatedAt := time.Now().UTC().Add(-time.Hour).Truncate(time.Microsecond)
 	if _, err := testDB.Pool.Exec(ctx, `
 		INSERT INTO job_active_counts (job_id, concurrency_key, count, updated_at)
@@ -1443,35 +1441,40 @@ func TestPgQue_ActiveClaimEnforcesLimitedConcurrencyWithoutCounterWrites(t *test
 		DO UPDATE SET count = 0, updated_at = EXCLUDED.updated_at`,
 		job.ID, counterUpdatedAt,
 	); err != nil {
-		t.Fatalf("seed active count row: %v", err)
+		require.Failf(t, "test failure",
+
+			"seed active count row: %v", err)
 	}
-	if err := st.UpdateRunStatus(ctx, claimed[0].ID, domain.StatusExecuting, domain.StatusCompleted, map[string]any{"finished_at": time.Now()}); err != nil {
-		t.Fatalf("UpdateRunStatus completed: %v", err)
-	}
+	require.NoError(t, st.UpdateRunStatus(ctx, claimed[0].ID, domain.
+		StatusExecuting,
+
+		domain.StatusCompleted,
+		map[string]any{"finished_at": time.Now()}))
+
 	var afterCounterUpdatedAt time.Time
-	if err := testDB.Pool.QueryRow(ctx, `
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`
 		SELECT COALESCE(SUM(count), 0), MAX(updated_at)
 		FROM job_active_counts
-		WHERE job_id = $1`, job.ID).Scan(&count, &afterCounterUpdatedAt); err != nil {
-		t.Fatalf("active count after completion: %v", err)
-	}
-	if count != 0 {
-		t.Fatalf("active count after completion = %d, want 0", count)
-	}
-	if !afterCounterUpdatedAt.Equal(counterUpdatedAt) {
-		t.Fatalf("active count updated_at changed on PgQue terminal release: got %s want %s", afterCounterUpdatedAt, counterUpdatedAt)
-	}
+		WHERE job_id = $1`,
+
+		job.ID).Scan(&count,
+
+		&afterCounterUpdatedAt))
+	require.EqualValues(t, 0, count)
+	require.True(t, afterCounterUpdatedAt.
+		Equal(
+			counterUpdatedAt,
+		))
 
 	next, err := q.DequeueN(ctx, 2)
-	if err != nil {
-		t.Fatalf("DequeueN after completion: %v", err)
-	}
-	if len(next) != 1 {
-		t.Fatalf("claimed %d runs after completion, want 1 released by terminal overlay", len(next))
-	}
-	if next[0].ID == claimed[0].ID {
-		t.Fatalf("claimed completed run %s again", next[0].ID)
-	}
+	require.NoError(t, err)
+	require.Len(t, next, 1)
+	require.NotEqual(t, claimed[0].ID,
+		next[0].ID,
+	)
+
 }
 
 func TestPgQue_ConcurrentLimitedClaimsSerializeOnActiveClaims(t *testing.T) {
@@ -1484,16 +1487,17 @@ func TestPgQue_ConcurrentLimitedClaimsSerializeOnActiveClaims(t *testing.T) {
 
 	for range 2 {
 		run := &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID}
-		if err := q.Enqueue(ctx, run); err != nil {
-			t.Fatalf("Enqueue: %v", err)
-		}
+		require.NoError(t, q.Enqueue(ctx,
+			run))
+
 	}
 	if _, err := testDB.Pool.Exec(ctx, `UPDATE job_run_state SET job_max_concurrency = 1 WHERE job_id = $1`, job.ID); err != nil {
-		t.Fatalf("set max concurrency: %v", err)
+		require.Failf(t, "test failure",
+
+			"set max concurrency: %v", err)
 	}
-	if err := q.ForceTick(ctx, "http"); err != nil {
-		t.Fatalf("ForceTick: %v", err)
-	}
+	require.NoError(t, q.ForceTick(ctx,
+		"http"))
 
 	start := make(chan struct{})
 	errCh := make(chan error, 8)
@@ -1518,31 +1522,37 @@ func TestPgQue_ConcurrentLimitedClaimsSerializeOnActiveClaims(t *testing.T) {
 	close(claimedCh)
 
 	for err := range errCh {
-		t.Fatalf("DequeueN: %v", err)
+		require.Failf(t, "test failure",
+
+			"DequeueN: %v", err)
 	}
 	claimedIDs := make(map[string]struct{})
 	for claimed := range claimedCh {
 		for _, run := range claimed {
 			if _, ok := claimedIDs[run.ID]; ok {
-				t.Fatalf("duplicate claim for run %s", run.ID)
+				require.Failf(t, "test failure",
+
+					"duplicate claim for run %s", run.ID)
 			}
 			claimedIDs[run.ID] = struct{}{}
 		}
 	}
-	if len(claimedIDs) != 1 {
-		t.Fatalf("concurrent claims = %d, want 1 due to max concurrency", len(claimedIDs))
-	}
+	require.Len(t, claimedIDs,
+
+		1)
 
 	var count int
-	if err := testDB.Pool.QueryRow(ctx, `
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`
 		SELECT COALESCE(SUM(count), 0)
 		FROM job_active_counts
-		WHERE job_id = $1`, job.ID).Scan(&count); err != nil {
-		t.Fatalf("active counter: %v", err)
-	}
-	if count != 0 {
-		t.Fatalf("job_active_counts after concurrent PgQue claims = %d, want 0", count)
-	}
+		WHERE job_id = $1`,
+
+		job.
+			ID).Scan(&count))
+	require.EqualValues(t, 0, count)
+
 }
 
 func TestPgQue_StaleGenerationEventIsIgnored(t *testing.T) {
@@ -1554,20 +1564,21 @@ func TestPgQue_StaleGenerationEventIsIgnored(t *testing.T) {
 	q := mustPgQueQueue(t)
 
 	run := &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID}
-	if err := q.Enqueue(ctx, run); err != nil {
-		t.Fatalf("Enqueue: %v", err)
-	}
+	require.NoError(t, q.Enqueue(ctx,
+		run))
+
 	if _, err := testDB.Pool.Exec(ctx, `UPDATE job_run_state SET ready_generation = ready_generation + 1 WHERE run_id = $1`, run.ID); err != nil {
-		t.Fatalf("bump ready generation: %v", err)
+		require.Failf(t, "test failure",
+
+			"bump ready generation: %v", err)
 	}
 
 	claimed, err := q.DequeueN(ctx, 1)
-	if err != nil {
-		t.Fatalf("DequeueN: %v", err)
-	}
-	if len(claimed) != 0 {
-		t.Fatalf("claimed stale generation event = %+v, want none", claimed)
-	}
+	require.NoError(t, err)
+	require.Len(t, claimed,
+
+		0)
+
 }
 
 func TestPgQue_DequeueNForWorkerQueuesFiltersByEnvironment(t *testing.T) {
@@ -1585,28 +1596,27 @@ func TestPgQue_DequeueNForWorkerQueuesFiltersByEnvironment(t *testing.T) {
 	q := mustPgQueQueue(t)
 
 	prodRun := &domain.JobRun{ID: newID(), JobID: prodJob.ID, ProjectID: projectID, ExecutionMode: domain.ExecutionModeWorker, QueueName: "priority"}
-	if err := q.Enqueue(ctx, prodRun); err != nil {
-		t.Fatalf("enqueue prod: %v", err)
-	}
+	require.NoError(t, q.Enqueue(ctx,
+		prodRun))
+
 	stagingRun := &domain.JobRun{ID: newID(), JobID: stagingJob.ID, ProjectID: projectID, ExecutionMode: domain.ExecutionModeWorker, QueueName: "priority"}
-	if err := q.Enqueue(ctx, stagingRun); err != nil {
-		t.Fatalf("enqueue staging: %v", err)
-	}
+	require.NoError(t, q.Enqueue(ctx,
+		stagingRun,
+	))
 
 	stagingBatch, err := q.DequeueNForWorkerQueues(ctx, 1, []domain.WorkerQueueRef{{ProjectID: projectID, QueueName: "priority", EnvironmentID: stagingEnvID}})
-	if err != nil {
-		t.Fatalf("DequeueNForWorkerQueues(staging): %v", err)
-	}
-	if len(stagingBatch) != 1 || stagingBatch[0].ID != stagingRun.ID {
-		t.Fatalf("staging batch = %+v, want staging run %s", stagingBatch, stagingRun.ID)
-	}
+	require.NoError(t, err)
+	require.False(t, len(stagingBatch) != 1 || stagingBatch[0].
+		ID != stagingRun.
+		ID,
+	)
+
 	prodBatch, err := q.DequeueNForWorkerQueues(ctx, 1, []domain.WorkerQueueRef{{ProjectID: projectID, QueueName: "priority", EnvironmentID: prodEnvID}})
-	if err != nil {
-		t.Fatalf("DequeueNForWorkerQueues(prod): %v", err)
-	}
-	if len(prodBatch) != 1 || prodBatch[0].ID != prodRun.ID {
-		t.Fatalf("prod batch = %+v, want prod run %s", prodBatch, prodRun.ID)
-	}
+	require.NoError(t, err)
+	require.False(t, len(prodBatch) !=
+		1 || prodBatch[0].ID !=
+		prodRun.ID)
+
 }
 
 func TestPgQue_ReconcileReadyRunsPreservesWorkerEnvironmentRoutes(t *testing.T) {
@@ -1632,9 +1642,10 @@ func TestPgQue_ReconcileReadyRunsPreservesWorkerEnvironmentRoutes(t *testing.T) 
 		QueueName:     "priority",
 		Priority:      8,
 	}
-	if err := st.CreateRun(ctx, prodRun); err != nil {
-		t.Fatalf("CreateRun(prod): %v", err)
-	}
+	require.NoError(t, st.CreateRun(ctx,
+		prodRun,
+	))
+
 	stagingRun := &domain.JobRun{
 		ID:            newID(),
 		JobID:         stagingJob.ID,
@@ -1644,59 +1655,49 @@ func TestPgQue_ReconcileReadyRunsPreservesWorkerEnvironmentRoutes(t *testing.T) 
 		QueueName:     "priority",
 		Priority:      9,
 	}
-	if err := st.CreateRun(ctx, stagingRun); err != nil {
-		t.Fatalf("CreateRun(staging): %v", err)
-	}
+	require.NoError(t, st.CreateRun(ctx,
+		stagingRun,
+	))
 
 	beforeRepair, err := q.DequeueNForWorkerQueues(ctx, 1, []domain.WorkerQueueRef{{
 		ProjectID:     projectID,
 		QueueName:     "priority",
 		EnvironmentID: stagingEnvID,
 	}})
-	if err != nil {
-		t.Fatalf("DequeueNForWorkerQueues before repair: %v", err)
-	}
-	if len(beforeRepair) != 0 {
-		t.Fatalf("claimed before repair = %+v, want no pgque event", beforeRepair)
-	}
+	require.NoError(t, err)
+	require.Len(t, beforeRepair,
+
+		0)
 
 	repaired, err := q.ReconcileReadyRuns(ctx, 10)
-	if err != nil {
-		t.Fatalf("ReconcileReadyRuns: %v", err)
-	}
-	if repaired != 2 {
-		t.Fatalf("ReconcileReadyRuns repaired = %d, want 2", repaired)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 2, repaired)
+
 	repairedAgain, err := q.ReconcileReadyRuns(ctx, 10)
-	if err != nil {
-		t.Fatalf("ReconcileReadyRuns second pass: %v", err)
-	}
-	if repairedAgain != 0 {
-		t.Fatalf("second repair pass = %d, want 0 after emit markers", repairedAgain)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 0, repairedAgain)
 
 	stagingBatch, err := q.DequeueNForWorkerQueues(ctx, 1, []domain.WorkerQueueRef{{
 		ProjectID:     projectID,
 		QueueName:     "priority",
 		EnvironmentID: stagingEnvID,
 	}})
-	if err != nil {
-		t.Fatalf("DequeueNForWorkerQueues(staging): %v", err)
-	}
-	if len(stagingBatch) != 1 || stagingBatch[0].ID != stagingRun.ID {
-		t.Fatalf("staging batch = %+v, want staging run %s", stagingBatch, stagingRun.ID)
-	}
+	require.NoError(t, err)
+	require.False(t, len(stagingBatch) != 1 || stagingBatch[0].
+		ID != stagingRun.
+		ID,
+	)
+
 	prodBatch, err := q.DequeueNForWorkerQueues(ctx, 1, []domain.WorkerQueueRef{{
 		ProjectID:     projectID,
 		QueueName:     "priority",
 		EnvironmentID: prodEnvID,
 	}})
-	if err != nil {
-		t.Fatalf("DequeueNForWorkerQueues(prod): %v", err)
-	}
-	if len(prodBatch) != 1 || prodBatch[0].ID != prodRun.ID {
-		t.Fatalf("prod batch = %+v, want prod run %s", prodBatch, prodRun.ID)
-	}
+	require.NoError(t, err)
+	require.False(t, len(prodBatch) !=
+		1 || prodBatch[0].ID !=
+		prodRun.ID)
+
 	assertCurrentGenerationActiveClaim(t, ctx, stagingRun.ID)
 	assertCurrentGenerationActiveClaim(t, ctx, prodRun.ID)
 }
@@ -1718,17 +1719,18 @@ func TestPgQue_WorkerEnvironmentClaimsAreUniqueAndComplete(t *testing.T) {
 	const runsPerEnvironment = 12
 	prodWant := make(map[string]struct{}, runsPerEnvironment)
 	stagingWant := make(map[string]struct{}, runsPerEnvironment)
-	for i := range runsPerEnvironment {
+	for range runsPerEnvironment {
 		prodRun := &domain.JobRun{ID: newID(), JobID: prodJob.ID, ProjectID: projectID, ExecutionMode: domain.ExecutionModeWorker, QueueName: "priority"}
-		if err := q.Enqueue(ctx, prodRun); err != nil {
-			t.Fatalf("enqueue prod %d: %v", i, err)
-		}
+		require.NoError(t, q.Enqueue(ctx,
+			prodRun))
+
 		prodWant[prodRun.ID] = struct{}{}
 
 		stagingRun := &domain.JobRun{ID: newID(), JobID: stagingJob.ID, ProjectID: projectID, ExecutionMode: domain.ExecutionModeWorker, QueueName: "priority"}
-		if err := q.Enqueue(ctx, stagingRun); err != nil {
-			t.Fatalf("enqueue staging %d: %v", i, err)
-		}
+		require.NoError(t, q.Enqueue(ctx,
+			stagingRun,
+		))
+
 		stagingWant[stagingRun.ID] = struct{}{}
 	}
 
@@ -1773,61 +1775,79 @@ func TestPgQue_WorkerEnvironmentClaimsAreUniqueAndComplete(t *testing.T) {
 
 	claimedByRun := make(map[string]string, runsPerEnvironment*2)
 	for result := range results {
-		if result.err != nil {
-			t.Fatalf("%s worker claim error after %d runs: %v", result.name, len(result.runs), result.err)
-		}
-		if len(result.runs) != runsPerEnvironment {
-			t.Fatalf("%s worker claimed %d runs, want %d", result.name, len(result.runs), runsPerEnvironment)
-		}
+		require.Nil(t, result.
+			err)
+		require.Len(t, result.runs,
+
+			runsPerEnvironment,
+		)
+
 		for _, run := range result.runs {
 			if previous, ok := claimedByRun[run.ID]; ok {
-				t.Fatalf("run %s claimed by both %s and %s", run.ID, previous, result.name)
+				require.Failf(t, "test failure",
+
+					"run %s claimed by both %s and %s", run.ID, previous, result.name)
 			}
 			claimedByRun[run.ID] = result.name
 			switch result.name {
 			case "production":
 				if _, ok := prodWant[run.ID]; !ok {
-					t.Fatalf("production worker claimed run %s outside production environment", run.ID)
+					require.Failf(t, "test failure",
+
+						"production worker claimed run %s outside production environment", run.ID)
 				}
 			case "staging":
 				if _, ok := stagingWant[run.ID]; !ok {
-					t.Fatalf("staging worker claimed run %s outside staging environment", run.ID)
+					require.Failf(t, "test failure",
+
+						"staging worker claimed run %s outside staging environment", run.ID)
 				}
 			default:
-				t.Fatalf("unexpected worker result %q", result.name)
+				require.Failf(t, "test failure", "unexpected worker result %q", result.name)
 			}
 		}
 	}
-	if len(claimedByRun) != runsPerEnvironment*2 {
-		t.Fatalf("claimed runs = %d, want %d", len(claimedByRun), runsPerEnvironment*2)
-	}
+	require.Len(t, claimedByRun,
+
+		runsPerEnvironment*
+			2,
+	)
 
 	allRunIDs := make([]string, 0, runsPerEnvironment*2)
 	for runID := range prodWant {
 		if _, ok := claimedByRun[runID]; !ok {
-			t.Fatalf("production run %s was never claimed", runID)
+			require.Failf(t, "test failure",
+
+				"production run %s was never claimed", runID)
 		}
 		allRunIDs = append(allRunIDs, runID)
 	}
 	for runID := range stagingWant {
 		if _, ok := claimedByRun[runID]; !ok {
-			t.Fatalf("staging run %s was never claimed", runID)
+			require.Failf(t, "test failure",
+
+				"staging run %s was never claimed", runID)
 		}
 		allRunIDs = append(allRunIDs, runID)
 	}
 
 	var claimRows, distinctClaimedRuns int
-	if err := testDB.Pool.QueryRow(ctx, `
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`
 		SELECT COUNT(*), COUNT(DISTINCT run_id)
 		FROM job_run_active_claims
 		WHERE run_id = ANY($1::text[])`,
+
 		allRunIDs,
-	).Scan(&claimRows, &distinctClaimedRuns); err != nil {
-		t.Fatalf("query active claims: %v", err)
-	}
-	if claimRows != runsPerEnvironment*2 || distinctClaimedRuns != runsPerEnvironment*2 {
-		t.Fatalf("active claims = %d distinct %d, want %d/%d", claimRows, distinctClaimedRuns, runsPerEnvironment*2, runsPerEnvironment*2)
-	}
+	).Scan(&claimRows, &distinctClaimedRuns))
+	require.False(t, claimRows !=
+		runsPerEnvironment*
+			2 ||
+		distinctClaimedRuns !=
+			runsPerEnvironment*
+				2)
+
 }
 
 func TestPgQue_MaxConcurrencyEnforcedFromRunState(t *testing.T) {
@@ -1843,19 +1863,20 @@ func TestPgQue_MaxConcurrencyEnforcedFromRunState(t *testing.T) {
 		{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID},
 	}
 	for _, run := range runs {
-		if err := q.Enqueue(ctx, run); err != nil {
-			t.Fatalf("Enqueue: %v", err)
-		}
+		require.NoError(t, q.Enqueue(ctx,
+			run))
+
 	}
 	if _, err := testDB.Pool.Exec(ctx, `UPDATE job_run_state SET job_max_concurrency = 1 WHERE job_id = $1`, job.ID); err != nil {
-		t.Fatalf("set max concurrency: %v", err)
+		require.Failf(t, "test failure",
+
+			"set max concurrency: %v", err)
 	}
 
 	claimed, err := q.DequeueN(ctx, 2)
-	if err != nil {
-		t.Fatalf("DequeueN: %v", err)
-	}
-	if len(claimed) != 1 {
-		t.Fatalf("claimed %d runs, want 1 due to max concurrency: %+v", len(claimed), claimed)
-	}
+	require.NoError(t, err)
+	require.Len(t, claimed,
+
+		1)
+
 }

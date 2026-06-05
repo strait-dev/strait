@@ -15,6 +15,7 @@ import (
 	"strait/internal/testutil"
 
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
 )
 
 var testDB *testutil.TestDB
@@ -39,10 +40,11 @@ func TestMain(m *testing.M) {
 
 func mustQueue(t *testing.T) *queue.PgQueQueue {
 	t.Helper()
-
-	if testDB == nil || testDB.Pool == nil {
-		t.Fatal("testDB is not initialized")
-	}
+	require.False(t, testDB ==
+		nil ||
+		testDB.Pool ==
+			nil,
+	)
 
 	q := queue.NewPgQueQueue(testDB.Pool, queue.NewPostgresRunWriter(testDB.Pool), queue.PgQueConfig{
 		TickInterval:  10 * time.Millisecond,
@@ -57,20 +59,20 @@ func mustQueue(t *testing.T) *queue.PgQueQueue {
 
 func mustStore(t *testing.T) *store.Queries {
 	t.Helper()
-
-	if testDB == nil || testDB.Pool == nil {
-		t.Fatal("testDB is not initialized")
-	}
+	require.False(t, testDB ==
+		nil ||
+		testDB.Pool ==
+			nil,
+	)
 
 	return store.New(testDB.Pool)
 }
 
 func mustClean(t *testing.T, ctx context.Context) {
 	t.Helper()
+	require.NoError(t, testDB.
+		CleanTables(ctx))
 
-	if err := testDB.CleanTables(ctx); err != nil {
-		t.Fatalf("CleanTables() error = %v", err)
-	}
 }
 
 func mustCreateJob(t *testing.T, ctx context.Context, st *store.Queries, projectID string) *domain.Job {
@@ -86,10 +88,8 @@ func mustCreateJob(t *testing.T, ctx context.Context, st *store.Queries, project
 		TimeoutSecs: 300,
 		Enabled:     true,
 	}
-
-	if err := st.CreateJob(ctx, job); err != nil {
-		t.Fatalf("CreateJob() error = %v", err)
-	}
+	require.NoError(t, st.CreateJob(ctx,
+		job))
 
 	return job
 }
@@ -102,9 +102,9 @@ func mustEnqueueRun(t *testing.T, ctx context.Context, q enqueueQueue, job *doma
 		ProjectID: job.ProjectID,
 		Priority:  1,
 	}
-	if err := q.Enqueue(ctx, run); err != nil {
-		t.Fatalf("enqueue: %v", err)
-	}
+	require.NoError(t, q.Enqueue(ctx,
+		run))
+
 	return run
 }
 
@@ -114,7 +114,9 @@ func markWorkerJobQueue(t *testing.T, ctx context.Context, job *domain.Job, queu
 		`UPDATE jobs SET execution_mode = 'worker', queue_name = $2 WHERE id = $1`,
 		job.ID, queueName,
 	); err != nil {
-		t.Fatalf("mark worker job queue: %v", err)
+		require.Failf(t, "test failure",
+
+			"mark worker job queue: %v", err)
 	}
 	job.ExecutionMode = domain.ExecutionModeWorker
 	job.Queue = queueName
@@ -127,9 +129,9 @@ func mustCreateEnvironment(t *testing.T, ctx context.Context, st *store.Queries,
 		Name:      slug,
 		Slug:      slug,
 	}
-	if err := st.CreateEnvironment(ctx, env); err != nil {
-		t.Fatalf("CreateEnvironment(%s): %v", slug, err)
-	}
+	require.NoError(t, st.CreateEnvironment(ctx,
+		env))
+
 	return env.ID
 }
 
@@ -139,7 +141,9 @@ func markWorkerJobQueueEnvironment(t *testing.T, ctx context.Context, job *domai
 		`UPDATE jobs SET execution_mode = 'worker', queue_name = $2, environment_id = $3 WHERE id = $1`,
 		job.ID, queueName, environmentID,
 	); err != nil {
-		t.Fatalf("mark worker job queue environment: %v", err)
+		require.Failf(t, "test failure",
+
+			"mark worker job queue environment: %v", err)
 	}
 	job.ExecutionMode = domain.ExecutionModeWorker
 	job.Queue = queueName

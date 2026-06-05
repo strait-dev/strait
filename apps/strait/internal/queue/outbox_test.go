@@ -8,33 +8,36 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestWriteOutboxInTx_EmptyEntries(t *testing.T) {
-	if err := WriteOutboxInTx(context.Background(), nil, nil); err != nil {
-		t.Errorf("nil entries should pass: %v", err)
-	}
-	if err := WriteOutboxInTx(context.Background(), nil, []OutboxEntry{}); err != nil {
-		t.Errorf("empty slice should pass: %v", err)
-	}
+	assert.NoError(
+		t, WriteOutboxInTx(context.
+			Background(), nil, nil))
+	assert.NoError(
+		t, WriteOutboxInTx(context.
+			Background(), nil, []OutboxEntry{}))
+
 }
 
 func TestWriteOutboxInTx_MissingProjectIDRejected(t *testing.T) {
 	err := WriteOutboxInTx(context.Background(), nil, []OutboxEntry{{
 		JobID: "job1",
 	}})
-	if err == nil {
-		t.Error("missing project_id should error")
-	}
+	assert.Error(t,
+		err)
+
 }
 
 func TestWriteOutboxInTx_MissingJobIDRejected(t *testing.T) {
 	err := WriteOutboxInTx(context.Background(), nil, []OutboxEntry{{
 		ProjectID: "p1",
 	}})
-	if err == nil {
-		t.Error("missing job_id should error")
-	}
+	assert.Error(t,
+		err)
+
 }
 
 func TestUniqueJobIDs_DeduplicatesInFirstSeenOrder(t *testing.T) {
@@ -45,13 +48,14 @@ func TestUniqueJobIDs_DeduplicatesInFirstSeenOrder(t *testing.T) {
 		{JobID: "job-3"},
 	})
 	want := []string{"job-1", "job-2", "job-3"}
-	if len(got) != len(want) {
-		t.Fatalf("uniqueJobIDs len=%d, want %d", len(got), len(want))
-	}
+	require.Len(t,
+		got, len(want))
+
 	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("uniqueJobIDs[%d]=%q, want %q", i, got[i], want[i])
-		}
+		require.Equal(t,
+			want[i],
+			got[i])
+
 	}
 }
 
@@ -66,33 +70,33 @@ func TestWriteOutboxInTx_UsesBatchForInserts(t *testing.T) {
 		{ID: "outbox-2", ProjectID: "project-1", JobID: "job-1"},
 		{ID: "outbox-3", ProjectID: "project-1", JobID: "job-2"},
 	}
+	require.NoError(t, WriteOutboxInTx(context.
+		Background(), tx, entries))
+	require.EqualValues(t, 0, tx.execCalls)
+	require.NotNil(
+		t, tx.sentBatch,
+	)
+	require.Equal(t,
+		len(entries), tx.sentBatch.
+			Len())
+	require.Equal(t,
+		len(entries), results.
+			execCalls,
+	)
+	require.True(t,
+		results.closeCalled,
+	)
 
-	if err := WriteOutboxInTx(context.Background(), tx, entries); err != nil {
-		t.Fatalf("WriteOutboxInTx: %v", err)
-	}
-
-	if tx.execCalls != 0 {
-		t.Fatalf("Exec calls=%d, want 0; inserts should use SendBatch", tx.execCalls)
-	}
-	if tx.sentBatch == nil {
-		t.Fatal("SendBatch was not called")
-	}
-	if got := tx.sentBatch.Len(); got != len(entries) {
-		t.Fatalf("batch len=%d, want %d", got, len(entries))
-	}
-	if results.execCalls != len(entries) {
-		t.Fatalf("batch Exec calls=%d, want %d", results.execCalls, len(entries))
-	}
-	if !results.closeCalled {
-		t.Fatal("batch results were not closed")
-	}
 	first := tx.sentBatch.QueuedQueries[0]
-	if !strings.Contains(first.SQL, "ON CONFLICT (id) DO NOTHING") {
-		t.Fatalf("queued SQL missing idempotency conflict handling: %s", first.SQL)
-	}
-	if got := first.Arguments[0]; got != "outbox-1" {
-		t.Fatalf("first queued id=%v, want outbox-1", got)
-	}
+	require.True(t,
+		strings.Contains(first.
+			SQL, "ON CONFLICT (id) DO NOTHING",
+		))
+	require.Equal(t,
+		"outbox-1",
+		first.Arguments[0],
+	)
+
 }
 
 func TestWriteOutboxInTx_BatchExecErrorIncludesEntryID(t *testing.T) {
@@ -108,15 +112,16 @@ func TestWriteOutboxInTx_BatchExecErrorIncludesEntryID(t *testing.T) {
 	}
 
 	err := WriteOutboxInTx(context.Background(), tx, entries)
-	if !errors.Is(err, writeErr) {
-		t.Fatalf("WriteOutboxInTx error=%v, want wrapped writeErr", err)
-	}
-	if !strings.Contains(err.Error(), "outbox-2") {
-		t.Fatalf("WriteOutboxInTx error=%q, want failing entry id", err.Error())
-	}
-	if !results.closeCalled {
-		t.Fatal("batch results were not closed after exec error")
-	}
+	require.True(t,
+		errors.Is(err, writeErr))
+	require.True(t,
+		strings.Contains(err.
+			Error(), "outbox-2",
+		))
+	require.True(t,
+		results.closeCalled,
+	)
+
 }
 
 type outboxMockTx struct {

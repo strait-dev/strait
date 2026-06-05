@@ -3,6 +3,8 @@ package queue
 import (
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestQueueNotifier_BackoffDelay_ExponentialGrowth(t *testing.T) {
@@ -25,9 +27,11 @@ func TestQueueNotifier_BackoffDelay_ExponentialGrowth(t *testing.T) {
 
 		for range 20 {
 			delay := n.backoffDelay(attempt)
-			if delay < minExpected || delay > maxExpected {
-				t.Fatalf("attempt %d: delay %v not in [%v, %v]", attempt, delay, minExpected, maxExpected)
-			}
+			require.False(t,
+				delay <
+					minExpected ||
+					delay > maxExpected)
+
 		}
 	}
 }
@@ -43,13 +47,17 @@ func TestQueueNotifier_BackoffDelay_CappedAtMax(t *testing.T) {
 	// At attempt 100, the base would be huge without capping.
 	for range 50 {
 		delay := n.backoffDelay(100)
+		require.LessOrEqual(t,
+			delay,
+
+			time.Duration(float64(30*time.Second)*1.26))
+		require.GreaterOrEqual(
+			t,
+
+			delay, time.Duration(float64(30*time.Second)*0.74))
+
 		// With jitter: max is 30s * 1.25 = 37.5s.
-		if delay > time.Duration(float64(30*time.Second)*1.26) {
-			t.Fatalf("delay %v exceeds max with jitter", delay)
-		}
-		if delay < time.Duration(float64(30*time.Second)*0.74) {
-			t.Fatalf("delay %v below min with jitter", delay)
-		}
+
 	}
 }
 
@@ -67,11 +75,13 @@ func TestQueueNotifier_BackoffDelay_Jitter(t *testing.T) {
 		d := n.backoffDelay(3)
 		seen[d] = true
 	}
+	require.GreaterOrEqual(
+		t,
+
+		len(seen), 5)
 
 	// With 100 samples and jitter, we should see at least 10 distinct values.
-	if len(seen) < 5 {
-		t.Fatalf("expected jitter to produce diverse delays, got only %d distinct values", len(seen))
-	}
+
 }
 
 func TestQueueNotifier_BackoffDelay_AttemptZero(t *testing.T) {
@@ -84,9 +94,12 @@ func TestQueueNotifier_BackoffDelay_AttemptZero(t *testing.T) {
 
 	for range 20 {
 		delay := n.backoffDelay(0)
+		require.False(t,
+			delay <
+				374*
+					time.Millisecond || delay > 626*time.Millisecond)
+
 		// Base is 500ms, jitter 75%-125% = 375ms-625ms.
-		if delay < 374*time.Millisecond || delay > 626*time.Millisecond {
-			t.Fatalf("attempt 0: delay %v not in expected range [375ms, 625ms]", delay)
-		}
+
 	}
 }

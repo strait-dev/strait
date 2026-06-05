@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Unit tests for the DB circuit breaker.
@@ -27,12 +29,12 @@ func TestCircuit_ClosedPassesThrough(t *testing.T) {
 	now := time.Now()
 	c := newTestCircuit(&now)
 	err := c.Do(context.Background(), func(_ context.Context) error { return nil })
-	if err != nil {
-		t.Fatalf("err = %v", err)
-	}
-	if c.State() != CircuitClosed {
-		t.Errorf("state = %v, want closed", c.State())
-	}
+	require.NoError(t, err)
+	assert.Equal(t,
+		CircuitClosed,
+		c.
+			State())
+
 }
 
 func TestCircuit_OpensAtThreshold(t *testing.T) {
@@ -42,17 +44,22 @@ func TestCircuit_OpensAtThreshold(t *testing.T) {
 	for range 3 {
 		_ = c.Do(context.Background(), func(_ context.Context) error { return boom })
 	}
-	if c.State() != CircuitOpen {
-		t.Errorf("state = %v, want open", c.State())
-	}
+	assert.Equal(t,
+		CircuitOpen,
+		c.State())
+
 	// Next call short-circuits.
 	err := c.Do(context.Background(), func(_ context.Context) error {
-		t.Fatal("fn should not run when circuit open")
+		require.Fail(t,
+
+			"fn should not run when circuit open")
 		return nil
 	})
-	if !errors.Is(err, ErrCircuitOpen) {
-		t.Errorf("err = %v, want ErrCircuitOpen", err)
-	}
+	assert.True(t,
+		errors.Is(
+			err, ErrCircuitOpen,
+		))
+
 }
 
 func TestCircuit_HalfOpenAfterCooldown(t *testing.T) {
@@ -62,14 +69,17 @@ func TestCircuit_HalfOpenAfterCooldown(t *testing.T) {
 	for range 3 {
 		_ = c.Do(context.Background(), func(_ context.Context) error { return boom })
 	}
-	if c.State() != CircuitOpen {
-		t.Fatalf("expected open")
-	}
+	require.Equal(t,
+		CircuitOpen,
+		c.State())
+
 	// Advance past OpenFor.
 	now = now.Add(200 * time.Millisecond)
-	if c.State() != CircuitHalfOpen {
-		t.Errorf("expected half-open after cooldown, got %v", c.State())
-	}
+	assert.Equal(t,
+		CircuitHalfOpen,
+
+		c.State())
+
 }
 
 func TestCircuit_HalfOpenSuccessCloses(t *testing.T) {
@@ -82,12 +92,13 @@ func TestCircuit_HalfOpenSuccessCloses(t *testing.T) {
 	now = now.Add(200 * time.Millisecond)
 
 	err := c.Do(context.Background(), func(_ context.Context) error { return nil })
-	if err != nil {
-		t.Errorf("probe err = %v", err)
-	}
-	if c.State() != CircuitClosed {
-		t.Errorf("state = %v, want closed", c.State())
-	}
+	assert.NoError(
+		t, err)
+	assert.Equal(t,
+		CircuitClosed,
+		c.
+			State())
+
 }
 
 func TestCircuit_HalfOpenCanceledProbeAllowsRetry(t *testing.T) {
@@ -100,20 +111,22 @@ func TestCircuit_HalfOpenCanceledProbeAllowsRetry(t *testing.T) {
 	now = now.Add(200 * time.Millisecond)
 
 	err := c.Do(context.Background(), func(_ context.Context) error { return context.Canceled })
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("probe err = %v, want context.Canceled", err)
-	}
-	if c.State() != CircuitHalfOpen {
-		t.Fatalf("state = %v, want half-open after canceled probe", c.State())
-	}
+	require.True(t,
+		errors.Is(err, context.
+			Canceled),
+	)
+	require.Equal(t,
+		CircuitHalfOpen,
+
+		c.State())
 
 	err = c.Do(context.Background(), func(_ context.Context) error { return nil })
-	if err != nil {
-		t.Fatalf("second probe err = %v", err)
-	}
-	if c.State() != CircuitClosed {
-		t.Fatalf("state = %v, want closed after successful retry probe", c.State())
-	}
+	require.NoError(t, err)
+	require.Equal(t,
+		CircuitClosed,
+		c.
+			State())
+
 }
 
 func TestCircuit_HalfOpenAllowsOnlyOneProbe(t *testing.T) {
@@ -148,7 +161,9 @@ func TestCircuit_HalfOpenAllowsOnlyOneProbe(t *testing.T) {
 	for range 25 {
 		wg.Go(func() {
 			if err := c.Do(context.Background(), func(_ context.Context) error {
-				t.Error("concurrent half-open caller should not run")
+				assert.Fail(t,
+
+					"concurrent half-open caller should not run")
 				return nil
 			}); errors.Is(err, ErrCircuitOpen) {
 				blocked.Add(1)
@@ -156,17 +171,16 @@ func TestCircuit_HalfOpenAllowsOnlyOneProbe(t *testing.T) {
 		})
 	}
 	wg.Wait()
-	if blocked.Load() != 25 {
-		t.Fatalf("blocked probes = %d, want 25", blocked.Load())
-	}
+	require.EqualValues(t, 25, blocked.
+		Load())
 
 	close(release)
-	if err := <-done; err != nil {
-		t.Fatalf("probe err = %v", err)
-	}
-	if c.State() != CircuitClosed {
-		t.Fatalf("state = %v, want closed", c.State())
-	}
+	require.NoError(t, <-done)
+	require.Equal(t,
+		CircuitClosed,
+		c.
+			State())
+
 }
 
 func TestCircuit_HalfOpenFailureReopensExponentially(t *testing.T) {
@@ -179,18 +193,22 @@ func TestCircuit_HalfOpenFailureReopensExponentially(t *testing.T) {
 	// First cooldown.
 	now = now.Add(200 * time.Millisecond)
 	_ = c.Do(context.Background(), func(_ context.Context) error { return boom })
-	if c.State() != CircuitOpen {
-		t.Errorf("state after failed probe = %v, want open", c.State())
-	}
+	assert.Equal(t,
+		CircuitOpen,
+		c.State())
+
 	// Next cooldown should be 2x initial.
 	now = now.Add(150 * time.Millisecond)
-	if c.State() != CircuitOpen {
-		t.Error("should still be open within doubled cooldown")
-	}
+	assert.Equal(t,
+		CircuitOpen,
+		c.State())
+
 	now = now.Add(100 * time.Millisecond)
-	if c.State() != CircuitHalfOpen {
-		t.Errorf("state = %v, want half-open after doubled cooldown", c.State())
-	}
+	assert.Equal(t,
+		CircuitHalfOpen,
+
+		c.State())
+
 }
 
 func TestCircuit_DoesNotCountContextCanceled(t *testing.T) {
@@ -199,9 +217,11 @@ func TestCircuit_DoesNotCountContextCanceled(t *testing.T) {
 	for range 10 {
 		_ = c.Do(context.Background(), func(_ context.Context) error { return context.Canceled })
 	}
-	if c.State() != CircuitClosed {
-		t.Errorf("context.Canceled should not trip breaker, got %v", c.State())
-	}
+	assert.Equal(t,
+		CircuitClosed,
+		c.
+			State())
+
 }
 
 func TestCircuit_WindowPruning(t *testing.T) {
@@ -213,10 +233,13 @@ func TestCircuit_WindowPruning(t *testing.T) {
 	// Advance past the window; old failures should be pruned.
 	now = now.Add(11 * time.Second)
 	_ = c.Do(context.Background(), func(_ context.Context) error { return boom })
+	assert.Equal(t,
+		CircuitClosed,
+		c.
+			State())
+
 	// Only the latest failure is in the window, so breaker stays closed.
-	if c.State() != CircuitClosed {
-		t.Errorf("expected closed after window pruning, got %v", c.State())
-	}
+
 }
 
 func TestCircuit_ConcurrentFailuresOpenOnce(t *testing.T) {
@@ -233,12 +256,12 @@ func TestCircuit_ConcurrentFailuresOpenOnce(t *testing.T) {
 		})
 	}
 	wg.Wait()
-	if c.State() != CircuitOpen {
-		t.Errorf("state after storm = %v", c.State())
-	}
-	if count.Load() == 0 {
-		t.Error("expected some calls to be short-circuited")
-	}
+	assert.Equal(t,
+		CircuitOpen,
+		c.State())
+	assert.NotEqual(t, 0, count.
+		Load())
+
 }
 
 func TestCircuit_MaxOpenForCap(t *testing.T) {
@@ -256,9 +279,10 @@ func TestCircuit_MaxOpenForCap(t *testing.T) {
 		_ = c.Do(context.Background(), func(_ context.Context) error { return boom })
 		now = now.Add(400 * time.Millisecond)
 	}
-	if d := c.currentOpenDuration(); d > 300*time.Millisecond {
-		t.Errorf("duration %v exceeds cap", d)
-	}
+	assert.LessOrEqual(t, c.currentOpenDuration(), 300*
+		time.Millisecond,
+	)
+
 }
 
 // TestCircuit_AllTransitionsVisible walks the four transition edges
@@ -276,42 +300,49 @@ func TestCircuit_AllTransitionsVisible(t *testing.T) {
 		Clock:            func() time.Time { return now },
 	})
 	boom := errors.New("boom")
+	require.Equal(t,
+		CircuitClosed,
+		c.
+			State())
 
 	// Closed initially.
-	if c.State() != CircuitClosed {
-		t.Fatalf("initial state = %v", c.State())
-	}
 
 	// Closed -> Open: two consecutive failures trip the breaker.
 	_ = c.Do(context.Background(), func(_ context.Context) error { return boom })
 	_ = c.Do(context.Background(), func(_ context.Context) error { return boom })
-	if c.State() != CircuitOpen {
-		t.Fatalf("after threshold failures state = %v, want open", c.State())
-	}
+	require.Equal(t,
+		CircuitOpen,
+		c.State())
 
 	// Open -> HalfOpen: advance past OpenFor; next State() observes half-open.
 	now = now.Add(100 * time.Millisecond)
-	if s := c.State(); s != CircuitHalfOpen {
-		t.Fatalf("after open timeout state = %v, want half_open", s)
-	}
+	require.Equal(t,
+		CircuitHalfOpen,
+
+		c.State())
 
 	// HalfOpen -> Open: a probe failure re-opens.
 	_ = c.Do(context.Background(), func(_ context.Context) error { return boom })
-	if c.State() != CircuitOpen {
-		t.Fatalf("after probe failure state = %v, want open", c.State())
-	}
+	require.Equal(t,
+		CircuitOpen,
+		c.State())
 
 	// Open -> HalfOpen -> Closed: advance past OpenFor and run a success probe.
 	now = now.Add(500 * time.Millisecond)
-	if s := c.State(); s != CircuitHalfOpen {
-		t.Fatalf("second half-open observation state = %v", s)
-	}
-	if err := c.Do(context.Background(), func(_ context.Context) error { return nil }); err != nil {
-		t.Fatalf("probe success err = %v", err)
-	}
-	if c.State() != CircuitClosed {
-		t.Fatalf("after success probe state = %v, want closed", c.State())
-	}
+	require.Equal(t,
+		CircuitHalfOpen,
+
+		c.State())
+	require.NoError(t, c.Do(context.
+		Background(), func(_ context.
+		Context) error {
+		return nil
+	}))
+	require.Equal(t,
+		CircuitClosed,
+		c.
+			State())
+
 }
 
 func FuzzCircuitTransitions(f *testing.F) {
@@ -327,9 +358,8 @@ func FuzzCircuitTransitions(f *testing.F) {
 			Clock:            func() time.Time { return now },
 		})
 		defer func() {
-			if r := recover(); r != nil {
-				t.Fatalf("panic: %v", r)
-			}
+			require.Nil(t, recover())
+
 		}()
 		boom := errors.New("boom")
 		// Execute n ops with pattern bits selecting success/failure.

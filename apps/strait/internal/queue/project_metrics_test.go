@@ -18,7 +18,7 @@ func TestProjectAllowlist_SetAddList(t *testing.T) {
 	a := NewProjectLabelAllowlist(5)
 	a.Set([]string{"p1", "p2", "p3"})
 
-	assert.Equal(t, 3, a.Size())
+	assert.EqualValues(t, 3, a.Size())
 	assert.Equal(t, "p1", a.Label("p1"))
 	assert.Equal(t, "_other", a.Label("p999"))
 }
@@ -28,7 +28,7 @@ func TestProjectAllowlist_SetRespectsCap(t *testing.T) {
 	a := NewProjectLabelAllowlist(5)
 	a.Set([]string{"a", "b", "c", "d", "e", "f"})
 
-	assert.Equal(t, 4, a.Size())
+	assert.EqualValues(t, 4, a.Size())
 }
 
 func TestProjectAllowlist_AddOverflow(t *testing.T) {
@@ -44,7 +44,7 @@ func TestProjectAllowlist_AddIdempotent(t *testing.T) {
 	a.Add("p1")
 	a.Add("p1")
 
-	assert.Equal(t, 1, a.Size())
+	assert.EqualValues(t, 1, a.Size())
 }
 
 func TestProjectAllowlist_LargeWorkloadBoundedCardinality(t *testing.T) {

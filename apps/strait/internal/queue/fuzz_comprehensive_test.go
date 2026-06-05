@@ -9,6 +9,9 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Comprehensive fuzz targets for the queue system.
@@ -32,12 +35,12 @@ func FuzzBackpressureTokenMath(f *testing.F) {
 		}
 		// Simulate the refill formula from backpressure.go CTE.
 		refilled := min(tokens+int(elapsedSec)*refillPerSec, maxTokens)
-		if refilled < 0 {
-			t.Errorf("refilled = %d, must be >= 0", refilled)
-		}
-		if refilled > maxTokens {
-			t.Errorf("refilled = %d > max = %d", refilled, maxTokens)
-		}
+		assert.GreaterOrEqual(t, refilled,
+			0)
+		assert.LessOrEqual(t, refilled,
+			maxTokens,
+		)
+
 	})
 }
 
@@ -68,9 +71,13 @@ func FuzzCircuitBreakerStateAlwaysValid(f *testing.F) {
 			now = now.Add(time.Millisecond)
 		}
 		s := c.State()
-		if s != CircuitClosed && s != CircuitOpen && s != CircuitHalfOpen {
-			t.Errorf("invalid state %d", s)
-		}
+		assert.False(t,
+			s != CircuitClosed &&
+				s !=
+					CircuitOpen &&
+				s !=
+					CircuitHalfOpen)
+
 	})
 }
 
@@ -89,9 +96,11 @@ func FuzzPriorityPromoterBounds(f *testing.F) {
 		}
 		// Simulate LEAST(priority + increment, maxPri).
 		result := min(current+increment, maxPri)
-		if result < 0 || result > maxPri {
-			t.Errorf("promoted = %d, want [0, %d]", result, maxPri)
-		}
+		assert.False(t,
+			result < 0 || result >
+				maxPri,
+		)
+
 	})
 }
 
@@ -125,12 +134,11 @@ func FuzzRetryBackoffBounds(f *testing.F) {
 		default:
 			return
 		}
-		if delaySec < 0 {
-			t.Errorf("negative delay: %d", delaySec)
-		}
-		if delaySec > maxSec {
-			t.Errorf("delay %d > max %d", delaySec, maxSec)
-		}
+		assert.GreaterOrEqual(t, delaySec,
+			0)
+		assert.LessOrEqual(t, delaySec,
+			maxSec)
+
 	})
 }
 
@@ -147,9 +155,8 @@ func FuzzPartitionNameFormat(f *testing.F) {
 		}
 		ts := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC)
 		name := ts.Format("job_runs_p2006_01")
-		if len(name) == 0 {
-			t.Error("empty partition name")
-		}
+		assert.NotEmpty(t, name)
+
 	})
 }
 
@@ -172,20 +179,17 @@ func FuzzRunStatusScanRoundTrip(f *testing.F) {
 			return // invalid input, skip
 		}
 		v, err := s.Value()
-		if err != nil {
-			t.Fatalf("Value failed after Scan: %v", err)
-		}
-		if v == nil && raw != "" {
-			t.Errorf("Value returned nil for non-empty %q", raw)
-		}
+		require.NoError(t, err)
+		assert.False(t,
+			v == nil && raw !=
+				"")
+
 		if v != nil {
 			var s2 domain.RunStatus
-			if err := s2.Scan(v); err != nil {
-				t.Fatalf("round-trip Scan failed: %v", err)
-			}
-			if s != s2 {
-				t.Errorf("round-trip: %q -> %q", s, s2)
-			}
+			require.NoError(t, s2.Scan(v))
+			assert.Equal(t,
+				s2, s)
+
 		}
 	})
 }
@@ -206,17 +210,14 @@ func FuzzErrorClassRoundTrip(f *testing.F) {
 			return
 		}
 		v, err := e.Value()
-		if err != nil {
-			t.Fatalf("Value failed after Scan: %v", err)
-		}
+		require.NoError(t, err)
+
 		if v != nil {
 			var e2 domain.ErrorClassEnum
-			if err := e2.Scan(v); err != nil {
-				t.Fatalf("round-trip Scan: %v", err)
-			}
-			if e != e2 {
-				t.Errorf("round-trip: %q -> %q", e, e2)
-			}
+			require.NoError(t, e2.Scan(v))
+			assert.Equal(t,
+				e2, e)
+
 		}
 	})
 }
@@ -234,15 +235,18 @@ func FuzzSafeQuoteIdentNeverProducesInjection(f *testing.F) {
 		if err != nil {
 			return // invalid input, correctly rejected
 		}
+		assert.False(t,
+			len(quoted) < 3 ||
+				quoted[0] != '"' ||
+				quoted[len(quoted)-1] != '"')
+
 		// Valid quoted ident must start and end with double quotes and
 		// contain only the validated identifier inside.
-		if len(quoted) < 3 || quoted[0] != '"' || quoted[len(quoted)-1] != '"' {
-			t.Errorf("bad quoting: %q", quoted)
-		}
+
 		inner := quoted[1 : len(quoted)-1]
-		if err := store.ValidateIdent(inner); err != nil {
-			t.Errorf("inner %q is not a valid ident: %v", inner, err)
-		}
+		assert.NoError(
+			t, store.ValidateIdent(inner))
+
 	})
 }
 
@@ -264,22 +268,23 @@ func FuzzPayloadJSONRoundTrip(f *testing.F) {
 		payload := json.RawMessage(raw)
 		// Simulate enqueue → store → dequeue by marshalling to bytes and back.
 		bytes, err := json.Marshal(payload)
-		if err != nil {
-			t.Fatalf("marshal: %v", err)
-		}
+		require.NoError(t, err)
+
 		var decoded json.RawMessage
-		if err := json.Unmarshal(bytes, &decoded); err != nil {
-			t.Fatalf("unmarshal: %v", err)
-		}
+		require.NoError(t, json.Unmarshal(bytes,
+			&decoded))
+
 		// Canonical comparison.
 		var orig, result any
 		_ = json.Unmarshal(payload, &orig)
 		_ = json.Unmarshal(decoded, &result)
 		origB, _ := json.Marshal(orig)
 		resultB, _ := json.Marshal(result)
-		if string(origB) != string(resultB) {
-			t.Errorf("payload drift: %s -> %s", origB, resultB)
-		}
+		assert.Equal(t,
+			string(resultB),
+			string(
+				origB))
+
 	})
 }
 
@@ -300,10 +305,10 @@ func FuzzConcurrencyKeyNormalization(f *testing.F) {
 		if normalized == "" {
 			normalized = ""
 		}
+		assert.LessOrEqual(t, len(normalized), 256)
+
 		// Invariant: normalized is always a non-nil string.
-		if len(normalized) > 256 {
-			t.Errorf("normalized key too long: %d", len(normalized))
-		}
+
 	})
 }
 
@@ -320,11 +325,11 @@ func FuzzIdempotencyKeyNoFalseCollision(f *testing.F) {
 		if a == b {
 			return
 		}
+		assert.NotEqual(t, b, a)
+
 		// Today idempotency is a string compare in SQL. If we ever add
 		// hashing, this test catches false collisions.
-		if a == b {
-			t.Errorf("false collision: %q vs %q", a, b)
-		}
+
 	})
 }
 
@@ -342,9 +347,8 @@ func FuzzMetricsPartitionStatsNoPanic(f *testing.F) {
 			return
 		}
 		defer func() {
-			if r := recover(); r != nil {
-				t.Fatalf("RecordPartitionStats panicked: %v", r)
-			}
+			require.Nil(t, recover())
+
 		}()
 		s := PartitionStats{
 			Relname:      name,
@@ -372,9 +376,9 @@ func FuzzExponentialBackoffNoOverflow(f *testing.F) {
 		}
 		shift := min(attempt, maxShift)
 		result := int64(1) << uint(shift)
-		if result < 0 {
-			t.Errorf("overflow at attempt=%d shift=%d", attempt, shift)
-		}
+		assert.GreaterOrEqual(t, result,
+			int64(0))
+
 		if result > math.MaxInt64/2 {
 			// Near overflow boundary — cap is expected.
 			return
