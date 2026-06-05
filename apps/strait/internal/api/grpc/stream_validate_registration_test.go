@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -328,17 +329,25 @@ func TestValidateRegistration(t *testing.T) {
 			switch {
 			case tc.isAccepted:
 				if err != nil {
-					t.Fatalf("expected acceptance, got error: %v", err)
+					require.Failf(t, "test failure",
+
+						"expected acceptance, got error: %v", err)
 				}
 			case tc.wantErr:
 				if err == nil {
-					t.Fatal("expected error, got nil")
+					require.Fail(t,
+
+						"expected error, got nil")
 				}
 				if !strings.Contains(err.Error(), tc.wantSubstr) {
-					t.Fatalf("error %q does not contain %q", err.Error(), tc.wantSubstr)
+					require.Failf(t, "test failure",
+
+						"error %q does not contain %q", err.Error(), tc.wantSubstr)
 				}
 				if st, ok := status.FromError(err); !ok || st.Code() != tc.wantCode {
-					t.Fatalf("expected gRPC code %v, got error %v", tc.wantCode, err)
+					require.Failf(t, "test failure",
+
+						"expected gRPC code %v, got error %v", tc.wantCode, err)
 				}
 			}
 		})

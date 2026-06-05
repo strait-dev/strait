@@ -10,6 +10,7 @@ import (
 	"strait/internal/config"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/require"
 )
 
 type reservationRenewalRecorder struct {
@@ -49,9 +50,9 @@ func TestWorkerConnectionReservationRenewal_RenewsWithoutHeartbeat(t *testing.T)
 		}
 		select {
 		case err := <-streamErr:
-			t.Fatalf("unexpected stream error before renewal: %v", err)
+			require.Failf(t, "test failure", "unexpected stream error before renewal: %v", err)
 		case <-deadline:
-			t.Fatalf("renew calls = %d, want at least 2", recorder.renewCalls.Load())
+			require.Failf(t, "test failure", "renew calls = %d, want at least 2", recorder.renewCalls.Load())
 		case <-time.After(5 * time.Millisecond):
 		}
 	}
@@ -72,9 +73,11 @@ func TestWorkerConnectionReservationRenewal_FailureClosesStream(t *testing.T) {
 	select {
 	case err := <-streamErr:
 		if !errors.Is(err, errWorkerConnectionRenewalFailed) {
-			t.Fatalf("stream error = %v, want %v", err, errWorkerConnectionRenewalFailed)
+			require.Failf(t, "test failure",
+
+				"stream error = %v, want %v", err, errWorkerConnectionRenewalFailed)
 		}
 	case <-time.After(250 * time.Millisecond):
-		t.Fatal("timed out waiting for renewal failure to close stream")
+		require.Fail(t, "timed out waiting for renewal failure to close stream")
 	}
 }

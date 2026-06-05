@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestReserveWorkerForQueue_AtomicDecrement verifies that picking + slot
@@ -21,9 +23,7 @@ func TestReserveWorkerForQueue_AtomicDecrement(t *testing.T) {
 	const racers = 100
 	r := NewConnectionRegistry()
 	w := makeWorker("solo", "proj-a", "key", []string{"q"}, 1)
-	if err := r.Register(w); err != nil {
-		t.Fatalf("register: %v", err)
-	}
+	require.NoError(t, r.Register(w))
 
 	var wins atomic.Int32
 	var wg sync.WaitGroup
@@ -36,29 +36,20 @@ func TestReserveWorkerForQueue_AtomicDecrement(t *testing.T) {
 			id, sendCh, ok := r.ReserveWorkerForQueue("proj-a", "q", "")
 			if ok {
 				wins.Add(1)
-				if id != "solo" {
-					t.Errorf("unexpected workerID: %q", id)
-				}
-				if sendCh == nil {
-					t.Error("sendCh nil for ok reservation")
-				}
+				assert.Equal(t, "solo", id)
+				assert.NotNil(t, sendCh)
+
 			}
 		})
 	}
 	close(start)
 	wg.Wait()
-
-	if got := wins.Load(); got != 1 {
-		t.Fatalf("expected exactly 1 winner with 1 slot and %d racers, got %d", racers, got)
-	}
+	require.EqualValues(t, 1, wins.Load())
 
 	snap := r.Snapshot()
-	if len(snap) != 1 {
-		t.Fatalf("expected 1 worker, got %d", len(snap))
-	}
-	if snap[0].SlotsAvailable != 0 {
-		t.Fatalf("SlotsAvailable=%d, want 0 (must not go negative)", snap[0].SlotsAvailable)
-	}
+	require.Len(t, snap, 1)
+	require.EqualValues(t, 0, snap[0].SlotsAvailable)
+
 }
 
 // TestReserveWorkerForQueue_NoneAvailable verifies the negative path: no
@@ -67,21 +58,20 @@ func TestReserveWorkerForQueue_NoneAvailable(t *testing.T) {
 	t.Parallel()
 	r := NewConnectionRegistry()
 	w := makeWorker("a", "proj-a", "key", []string{"other"}, 4)
-	if err := r.Register(w); err != nil {
-		t.Fatalf("register: %v", err)
-	}
+	require.NoError(t, r.Register(w))
 
 	id, sendCh, ok := r.ReserveWorkerForQueue("proj-a", "q-none", "")
-	if ok {
-		t.Fatalf("expected ok=false, got id=%q sendCh=%v", id, sendCh)
-	}
-	if id != "" || sendCh != nil {
-		t.Fatalf("non-zero return on miss: id=%q sendCh=%v", id, sendCh)
-	}
+	require.False(t, ok)
+	require.False(t, id != "" ||
+		sendCh !=
+
+			nil)
 
 	// Different project: also a miss.
 	if _, _, ok := r.ReserveWorkerForQueue("proj-other", "other", ""); ok {
-		t.Fatal("expected ok=false for cross-project pick")
+		require.Fail(t,
+
+			"expected ok=false for cross-project pick")
 	}
 }
 
@@ -91,20 +81,14 @@ func TestReserveWorkerForQueue_NoneAvailable(t *testing.T) {
 func TestReserveWorkerForQueue_PicksLeastLoaded(t *testing.T) {
 	t.Parallel()
 	r := NewConnectionRegistry()
-	if err := r.Register(makeWorker("loaded", "proj-a", "key1", []string{"q"}, 2)); err != nil {
-		t.Fatalf("register: %v", err)
-	}
-	if err := r.Register(makeWorker("idle", "proj-a", "key2", []string{"q"}, 4)); err != nil {
-		t.Fatalf("register: %v", err)
-	}
+	require.NoError(t, r.Register(makeWorker("loaded", "proj-a", "key1",
+		[]string{"q"}, 2)))
+	require.NoError(t, r.Register(makeWorker("idle", "proj-a", "key2", []string{"q"}, 4)))
 
 	id, _, ok := r.ReserveWorkerForQueue("proj-a", "q", "")
-	if !ok {
-		t.Fatal("expected ok=true")
-	}
-	if id != "idle" {
-		t.Fatalf("expected idle worker, got %q", id)
-	}
+	require.True(t, ok)
+	require.Equal(t, "idle", id)
+
 }
 
 // TestReserveWorkerForQueue_DrainingExcluded verifies that draining workers
@@ -112,13 +96,15 @@ func TestReserveWorkerForQueue_PicksLeastLoaded(t *testing.T) {
 func TestReserveWorkerForQueue_DrainingExcluded(t *testing.T) {
 	t.Parallel()
 	r := NewConnectionRegistry()
-	if err := r.Register(makeWorker("draining", "proj-a", "key", []string{"q"}, 4)); err != nil {
-		t.Fatalf("register: %v", err)
-	}
+	require.NoError(t, r.Register(makeWorker("draining", "proj-a", "key",
+		[]string{"q"}, 4)))
+
 	r.MarkDraining("draining")
 
 	if _, _, ok := r.ReserveWorkerForQueue("proj-a", "q", ""); ok {
-		t.Fatal("expected draining worker to be excluded from reservations")
+		require.Fail(t,
+
+			"expected draining worker to be excluded from reservations")
 	}
 }
 
@@ -131,29 +117,17 @@ func TestReserveWorkerForQueue_EnvironmentScopedWorkerOnlyMatchesSameEnvironment
 	staging := makeWorker("staging", "proj-a", "key-staging", []string{"q"}, 2)
 	staging.EnvironmentID = "env-staging"
 	projectWide := makeWorker("wide", "proj-a", "key-wide", []string{"q"}, 2)
-	if err := r.Register(prod); err != nil {
-		t.Fatalf("register prod: %v", err)
-	}
-	if err := r.Register(staging); err != nil {
-		t.Fatalf("register staging: %v", err)
-	}
-	if err := r.Register(projectWide); err != nil {
-		t.Fatalf("register wide: %v", err)
-	}
+	require.NoError(t, r.Register(prod))
+	require.NoError(t, r.Register(staging))
+	require.NoError(t, r.Register(projectWide))
 
 	id, _, ok := r.ReserveWorkerForQueue("proj-a", "q", "env-prod")
-	if !ok {
-		t.Fatal("expected env-prod reservation")
-	}
-	if id == "staging" {
-		t.Fatal("env-staging worker must not receive env-prod job")
-	}
+	require.True(t, ok)
+	require.NotEqual(t, "staging",
+		id)
 
 	id, _, ok = r.ReserveWorkerForQueue("proj-a", "q", "env-dev")
-	if !ok {
-		t.Fatal("expected project-wide worker to cover unmatched environment")
-	}
-	if id != "wide" {
-		t.Fatalf("expected project-wide worker for unmatched environment, got %q", id)
-	}
+	require.True(t, ok)
+	require.Equal(t, "wide", id)
+
 }

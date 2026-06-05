@@ -1,6 +1,10 @@
 package grpc
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
 
 func TestDeepSecWorkerQueueMetricKindDoesNotExposeQueueNames(t *testing.T) {
 	t.Parallel()
@@ -12,8 +16,7 @@ func TestDeepSecWorkerQueueMetricKindDoesNotExposeQueueNames(t *testing.T) {
 		"tenant-secret-queue": "custom",
 	}
 	for queue, want := range cases {
-		if got := workerQueueMetricKind(queue); got != want {
-			t.Fatalf("workerQueueMetricKind(%q) = %q, want %q", queue, got, want)
-		}
+		require.Equal(t, want, workerQueueMetricKind(queue))
+
 	}
 }

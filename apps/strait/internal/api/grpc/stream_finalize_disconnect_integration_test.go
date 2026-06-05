@@ -11,6 +11,9 @@ import (
 	workerv1 "strait/internal/api/grpc/proto/workerv1"
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type recordingReadyRunQueue struct {
@@ -39,17 +42,12 @@ func TestIntegration_FinalizeDisconnect_MarksOfflineAndAudits(t *testing.T) {
 
 	const workerID = "disco-worker"
 	const projectID = "proj-disco"
+	require.NoError(t,
 
-	if err := q.RegisterWorker(ctx, &domain.Worker{
-		ID:        workerID,
-		ProjectID: projectID,
-		QueueName: "q",
-		Hostname:  "host",
-		Version:   "1.0",
-		Status:    domain.WorkerStatusActive,
-	}); err != nil {
-		t.Fatalf("seed worker: %v", err)
-	}
+		q.RegisterWorker(ctx,
+			&domain.Worker{ID: workerID,
+				ProjectID: projectID, QueueName: "q", Hostname: "host", Version: "1.0", Status: domain.
+						WorkerStatusActive}))
 
 	svc := &workerService{
 		queries:        q,
@@ -65,27 +63,33 @@ func TestIntegration_FinalizeDisconnect_MarksOfflineAndAudits(t *testing.T) {
 
 	// Workers row must now be offline.
 	var status string
-	if err := env.DB.Pool.QueryRow(ctx,
-		`SELECT status FROM workers WHERE id = $1`, workerID,
-	).Scan(&status); err != nil {
-		t.Fatalf("read worker status: %v", err)
-	}
-	if status != string(domain.WorkerStatusOffline) {
-		t.Errorf("worker status = %q, want %q", status, domain.WorkerStatusOffline)
-	}
+	require.NoError(t,
+
+		env.DB.Pool.
+			QueryRow(ctx, `SELECT status FROM workers WHERE id = $1`,
+
+				workerID).Scan(&status))
+	assert.Equal(t, string(domain.
+		WorkerStatusOffline,
+	), status,
+	)
 
 	// Audit event must have landed.
 	var auditCount int
-	if err := env.DB.Pool.QueryRow(ctx,
-		`SELECT COUNT(*) FROM audit_events
+	require.NoError(t,
+
+		env.DB.Pool.
+			QueryRow(ctx, `SELECT COUNT(*) FROM audit_events
 		 WHERE resource_type = 'worker' AND resource_id = $1 AND action = $2`,
-		workerID, domain.AuditActionWorkerDisconnected,
-	).Scan(&auditCount); err != nil {
-		t.Fatalf("read audit events: %v", err)
-	}
-	if auditCount != 1 {
-		t.Errorf("expected 1 worker.disconnected audit event, got %d", auditCount)
-	}
+
+				workerID, domain.AuditActionWorkerDisconnected,
+			).Scan(&auditCount),
+	)
+	assert.EqualValues(t, 1,
+
+		auditCount,
+	)
+
 }
 
 // TestIntegration_FinalizeDisconnect_RequeuesOpenWorkerRuns verifies that
@@ -110,38 +114,47 @@ func TestIntegration_FinalizeDisconnect_RequeuesOpenWorkerRuns(t *testing.T) {
 	svc.finalizeDisconnect(projectID, workerID)
 
 	run, err := q.GetRun(ctx, runID)
-	if err != nil {
-		t.Fatalf("GetRun: %v", err)
-	}
-	if run.Status != domain.StatusQueued {
-		t.Fatalf("run status = %q, want queued", run.Status)
-	}
-	if run.StartedAt != nil {
-		t.Fatalf("run.StartedAt = %v, want nil after requeue", run.StartedAt)
-	}
-	if run.FinishedAt != nil {
-		t.Fatalf("run.FinishedAt = %v, want nil after requeue", run.FinishedAt)
-	}
-	if run.HeartbeatAt != nil {
-		t.Fatalf("run.HeartbeatAt = %v, want nil after requeue", run.HeartbeatAt)
-	}
-	if run.Error != "worker disconnected before reporting result" {
-		t.Fatalf("run.Error = %q, want disconnect reason", run.Error)
-	}
+	require.NoError(t,
+
+		err)
+	require.Equal(t,
+		domain.
+			StatusQueued,
+
+		run.Status)
+	require.Nil(t, run.StartedAt)
+	require.Nil(t, run.FinishedAt)
+	require.Nil(t, run.HeartbeatAt)
+	require.Equal(t,
+		"worker disconnected before reporting result",
+
+		run.
+			Error)
 
 	task, err := q.GetWorkerTask(ctx, taskID)
-	if err != nil {
-		t.Fatalf("GetWorkerTask: %v", err)
-	}
-	if task.Status != domain.WorkerTaskStatusFailed {
-		t.Fatalf("worker task status = %q, want failed", task.Status)
-	}
-	if task.FinishedAt == nil || task.FinishedAt.Before(time.Now().Add(-time.Minute)) {
-		t.Fatalf("worker task FinishedAt = %v, want recent timestamp", task.FinishedAt)
-	}
-	if len(readyQueue.runIDs) != 1 || readyQueue.runIDs[0] != runID {
-		t.Fatalf("ready events = %v, want [%s]", readyQueue.runIDs, runID)
-	}
+	require.NoError(t,
+
+		err)
+	require.Equal(t,
+		domain.
+			WorkerTaskStatusFailed,
+
+		task.Status,
+	)
+	require.False(t,
+		task.
+			FinishedAt ==
+			nil ||
+			task.FinishedAt.
+				Before(
+					time.Now().Add(-time.Minute)))
+	require.False(t,
+		len(readyQueue.
+			runIDs,
+		) != 1 || readyQueue.
+			runIDs[0] != runID,
+	)
+
 }
 
 // TestIntegration_FinalizeDisconnect_SkipsResultReceivedWorkerRuns verifies
@@ -155,9 +168,13 @@ func TestIntegration_FinalizeDisconnect_SkipsResultReceivedWorkerRuns(t *testing
 	projectID, workerID, runID, taskID := seedRunWithTask(t, ctx, q, env)
 	readyQueue := &recordingReadyRunQueue{}
 	if marked, err := q.MarkWorkerTaskResultReceived(ctx, taskID); err != nil {
-		t.Fatalf("MarkWorkerTaskResultReceived: %v", err)
+		require.Failf(t, "test failure",
+
+			"MarkWorkerTaskResultReceived: %v", err)
 	} else if !marked {
-		t.Fatal("MarkWorkerTaskResultReceived marked = false, want true")
+		require.Fail(t,
+
+			"MarkWorkerTaskResultReceived marked = false, want true")
 	}
 
 	svc := &workerService{
@@ -171,29 +188,35 @@ func TestIntegration_FinalizeDisconnect_SkipsResultReceivedWorkerRuns(t *testing
 	svc.finalizeDisconnect(projectID, workerID)
 
 	run, err := q.GetRun(ctx, runID)
-	if err != nil {
-		t.Fatalf("GetRun: %v", err)
-	}
-	if run.Status != domain.StatusExecuting {
-		t.Fatalf("run status = %q, want executing", run.Status)
-	}
-	if run.Error != "" {
-		t.Fatalf("run.Error = %q, want empty", run.Error)
-	}
+	require.NoError(t,
+
+		err)
+	require.Equal(t,
+		domain.
+			StatusExecuting,
+
+		run.Status)
+	require.Equal(t,
+		"",
+		run.Error,
+	)
 
 	task, err := q.GetWorkerTask(ctx, taskID)
-	if err != nil {
-		t.Fatalf("GetWorkerTask: %v", err)
-	}
-	if task.Status != domain.WorkerTaskStatusResultReceived {
-		t.Fatalf("worker task status = %q, want result_received", task.Status)
-	}
-	if task.FinishedAt != nil {
-		t.Fatalf("worker task FinishedAt = %v, want nil before finalization", task.FinishedAt)
-	}
-	if len(readyQueue.runIDs) != 0 {
-		t.Fatalf("ready events = %v, want none", readyQueue.runIDs)
-	}
+	require.NoError(t,
+
+		err)
+	require.Equal(t,
+		domain.
+			WorkerTaskStatusResultReceived,
+
+		task.Status,
+	)
+	require.Nil(t, task.
+		FinishedAt)
+	require.Len(t, readyQueue.
+		runIDs,
+		0)
+
 }
 
 // TestIntegration_TaskResultHandoffPrecedesDisconnectRequeue verifies the
@@ -216,52 +239,62 @@ func TestIntegration_TaskResultHandoffPrecedesDisconnectRequeue(t *testing.T) {
 		registry:       NewConnectionRegistry(),
 		resultChannels: resultChannels,
 	}
+	require.NoError(t,
 
-	if err := svc.handleTaskResult(ctx, workerID, projectID, &workerv1.TaskResult{
-		RunId:        runID,
-		Status:       "success",
-		OutputJson:   []byte(`{"ok":true}`),
-		AssignmentId: taskID,
-		Attempt:      1,
-	}); err != nil {
-		t.Fatalf("handleTaskResult: %v", err)
-	}
+		svc.handleTaskResult(ctx, workerID,
+			projectID,
+			&workerv1.
+				TaskResult{RunId: runID, Status: "success", OutputJson: []byte(`{"ok":true}`),
+				AssignmentId: taskID, Attempt: 1}))
 
 	task, err := q.GetWorkerTask(ctx, taskID)
-	if err != nil {
-		t.Fatalf("GetWorkerTask: %v", err)
-	}
-	if task.Status != domain.WorkerTaskStatusResultReceived {
-		t.Fatalf("worker task status after stream handoff = %q, want result_received", task.Status)
-	}
-	if task.Result == nil {
-		t.Fatal("worker task result was not durably persisted before channel delivery")
-	}
+	require.NoError(t,
+
+		err)
+	require.Equal(t,
+		domain.
+			WorkerTaskStatusResultReceived,
+
+		task.Status,
+	)
+	require.NotNil(t,
+
+		task.Result,
+	)
+
 	var durableOutput map[string]bool
-	if err := json.Unmarshal(task.Result.Output, &durableOutput); err != nil {
-		t.Fatalf("unmarshal durable worker result: %v", err)
-	}
-	if task.Result.Status != "success" || !durableOutput["ok"] {
-		t.Fatalf("worker task durable result = %+v, want success output", task.Result)
-	}
+	require.NoError(t,
+
+		json.Unmarshal(task.
+			Result.Output, &durableOutput,
+		))
+	require.False(t,
+		task.
+			Result.
+			Status !=
+			"success" || !durableOutput["ok"])
 
 	svc.finalizeDisconnect(projectID, workerID)
 
 	run, err := q.GetRun(ctx, runID)
-	if err != nil {
-		t.Fatalf("GetRun: %v", err)
-	}
-	if run.Status != domain.StatusExecuting {
-		t.Fatalf("run status after disconnect = %q, want executing", run.Status)
-	}
+	require.NoError(t,
+
+		err)
+	require.Equal(t,
+		domain.
+			StatusExecuting,
+
+		run.Status)
 
 	select {
 	case got := <-resultCh:
 		if got == nil || got.RunId != runID || got.Status != "success" {
-			t.Fatalf("delivered result = %#v, want success for run %s", got, runID)
+			require.Failf(t, "test failure",
+
+				"delivered result = %#v, want success for run %s", got, runID)
 		}
 	default:
-		t.Fatal("expected buffered result to be delivered to dispatcher channel")
+		require.Fail(t, "expected buffered result to be delivered to dispatcher channel")
 	}
 }
 
@@ -287,40 +320,51 @@ func TestIntegration_TaskResultHandoffRejectsStaleAssignmentIdentity(t *testing.
 		{RunId: runID, Status: "success", AssignmentId: "old-task", Attempt: 1},
 		{RunId: runID, Status: "success", AssignmentId: taskID, Attempt: 2},
 	}
-	for i, tr := range staleResults {
-		if err := svc.handleTaskResult(ctx, workerID, projectID, tr); err != nil {
-			t.Fatalf("handleTaskResult stale #%d: %v", i, err)
-		}
+	for _, tr := range staleResults {
+		require.NoError(t,
+
+			svc.handleTaskResult(ctx, workerID,
+				projectID,
+				tr))
+
 	}
 
 	task, err := q.GetWorkerTask(ctx, taskID)
-	if err != nil {
-		t.Fatalf("GetWorkerTask: %v", err)
-	}
-	if task.Status != domain.WorkerTaskStatusAssigned {
-		t.Fatalf("stale result changed worker task status to %q, want assigned", task.Status)
-	}
-	if task.Result != nil {
-		t.Fatalf("stale result persisted task result: %+v", task.Result)
-	}
+	require.NoError(t,
+
+		err)
+	require.Equal(t,
+		domain.
+			WorkerTaskStatusAssigned,
+
+		task.
+			Status)
+	require.Nil(t, task.
+		Result)
+
 	select {
 	case got := <-resultCh:
-		t.Fatalf("stale result delivered to dispatcher channel: %#v", got)
+		require.Failf(t, "test failure", "stale result delivered to dispatcher channel: %#v", got)
 	default:
 	}
 
 	exact := assignedTaskResult(runID, taskID, "success")
 	exact.OutputJson = []byte(`{"ok":true}`)
-	if err := svc.handleTaskResult(ctx, workerID, projectID, exact); err != nil {
-		t.Fatalf("handleTaskResult exact: %v", err)
-	}
+	require.NoError(t,
+
+		svc.handleTaskResult(ctx, workerID,
+			projectID,
+			exact))
+
 	select {
 	case got := <-resultCh:
 		if got == nil || got.AssignmentId != taskID || got.Attempt != 1 {
-			t.Fatalf("delivered result = %#v, want exact assignment", got)
+			require.Failf(t, "test failure",
+
+				"delivered result = %#v, want exact assignment", got)
 		}
 	default:
-		t.Fatal("expected exact result to be delivered")
+		require.Fail(t, "expected exact result to be delivered")
 	}
 }
 
@@ -348,9 +392,9 @@ func TestIntegration_CleanupRegistration_StaleReconnectDoesNotRequeue(t *testing
 		SendCh:         make(chan *workerv1.ServerMessage, 1),
 		revokeCh:       make(chan struct{}),
 	}
-	if err := reg.Register(newWorker); err != nil {
-		t.Fatalf("reconnect register: %v", err)
-	}
+	require.NoError(t,
+
+		reg.Register(newWorker))
 
 	svc := &workerService{
 		queries:        q,
@@ -362,26 +406,35 @@ func TestIntegration_CleanupRegistration_StaleReconnectDoesNotRequeue(t *testing
 	svc.cleanupRegistration(projectID, workerID, oldToken)
 
 	run, err := q.GetRun(ctx, runID)
-	if err != nil {
-		t.Fatalf("GetRun: %v", err)
-	}
-	if run.Status != domain.StatusExecuting {
-		t.Fatalf("stale cleanup changed run status to %q, want executing", run.Status)
-	}
+	require.NoError(t,
+
+		err)
+	require.Equal(t,
+		domain.
+			StatusExecuting,
+
+		run.Status)
 
 	task, err := q.GetWorkerTask(ctx, taskID)
-	if err != nil {
-		t.Fatalf("GetWorkerTask: %v", err)
-	}
-	if task.Status != domain.WorkerTaskStatusAssigned {
-		t.Fatalf("stale cleanup changed task status to %q, want assigned", task.Status)
-	}
+	require.NoError(t,
+
+		err)
+	require.Equal(t,
+		domain.
+			WorkerTaskStatusAssigned,
+
+		task.
+			Status)
 
 	worker, err := q.GetWorker(ctx, workerID, projectID)
-	if err != nil {
-		t.Fatalf("GetWorker: %v", err)
-	}
-	if worker.Status != domain.WorkerStatusActive {
-		t.Fatalf("stale cleanup changed worker status to %q, want active", worker.Status)
-	}
+	require.NoError(t,
+
+		err)
+	require.Equal(t,
+		domain.
+			WorkerStatusActive,
+
+		worker.Status,
+	)
+
 }

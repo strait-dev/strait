@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestCloseByAPIKey_NoDoubleClosePanic verifies that revokeCh close is guarded
@@ -25,9 +27,8 @@ func TestCloseByAPIKey_NoDoubleClosePanic(t *testing.T) {
 
 	for i := range workers {
 		w := makeWorker(workerID(i), "proj-a", "shared-key", []string{"q"}, 4)
-		if err := r.Register(w); err != nil {
-			t.Fatalf("register: %v", err)
-		}
+		require.NoError(t, r.Register(w))
+
 	}
 
 	var wg sync.WaitGroup
@@ -45,16 +46,15 @@ func TestCloseByAPIKey_NoDoubleClosePanic(t *testing.T) {
 
 	// All revokeCh must be closed.
 	snap := r.Snapshot()
-	if len(snap) != workers {
-		t.Fatalf("workers count = %d, want %d", len(snap), workers)
-	}
+	require.Len(t, snap, workers)
+
 	for i := range workers {
 		w := lookupWorker(t, r, workerID(i))
 		select {
 		case <-w.revokeCh:
 			// closed, good
 		default:
-			t.Errorf("worker %s revokeCh not closed", w.WorkerID)
+			assert.Failf(t, "test failure", "worker %s revokeCh not closed", w.WorkerID)
 		}
 	}
 }
@@ -71,9 +71,7 @@ func TestRegister_SameKeyReconnect_RacesCloseByAPIKey(t *testing.T) {
 	r := NewConnectionRegistry()
 
 	w0 := makeWorker("w-race", "proj-a", "key-race", []string{"q"}, 4)
-	if err := r.Register(w0); err != nil {
-		t.Fatalf("seed register: %v", err)
-	}
+	require.NoError(t, r.Register(w0))
 
 	var wg sync.WaitGroup
 	wg.Add(2 * racers)
@@ -109,8 +107,7 @@ func lookupWorker(t *testing.T, r *ConnectionRegistry, id string) *ConnectedWork
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	w, ok := r.workers[workerRegistryKey("proj-a", id)]
-	if !ok {
-		t.Fatalf("worker %s not found", id)
-	}
+	require.True(t, ok)
+
 	return w
 }

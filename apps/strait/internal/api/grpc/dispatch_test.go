@@ -12,6 +12,8 @@ import (
 	"strait/internal/domain"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type fakeDispatchSecretDecryptor struct{}
@@ -30,17 +32,21 @@ func TestResultChannelRegistry_SendAndReceive(t *testing.T) {
 	ch := r.Register("run-1", "proj-1", "worker-1", "task-1", 1)
 
 	result := &workerv1.TaskResult{RunId: "run-1", Status: "success", AssignmentId: "task-1", Attempt: 1}
-	if !r.Send("run-1", "proj-1", "worker-1", result) {
-		t.Fatal("expected Send to return true")
-	}
+	require.True(t,
+		r.Send("run-1", "proj-1",
+			"worker-1",
+
+			result))
 
 	select {
 	case got := <-ch:
 		if got.Status != "success" {
-			t.Errorf("expected status=success, got %s", got.Status)
+			assert.Failf(t, "test failure",
+
+				"expected status=success, got %s", got.Status)
 		}
 	default:
-		t.Error("expected result to be in channel")
+		assert.Fail(t, "expected result to be in channel")
 	}
 }
 
@@ -48,9 +54,14 @@ func TestResultChannelRegistry_SendAndReceive(t *testing.T) {
 func TestResultChannelRegistry_SendToUnknownRun(t *testing.T) {
 	r := NewResultChannelRegistry()
 	result := &workerv1.TaskResult{RunId: "unknown", Status: "success"}
-	if r.Send("unknown", "proj-1", "worker-1", result) {
-		t.Error("expected Send to return false for unknown run")
-	}
+	assert.False(t,
+		r.Send("unknown",
+			"proj-1",
+			"worker-1",
+			result,
+		),
+	)
+
 }
 
 // TestResultChannelRegistry_RejectCrossProject is the regression test for the
@@ -61,21 +72,31 @@ func TestResultChannelRegistry_RejectCrossProject(t *testing.T) {
 	ch := r.Register("victim-run", "proj-victim", "worker-victim", "victim-task", 1)
 
 	forged := &workerv1.TaskResult{RunId: "victim-run", Status: "success", AssignmentId: "victim-task", Attempt: 1}
-	if r.Send("victim-run", "proj-attacker", "worker-attacker", forged) {
-		t.Fatal("Send must reject TaskResult from a non-owning project")
-	}
+	require.False(
+		t, r.Send("victim-run",
+			"proj-attacker",
+
+			"worker-attacker",
+
+			forged))
+	require.True(t,
+		r.Send("victim-run",
+			"proj-victim",
+			"worker-victim",
+
+			forged))
 
 	// And the legitimate owner can still deliver.
-	if !r.Send("victim-run", "proj-victim", "worker-victim", forged) {
-		t.Fatal("legitimate owner Send should succeed")
-	}
+
 	select {
 	case got := <-ch:
 		if got != forged {
-			t.Error("expected legitimate result delivered to channel")
+			assert.Fail(t,
+
+				"expected legitimate result delivered to channel")
 		}
 	default:
-		t.Error("expected legitimate result in channel")
+		assert.Fail(t, "expected legitimate result in channel")
 	}
 }
 
@@ -84,20 +105,28 @@ func TestResultChannelRegistry_RejectSameProjectDifferentWorker(t *testing.T) {
 	ch := r.Register("victim-run", "proj-1", "worker-owner", "victim-task", 1)
 
 	forged := &workerv1.TaskResult{RunId: "victim-run", Status: "success", AssignmentId: "victim-task", Attempt: 1}
-	if r.Send("victim-run", "proj-1", "worker-peer", forged) {
-		t.Fatal("Send must reject TaskResult from a different worker in the same project")
-	}
+	require.False(
+		t, r.Send("victim-run",
+			"proj-1",
+			"worker-peer",
 
-	if !r.Send("victim-run", "proj-1", "worker-owner", forged) {
-		t.Fatal("assigned worker should be able to deliver result")
-	}
+			forged))
+	require.True(t,
+		r.Send("victim-run",
+			"proj-1",
+			"worker-owner",
+
+			forged))
+
 	select {
 	case got := <-ch:
 		if got != forged {
-			t.Fatal("expected assigned worker result")
+			require.Fail(t,
+
+				"expected assigned worker result")
 		}
 	default:
-		t.Fatal("expected assigned worker result in channel")
+		require.Fail(t, "expected assigned worker result in channel")
 	}
 }
 
@@ -126,23 +155,33 @@ func TestResultChannelRegistry_RejectStaleAssignmentIdentity(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if r.Send("run-1", "proj-1", "worker-1", tc.result) {
-				t.Fatal("stale or incomplete assignment identity must be rejected")
-			}
+			require.False(
+				t, r.Send("run-1",
+					"proj-1",
+					"worker-1",
+					tc.result,
+				))
+
 		})
 	}
 
 	current := &workerv1.TaskResult{RunId: "run-1", Status: "success", AssignmentId: "current-task", Attempt: 2}
-	if !r.Send("run-1", "proj-1", "worker-1", current) {
-		t.Fatal("exact assignment identity should be accepted")
-	}
+	require.True(t,
+		r.Send("run-1", "proj-1",
+			"worker-1",
+
+			current),
+	)
+
 	select {
 	case got := <-ch:
 		if got != current {
-			t.Fatal("expected exact assignment result")
+			require.Fail(t,
+
+				"expected exact assignment result")
 		}
 	default:
-		t.Fatal("expected exact assignment result in channel")
+		require.Fail(t, "expected exact assignment result in channel")
 	}
 }
 
@@ -155,14 +194,14 @@ func TestResultChannelRegistry_DeduplicateSend(t *testing.T) {
 	r2 := &workerv1.TaskResult{RunId: "run-1", Status: "failed", AssignmentId: "task-1", Attempt: 1}
 
 	first := r.Send("run-1", "proj-1", "worker-1", r1)
-	second := r.Send("run-1", "proj-1", "worker-1", r2) // channel full, should be dropped
+	second := r.Send("run-1", "proj-1", "worker-1", r2)
+	assert.True(t,
+		first)
+	assert.False(t,
+		second)
 
-	if !first {
-		t.Error("expected first send to succeed")
-	}
-	if second {
-		t.Error("expected second send to be dropped (channel full)")
-	}
+	// channel full, should be dropped
+
 }
 
 func TestDeepSecResultChannelRegistry_RejectsDuplicateRegister(t *testing.T) {
@@ -170,21 +209,30 @@ func TestDeepSecResultChannelRegistry_RejectsDuplicateRegister(t *testing.T) {
 
 	r := NewResultChannelRegistry()
 	first, ok := r.TryRegister("run-dup", "proj-1", "worker-1", "task-1", 1)
-	if !ok || first == nil {
-		t.Fatal("first TryRegister should succeed")
-	}
+	require.False(
+		t, !ok || first ==
+			nil)
+
 	second, ok := r.TryRegister("run-dup", "proj-1", "worker-2", "task-2", 1)
-	if ok || second != nil {
-		t.Fatalf("duplicate TryRegister = (%v, %v), want nil,false", second, ok)
-	}
+	require.False(
+		t, ok || second !=
+			nil)
 
 	result := &workerv1.TaskResult{RunId: "run-dup", Status: "success", AssignmentId: "task-1", Attempt: 1}
-	if r.Send("run-dup", "proj-1", "worker-2", result) {
-		t.Fatal("duplicate worker must not receive overwritten ownership")
-	}
-	if !r.Send("run-dup", "proj-1", "worker-1", result) {
-		t.Fatal("original worker should retain result-channel ownership")
-	}
+	require.False(
+		t, r.Send("run-dup",
+			"proj-1",
+			"worker-2",
+			result,
+		))
+	require.True(t,
+		r.Send("run-dup",
+			"proj-1",
+			"worker-1",
+			result,
+		),
+	)
+
 }
 
 // TestResultChannelRegistry_Deregister verifies cleanup after dispatch completes.
@@ -195,35 +243,38 @@ func TestResultChannelRegistry_Deregister(t *testing.T) {
 
 	// After deregister, Send must return false.
 	result := &workerv1.TaskResult{RunId: "run-1", Status: "success", AssignmentId: "task-1", Attempt: 1}
-	if r.Send("run-1", "proj-1", "worker-1", result) {
-		t.Error("expected Send to return false after Deregister")
-	}
+	assert.False(t,
+		r.Send("run-1", "proj-1",
+			"worker-1",
+
+			result))
+
 }
 
 // TestDispatchHMAC_Format verifies that dispatchHMAC returns the v1= prefix.
 func TestDispatchHMAC_Format(t *testing.T) {
 	sig := dispatchHMAC("secret", "1234567890", []byte(`{"hello":"world"}`))
-	if len(sig) < 3 || sig[:3] != "v1=" {
-		t.Errorf("expected v1= prefix, got %s", sig)
-	}
+	assert.False(t,
+		len(sig) < 3 || sig[:3] !=
+			"v1=")
+
 }
 
 // TestDispatchHMAC_Deterministic verifies that the same inputs always produce the same signature.
 func TestDispatchHMAC_Deterministic(t *testing.T) {
 	s1 := dispatchHMAC("secret", "123", []byte("body"))
 	s2 := dispatchHMAC("secret", "123", []byte("body"))
-	if s1 != s2 {
-		t.Errorf("HMAC not deterministic: %s != %s", s1, s2)
-	}
+	assert.Equal(t,
+		s2, s1)
+
 }
 
 // TestDispatchHMAC_DifferentInputsDifferentSigs verifies that different inputs produce different signatures.
 func TestDispatchHMAC_DifferentInputsDifferentSigs(t *testing.T) {
 	s1 := dispatchHMAC("secret1", "123", []byte("body"))
 	s2 := dispatchHMAC("secret2", "123", []byte("body"))
-	if s1 == s2 {
-		t.Error("expected different signatures for different secrets")
-	}
+	assert.NotEqual(t, s2, s1)
+
 }
 
 func TestBuildAssignment_RunTokenIncludesAttemptAndAssignment(t *testing.T) {
@@ -232,18 +283,15 @@ func TestBuildAssignment_RunTokenIncludesAttemptAndAssignment(t *testing.T) {
 	job := &domain.Job{ID: "job-1", Slug: "job", Queue: "q", TimeoutSecs: 30}
 
 	assignment, err := dispatcher.buildAssignment(run, job, "task-1")
-	if err != nil {
-		t.Fatalf("buildAssignment: %v", err)
-	}
-	if assignment.RunTokenJwt == "" {
-		t.Fatal("expected run token")
-	}
-	if assignment.AssignmentId != "task-1" {
-		t.Fatalf("assignment_id = %q, want task-1", assignment.AssignmentId)
-	}
-	if assignment.Attempt != 3 {
-		t.Fatalf("assignment attempt = %d, want 3", assignment.Attempt)
-	}
+	require.NoError(t, err)
+	require.NotEqual(t, "", assignment.
+		RunTokenJwt,
+	)
+	require.Equal(
+		t, "task-1", assignment.
+			AssignmentId,
+	)
+	require.EqualValues(t, 3, assignment.Attempt)
 
 	claims := struct {
 		Attempt      int    `json:"attempt,omitempty"`
@@ -253,18 +301,19 @@ func TestBuildAssignment_RunTokenIncludesAttemptAndAssignment(t *testing.T) {
 	parsed, err := jwt.ParseWithClaims(assignment.RunTokenJwt, &claims, func(_ *jwt.Token) (any, error) {
 		return []byte("test-jwt-key"), nil
 	}, jwt.WithIssuer("strait:run-token"))
-	if err != nil || !parsed.Valid {
-		t.Fatalf("parse run token: %v", err)
-	}
-	if claims.Subject != "run-1" {
-		t.Fatalf("subject = %q, want run-1", claims.Subject)
-	}
-	if claims.Attempt != 3 {
-		t.Fatalf("attempt = %d, want 3", claims.Attempt)
-	}
-	if claims.AssignmentID != "task-1" {
-		t.Fatalf("assignment_id = %q, want task-1", claims.AssignmentID)
-	}
+	require.False(
+		t, err != nil || !parsed.
+			Valid,
+	)
+	require.Equal(
+		t, "run-1", claims.
+			Subject)
+	require.EqualValues(t, 3, claims.Attempt)
+	require.Equal(
+		t, "task-1", claims.
+			AssignmentID,
+	)
+
 }
 
 func TestBuildAssignment_DecryptsEndpointSigningSecret(t *testing.T) {
@@ -274,73 +323,77 @@ func TestBuildAssignment_DecryptsEndpointSigningSecret(t *testing.T) {
 	job := &domain.Job{ID: "job-1", Slug: "job", Queue: "q", TimeoutSecs: 30, EndpointSigningSecret: encrypted}
 
 	assignment, err := dispatcher.buildAssignment(run, job, "task-1")
-	if err != nil {
-		t.Fatalf("buildAssignment: %v", err)
-	}
-	if assignment.HmacSignature == "" {
-		t.Fatal("expected HMAC signature")
-	}
-	if assignment.HmacSignature != dispatchHMAC("plain-endpoint-secret", assignment.HmacTimestamp, run.Payload) {
-		t.Fatal("assignment signature was not computed with decrypted endpoint signing secret")
-	}
-	if straitcrypto.IsEncryptedField("plain-endpoint-secret") {
-		t.Fatal("plaintext helper sanity check failed")
-	}
+	require.NoError(t, err)
+	require.NotEqual(t, "", assignment.
+		HmacSignature,
+	)
+	require.Equal(
+		t, dispatchHMAC("plain-endpoint-secret",
+
+			assignment.
+				HmacTimestamp, run.Payload), assignment.HmacSignature,
+	)
+	require.False(
+		t, straitcrypto.IsEncryptedField("plain-endpoint-secret"))
+
 }
 
 // TestTaskResultStatus_HappyPath verifies TaskResultStatus extracts status correctly.
 func TestTaskResultStatus_HappyPath(t *testing.T) {
 	result := &workerv1.TaskResult{RunId: "r1", Status: "success"}
 	got := TaskResultStatus(result)
-	if got != "success" {
-		t.Errorf("expected success, got %s", got)
-	}
+	assert.Equal(t,
+		"success", got)
+
 }
 
 // TestTaskResultStatus_Nil verifies nil opaque returns empty string.
 func TestTaskResultStatus_Nil(t *testing.T) {
 	got := TaskResultStatus(nil)
-	if got != "" {
-		t.Errorf("expected empty string for nil, got %s", got)
-	}
+	assert.Equal(t,
+		"", got)
+
 }
 
 // TestTaskResultStatus_WrongType verifies wrong type returns empty string.
 func TestTaskResultStatus_WrongType(t *testing.T) {
 	got := TaskResultStatus("not a TaskResult")
-	if got != "" {
-		t.Errorf("expected empty string for wrong type, got %s", got)
-	}
+	assert.Equal(t,
+		"", got)
+
 }
 
 // TestTaskResultError_HappyPath verifies TaskResultError extracts error message.
 func TestTaskResultError_HappyPath(t *testing.T) {
 	result := &workerv1.TaskResult{RunId: "r1", Status: "failed", ErrorMessage: "something went wrong"}
 	got := TaskResultError(result)
-	if got != "something went wrong" {
-		t.Errorf("expected 'something went wrong', got %s", got)
-	}
+	assert.Equal(t,
+		"something went wrong",
+		got,
+	)
+
 }
 
 // TestTaskResultError_Nil verifies nil returns empty string.
 func TestTaskResultError_Nil(t *testing.T) {
 	got := TaskResultError(nil)
-	if got != "" {
-		t.Errorf("expected empty string for nil, got %s", got)
-	}
+	assert.Equal(t,
+		"", got)
+
 }
 
 func TestTaskResultOutput_HappyPathCopiesPayload(t *testing.T) {
 	result := &workerv1.TaskResult{RunId: "r1", Status: "success", OutputJson: []byte(`{"ok":true}`)}
 	got := TaskResultOutput(result)
-	if string(got) != `{"ok":true}` {
-		t.Fatalf("TaskResultOutput() = %s, want output payload", got)
-	}
+	require.Equal(
+		t, `{"ok":true}`, string(got),
+	)
 
 	result.OutputJson[6] = 'f'
-	if string(got) != `{"ok":true}` {
-		t.Fatalf("TaskResultOutput returned aliased payload: %s", got)
-	}
+	require.Equal(
+		t, `{"ok":true}`, string(got),
+	)
+
 }
 
 func TestTaskResultHelpers_InvalidSuccessOutputBecomesFailure(t *testing.T) {
@@ -349,16 +402,14 @@ func TestTaskResultHelpers_InvalidSuccessOutputBecomesFailure(t *testing.T) {
 		Status:     "success",
 		OutputJson: []byte(`{"ok":`),
 	}
+	require.Equal(
+		t, "failed", TaskResultStatus(result))
+	require.Equal(
+		t, invalidWorkerOutputError,
 
-	if got := TaskResultStatus(result); got != "failed" {
-		t.Fatalf("TaskResultStatus() = %q, want failed", got)
-	}
-	if got := TaskResultError(result); got != invalidWorkerOutputError {
-		t.Fatalf("TaskResultError() = %q, want invalid output error", got)
-	}
-	if got := TaskResultOutput(result); got != nil {
-		t.Fatalf("TaskResultOutput() = %s, want nil for invalid JSON", got)
-	}
+		TaskResultError(result))
+	require.Nil(t, TaskResultOutput(result))
+
 }
 
 func TestTaskResultHelpers_UnwrapWorkerTaskResult(t *testing.T) {
@@ -371,15 +422,15 @@ func TestTaskResultHelpers_UnwrapWorkerTaskResult(t *testing.T) {
 			OutputJson:   []byte(`{"ok":true}`),
 		},
 	}
+	require.Equal(
+		t, "success", TaskResultStatus(wrapped))
+	require.Equal(
+		t, "ignored", TaskResultError(wrapped))
 
-	if got := TaskResultStatus(wrapped); got != "success" {
-		t.Fatalf("TaskResultStatus() = %q, want success", got)
-	}
-	if got := TaskResultError(wrapped); got != "ignored" {
-		t.Fatalf("TaskResultError() = %q, want ignored", got)
-	}
 	if got := TaskResultOutput(wrapped); string(got) != `{"ok":true}` {
-		t.Fatalf("TaskResultOutput() = %s, want output payload", got)
+		require.Failf(t, "test failure",
+
+			"TaskResultOutput() = %s, want output payload", got)
 	}
 }
 
@@ -395,9 +446,8 @@ func TestTaskResultOutput_NilWrongTypeAndEmpty(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := TaskResultOutput(tt.input); got != nil {
-				t.Fatalf("TaskResultOutput() = %s, want nil", got)
-			}
+			require.Nil(t, TaskResultOutput(tt.input))
+
 		})
 	}
 }
@@ -420,9 +470,9 @@ func TestWorkerDispatch_NoWorkerAvailable(t *testing.T) {
 	}
 
 	_, err := d.WorkerDispatch(context.Background(), run, job)
-	if !errors.Is(err, ErrNoWorkerAvailable) {
-		t.Errorf("expected ErrNoWorkerAvailable, got %v", err)
-	}
+	assert.True(t,
+		errors.Is(err, ErrNoWorkerAvailable))
+
 }
 
 // TestWorkerDispatch_NilSendCh verifies that a nil SendCh is handled gracefully before
@@ -441,9 +491,7 @@ func TestWorkerDispatch_NilSendCh(t *testing.T) {
 		SendCh:         nil, // nil channel — stream already closed
 		revokeCh:       make(chan struct{}),
 	}
-	if err := registry.Register(w); err != nil {
-		t.Fatalf("register failed: %v", err)
-	}
+	require.NoError(t, registry.Register(w))
 
 	resultChannels := NewResultChannelRegistry()
 	d := NewWorkerDispatcher(registry, nil, "jwt-key", resultChannels)
@@ -452,15 +500,13 @@ func TestWorkerDispatch_NilSendCh(t *testing.T) {
 	job := &domain.Job{ID: "job-1", Queue: "q", Slug: "my-job"}
 
 	_, err := d.WorkerDispatch(context.Background(), run, job)
-	if !errors.Is(err, ErrNoWorkerAvailable) {
-		t.Errorf("expected ErrNoWorkerAvailable for nil SendCh, got %v", err)
-	}
+	assert.True(t,
+		errors.Is(err, ErrNoWorkerAvailable))
 
 	// Slots must NOT be decremented because the guard fires before DecrementSlots.
 	snap := registry.Snapshot()
-	if snap[0].SlotsAvailable != 4 {
-		t.Errorf("expected slots unchanged at 4 (guard before decrement), got %d", snap[0].SlotsAvailable)
-	}
+	assert.EqualValues(t, 4, snap[0].SlotsAvailable)
+
 }
 
 // TestWorkerDispatch_SlotRestoredOnDBError verifies slot is restored when CreateWorkerTask fails.
@@ -480,9 +526,7 @@ func TestWorkerDispatch_SlotRestoredOnDBError(t *testing.T) {
 		SendCh:         sendCh,
 		revokeCh:       make(chan struct{}),
 	}
-	if err := registry.Register(w); err != nil {
-		t.Fatalf("register failed: %v", err)
-	}
+	require.NoError(t, registry.Register(w))
 
 	// We cannot easily inject a failing queries without a real DB in a unit test.
 	// Verify the slot state before — the nil-SendCh path guards before decrement,
@@ -490,14 +534,12 @@ func TestWorkerDispatch_SlotRestoredOnDBError(t *testing.T) {
 	// via DecrementSlots/IncrementSlots directly to confirm the invariant.
 	registry.DecrementSlots("w1")
 	snap := registry.Snapshot()
-	if snap[0].SlotsAvailable != 3 {
-		t.Errorf("expected 3 slots after decrement, got %d", snap[0].SlotsAvailable)
-	}
+	assert.EqualValues(t, 3, snap[0].SlotsAvailable)
+
 	registry.IncrementSlots("w1")
 	snap = registry.Snapshot()
-	if snap[0].SlotsAvailable != 4 {
-		t.Errorf("expected 4 slots after restore, got %d", snap[0].SlotsAvailable)
-	}
+	assert.EqualValues(t, 4, snap[0].SlotsAvailable)
+
 }
 
 // TestWorkerDispatch_ContextCancelWhileWaiting verifies cancellation while waiting for TaskResult
@@ -516,9 +558,7 @@ func TestWorkerDispatch_ContextCancelWhileWaiting(t *testing.T) {
 		SendCh:         sendCh,
 		revokeCh:       make(chan struct{}),
 	}
-	if err := registry.Register(w); err != nil {
-		t.Fatalf("register failed: %v", err)
-	}
+	require.NoError(t, registry.Register(w))
 
 	resultChannels := NewResultChannelRegistry()
 
@@ -544,12 +584,16 @@ func TestWorkerDispatch_ContextCancelWhileWaiting(t *testing.T) {
 	case msg := <-sendCh:
 		cancel, ok := msg.Payload.(*workerv1.ServerMessage_CancelTask)
 		if !ok {
-			t.Errorf("expected CancelTask payload, got %T", msg.Payload)
+			assert.Failf(t, "test failure",
+
+				"expected CancelTask payload, got %T", msg.Payload)
 		} else if cancel.CancelTask.RunId != "run-3" {
-			t.Errorf("expected run_id=run-3, got %s", cancel.CancelTask.RunId)
+			assert.Failf(t, "test failure",
+
+				"expected run_id=run-3, got %s", cancel.CancelTask.RunId)
 		}
 	case <-ctx.Done():
-		t.Error("timed out waiting for CancelTask message")
+		assert.Fail(t, "timed out waiting for CancelTask message")
 	}
 }
 

@@ -10,6 +10,8 @@ import (
 	"strait/internal/domain"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // makeWorker builds a ConnectedWorker for test use.
@@ -32,18 +34,17 @@ func makeWorker(id, project, apiKeyID string, queues []string, slotsTotal int32)
 func TestRegistry_Register_HappyPath(t *testing.T) {
 	r := NewConnectionRegistry()
 	w := makeWorker("w1", "proj-a", "key-1", []string{"default"}, 4)
-
-	if err := r.Register(w); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, r.
+		Register(w))
 
 	snap := r.Snapshot()
-	if len(snap) != 1 {
-		t.Fatalf("expected 1 worker in snapshot, got %d", len(snap))
-	}
-	if snap[0].WorkerID != "w1" {
-		t.Errorf("expected worker id w1, got %s", snap[0].WorkerID)
-	}
+	require.Len(t,
+		snap,
+		1)
+	assert.Equal(
+		t, "w1",
+		snap[0].WorkerID)
+
 }
 
 // TestRegistry_Register_Collision verifies that re-registration of the same
@@ -52,14 +53,12 @@ func TestRegistry_Register_Collision(t *testing.T) {
 	r := NewConnectionRegistry()
 	w1 := makeWorker("w1", "proj-a", "key-1", []string{"default"}, 4)
 	w2 := makeWorker("w1", "proj-a", "key-2", []string{"default"}, 4)
+	require.NoError(t, r.
+		Register(w1))
 
-	if err := r.Register(w1); err != nil {
-		t.Fatalf("first register failed: %v", err)
-	}
 	err := r.Register(w2)
-	if err == nil {
-		t.Fatal("expected collision error, got nil")
-	}
+	require.Error(t, err)
+
 }
 
 // TestRegistry_Register_Reconnect verifies that same-key re-registration evicts the old
@@ -68,52 +67,49 @@ func TestRegistry_Register_Reconnect(t *testing.T) {
 	r := NewConnectionRegistry()
 	w1 := makeWorker("w1", "proj-a", "key-1", []string{"default"}, 4)
 	w2 := makeWorker("w1", "proj-a", "key-1", []string{"default", "batch"}, 4)
-
-	if err := r.Register(w1); err != nil {
-		t.Fatalf("first register failed: %v", err)
-	}
-	if err := r.Register(w2); err != nil {
-		t.Fatalf("reconnect register failed: %v", err)
-	}
+	require.NoError(t, r.
+		Register(w1))
+	require.NoError(t, r.
+		Register(w2))
 
 	// Only one worker should be in the byAPIKey index.
 	r.mu.RLock()
 	count := len(r.byAPIKey["key-1"])
 	r.mu.RUnlock()
-	if count != 1 {
-		t.Errorf("expected 1 byAPIKey entry after reconnect, got %d", count)
-	}
+	assert.EqualValues(t, 1, count)
 
 	// Snapshot should show updated queues.
 	snap := r.Snapshot()
-	if len(snap) != 1 {
-		t.Fatalf("expected 1 worker in snapshot after reconnect, got %d", len(snap))
-	}
-	if len(snap[0].Queues) != 2 {
-		t.Errorf("expected 2 queues after reconnect, got %d", len(snap[0].Queues))
-	}
+	require.Len(t,
+		snap,
+		1)
+	assert.Len(t,
+		snap[0].Queues,
+		2)
+
 }
 
 // TestRegistry_Deregister_RemovesWorkerAndIndex verifies full cleanup.
 func TestRegistry_Deregister_RemovesWorkerAndIndex(t *testing.T) {
 	r := NewConnectionRegistry()
 	w := makeWorker("w1", "proj-a", "key-1", []string{"default"}, 4)
+	require.NoError(t, r.
+		Register(w))
 
-	if err := r.Register(w); err != nil {
-		t.Fatalf("register failed: %v", err)
-	}
 	r.Deregister("w1", w.regToken)
 
 	snap := r.Snapshot()
-	if len(snap) != 0 {
-		t.Errorf("expected empty snapshot after deregister, got %d", len(snap))
-	}
+	assert.Len(t,
+		snap,
+		0)
+
 	r.mu.RLock()
 	_, keyExists := r.byAPIKey["key-1"]
 	r.mu.RUnlock()
-	if keyExists {
-		t.Error("expected byAPIKey entry to be cleaned up after deregister")
-	}
+	assert.False(
+		t, keyExists,
+	)
+
 }
 
 // TestRegistry_Deregister_Noop verifies deregistering a nonexistent worker does not panic.
@@ -126,18 +122,17 @@ func TestRegistry_Deregister_Noop(t *testing.T) {
 func TestRegistry_IncrementSlots_Cap(t *testing.T) {
 	r := NewConnectionRegistry()
 	w := makeWorker("w1", "proj-a", "key-1", []string{"default"}, 2)
-	w.SlotsAvailable = 2 // already at cap
+	w.SlotsAvailable = 2
+	require.NoError(t, r.
+		Register(w))
 
-	if err := r.Register(w); err != nil {
-		t.Fatalf("register failed: %v", err)
-	}
+	// already at cap
 
 	r.IncrementSlots("w1")
 
 	snap := r.Snapshot()
-	if snap[0].SlotsAvailable != 2 {
-		t.Errorf("expected slots capped at 2, got %d", snap[0].SlotsAvailable)
-	}
+	assert.EqualValues(t, 2, snap[0].SlotsAvailable)
+
 }
 
 // TestRegistry_IncrementSlots_Normal verifies increment from below cap.
@@ -145,34 +140,28 @@ func TestRegistry_IncrementSlots_Normal(t *testing.T) {
 	r := NewConnectionRegistry()
 	w := makeWorker("w1", "proj-a", "key-1", []string{"default"}, 4)
 	w.SlotsAvailable = 2
-
-	if err := r.Register(w); err != nil {
-		t.Fatalf("register failed: %v", err)
-	}
+	require.NoError(t, r.
+		Register(w))
 
 	r.IncrementSlots("w1")
 
 	snap := r.Snapshot()
-	if snap[0].SlotsAvailable != 3 {
-		t.Errorf("expected slots=3, got %d", snap[0].SlotsAvailable)
-	}
+	assert.EqualValues(t, 3, snap[0].SlotsAvailable)
+
 }
 
 // TestRegistry_DecrementSlots_Normal decrements from above zero.
 func TestRegistry_DecrementSlots_Normal(t *testing.T) {
 	r := NewConnectionRegistry()
 	w := makeWorker("w1", "proj-a", "key-1", []string{"default"}, 4)
-
-	if err := r.Register(w); err != nil {
-		t.Fatalf("register failed: %v", err)
-	}
+	require.NoError(t, r.
+		Register(w))
 
 	r.DecrementSlots("w1")
 
 	snap := r.Snapshot()
-	if snap[0].SlotsAvailable != 3 {
-		t.Errorf("expected slots=3, got %d", snap[0].SlotsAvailable)
-	}
+	assert.EqualValues(t, 3, snap[0].SlotsAvailable)
+
 }
 
 // TestRegistry_DecrementSlots_UnderflowGuard verifies that SlotsAvailable never goes
@@ -180,22 +169,21 @@ func TestRegistry_DecrementSlots_Normal(t *testing.T) {
 func TestRegistry_DecrementSlots_UnderflowGuard(t *testing.T) {
 	r := NewConnectionRegistry()
 	w := makeWorker("w1", "proj-a", "key-1", []string{"default"}, 2)
-	w.SlotsAvailable = 0 // start at zero
+	w.SlotsAvailable = 0
+	require.NoError(t, r.
+		Register(w))
 
-	if err := r.Register(w); err != nil {
-		t.Fatalf("register failed: %v", err)
-	}
+	// start at zero
 
 	r.DecrementSlots("w1")
 	r.DecrementSlots("w1")
 
 	snap := r.Snapshot()
-	if snap[0].SlotsAvailable < 0 {
-		t.Errorf("slots went negative: %d", snap[0].SlotsAvailable)
-	}
-	if snap[0].SlotsAvailable != 0 {
-		t.Errorf("expected slots=0, got %d", snap[0].SlotsAvailable)
-	}
+	assert.GreaterOrEqual(t, snap[0].SlotsAvailable,
+
+		int32(0))
+	assert.EqualValues(t, 0, snap[0].SlotsAvailable)
+
 }
 
 // TestRegistry_SnapshotQueues_OnlyActiveWorkers verifies that draining workers are
@@ -205,33 +193,31 @@ func TestRegistry_SnapshotQueues_OnlyActiveWorkers(t *testing.T) {
 	active := makeWorker("active", "proj-a", "key-1", []string{"q1", "q2"}, 4)
 	draining := makeWorker("draining", "proj-a", "key-2", []string{"q3"}, 4)
 	draining.Status = "draining"
-
-	if err := r.Register(active); err != nil {
-		t.Fatalf("register active: %v", err)
-	}
-	if err := r.Register(draining); err != nil {
-		t.Fatalf("register draining: %v", err)
-	}
+	require.NoError(t, r.
+		Register(active))
+	require.NoError(t, r.
+		Register(draining),
+	)
 
 	queues := r.SnapshotQueues()
 
 	for _, q := range queues {
-		if q == "q3" {
-			t.Error("draining worker's queue should not appear in SnapshotQueues")
-		}
+		assert.NotEqual(t, "q3",
+			q)
+
 	}
-	if len(queues) != 2 {
-		t.Errorf("expected 2 queues (q1, q2), got %v", queues)
-	}
+	assert.Len(t,
+		queues,
+		2)
+
 }
 
 // TestRegistry_SnapshotQueues_Empty returns nil when no active workers are registered.
 func TestRegistry_SnapshotQueues_Empty(t *testing.T) {
 	r := NewConnectionRegistry()
 	queues := r.SnapshotQueues()
-	if queues != nil {
-		t.Errorf("expected nil from empty registry, got %v", queues)
-	}
+	assert.Nil(t, queues)
+
 }
 
 func TestRegistry_SnapshotWorkerQueues_IncludesEnvironmentScopes(t *testing.T) {
@@ -246,9 +232,9 @@ func TestRegistry_SnapshotWorkerQueues_IncludesEnvironmentScopes(t *testing.T) {
 	draining.Status = "draining"
 
 	for _, w := range []*ConnectedWorker{projectWide, staging, stagingDup, draining} {
-		if err := r.Register(w); err != nil {
-			t.Fatalf("register %s: %v", w.WorkerID, err)
-		}
+		require.NoError(t, r.
+			Register(w))
+
 	}
 
 	got := r.SnapshotWorkerQueues()
@@ -261,16 +247,21 @@ func TestRegistry_SnapshotWorkerQueues_IncludesEnvironmentScopes(t *testing.T) {
 		{ProjectID: "proj-a", QueueName: "q2"},
 		{ProjectID: "proj-a", QueueName: "q1", EnvironmentID: "env-staging"},
 	}
-	if len(seen) != len(want) {
-		t.Fatalf("snapshot refs = %+v, want %d unique refs", got, len(want))
-	}
+	require.Len(t,
+		seen,
+		len(want))
+
 	for _, ref := range want {
 		if _, ok := seen[ref]; !ok {
-			t.Fatalf("missing worker queue ref %+v from %+v", ref, got)
+			require.Failf(t, "test failure",
+
+				"missing worker queue ref %+v from %+v", ref, got)
 		}
 	}
 	if _, ok := seen[domain.WorkerQueueRef{ProjectID: "proj-a", QueueName: "q3", EnvironmentID: "env-prod"}]; ok {
-		t.Fatalf("draining worker ref leaked into snapshot: %+v", got)
+		require.Failf(t, "test failure",
+
+			"draining worker ref leaked into snapshot: %+v", got)
 	}
 }
 
@@ -278,17 +269,18 @@ func TestRegistry_SnapshotWorkerQueues_IncludesEnvironmentScopes(t *testing.T) {
 func TestRegistry_MarkDraining(t *testing.T) {
 	r := NewConnectionRegistry()
 	w := makeWorker("w1", "proj-a", "key-1", []string{"default"}, 4)
-
-	if err := r.Register(w); err != nil {
-		t.Fatalf("register failed: %v", err)
-	}
+	require.NoError(t, r.
+		Register(w))
 
 	r.MarkDraining("w1")
 
 	snap := r.Snapshot()
-	if snap[0].Status != "draining" {
-		t.Errorf("expected status=draining, got %s", snap[0].Status)
-	}
+	assert.Equal(
+		t, "draining",
+
+		snap[0].Status,
+	)
+
 }
 
 // TestRegistry_MarkDraining_Noop verifies no panic for unknown worker.
@@ -306,21 +298,20 @@ func TestRegistry_PickWorkerForQueue_LeastLoaded(t *testing.T) {
 
 	idle := makeWorker("idle", "proj-a", "key-2", []string{"q"}, 4)
 	idle.SlotsAvailable = 3
-
-	if err := r.Register(busy); err != nil {
-		t.Fatalf("register busy: %v", err)
-	}
-	if err := r.Register(idle); err != nil {
-		t.Fatalf("register idle: %v", err)
-	}
+	require.NoError(t, r.
+		Register(busy))
+	require.NoError(t, r.
+		Register(idle))
 
 	picked, ok := r.PickWorkerForQueue("proj-a", "q")
-	if !ok {
-		t.Fatal("expected a worker to be picked")
-	}
-	if picked.WorkerID != "idle" {
-		t.Errorf("expected idle worker to be picked (more slots), got %s", picked.WorkerID)
-	}
+	require.True(
+		t, ok)
+	assert.Equal(
+		t, "idle",
+		picked.
+			WorkerID,
+	)
+
 }
 
 // TestRegistry_PickWorkerForQueue_NoSlots verifies that workers with zero slots are skipped.
@@ -328,73 +319,69 @@ func TestRegistry_PickWorkerForQueue_NoSlots(t *testing.T) {
 	r := NewConnectionRegistry()
 	w := makeWorker("w1", "proj-a", "key-1", []string{"q"}, 4)
 	w.SlotsAvailable = 0
-
-	if err := r.Register(w); err != nil {
-		t.Fatalf("register failed: %v", err)
-	}
+	require.NoError(t, r.
+		Register(w))
 
 	_, ok := r.PickWorkerForQueue("proj-a", "q")
-	if ok {
-		t.Error("expected no worker picked when all slots are exhausted")
-	}
+	assert.False(
+		t, ok)
+
 }
 
 // TestRegistry_PickWorkerForQueue_WrongProject verifies project isolation.
 func TestRegistry_PickWorkerForQueue_WrongProject(t *testing.T) {
 	r := NewConnectionRegistry()
 	w := makeWorker("w1", "proj-a", "key-1", []string{"q"}, 4)
-
-	if err := r.Register(w); err != nil {
-		t.Fatalf("register failed: %v", err)
-	}
+	require.NoError(t, r.
+		Register(w))
 
 	_, ok := r.PickWorkerForQueue("proj-b", "q")
-	if ok {
-		t.Error("expected no worker picked for different project")
-	}
+	assert.False(
+		t, ok)
+
 }
 
 // TestRegistry_PickWorkerForQueue_WrongQueue verifies queue filtering.
 func TestRegistry_PickWorkerForQueue_WrongQueue(t *testing.T) {
 	r := NewConnectionRegistry()
 	w := makeWorker("w1", "proj-a", "key-1", []string{"q1"}, 4)
-
-	if err := r.Register(w); err != nil {
-		t.Fatalf("register failed: %v", err)
-	}
+	require.NoError(t, r.
+		Register(w))
 
 	_, ok := r.PickWorkerForQueue("proj-a", "q2")
-	if ok {
-		t.Error("expected no worker picked for queue not registered")
-	}
+	assert.False(
+		t, ok)
+
 }
 
 func TestRegistry_ErrNoWorkerForQueueSentinel(t *testing.T) {
 	t.Parallel()
+	require.True(
+		t, errors.Is(ErrNoWorkerAvailable,
 
-	if !errors.Is(ErrNoWorkerAvailable, ErrNoWorkerForQueue) {
-		t.Fatal("ErrNoWorkerAvailable must match ErrNoWorkerForQueue")
-	}
+			ErrNoWorkerForQueue))
+
 	wrapped := fmt.Errorf("dispatch failed: %w", ErrNoWorkerForQueue)
-	if !errors.Is(wrapped, ErrNoWorkerForQueue) {
-		t.Fatal("wrapped no-worker error must match sentinel")
-	}
+	require.True(
+		t, errors.Is(wrapped,
+			ErrNoWorkerForQueue,
+		))
+
 }
 
 // TestRegistry_PickWorkerForQueue_DrainedSkipped verifies draining workers are skipped.
 func TestRegistry_PickWorkerForQueue_DrainedSkipped(t *testing.T) {
 	r := NewConnectionRegistry()
 	w := makeWorker("w1", "proj-a", "key-1", []string{"q"}, 4)
+	require.NoError(t, r.
+		Register(w))
 
-	if err := r.Register(w); err != nil {
-		t.Fatalf("register failed: %v", err)
-	}
 	r.MarkDraining("w1")
 
 	_, ok := r.PickWorkerForQueue("proj-a", "q")
-	if ok {
-		t.Error("expected no worker picked when draining")
-	}
+	assert.False(
+		t, ok)
+
 }
 
 // TestRegistry_CloseByAPIKey_ClosesRevokeCh verifies that CloseByAPIKey signals all streams
@@ -402,10 +389,8 @@ func TestRegistry_PickWorkerForQueue_DrainedSkipped(t *testing.T) {
 func TestRegistry_CloseByAPIKey_ClosesRevokeCh(t *testing.T) {
 	r := NewConnectionRegistry()
 	w := makeWorker("w1", "proj-a", "key-1", []string{"q"}, 4)
-
-	if err := r.Register(w); err != nil {
-		t.Fatalf("register failed: %v", err)
-	}
+	require.NoError(t, r.
+		Register(w))
 
 	r.CloseByAPIKey("key-1")
 
@@ -413,7 +398,7 @@ func TestRegistry_CloseByAPIKey_ClosesRevokeCh(t *testing.T) {
 	case <-w.revokeCh:
 		// expected
 	default:
-		t.Error("expected revokeCh to be closed after CloseByAPIKey")
+		assert.Fail(t, "expected revokeCh to be closed after CloseByAPIKey")
 	}
 }
 
@@ -422,10 +407,8 @@ func TestRegistry_CloseByAPIKey_ClosesRevokeCh(t *testing.T) {
 func TestRegistry_CloseByAPIKey_IdempotentDoubleClose(t *testing.T) {
 	r := NewConnectionRegistry()
 	w := makeWorker("w1", "proj-a", "key-1", []string{"q"}, 4)
-
-	if err := r.Register(w); err != nil {
-		t.Fatalf("register failed: %v", err)
-	}
+	require.NoError(t, r.
+		Register(w))
 
 	r.CloseByAPIKey("key-1")
 	r.CloseByAPIKey("key-1") // must not panic
@@ -473,7 +456,9 @@ func TestRegistry_Concurrent_RegisterDeregister(t *testing.T) {
 	for keyID, workers := range r.byAPIKey {
 		for _, w := range workers {
 			if _, ok := r.workers[workerRegistryKey(w.ProjectID, w.WorkerID)]; !ok {
-				t.Errorf("byAPIKey[%s] references worker %s not in workers map", keyID, w.WorkerID)
+				assert.Failf(t, "test failure",
+
+					"byAPIKey[%s] references worker %s not in workers map", keyID, w.WorkerID)
 			}
 		}
 	}
@@ -486,10 +471,8 @@ func TestRegistry_Concurrent_SlotOperations(t *testing.T) {
 	defer concWG.Wait()
 	r := NewConnectionRegistry()
 	w := makeWorker("w1", "proj-a", "key-1", []string{"q"}, 10)
-
-	if err := r.Register(w); err != nil {
-		t.Fatalf("register failed: %v", err)
-	}
+	require.NoError(t, r.
+		Register(w))
 
 	const ops = 200
 	var wg sync.WaitGroup
@@ -509,17 +492,17 @@ func TestRegistry_Concurrent_SlotOperations(t *testing.T) {
 	wg.Wait()
 
 	snap := r.Snapshot()
-	if len(snap) == 0 {
-		t.Fatal("worker disappeared from registry")
-	}
+	require.NotEmpty(t,
+		snap)
+
 	slots := snap[0].SlotsAvailable
 	total := snap[0].SlotsTotal
-	if slots < 0 {
-		t.Errorf("slots went negative: %d", slots)
-	}
-	if slots > total {
-		t.Errorf("slots (%d) exceeded total (%d)", slots, total)
-	}
+	assert.GreaterOrEqual(t, slots,
+		int32(0))
+	assert.LessOrEqual(t,
+		slots,
+		total)
+
 }
 
 // TestRegistry_Concurrent_ReconnectStorm verifies that 1000 parallel reconnects for
@@ -551,9 +534,9 @@ func TestRegistry_Concurrent_ReconnectStorm(t *testing.T) {
 			count++
 		}
 	}
-	if count > 1 {
-		t.Errorf("expected at most 1 storm-worker in registry, got %d", count)
-	}
+	assert.LessOrEqual(t,
+		count,
+		1)
 
 	// byAPIKey index must not have more than 1 entry for key-1 pointing to storm-worker.
 	r.mu.RLock()
@@ -564,7 +547,8 @@ func TestRegistry_Concurrent_ReconnectStorm(t *testing.T) {
 		}
 	}
 	r.mu.RUnlock()
-	if stormCount > 1 {
-		t.Errorf("byAPIKey has %d storm-worker entries, expected at most 1", stormCount)
-	}
+	assert.LessOrEqual(t,
+		stormCount,
+		1)
+
 }

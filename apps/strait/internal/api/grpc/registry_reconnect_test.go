@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestRegistry_StaleDeregisterIsNoop is the direct regression for the
@@ -19,38 +21,40 @@ func TestRegistry_StaleDeregisterIsNoop(t *testing.T) {
 	r := NewConnectionRegistry()
 
 	w1 := makeWorker("w1", "proj-a", "key-1", []string{"default"}, 4)
-	if err := r.Register(w1); err != nil {
-		t.Fatalf("register w1: %v", err)
-	}
+	require.NoError(t,
+		r.Register(w1),
+	)
+
 	oldToken := w1.regToken
 
 	// Same-id reconnect.
 	w2 := makeWorker("w1", "proj-a", "key-1", []string{"default"}, 4)
-	if err := r.Register(w2); err != nil {
-		t.Fatalf("register w2: %v", err)
-	}
-	if w2.regToken == oldToken {
-		t.Fatal("expected a new token on reconnect")
-	}
+	require.NoError(t,
+		r.Register(w2),
+	)
+	require.NotEqual(t,
+		oldToken, w2.
+			regToken)
 
 	// Old goroutine's deferred cleanup runs with the stale token.
 	r.Deregister("w1", oldToken)
 
 	// Live replacement must still be present.
 	snap := r.Snapshot()
-	if len(snap) != 1 || snap[0].WorkerID != "w1" {
-		t.Fatalf("live replacement evicted by stale Deregister: snap=%+v", snap)
-	}
+	require.False(t, len(snap) != 1 ||
+		snap[0].WorkerID !=
+			"w1")
 
 	// And byAPIKey index must still hold the new entry.
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	if got := len(r.byAPIKey["key-1"]); got != 1 {
-		t.Fatalf("expected 1 byAPIKey entry, got %d", got)
-	}
-	if r.byAPIKey["key-1"][0].regToken != w2.regToken {
-		t.Fatal("byAPIKey points to stale entry after stale Deregister")
-	}
+	require.EqualValues(t, 1,
+		len(r.byAPIKey["key-1"]),
+	)
+	require.Equal(t, w2.
+		regToken, r.byAPIKey["key-1"][0].
+		regToken)
+
 }
 
 // TestRegistry_ReconnectClosesOldRevokeCh asserts that the existing entry's
@@ -61,27 +65,28 @@ func TestRegistry_ReconnectClosesOldRevokeCh(t *testing.T) {
 	r := NewConnectionRegistry()
 
 	w1 := makeWorker("w1", "proj-a", "key-1", []string{"default"}, 4)
-	if err := r.Register(w1); err != nil {
-		t.Fatalf("register w1: %v", err)
-	}
+	require.NoError(t,
+		r.Register(w1),
+	)
+
 	oldRevoke := w1.revokeCh
 
 	w2 := makeWorker("w1", "proj-a", "key-1", []string{"default"}, 4)
-	if err := r.Register(w2); err != nil {
-		t.Fatalf("register w2: %v", err)
-	}
+	require.NoError(t,
+		r.Register(w2),
+	)
 
 	select {
 	case <-oldRevoke:
 		// expected — old revokeCh closed.
 	case <-time.After(200 * time.Millisecond):
-		t.Fatal("old revokeCh was not closed on same-key reconnect")
+		require.Fail(t, "old revokeCh was not closed on same-key reconnect")
 	}
 
 	// The new entry's revokeCh must remain open.
 	select {
 	case <-w2.revokeCh:
-		t.Fatal("new revokeCh was unexpectedly closed")
+		require.Fail(t, "new revokeCh was unexpectedly closed")
 	default:
 	}
 }
@@ -95,20 +100,21 @@ func TestRegistry_ReconnectAlreadyClosedRevokeCh(t *testing.T) {
 	r := NewConnectionRegistry()
 
 	w1 := makeWorker("w1", "proj-a", "key-1", []string{"default"}, 4)
-	if err := r.Register(w1); err != nil {
-		t.Fatalf("register w1: %v", err)
-	}
+	require.NoError(t,
+		r.Register(w1),
+	)
+
 	r.CloseByAPIKey("key-1") // consume the once via the supported path
 
 	defer func() {
-		if r := recover(); r != nil {
-			t.Fatalf("Register panicked on already-closed revokeCh: %v", r)
-		}
+		require.Nil(t, recover())
+
 	}()
 	w2 := makeWorker("w1", "proj-a", "key-1", []string{"default"}, 4)
-	if err := r.Register(w2); err != nil {
-		t.Fatalf("register w2: %v", err)
-	}
+	require.NoError(t,
+		r.Register(w2),
+	)
+
 }
 
 // TestRegistry_DeregisterZeroTokenIsNoop guards accidental zero-token calls
@@ -118,15 +124,13 @@ func TestRegistry_DeregisterZeroTokenIsNoop(t *testing.T) {
 	t.Parallel()
 	r := NewConnectionRegistry()
 	w := makeWorker("w1", "proj-a", "key-1", []string{"default"}, 4)
-	if err := r.Register(w); err != nil {
-		t.Fatalf("register: %v", err)
-	}
+	require.NoError(t,
+		r.Register(w))
 
 	r.Deregister("w1", 0)
+	require.EqualValues(t, 1,
+		len(r.Snapshot()))
 
-	if got := len(r.Snapshot()); got != 1 {
-		t.Fatalf("zero-token Deregister evicted live entry: snap len=%d", got)
-	}
 }
 
 // TestRegistry_ReconnectStorm hammers the same workerID with many concurrent
@@ -158,9 +162,8 @@ func TestRegistry_ReconnectStorm(t *testing.T) {
 
 	// Exactly one live entry expected.
 	snap := r.Snapshot()
-	if len(snap) != 1 {
-		t.Fatalf("after reconnect storm, expected 1 live entry, got %d", len(snap))
-	}
+	require.Len(t, snap,
+		1)
 
 	// Now deregister with every token captured. Only one (the latest) should
 	// match; the rest must be no-ops. After all calls, there can be 0 or 1
@@ -176,7 +179,9 @@ func TestRegistry_ReconnectStorm(t *testing.T) {
 	for keyID, workers := range r.byAPIKey {
 		for _, w := range workers {
 			if _, ok := r.workers[workerRegistryKey(w.ProjectID, w.WorkerID)]; !ok {
-				t.Errorf("byAPIKey[%s] references worker %s not in workers map", keyID, w.WorkerID)
+				assert.Failf(t, "test failure",
+
+					"byAPIKey[%s] references worker %s not in workers map", keyID, w.WorkerID)
 			}
 		}
 	}
@@ -204,11 +209,11 @@ func TestRegistry_ReconnectStorm_ParallelDeregister(t *testing.T) {
 		})
 	}
 	wg.Wait()
+	require.NotEqual(t,
+		0, registers.
+			Load())
 
 	// All registrations succeeded.
-	if registers.Load() == 0 {
-		t.Fatal("no successful registrations")
-	}
 
 	// byAPIKey invariant.
 	r.mu.RLock()
@@ -216,7 +221,9 @@ func TestRegistry_ReconnectStorm_ParallelDeregister(t *testing.T) {
 	for keyID, workers := range r.byAPIKey {
 		for _, w := range workers {
 			if _, ok := r.workers[workerRegistryKey(w.ProjectID, w.WorkerID)]; !ok {
-				t.Errorf("byAPIKey[%s] references worker %s not in workers map", keyID, w.WorkerID)
+				assert.Failf(t, "test failure",
+
+					"byAPIKey[%s] references worker %s not in workers map", keyID, w.WorkerID)
 			}
 		}
 	}
@@ -230,14 +237,16 @@ func TestRegistry_TokensAreUniquePerRegister(t *testing.T) {
 	seen := map[uint64]struct{}{}
 	for i := range 50 {
 		w := makeWorker(fmt.Sprintf("w-%d", i), "proj-a", fmt.Sprintf("key-%d", i), []string{"q"}, 1)
-		if err := r.Register(w); err != nil {
-			t.Fatalf("register %d: %v", i, err)
-		}
-		if w.regToken == 0 {
-			t.Fatalf("register issued zero token at i=%d", i)
-		}
+		require.NoError(t,
+			r.Register(w))
+		require.NotEqual(t,
+			0, w.regToken,
+		)
+
 		if _, dup := seen[w.regToken]; dup {
-			t.Fatalf("duplicate token %d at i=%d", w.regToken, i)
+			require.Failf(t, "test failure",
+
+				"duplicate token %d at i=%d", w.regToken, i)
 		}
 		seen[w.regToken] = struct{}{}
 	}

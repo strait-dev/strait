@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 type recordingSlogHandler struct {
@@ -75,14 +77,13 @@ func TestWorkerDispatch_EmitsOneDebugTrace(t *testing.T) {
 	job := &domain.Job{ID: "job-1", Queue: "default", Slug: "job"}
 
 	_, err := d.WorkerDispatch(context.Background(), run, job)
-	if err == nil {
-		t.Fatal("expected no-worker error")
-	}
+	require.Error(
+		t, err)
 
 	records := handler.dispatchRecords()
-	if len(records) != 1 {
-		t.Fatalf("dispatch debug records = %d, want 1", len(records))
-	}
+	require.Len(t,
+		records, 1)
+
 	attrs := map[string]slog.Value{}
 	records[0].Attrs(func(attr slog.Attr) bool {
 		attrs[attr.Key] = attr.Value
@@ -90,15 +91,18 @@ func TestWorkerDispatch_EmitsOneDebugTrace(t *testing.T) {
 	})
 	for _, key := range []string{"run_id", "job_id", "queue", "project_id", "decision", "result", "duration_ms", "error"} {
 		if _, ok := attrs[key]; !ok {
-			t.Fatalf("dispatch debug record missing key %q; attrs=%v", key, attrs)
+			require.Failf(t, "test failure",
+
+				"dispatch debug record missing key %q; attrs=%v", key, attrs)
 		}
 	}
-	if got := attrs["decision"].String(); got != "no_worker" {
-		t.Fatalf("decision = %q, want no_worker", got)
-	}
-	if got := attrs["result"].String(); got != "error" {
-		t.Fatalf("result = %q, want error", got)
-	}
+	require.Equal(
+		t, "no_worker",
+		attrs["decision"].String())
+	require.Equal(
+		t, "error",
+		attrs["result"].String())
+
 }
 
 func BenchmarkDispatchHotPath(b *testing.B) {

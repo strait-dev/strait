@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	workerv1 "strait/internal/api/grpc/proto/workerv1"
+
+	"github.com/stretchr/testify/assert"
 )
 
 // FuzzWorkerRegistration feeds random WorkerRegistration-like inputs through the
@@ -106,9 +108,7 @@ func FuzzReplicaID(f *testing.F) {
 
 		// Verify that hashGRPCAPIKey with random input never panics and returns non-empty.
 		hash := hashGRPCAPIKey(hostname)
-		if hash == "" {
-			t.Error("hashGRPCAPIKey returned empty string")
-		}
+		assert.NotEqual(t, "", hash)
 
 		// The actual ReplicaID logic: if hostname non-empty, use it; else UUID.
 		var id string
@@ -118,9 +118,8 @@ func FuzzReplicaID(f *testing.F) {
 			// Fallback would produce a UUID — verify the invariant holds.
 			id = "fallback-uuid-simulated"
 		}
-		if id == "" {
-			t.Error("replica ID must never be empty")
-		}
+		assert.NotEqual(t, "", id)
+
 	})
 }
 
@@ -138,30 +137,26 @@ func FuzzTaskResultStatus(f *testing.F) {
 	f.Add("status with\nnewline", "err\twith\ttab")
 
 	f.Fuzz(func(t *testing.T, status, errMsg string) {
+		assert.Equal(t,
+			"", TaskResultStatus("not a proto"))
+		assert.Equal(t,
+			"", TaskResultError(42))
+		assert.Equal(t,
+			"", TaskResultStatus(nil))
+		assert.Equal(t,
+			"", TaskResultError(nil))
+
 		// Wrong-type input must return "" without panic.
-		if got := TaskResultStatus("not a proto"); got != "" {
-			t.Errorf("TaskResultStatus on string = %q, want \"\"", got)
-		}
-		if got := TaskResultError(42); got != "" {
-			t.Errorf("TaskResultError on int = %q, want \"\"", got)
-		}
 
 		// nil must return "" without panic.
-		if got := TaskResultStatus(nil); got != "" {
-			t.Errorf("TaskResultStatus(nil) = %q, want \"\"", got)
-		}
-		if got := TaskResultError(nil); got != "" {
-			t.Errorf("TaskResultError(nil) = %q, want \"\"", got)
-		}
 
 		// Real proto with arbitrary fields must round-trip.
 		tr := &workerv1.TaskResult{Status: status, ErrorMessage: errMsg}
-		if got := TaskResultStatus(tr); got != status {
-			t.Errorf("TaskResultStatus round-trip: got %q, want %q", got, status)
-		}
-		if got := TaskResultError(tr); got != errMsg {
-			t.Errorf("TaskResultError round-trip: got %q, want %q", got, errMsg)
-		}
+		assert.Equal(t,
+			status, TaskResultStatus(tr))
+		assert.Equal(t,
+			errMsg, TaskResultError(tr))
+
 	})
 }
 
@@ -174,8 +169,8 @@ func FuzzDispatchHMAC(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, secret, timestamp string, body []byte) {
 		sig := dispatchHMAC(secret, timestamp, body)
-		if !strings.HasPrefix(sig, "v1=") {
-			t.Errorf("expected v1= prefix, got %s", sig[:min(len(sig), 10)])
-		}
+		assert.True(t,
+			strings.HasPrefix(sig, "v1="))
+
 	})
 }

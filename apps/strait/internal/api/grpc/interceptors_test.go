@@ -5,6 +5,8 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -20,17 +22,16 @@ func TestUnaryRecoveryInterceptor_Panic(t *testing.T) {
 	}
 
 	_, err := interceptor(context.Background(), nil, info, handler)
-	if err == nil {
-		t.Fatal("expected error from panic recovery, got nil")
-	}
+	require.Error(
+		t, err)
 
 	s, ok := status.FromError(err)
-	if !ok {
-		t.Fatalf("expected gRPC status error, got: %T %v", err, err)
-	}
-	if s.Code() != codes.Internal {
-		t.Errorf("expected Internal status code, got %s", s.Code())
-	}
+	require.True(t,
+		ok)
+	assert.Equal(t,
+		codes.Internal,
+		s.Code())
+
 }
 
 // TestUnaryRecoveryInterceptor_HappyPath verifies normal handler execution passes through.
@@ -44,12 +45,11 @@ func TestUnaryRecoveryInterceptor_HappyPath(t *testing.T) {
 	}
 
 	resp, err := interceptor(context.Background(), "req", info, handler)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if resp != expected {
-		t.Errorf("expected %q, got %v", expected, resp)
-	}
+	require.NoError(t, err)
+	assert.Equal(t,
+		expected,
+		resp)
+
 }
 
 // TestUnaryRecoveryInterceptor_ErrorPassthrough verifies that handler errors are returned as-is.
@@ -63,9 +63,9 @@ func TestUnaryRecoveryInterceptor_ErrorPassthrough(t *testing.T) {
 	}
 
 	_, err := interceptor(context.Background(), nil, info, handler)
-	if !errors.Is(err, handlerErr) {
-		t.Errorf("expected handler error to pass through, got: %v", err)
-	}
+	assert.True(t,
+		errors.Is(err, handlerErr))
+
 }
 
 // mockServerStream is a minimal implementation of grpc.ServerStream for testing.
@@ -87,17 +87,16 @@ func TestStreamRecoveryInterceptor_Panic(t *testing.T) {
 
 	stream := &mockServerStream{ctx: context.Background()}
 	err := interceptor(nil, stream, info, handler)
-	if err == nil {
-		t.Fatal("expected error from stream panic recovery, got nil")
-	}
+	require.Error(
+		t, err)
 
 	s, ok := status.FromError(err)
-	if !ok {
-		t.Fatalf("expected gRPC status error, got: %T %v", err, err)
-	}
-	if s.Code() != codes.Internal {
-		t.Errorf("expected Internal status code, got %s", s.Code())
-	}
+	require.True(t,
+		ok)
+	assert.Equal(t,
+		codes.Internal,
+		s.Code())
+
 }
 
 // TestStreamRecoveryInterceptor_HappyPath verifies normal stream handler execution passes through.
@@ -110,9 +109,10 @@ func TestStreamRecoveryInterceptor_HappyPath(t *testing.T) {
 	}
 
 	stream := &mockServerStream{ctx: context.Background()}
-	if err := interceptor(nil, stream, info, handler); err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
+	assert.NoError(t, interceptor(nil,
+		stream,
+		info, handler))
+
 }
 
 // TestStreamRecoveryInterceptor_ErrorPassthrough verifies handler errors are returned.
@@ -127,9 +127,9 @@ func TestStreamRecoveryInterceptor_ErrorPassthrough(t *testing.T) {
 
 	stream := &mockServerStream{ctx: context.Background()}
 	err := interceptor(nil, stream, info, handler)
-	if !errors.Is(err, handlerErr) {
-		t.Errorf("expected handler error to pass through, got: %v", err)
-	}
+	assert.True(t,
+		errors.Is(err, handlerErr))
+
 }
 
 // TestUnaryLoggingInterceptor_PassesThrough verifies logging interceptor does not alter result.
@@ -142,12 +142,11 @@ func TestUnaryLoggingInterceptor_PassesThrough(t *testing.T) {
 	}
 
 	resp, err := interceptor(context.Background(), nil, info, handler)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if resp != "result" {
-		t.Errorf("expected 'result', got %v", resp)
-	}
+	require.NoError(t, err)
+	assert.Equal(t,
+		"result",
+		resp)
+
 }
 
 // TestStreamLoggingInterceptor_PassesThrough verifies stream logging interceptor does not alter result.
@@ -160,23 +159,24 @@ func TestStreamLoggingInterceptor_PassesThrough(t *testing.T) {
 	}
 
 	stream := &mockServerStream{ctx: context.Background()}
-	if err := interceptor(nil, stream, info, handler); err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
+	assert.NoError(t, interceptor(nil,
+		stream,
+		info, handler))
+
 }
 
 // TestUnaryInterceptorChain_OrderAndCount verifies the chain has the expected interceptors.
 func TestUnaryInterceptorChain_OrderAndCount(t *testing.T) {
 	chain := unaryInterceptorChain()
-	if len(chain) != 3 {
-		t.Errorf("expected 3 interceptors in unary chain, got %d", len(chain))
-	}
+	assert.Len(t,
+		chain, 3)
+
 }
 
 // TestStreamInterceptorChain_OrderAndCount verifies the stream chain has the expected interceptors.
 func TestStreamInterceptorChain_OrderAndCount(t *testing.T) {
 	chain := streamInterceptorChain()
-	if len(chain) != 3 {
-		t.Errorf("expected 3 interceptors in stream chain, got %d", len(chain))
-	}
+	assert.Len(t,
+		chain, 3)
+
 }

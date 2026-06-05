@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -30,18 +31,25 @@ func TestIntegration_HandleTaskResult_OversizedRunIDRejected(t *testing.T) {
 
 	huge := strings.Repeat("x", maxRunIDLen+1)
 	tr := &workerv1.TaskResult{RunId: huge, Status: "success", AssignmentId: taskID, Attempt: 1}
-	if err := svc.handleTaskResult(ctx, workerID, projectID, tr); err != nil {
-		t.Fatalf("handleTaskResult unexpectedly errored: %v", err)
-	}
+	require.NoError(t,
+
+		svc.handleTaskResult(ctx,
+			workerID, projectID,
+			tr,
+		))
 
 	// Original task must remain assigned (the oversized RunId can't match it).
 	got, err := q.GetWorkerTask(ctx, taskID)
-	if err != nil {
-		t.Fatalf("GetWorkerTask: %v", err)
-	}
-	if got.Status != domain.WorkerTaskStatusAssigned {
-		t.Fatalf("oversized run_id should not affect state: got %q", got.Status)
-	}
+	require.NoError(t,
+
+		err)
+	require.Equal(t,
+		domain.
+			WorkerTaskStatusAssigned,
+
+		got.Status,
+	)
+
 }
 
 // TestIntegration_HandleTaskResult_OversizedErrorTruncated ensures a worker
@@ -58,20 +66,26 @@ func TestIntegration_HandleTaskResult_OversizedErrorTruncated(t *testing.T) {
 	hugeErr := strings.Repeat("e", maxErrorMsgBytes*4)
 	tr := assignedTaskResult(runID, taskID, "failed")
 	tr.ErrorMessage = hugeErr
-	if err := svc.handleTaskResult(ctx, workerID, projectID, tr); err != nil {
-		t.Fatalf("handleTaskResult: %v", err)
-	}
+	require.NoError(t,
+
+		svc.handleTaskResult(ctx,
+			workerID, projectID,
+			tr,
+		))
 
 	got, err := q.GetRun(ctx, runID)
-	if err != nil {
-		t.Fatalf("GetRun: %v", err)
-	}
-	if got.Error == "" {
-		t.Fatal("expected error to be persisted on failed run")
-	}
-	if len(got.Error) > maxErrorMsgBytes {
-		t.Fatalf("error message not truncated: got %d bytes, want <= %d", len(got.Error), maxErrorMsgBytes)
-	}
+	require.NoError(t,
+
+		err)
+	require.NotEqual(
+		t,
+		"", got.
+			Error)
+	require.LessOrEqual(t, len(
+		got.Error),
+		maxErrorMsgBytes,
+	)
+
 }
 
 // TestIntegration_StreamTasks_InvalidRegistrationBoundsRejectedBeforeRegistry
@@ -144,15 +158,22 @@ func TestIntegration_StreamTasks_InvalidRegistrationBoundsRejectedBeforeRegistry
 			}
 
 			err := svc.StreamTasks(stream)
-			if status.Code(err) != codes.InvalidArgument {
-				t.Fatalf("StreamTasks error = %v, want InvalidArgument", err)
-			}
+			require.Equal(t,
+				codes.
+					InvalidArgument,
+
+				status.
+					Code(err),
+			)
+
 			if got := svc.registry.Snapshot(); len(got) != 0 {
-				t.Fatalf("invalid registration mutated registry: got %d workers", len(got))
+				require.Failf(t, "test failure",
+
+					"invalid registration mutated registry: got %d workers", len(got))
 			}
 			select {
 			case msg := <-stream.sentCh:
-				t.Fatalf("invalid registration sent server message: %T", msg.Payload)
+				require.Failf(t, "test failure", "invalid registration sent server message: %T", msg.Payload)
 			default:
 			}
 		})
