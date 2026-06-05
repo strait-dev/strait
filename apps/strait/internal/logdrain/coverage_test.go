@@ -11,6 +11,8 @@ import (
 
 	"strait/internal/domain"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/metric/noop"
 )
@@ -21,23 +23,22 @@ func TestWithEventsCounter(t *testing.T) {
 	mp := noop.NewMeterProvider()
 	meter := mp.Meter("test")
 	counter, err := meter.Int64Counter("test_counter")
-	if err != nil {
-		t.Fatalf("create counter: %v", err)
-	}
+	require.NoError(t,
+		err)
 
 	svc := NewService()
 	w := NewWorker(nil, svc, time.Hour)
-	if w.eventsCounter != nil {
-		t.Fatal("eventsCounter should be nil before WithEventsCounter")
-	}
+	require.Nil(t,
+		w.eventsCounter,
+	)
 
 	got := w.WithEventsCounter(counter)
-	if got != w {
-		t.Fatal("WithEventsCounter should return the same worker for chaining")
-	}
-	if w.eventsCounter == nil {
-		t.Fatal("eventsCounter should be set after WithEventsCounter")
-	}
+	require.Equal(t, w,
+		got)
+	require.NotNil(t,
+		w.eventsCounter,
+	)
+
 }
 
 func TestDrainRunEvents_MarshalError(t *testing.T) {
@@ -58,21 +59,16 @@ func TestDrainRunEvents_MarshalError(t *testing.T) {
 	err := svc.DrainRunEvents(context.Background(), drain, []domain.RunEvent{
 		{ID: "evt-1", RunID: "run-1", Message: "test"},
 	})
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-	if got := err.Error(); got != "marshal events: injected marshal failure" {
-		t.Errorf("error = %q, want 'marshal events: injected marshal failure'", got)
-	}
+	require.Error(t, err)
+
+	assert.Equal(t, "marshal events: injected marshal failure", err.Error())
 }
 
 func TestDrainRunEvents_BearerAuthWithoutToken(t *testing.T) {
 	t.Parallel()
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if auth := r.Header.Get("Authorization"); auth != "" {
-			t.Errorf("Authorization header should be empty, got %q", auth)
-		}
+		assert.Empty(t, r.Header.Get("Authorization"))
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer srv.Close()
@@ -87,9 +83,9 @@ func TestDrainRunEvents_BearerAuthWithoutToken(t *testing.T) {
 	err := svc.DrainRunEvents(context.Background(), drain, []domain.RunEvent{
 		{ID: "evt-1", RunID: "run-1", Message: "test"},
 	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t,
+		err)
+
 }
 
 func TestDrainRunEvents_InvalidURL(t *testing.T) {
@@ -104,9 +100,8 @@ func TestDrainRunEvents_InvalidURL(t *testing.T) {
 	err := svc.DrainRunEvents(context.Background(), drain, []domain.RunEvent{
 		{ID: "evt-1", RunID: "run-1", Message: "test"},
 	})
-	if err == nil {
-		t.Fatal("expected error for invalid URL, got nil")
-	}
+	require.Error(t, err)
+
 }
 
 func TestAdvanceCursor_NoAdvanceWhenBehind(t *testing.T) {
@@ -161,10 +156,13 @@ func TestAdvanceCursor_NoAdvanceWhenBehind(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			got := advanceCursor(tc.cur, tc.finishedAt, tc.runID)
-			if !got.FinishedAt.Equal(tc.wantCur.FinishedAt) || got.RunID != tc.wantCur.RunID {
-				t.Errorf("advanceCursor() = {%v, %q}, want {%v, %q}",
-					got.FinishedAt, got.RunID, tc.wantCur.FinishedAt, tc.wantCur.RunID)
-			}
+			assert.False(t, !got.
+				FinishedAt.
+				Equal(tc.wantCur.FinishedAt) || got.
+				RunID !=
+				tc.wantCur.
+					RunID)
+
 		})
 	}
 }
@@ -232,16 +230,18 @@ func TestProcessDrain_RunWithNilFinishedAt(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if requestCount != 1 {
-		t.Errorf("expected 1 HTTP request, got %d", requestCount)
-	}
+	assert.Equal(t, 1,
+		requestCount,
+	)
 
 	w.mu.Lock()
 	cp := w.checkpoints["drain-1"]
 	w.mu.Unlock()
-	if !cp.FinishedAt.IsZero() {
-		t.Errorf("checkpoint should remain zero when FinishedAt is nil, got %v", cp.FinishedAt)
-	}
+	assert.True(t, cp.
+		FinishedAt.
+		IsZero(),
+	)
+
 }
 
 func TestProcessDrain_EmptyEventsRunWithNilFinishedAt(t *testing.T) {
@@ -264,9 +264,11 @@ func TestProcessDrain_EmptyEventsRunWithNilFinishedAt(t *testing.T) {
 	w.mu.Lock()
 	cp := w.checkpoints["drain-1"]
 	w.mu.Unlock()
-	if !cp.FinishedAt.IsZero() {
-		t.Errorf("checkpoint should remain zero for nil FinishedAt, got %v", cp.FinishedAt)
-	}
+	assert.True(t, cp.
+		FinishedAt.
+		IsZero(),
+	)
+
 }
 
 func TestProcessDrain_PoisonRunWithNilFinishedAt(t *testing.T) {
@@ -305,9 +307,11 @@ func TestProcessDrain_PoisonRunWithNilFinishedAt(t *testing.T) {
 	w.mu.Lock()
 	cp := w.checkpoints["drain-1"]
 	w.mu.Unlock()
-	if !cp.FinishedAt.IsZero() {
-		t.Errorf("checkpoint should remain zero for poison run with nil FinishedAt, got %v", cp.FinishedAt)
-	}
+	assert.True(t, cp.
+		FinishedAt.
+		IsZero(),
+	)
+
 }
 
 func TestProcessDrain_ContextCancelledInInnerLoop(t *testing.T) {
@@ -362,9 +366,9 @@ func TestProcessDrain_ContextCancelledInInnerLoop(t *testing.T) {
 	// Only run-1 should have been delivered; run-2 should be skipped due to cancelled context.
 	mu.Lock()
 	defer mu.Unlock()
-	if callCount > 1 {
-		t.Errorf("expected at most 1 delivery before context cancel, got %d", callCount)
-	}
+	assert.LessOrEqual(t, callCount,
+		1)
+
 }
 
 // contextCancellingStore wraps mockDrainStore and cancels context after
@@ -413,9 +417,8 @@ func TestProcessDrain_DrainErrorWithEventsCounter(t *testing.T) {
 	mp := noop.NewMeterProvider()
 	meter := mp.Meter("test")
 	counter, err := meter.Int64Counter("log_drain_events")
-	if err != nil {
-		t.Fatalf("create counter: %v", err)
-	}
+	require.NoError(t,
+		err)
 
 	svc := NewService()
 	w := NewWorker(store, svc, time.Hour).WithEventsCounter(counter)
@@ -427,9 +430,9 @@ func TestProcessDrain_DrainErrorWithEventsCounter(t *testing.T) {
 	w.mu.Lock()
 	fc := w.failCounts["drain-1:run-1"]
 	w.mu.Unlock()
-	if fc != 1 {
-		t.Errorf("fail count = %d, want 1", fc)
-	}
+	assert.Equal(t, 1,
+		fc)
+
 }
 
 func TestProcessDrain_SuccessWithEventsCounter(t *testing.T) {
@@ -460,9 +463,8 @@ func TestProcessDrain_SuccessWithEventsCounter(t *testing.T) {
 	mp := noop.NewMeterProvider()
 	meter := mp.Meter("test")
 	counter, err := meter.Int64Counter("log_drain_events")
-	if err != nil {
-		t.Fatalf("create counter: %v", err)
-	}
+	require.NoError(t,
+		err)
 
 	svc := NewService()
 	w := NewWorker(store, svc, time.Hour).WithEventsCounter(counter)
@@ -474,9 +476,10 @@ func TestProcessDrain_SuccessWithEventsCounter(t *testing.T) {
 	w.mu.Lock()
 	cp := w.checkpoints["drain-1"]
 	w.mu.Unlock()
-	if !cp.FinishedAt.Equal(finishedAt) {
-		t.Errorf("checkpoint.FinishedAt = %v, want %v", cp.FinishedAt, finishedAt)
-	}
+	assert.True(t, cp.
+		FinishedAt.
+		Equal(finishedAt))
+
 }
 
 // Ensure the unused import is satisfied.

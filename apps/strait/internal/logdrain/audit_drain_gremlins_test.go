@@ -15,6 +15,8 @@ import (
 
 	"strait/internal/domain"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 )
@@ -38,14 +40,15 @@ func TestFailureRingBuffer_WrapAround_SnapshotOrder(t *testing.T) {
 		rb.add(domain.AuditEvent{ID: itoa(i)}, "r")
 	}
 	snap := rb.snapshot()
-	if len(snap) != 3 {
-		t.Fatalf("snapshot len = %d, want 3", len(snap))
-	}
+	require.Len(t, snap,
+		3)
+
 	want := []string{"2", "3", "4"}
 	for i, w := range want {
-		if snap[i].Event.ID != w {
-			t.Errorf("snap[%d].Event.ID = %q, want %q", i, snap[i].Event.ID, w)
-		}
+		assert.Equal(t, w,
+			snap[i].Event.ID,
+		)
+
 	}
 }
 
@@ -56,13 +59,14 @@ func TestFailureRingBuffer_ExactlyFull(t *testing.T) {
 		rb.add(domain.AuditEvent{ID: itoa(i)}, "r")
 	}
 	snap := rb.snapshot()
-	if len(snap) != 4 {
-		t.Fatalf("snapshot len = %d, want 4", len(snap))
-	}
+	require.Len(t, snap,
+		4)
+
 	for i := range 4 {
-		if snap[i].Event.ID != itoa(i) {
-			t.Errorf("snap[%d].Event.ID = %q, want %q", i, snap[i].Event.ID, itoa(i))
-		}
+		assert.Equal(t, itoa(i), snap[i].Event.
+			ID,
+		)
+
 	}
 }
 
@@ -73,61 +77,74 @@ func TestFailureRingBuffer_MultipleLaps(t *testing.T) {
 		rb.add(domain.AuditEvent{ID: itoa(i)}, "r")
 	}
 	snap := rb.snapshot()
-	if len(snap) != 2 {
-		t.Fatalf("snapshot len = %d, want 2", len(snap))
-	}
-	if snap[0].Event.ID != "5" || snap[1].Event.ID != "6" {
-		t.Errorf("snap IDs = [%s, %s], want [5, 6]", snap[0].Event.ID, snap[1].Event.ID)
-	}
+	require.Len(t, snap,
+		2)
+	assert.False(t, snap[0].Event.ID !=
+		"5" ||
+		snap[1].Event.
+			ID != "6",
+	)
+
 }
 
 func TestFailureRingBuffer_ZeroCapacity_UsesDefault(t *testing.T) {
 	t.Parallel()
 	rb := newFailureRingBuffer(0)
-	if rb.cap != siemSubDLQCapacity {
-		t.Errorf("cap = %d, want %d (default)", rb.cap, siemSubDLQCapacity)
-	}
+	assert.Equal(t, siemSubDLQCapacity,
+
+		rb.cap,
+	)
+
 }
 
 func TestNewAuditSIEMDrain_ZeroDefaults(t *testing.T) {
 	t.Parallel()
 	d := NewAuditSIEMDrain("https://x.example.com", "tok", 0, 0)
-	if d.batchSize != defaultSIEMBatchSize {
-		t.Errorf("batchSize = %d, want %d", d.batchSize, defaultSIEMBatchSize)
-	}
-	if d.flushInterval != defaultSIEMFlushInterval {
-		t.Errorf("flushInterval = %v, want %v", d.flushInterval, defaultSIEMFlushInterval)
-	}
+	assert.Equal(t, defaultSIEMBatchSize,
+
+		d.batchSize,
+	)
+	assert.Equal(t, defaultSIEMFlushInterval,
+
+		d.flushInterval,
+	)
+
 }
 
 func TestNewAuditSIEMDrain_NegativeDefaults(t *testing.T) {
 	t.Parallel()
 	d := NewAuditSIEMDrain("https://x.example.com", "tok", -1, -time.Second)
-	if d.batchSize != defaultSIEMBatchSize {
-		t.Errorf("batchSize = %d, want %d", d.batchSize, defaultSIEMBatchSize)
-	}
-	if d.flushInterval != defaultSIEMFlushInterval {
-		t.Errorf("flushInterval = %v, want %v", d.flushInterval, defaultSIEMFlushInterval)
-	}
+	assert.Equal(t, defaultSIEMBatchSize,
+
+		d.batchSize,
+	)
+	assert.Equal(t, defaultSIEMFlushInterval,
+
+		d.flushInterval,
+	)
+
 }
 
 func TestNewAuditSIEMDrain_ClientTimeout(t *testing.T) {
 	t.Parallel()
 	d := NewAuditSIEMDrain("https://x.example.com", "tok", 0, 0)
-	if d.client.Timeout != 30*time.Second {
-		t.Errorf("client.Timeout = %v, want 30s", d.client.Timeout)
-	}
+	assert.Equal(t, 30*
+		time.Second, d.
+		client.
+		Timeout)
+
 }
 
 func TestNewAuditSIEMDrain_PositivePreserved(t *testing.T) {
 	t.Parallel()
 	d := NewAuditSIEMDrain("https://x.example.com", "tok", 50, 3*time.Second)
-	if d.batchSize != 50 {
-		t.Errorf("batchSize = %d, want 50", d.batchSize)
-	}
-	if d.flushInterval != 3*time.Second {
-		t.Errorf("flushInterval = %v, want 3s", d.flushInterval)
-	}
+	assert.Equal(t, 50,
+		d.batchSize)
+	assert.Equal(t, 3*
+		time.Second, d.
+		flushInterval,
+	)
+
 }
 
 func TestAuditSIEMDrain_Start_ChannelCapacity(t *testing.T) {
@@ -141,9 +158,11 @@ func TestAuditSIEMDrain_Start_ChannelCapacity(t *testing.T) {
 			defer cancel()
 			d.Stop(ctx)
 		})
-		if cap(d.ch) != minSIEMBufferSize {
-			t.Errorf("cap(ch) = %d, want %d (floor)", cap(d.ch), minSIEMBufferSize)
-		}
+		assert.Equal(t, minSIEMBufferSize,
+
+			cap(d.
+				ch))
+
 	})
 	t.Run("above_min", func(t *testing.T) {
 		t.Parallel()
@@ -154,9 +173,9 @@ func TestAuditSIEMDrain_Start_ChannelCapacity(t *testing.T) {
 			defer cancel()
 			d.Stop(ctx)
 		})
-		if cap(d.ch) != 400 {
-			t.Errorf("cap(ch) = %d, want 400 (100*4)", cap(d.ch))
-		}
+		assert.Equal(t, 400,
+			cap(d.ch))
+
 	})
 }
 
@@ -166,9 +185,8 @@ func TestAuditSIEMDrain_DrainRemainingToSubDLQ_MetricsFire(t *testing.T) {
 	provider := metric.NewMeterProvider(metric.WithReader(reader))
 	meter := provider.Meter("test")
 	failCounter, err := meter.Int64Counter("test_drain_failed")
-	if err != nil {
-		t.Fatalf("create counter: %v", err)
-	}
+	require.NoError(t,
+		err)
 
 	d := NewAuditSIEMDrain("https://x.example.com", "tok", 100, time.Hour)
 	d.SetMetrics(nil, failCounter, nil, nil)
@@ -179,14 +197,13 @@ func TestAuditSIEMDrain_DrainRemainingToSubDLQ_MetricsFire(t *testing.T) {
 	}
 	d.drainRemainingToSubDLQ()
 
-	if count := d.DrainedFailureCount(); count != 3 {
-		t.Errorf("sub-DLQ count = %d, want 3", count)
-	}
+	assert.Equal(t, 3, d.DrainedFailureCount())
 
 	var rm metricdata.ResourceMetrics
-	if err := reader.Collect(context.Background(), &rm); err != nil {
-		t.Fatalf("collect: %v", err)
-	}
+	require.NoError(t,
+		reader.Collect(context.
+			Background(), &rm))
+
 	var failedVal int64
 	for _, sm := range rm.ScopeMetrics {
 		for _, m := range sm.Metrics {
@@ -199,9 +216,9 @@ func TestAuditSIEMDrain_DrainRemainingToSubDLQ_MetricsFire(t *testing.T) {
 			}
 		}
 	}
-	if failedVal != 3 {
-		t.Errorf("failed counter = %d, want 3", failedVal)
-	}
+	assert.Equal(t, int64(3),
+		failedVal)
+
 }
 
 func TestAuditSIEMDrain_DrainRemainingToSubDLQ_Empty_NoWarn(t *testing.T) {
@@ -211,9 +228,9 @@ func TestAuditSIEMDrain_DrainRemainingToSubDLQ_Empty_NoWarn(t *testing.T) {
 	d.logger = slog.New(spy)
 	d.ch = make(chan domain.AuditEvent, 16)
 	d.drainRemainingToSubDLQ()
-	if spy.called.Load() {
-		t.Error("Warn emitted on empty channel; want no warn when abandoned == 0")
-	}
+	assert.False(t, spy.
+		called.Load())
+
 }
 
 func TestAuditSIEMDrain_FlushLocked_NilParentCtx(t *testing.T) {
@@ -237,7 +254,7 @@ func TestAuditSIEMDrain_FlushLocked_NilParentCtx(t *testing.T) {
 	select {
 	case <-d.done:
 	case <-time.After(5 * time.Second):
-		t.Fatal("run goroutine did not exit")
+		require.Fail(t, "run goroutine did not exit")
 	}
 }
 
@@ -285,16 +302,15 @@ func TestAuditSIEMDrain_ShutdownCh_BatchFullFlush(t *testing.T) {
 			hasFullBatch = true
 		}
 	}
-	if !hasFullBatch {
-		t.Errorf("no batch of size 2 observed; sizes = %v", sizes)
-	}
+	assert.True(t, hasFullBatch)
+
 	var total int
 	for _, s := range sizes {
 		total += s
 	}
-	if total != 6 {
-		t.Errorf("total events = %d, want 6", total)
-	}
+	assert.Equal(t, 6,
+		total)
+
 }
 
 func TestAuditSIEMDrain_CtxDone_BatchFullFlush_Deterministic(t *testing.T) {
@@ -343,14 +359,13 @@ func TestAuditSIEMDrain_CtxDone_BatchFullFlush_Deterministic(t *testing.T) {
 			hasFullBatch = true
 		}
 	}
-	if !hasFullBatch {
-		t.Errorf("no batch of size 2 observed; sizes = %v", sizes)
-	}
+	assert.True(t, hasFullBatch)
+
 	var total int
 	for _, s := range sizes {
 		total += s
 	}
-	if total != 6 {
-		t.Errorf("total events = %d, want 6", total)
-	}
+	assert.Equal(t, 6,
+		total)
+
 }

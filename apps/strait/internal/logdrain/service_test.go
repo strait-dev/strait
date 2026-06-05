@@ -14,14 +14,20 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/httputil"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewService_ClientTimeout(t *testing.T) {
 	t.Parallel()
 	svc := NewService()
-	if svc.client.Timeout != 10*time.Second {
-		t.Errorf("client.Timeout = %v, want 10s", svc.client.Timeout)
-	}
+	assert.Equal(t, 10*
+		time.Second, svc.
+		client.
+		Timeout,
+	)
+
 }
 
 func TestDrainRunEvents_DefaultClientBlocksDNSRebindingAtSendTime(t *testing.T) {
@@ -46,15 +52,16 @@ func TestDrainRunEvents_DefaultClientBlocksDNSRebindingAtSendTime(t *testing.T) 
 		EndpointURL: "http://rebind.test/drain",
 		AuthType:    "none",
 	}, []domain.RunEvent{{ID: "evt-1", RunID: "run-1"}})
-	if err == nil {
-		t.Fatal("expected DNS rebinding attempt to be blocked")
-	}
-	if !strings.Contains(err.Error(), "private address") && !strings.Contains(err.Error(), "resolves to private") {
-		t.Fatalf("expected private-address rejection, got %v", err)
-	}
-	if lookups.Load() == 0 {
-		t.Fatal("expected SSRF validation to resolve the drain host")
-	}
+	require.Error(t, err)
+	require.False(t, !strings.Contains(
+		err.Error(),
+		"private address",
+	) && !strings.Contains(err.
+		Error(), "resolves to private",
+	))
+	require.NotEqual(t,
+		0, lookups.Load())
+
 }
 
 func TestDrainRunEvents(t *testing.T) {
@@ -81,19 +88,19 @@ func TestDrainRunEvents(t *testing.T) {
 			},
 			checkReq: func(t *testing.T, r *http.Request, body []byte) {
 				t.Helper()
-				if ct := r.Header.Get("Content-Type"); ct != "application/json" {
-					t.Errorf("Content-Type = %q, want application/json", ct)
-				}
+				assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
 				var got []domain.RunEvent
-				if err := json.Unmarshal(body, &got); err != nil {
-					t.Fatalf("unmarshal body: %v", err)
-				}
-				if len(got) != 2 {
-					t.Fatalf("got %d events, want 2", len(got))
-				}
-				if got[0].ID != "evt-1" || got[1].ID != "evt-2" {
-					t.Errorf("unexpected event IDs: %v", got)
-				}
+				require.NoError(t,
+					json.Unmarshal(body,
+						&got,
+					))
+				require.Len(t, got,
+					2)
+				assert.False(t, got[0].ID != "evt-1" ||
+					got[1].ID !=
+						"evt-2",
+				)
+
 			},
 		},
 		{
@@ -106,9 +113,7 @@ func TestDrainRunEvents(t *testing.T) {
 			checkReq: func(t *testing.T, r *http.Request, _ []byte) {
 				t.Helper()
 				want := "Bearer tk_secret123"
-				if got := r.Header.Get("Authorization"); got != want {
-					t.Errorf("Authorization = %q, want %q", got, want)
-				}
+				assert.Equal(t, want, r.Header.Get("Authorization"))
 			},
 		},
 		{
@@ -121,12 +126,12 @@ func TestDrainRunEvents(t *testing.T) {
 			checkReq: func(t *testing.T, r *http.Request, _ []byte) {
 				t.Helper()
 				u, p, ok := r.BasicAuth()
-				if !ok {
-					t.Fatal("expected basic auth credentials")
-				}
-				if u != "user" || p != "pass" {
-					t.Errorf("basic auth = (%q, %q), want (user, pass)", u, p)
-				}
+				require.True(t, ok)
+				assert.False(t, u !=
+					"user" || p !=
+					"pass",
+				)
+
 			},
 		},
 		{
@@ -141,12 +146,8 @@ func TestDrainRunEvents(t *testing.T) {
 			},
 			checkReq: func(t *testing.T, r *http.Request, _ []byte) {
 				t.Helper()
-				if got := r.Header.Get("X-Api-Key"); got != "key-abc" {
-					t.Errorf("X-Api-Key = %q, want key-abc", got)
-				}
-				if got := r.Header.Get("X-Api-Secret"); got != "secret-xyz" {
-					t.Errorf("X-Api-Secret = %q, want secret-xyz", got)
-				}
+				assert.Equal(t, "key-abc", r.Header.Get("X-Api-Key"))
+				assert.Equal(t, "secret-xyz", r.Header.Get("X-Api-Secret"))
 			},
 		},
 		{
@@ -179,15 +180,12 @@ func TestDrainRunEvents(t *testing.T) {
 			},
 			checkReq: func(t *testing.T, r *http.Request, _ []byte) {
 				t.Helper()
-				if got := r.Header.Get("X-Custom"); got != "allowed" {
-					t.Errorf("X-Custom = %q, want allowed", got)
-				}
-				if got := r.Header.Get("Content-Type"); got != "application/json" {
-					t.Errorf("Content-Type = %q, want application/json (should not be overridden)", got)
-				}
-				if r.Host == "evil.com" {
-					t.Error("Host header was overridden to evil.com — should be blocked")
-				}
+				assert.Equal(t, "allowed", r.Header.Get("X-Custom"))
+				assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
+				assert.NotEqual(t,
+					"evil.com", r.Host,
+				)
+
 			},
 		},
 	}
@@ -212,17 +210,18 @@ func TestDrainRunEvents(t *testing.T) {
 			err := svc.DrainRunEvents(context.Background(), &drain, makeEvents())
 
 			if tt.wantErr {
-				if err == nil {
-					t.Fatal("expected error, got nil")
-				}
-				if tt.errContain != "" && !strings.Contains(err.Error(), tt.errContain) {
-					t.Errorf("error %q does not contain %q", err, tt.errContain)
-				}
+				require.Error(t, err)
+				assert.False(t, tt.
+					errContain != "" &&
+					!strings.Contains(err.
+						Error(), tt.errContain,
+					))
+
 				return
 			}
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
+			require.NoError(t,
+				err)
+
 			if tt.checkReq != nil {
 				tt.checkReq(t, capturedReq, capturedBody)
 			}

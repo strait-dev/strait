@@ -1,6 +1,10 @@
 package logdrain
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+)
 
 func TestSanitizeSIEMEndpoint(t *testing.T) {
 	t.Parallel()
@@ -19,9 +23,10 @@ func TestSanitizeSIEMEndpoint(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			got := sanitizeSIEMEndpoint(tc.in)
-			if got != tc.want {
-				t.Errorf("sanitizeSIEMEndpoint(%q) = %q, want %q", tc.in, got, tc.want)
-			}
+			assert.Equal(t,
+
+				tc.want, got)
+
 		})
 	}
 }
