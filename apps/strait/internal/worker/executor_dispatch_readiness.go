@@ -2,28 +2,11 @@ package worker
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"time"
 
 	"strait/internal/domain"
-	"strait/internal/httputil"
 	"strait/internal/store"
-
-	"github.com/sourcegraph/conc"
 )
-
-// dispatchPrefetch groups the endpoint guards that must be evaluated after
-// environment endpoint overrides, because every check keys off the final URL.
-type dispatchPrefetch struct {
-	circuitAllowed bool
-	circuitRetryAt *time.Time
-	circuitErr     error
-	healthScore    *domain.EndpointHealthScore
-	healthAllowed  bool
-	healthErr      error
-	adaptiveStats  *store.JobHealthStats
-}
 
 type httpDispatchReadiness struct {
 	prefetch        dispatchPrefetch
@@ -54,33 +37,6 @@ func (e *Executor) prepareHTTPDispatch(
 	}
 }
 
-func (e *Executor) prefetchDispatchGuards(
-	ctx context.Context,
-	job *domain.Job,
-	policy executionPolicy,
-) dispatchPrefetch {
-	endpointKey := endpointStateKey(job.ProjectID, job.EndpointURL)
-	var result dispatchPrefetch
-	var prefetchWG conc.WaitGroup
-	prefetchWG.Go(func() {
-		result.circuitAllowed, result.circuitRetryAt, result.circuitErr = e.store.CanDispatchEndpoint(
-			ctx,
-			endpointKey,
-			time.Now().UTC(),
-		)
-	})
-	prefetchWG.Go(func() {
-		result.healthScore, result.healthAllowed, result.healthErr = e.healthScorer.CheckHealth(ctx, endpointKey)
-	})
-	if policy.timeoutSecs > 0 {
-		prefetchWG.Go(func() {
-			result.adaptiveStats, _ = e.getJobHealthStats(ctx, job.ID, time.Now())
-		})
-	}
-	prefetchWG.Wait()
-	return result
-}
-
 func (e *Executor) acquireHTTPDispatchSlot(
 	ctx context.Context,
 	run *domain.JobRun,
@@ -105,50 +61,6 @@ func httpDispatchConcurrencyLimit(job *domain.Job, prefetch dispatchPrefetch) in
 	return ThrottledConcurrency(prefetch.healthScore, job.MaxConcurrency)
 }
 
-func (e *Executor) checkEndpointGuards(
-	ctx context.Context,
-	run *domain.JobRun,
-	job *domain.Job,
-	prefetch dispatchPrefetch,
-) bool {
-	if prefetch.circuitErr != nil {
-		e.logger.Error(
-			"circuit breaker check failed",
-			"run_id", run.ID,
-			"job_id", run.JobID,
-			"endpoint", httputil.RedactURLForLog(job.EndpointURL),
-			"error", prefetch.circuitErr,
-		)
-		e.handleSystemFailureWithJob(ctx, run, job, "circuit breaker unavailable")
-		return false
-	}
-	if !prefetch.circuitAllowed {
-		e.snoozeRun(ctx, run, "endpoint circuit breaker open", prefetch.circuitRetryAt)
-		return false
-	}
-	if prefetch.healthErr != nil {
-		e.logger.Warn(
-			"health score check failed, proceeding with dispatch",
-			"run_id", run.ID,
-			"endpoint", httputil.RedactURLForLog(job.EndpointURL),
-			"error", prefetch.healthErr,
-		)
-		return true
-	}
-	if prefetch.healthAllowed {
-		return true
-	}
-	healthRetryAt := NextRetryAt(run.Attempt)
-	e.logger.Info(
-		"endpoint unhealthy, snoozing run",
-		"run_id", run.ID,
-		"endpoint", httputil.RedactURLForLog(job.EndpointURL),
-		"health_score", prefetch.healthScore.HealthScore,
-	)
-	e.snoozeRun(ctx, run, "endpoint health score below threshold", &healthRetryAt)
-	return false
-}
-
 func (e *Executor) dispatchTimeout(job *domain.Job, policy executionPolicy, stats *store.JobHealthStats) time.Duration {
 	timeout := time.Duration(policy.timeoutSecs) * time.Second
 	if stats == nil || stats.P95DurationSecs <= 0 {
@@ -160,14 +72,6 @@ func (e *Executor) dispatchTimeout(job *domain.Job, policy executionPolicy, stat
 	}
 	e.logger.Debug("using adaptive timeout", "job_id", job.ID, "p95_secs", stats.P95DurationSecs, "timeout", adaptiveTimeout)
 	return adaptiveTimeout
-}
-
-func endpointStateKey(projectID, endpointURL string) string {
-	if projectID == "" {
-		return endpointURL
-	}
-	sum := sha256.Sum256([]byte(endpointURL))
-	return "project:" + projectID + ":endpoint:" + hex.EncodeToString(sum[:])
 }
 
 func (e *Executor) getJobHealthStats(ctx context.Context, jobID string, now time.Time) (*store.JobHealthStats, error) {
