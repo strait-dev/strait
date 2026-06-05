@@ -12,6 +12,8 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestAllGenerators_NeverEmpty verifies no generator returns an empty string.
@@ -36,9 +38,9 @@ func TestAllGenerators_NeverEmpty(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			s := gen()
-			if s == "" {
-				t.Errorf("%s returned empty string", name)
-			}
+			assert.NotEqual(t, "",
+				s)
+
 		})
 	}
 }
@@ -64,9 +66,8 @@ func TestAllHexGenerators_NoCollisionIn1000(t *testing.T) {
 			seen := make(map[string]bool, 1000)
 			for range 1000 {
 				s := gen()
-				if seen[s] {
-					t.Fatalf("%s produced duplicate after <1000 calls: %s", name, s)
-				}
+				require.False(t, seen[s])
+
 				seen[s] = true
 			}
 		})
@@ -88,12 +89,10 @@ func TestGenerateTestSecret_ConcurrentSafe(t *testing.T) {
 
 	seen := make(map[string]bool)
 	for _, s := range results {
-		if s == "" {
-			t.Fatal("empty result from concurrent call")
-		}
-		if seen[s] {
-			t.Fatal("duplicate from concurrent calls")
-		}
+		require.NotEqual(t, "",
+			s)
+		require.False(t, seen[s])
+
 		seen[s] = true
 	}
 }
@@ -112,9 +111,9 @@ func TestGenerateTestUserCode_ConcurrentSafe(t *testing.T) {
 	wg.Wait()
 
 	for _, code := range results {
-		if len(code) != 8 {
-			t.Fatalf("wrong length %d from concurrent call", len(code))
-		}
+		require.Len(t, code,
+			8)
+
 	}
 }
 
@@ -124,22 +123,15 @@ func TestGenerateTestEncryptionKey_ValidForAES256(t *testing.T) {
 	t.Parallel()
 	keyHex := GenerateTestEncryptionKey()
 	keyBytes, err := hex.DecodeString(keyHex)
-	if err != nil {
-		t.Fatalf("key is not valid hex: %v", err)
-	}
-	if len(keyBytes) != 32 {
-		t.Fatalf("key bytes length = %d, want 32 for AES-256", len(keyBytes))
-	}
+	require.NoError(t, err)
+	require.Len(t, keyBytes,
+		32)
 
 	block, err := aes.NewCipher(keyBytes)
-	if err != nil {
-		t.Fatalf("AES cipher creation failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		t.Fatalf("GCM creation failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Encrypt and decrypt a test message.
 	plaintext := []byte("sensitive data for testing")
@@ -147,12 +139,9 @@ func TestGenerateTestEncryptionKey_ValidForAES256(t *testing.T) {
 	ciphertext := gcm.Seal(nil, nonce, plaintext, nil)
 
 	decrypted, err := gcm.Open(nil, nonce, ciphertext, nil)
-	if err != nil {
-		t.Fatalf("decryption failed: %v", err)
-	}
-	if string(decrypted) != string(plaintext) {
-		t.Fatalf("decrypted = %q, want %q", decrypted, plaintext)
-	}
+	require.NoError(t, err)
+	require.Equal(t, string(plaintext), string(decrypted))
+
 }
 
 // TestGenerateTestSignatureSecret_ValidForHMAC verifies the secret can be
@@ -161,9 +150,7 @@ func TestGenerateTestSignatureSecret_ValidForHMAC(t *testing.T) {
 	t.Parallel()
 	secret := GenerateTestSignatureSecret()
 	keyBytes, err := base64.StdEncoding.DecodeString(secret)
-	if err != nil {
-		t.Fatalf("secret is not valid base64: %v", err)
-	}
+	require.NoError(t, err)
 
 	message := []byte("webhook payload body")
 	mac := hmac.New(sha256.New, keyBytes)
@@ -173,16 +160,18 @@ func TestGenerateTestSignatureSecret_ValidForHMAC(t *testing.T) {
 	// Verify the signature.
 	mac2 := hmac.New(sha256.New, keyBytes)
 	mac2.Write(message)
-	if !hmac.Equal(signature, mac2.Sum(nil)) {
-		t.Fatal("HMAC verification failed")
-	}
+	require.True(t, hmac.
+		Equal(signature,
+			mac2.Sum(nil)))
 
 	// Tamper with message and verify it fails.
 	mac3 := hmac.New(sha256.New, keyBytes)
 	mac3.Write([]byte("tampered payload"))
-	if hmac.Equal(signature, mac3.Sum(nil)) {
-		t.Fatal("HMAC should fail for tampered message")
-	}
+	require.False(t, hmac.
+		Equal(signature,
+			mac3.Sum(nil)),
+	)
+
 }
 
 // TestGenerateTestJWTKey_SignVerifyRoundtrip verifies the key works for
@@ -200,27 +189,20 @@ func TestGenerateTestJWTKey_SignVerifyRoundtrip(t *testing.T) {
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	signed, err := token.SignedString([]byte(key))
-	if err != nil {
-		t.Fatalf("signing failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	parsed, err := jwt.Parse(signed, func(_ *jwt.Token) (any, error) {
 		return []byte(key), nil
 	})
-	if err != nil {
-		t.Fatalf("parsing failed: %v", err)
-	}
-	if !parsed.Valid {
-		t.Fatal("token should be valid")
-	}
+	require.NoError(t, err)
+	require.True(t, parsed.
+		Valid)
 
 	mapClaims, ok := parsed.Claims.(jwt.MapClaims)
-	if !ok {
-		t.Fatal("claims should be MapClaims")
-	}
-	if mapClaims["sub"] != "user-123" {
-		t.Errorf("sub = %v, want user-123", mapClaims["sub"])
-	}
+	require.True(t, ok)
+	assert.Equal(t, "user-123",
+		mapClaims["sub"])
+
 }
 
 // TestGenerateTestRunToken_EmptyRunID verifies tokens work with edge-case IDs.
@@ -228,20 +210,19 @@ func TestGenerateTestRunToken_EmptyRunID(t *testing.T) {
 	t.Parallel()
 	key := GenerateTestJWTKey()
 	token := GenerateTestRunToken("", key)
-	if token == "" {
-		t.Fatal("should generate token even with empty run ID")
-	}
+	require.NotEqual(t, "",
+		token)
 
 	claims := &jwt.RegisteredClaims{}
 	parsed, err := jwt.ParseWithClaims(token, claims, func(_ *jwt.Token) (any, error) {
 		return []byte(key), nil
 	})
-	if err != nil || !parsed.Valid {
-		t.Fatalf("token with empty run ID should still be valid: %v", err)
-	}
-	if claims.Subject != "" {
-		t.Errorf("subject should be empty, got %q", claims.Subject)
-	}
+	require.False(t, err !=
+		nil || !parsed.
+		Valid)
+	assert.Equal(t, "", claims.
+		Subject)
+
 }
 
 // TestGenerateTestRunToken_SpecialCharsInRunID verifies tokens handle special
@@ -265,12 +246,12 @@ func TestGenerateTestRunToken_SpecialCharsInRunID(t *testing.T) {
 		parsed, err := jwt.ParseWithClaims(token, claims, func(_ *jwt.Token) (any, error) {
 			return []byte(key), nil
 		})
-		if err != nil || !parsed.Valid {
-			t.Fatalf("token with run ID %q failed: %v", id[:min(len(id), 20)], err)
-		}
-		if claims.Subject != id {
-			t.Errorf("subject roundtrip failed for ID %q", id[:min(len(id), 20)])
-		}
+		require.False(t, err !=
+			nil || !parsed.
+			Valid)
+		assert.Equal(t, id, claims.
+			Subject)
+
 	}
 }
 
@@ -281,9 +262,9 @@ func TestGenerateTestSSEToken_EmptyScopes(t *testing.T) {
 
 	for _, scopes := range [][]string{nil, {}, {"single"}} {
 		token := GenerateTestSSEToken("proj-1", scopes, key)
-		if token == "" {
-			t.Fatal("should generate token with empty scopes")
-		}
+		require.NotEqual(t, "",
+			token)
+
 	}
 }
 
@@ -298,9 +279,8 @@ func TestGenerateTestSSEToken_CrossKeyRejection(t *testing.T) {
 	_, err := jwt.Parse(token, func(_ *jwt.Token) (any, error) {
 		return []byte(key2), nil
 	})
-	if err == nil {
-		t.Fatal("SSE token should not verify with wrong key")
-	}
+	require.Error(t, err)
+
 }
 
 // TestGenerateTestUserCode_Distribution verifies that all alphabet characters
@@ -318,9 +298,8 @@ func TestGenerateTestUserCode_Distribution(t *testing.T) {
 	}
 
 	for i := range len(alphabet) {
-		if !charSeen[alphabet[i]] {
-			t.Errorf("character %q never appeared in 500 user codes", alphabet[i])
-		}
+		assert.True(t, charSeen[alphabet[i]])
+
 	}
 }
 
@@ -330,10 +309,12 @@ func TestGenerateTestAPIKey_PrefixNotDuplicated(t *testing.T) {
 	t.Parallel()
 	for range 100 {
 		key := GenerateTestAPIKey()
-		after := key[7:] // skip "strait_"
-		if strings.Contains(after, "strait_") {
-			t.Fatalf("random part contains prefix: %s", key)
-		}
+		after := key[7:]
+		require.False(t, strings.Contains(after,
+			"strait_"))
+
+		// skip "strait_"
+
 	}
 }
 
@@ -343,9 +324,8 @@ func TestGenerateTestAPIKey_HexAfterPrefix(t *testing.T) {
 	t.Parallel()
 	key := GenerateTestAPIKey()
 	hexPart := key[7:]
-	if _, err := hex.DecodeString(hexPart); err != nil {
-		t.Fatalf("portion after strait_ is not valid hex: %v", err)
-	}
+	_, err := hex.DecodeString(hexPart)
+	require.NoError(t, err)
 }
 
 // TestGenerateTestWebhookSecret_HexAfterPrefix verifies the portion after
@@ -354,9 +334,8 @@ func TestGenerateTestWebhookSecret_HexAfterPrefix(t *testing.T) {
 	t.Parallel()
 	s := GenerateTestWebhookSecret()
 	hexPart := s[6:]
-	if _, err := hex.DecodeString(hexPart); err != nil {
-		t.Fatalf("portion after whsec_ is not valid hex: %v", err)
-	}
+	_, err := hex.DecodeString(hexPart)
+	require.NoError(t, err)
 }
 
 // TestGenerateTestDatabaseURL_ContainsRequiredParts verifies all URL components
@@ -367,9 +346,8 @@ func TestGenerateTestDatabaseURL_ContainsRequiredParts(t *testing.T) {
 
 	required := []string{"postgres://", "testuser", "testpass", "localhost", "5432", "test_", "sslmode=disable"}
 	for _, part := range required {
-		if !strings.Contains(url, part) {
-			t.Errorf("URL %q missing required part %q", url, part)
-		}
+		assert.True(t, strings.Contains(url, part))
+
 	}
 }
 
@@ -380,9 +358,8 @@ func TestGenerateTestDatabaseURL_RandomDBName(t *testing.T) {
 	urls := make(map[string]bool)
 	for range 50 {
 		url := GenerateTestDatabaseURL()
-		if urls[url] {
-			t.Fatalf("duplicate URL in 50 calls: %s", url)
-		}
+		require.False(t, urls[url])
+
 		urls[url] = true
 	}
 }
@@ -402,9 +379,9 @@ func FuzzGenerateTestSecret_NoPanic(f *testing.F) {
 			return // skip invalid/unreasonable inputs
 		}
 		s := GenerateTestSecret(byteLen)
-		if len(s) != byteLen*2 {
-			t.Errorf("len = %d, want %d", len(s), byteLen*2)
-		}
+		assert.Len(t, s, byteLen*
+			2)
+
 	})
 }
 
@@ -421,8 +398,8 @@ func FuzzGenerateTestRunToken_NoPanic(f *testing.F) {
 			return // empty key causes jwt library error
 		}
 		token := GenerateTestRunToken(runID, key)
-		if token == "" {
-			t.Error("empty token")
-		}
+		assert.NotEqual(t, "",
+			token)
+
 	})
 }
