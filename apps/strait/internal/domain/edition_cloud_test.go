@@ -20,7 +20,6 @@ func TestParseEdition_Cloud(t *testing.T) {
 				t,
 				EditionCloud, got,
 			)
-
 		})
 	}
 }
