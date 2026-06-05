@@ -1,10 +1,15 @@
 package worker
 
 import (
+	"context"
 	"time"
 
 	"strait/internal/domain"
+	"strait/internal/httputil"
 	"strait/internal/store"
+
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 )
 
 type successfulDispatchSignals struct {
@@ -29,6 +34,18 @@ func newSuccessfulDispatchSignals(job *domain.Job, transition successfulRunTrans
 	}
 }
 
+func (e *Executor) recordSuccessfulDispatchSignals(ctx context.Context, job *domain.Job, transition successfulRunTransition) {
+	signals := newSuccessfulDispatchSignals(job, transition, e.txPool == nil)
+	if signals.recordCircuitSuccess {
+		if err := e.store.RecordEndpointCircuitSuccess(ctx, signals.endpointKey); err != nil {
+			e.logger.Warn("failed to record circuit breaker success", "endpoint", httputil.RedactURLForLog(signals.endpointURL), "error", err)
+		}
+	}
+	if _, hsErr := e.healthScorer.RecordResult(ctx, signals.result); hsErr != nil {
+		e.logger.Warn("failed to record health score success", "endpoint", httputil.RedactURLForLog(signals.endpointURL), "error", hsErr)
+	}
+}
+
 type successfulLatencyAnomaly struct {
 	record   bool
 	duration time.Duration
@@ -47,6 +64,36 @@ func newSuccessfulLatencyAnomaly(transition successfulRunTransition, stats *stor
 	}
 }
 
+func (e *Executor) recordSuccessfulLatencyAnomaly(
+	ctx context.Context,
+	run *domain.JobRun,
+	job *domain.Job,
+	transition successfulRunTransition,
+	stats *store.JobHealthStats,
+) {
+	if !transition.started {
+		return
+	}
+	if stats == nil {
+		var statsErr error
+		stats, statsErr = e.getJobHealthStats(ctx, job.ID, time.Now())
+		if statsErr != nil {
+			stats = nil
+		}
+	}
+	anomaly := newSuccessfulLatencyAnomaly(transition, stats)
+	if !anomaly.record {
+		return
+	}
+	e.logger.Warn("latency anomaly detected",
+		"run_id", run.ID, "job_id", run.JobID,
+		"duration_ms", anomaly.duration.Milliseconds(), "p95_ms", anomaly.p95.Milliseconds())
+	if e.metrics != nil {
+		e.metrics.LatencyAnomalies.Add(ctx, 1,
+			metric.WithAttributes(attribute.String("job_id", run.JobID)))
+	}
+}
+
 type failedDispatchSignalKind int
 
 const (
@@ -60,6 +107,17 @@ func (k failedDispatchSignalKind) logName() string {
 		return "timeout"
 	default:
 		return "failure"
+	}
+}
+
+func (e *Executor) recordFailedDispatchSignals(ctx context.Context, job *domain.Job, kind failedDispatchSignalKind) {
+	signals := newFailedDispatchSignalPayload(job, kind, time.Now().UTC())
+
+	if err := e.store.RecordEndpointCircuitFailure(ctx, signals.endpointKey, signals.circuitFailedAt, e.circuitThreshold, e.circuitOpenFor); err != nil {
+		e.logger.Warn("failed to record circuit breaker "+signals.logName, "endpoint", httputil.RedactURLForLog(signals.endpointURL), "error", err)
+	}
+	if _, hsErr := e.healthScorer.RecordResult(ctx, signals.result); hsErr != nil {
+		e.logger.Warn("failed to record health score "+signals.logName, "endpoint", httputil.RedactURLForLog(signals.endpointURL), "error", hsErr)
 	}
 }
 

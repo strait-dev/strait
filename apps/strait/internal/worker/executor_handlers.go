@@ -7,13 +7,10 @@ import (
 	"time"
 
 	"strait/internal/domain"
-	"strait/internal/httputil"
 	"strait/internal/store"
 
 	"github.com/getsentry/sentry-go"
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/metric"
 )
 
 const executionTimedOutError = "execution timed out"
@@ -67,59 +64,6 @@ func (e *Executor) handleSuccessWithStats(
 
 	e.recordSuccessfulLatencyAnomaly(ctx, run, job, transition, stats)
 	return true
-}
-
-func (e *Executor) recordSuccessfulDispatchSignals(ctx context.Context, job *domain.Job, transition successfulRunTransition) {
-	signals := newSuccessfulDispatchSignals(job, transition, e.txPool == nil)
-	if signals.recordCircuitSuccess {
-		if err := e.store.RecordEndpointCircuitSuccess(ctx, signals.endpointKey); err != nil {
-			e.logger.Warn("failed to record circuit breaker success", "endpoint", httputil.RedactURLForLog(signals.endpointURL), "error", err)
-		}
-	}
-	if _, hsErr := e.healthScorer.RecordResult(ctx, signals.result); hsErr != nil {
-		e.logger.Warn("failed to record health score success", "endpoint", httputil.RedactURLForLog(signals.endpointURL), "error", hsErr)
-	}
-}
-
-func (e *Executor) recordSuccessfulLatencyAnomaly(
-	ctx context.Context,
-	run *domain.JobRun,
-	job *domain.Job,
-	transition successfulRunTransition,
-	stats *store.JobHealthStats,
-) {
-	if !transition.started {
-		return
-	}
-	if stats == nil {
-		var statsErr error
-		stats, statsErr = e.getJobHealthStats(ctx, job.ID, time.Now())
-		if statsErr != nil {
-			stats = nil
-		}
-	}
-	anomaly := newSuccessfulLatencyAnomaly(transition, stats)
-	if !anomaly.record {
-		return
-	}
-	e.logger.Warn("latency anomaly detected",
-		"run_id", run.ID, "job_id", run.JobID,
-		"duration_ms", anomaly.duration.Milliseconds(), "p95_ms", anomaly.p95.Milliseconds())
-	if e.metrics != nil {
-		e.metrics.LatencyAnomalies.Add(ctx, 1,
-			metric.WithAttributes(attribute.String("job_id", run.JobID)))
-	}
-}
-
-func (e *Executor) recordFailedDispatchSignals(ctx context.Context, job *domain.Job, kind failedDispatchSignalKind) {
-	signals := newFailedDispatchSignalPayload(job, kind, time.Now().UTC())
-
-	if err := e.store.RecordEndpointCircuitFailure(ctx, signals.endpointKey, signals.circuitFailedAt, e.circuitThreshold, e.circuitOpenFor); err != nil {
-		e.logger.Warn("failed to record circuit breaker "+signals.logName, "endpoint", httputil.RedactURLForLog(signals.endpointURL), "error", err)
-	}
-	if _, hsErr := e.healthScorer.RecordResult(ctx, signals.result); hsErr != nil {
-		e.logger.Warn("failed to record health score "+signals.logName, "endpoint", httputil.RedactURLForLog(signals.endpointURL), "error", hsErr)
-	}
 }
 
 func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *domain.Job, policy executionPolicy, err error, execTrace *domain.ExecutionTrace) bool {
