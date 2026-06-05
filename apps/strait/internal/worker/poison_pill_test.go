@@ -349,6 +349,71 @@ func TestHandleFailure_PoisonPillDetection(t *testing.T) {
 	}
 }
 
+func TestHandleFailure_PoisonPillDetected(t *testing.T) {
+	t.Parallel()
+	store := &mockExecutorStore{}
+	exec := NewExecutor(ExecutorConfig{
+		Pool:         NewPool(10),
+		Queue:        &mockExecQueue{},
+		Store:        store,
+		PollInterval: time.Hour,
+	})
+	threshold := 3
+	errBody := "fail"
+	endpointErr := &domain.EndpointError{StatusCode: 500, Body: errBody}
+	run := &domain.JobRun{ID: "run-1", JobID: "job-1", Attempt: 3, Metadata: map[string]string{
+		"_error_hash":       errorHashForError(endpointErr),
+		"_error_hash_count": "2",
+	}}
+	job := &domain.Job{ID: "job-1", EndpointURL: "http://example.com", PoisonPillThreshold: &threshold}
+	policy := executionPolicy{maxAttempts: 5, timeoutSecs: 30}
+	exec.handleFailure(context.Background(), run, job, policy, endpointErr, nil)
+
+	requireLastStatusUpdateTo(t, store.statusUpdates(), domain.StatusDeadLetter)
+}
+
+func TestHandleFailure_PoisonPillNotTriggeredOnDifferentError(t *testing.T) {
+	t.Parallel()
+	store := &mockExecutorStore{}
+	exec := NewExecutor(ExecutorConfig{
+		Pool:         NewPool(10),
+		Queue:        &mockExecQueue{},
+		Store:        store,
+		PollInterval: time.Hour,
+	})
+	threshold := 3
+	run := &domain.JobRun{ID: "run-1", JobID: "job-1", Attempt: 3, Metadata: map[string]string{
+		"_error_hash":       errorHash("different error"),
+		"_error_hash_count": "2",
+	}}
+	job := &domain.Job{ID: "job-1", EndpointURL: "http://example.com", PoisonPillThreshold: &threshold}
+	policy := executionPolicy{maxAttempts: 5, timeoutSecs: 30}
+	exec.handleFailure(context.Background(), run, job, policy, &domain.EndpointError{StatusCode: 500, Body: "fail"}, nil)
+
+	requireLastStatusUpdateTo(t, store.statusUpdates(), domain.StatusQueued)
+}
+
+func TestHandleFailure_PoisonPillNotTriggeredWhenDisabled(t *testing.T) {
+	t.Parallel()
+	store := &mockExecutorStore{}
+	exec := NewExecutor(ExecutorConfig{
+		Pool:         NewPool(10),
+		Queue:        &mockExecQueue{},
+		Store:        store,
+		PollInterval: time.Hour,
+	})
+	errMsg := "fail"
+	run := &domain.JobRun{ID: "run-1", JobID: "job-1", Attempt: 3, Metadata: map[string]string{
+		"_error_hash":       errorHash(errMsg),
+		"_error_hash_count": "2",
+	}}
+	job := &domain.Job{ID: "job-1", EndpointURL: "http://example.com"}
+	policy := executionPolicy{maxAttempts: 5, timeoutSecs: 30}
+	exec.handleFailure(context.Background(), run, job, policy, &domain.EndpointError{StatusCode: 500, Body: errMsg}, nil)
+
+	requireLastStatusUpdateTo(t, store.statusUpdates(), domain.StatusQueued)
+}
+
 // Adversarial / edge case tests
 
 func TestPoisonPill_DisabledDoesNotWriteMetadata(t *testing.T) {
