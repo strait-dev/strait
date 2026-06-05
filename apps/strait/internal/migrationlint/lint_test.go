@@ -3,8 +3,10 @@ package migrationlint
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Unit tests for the migration safety linter.
@@ -17,9 +19,8 @@ const baselineCutoff = 234
 func TestLint_NewMigrationsPassClean(t *testing.T) {
 	dir := filepath.Join("..", "..", "migrations")
 	violations, err := LintDir(dir)
-	if err != nil {
-		t.Fatalf("LintDir: %v", err)
-	}
+	require.NoError(t, err)
+
 	var newViolations []Violation
 	for _, v := range violations {
 		base := filepath.Base(v.File)
@@ -35,11 +36,7 @@ func TestLint_NewMigrationsPassClean(t *testing.T) {
 			newViolations = append(newViolations, v)
 		}
 	}
-	if len(newViolations) > 0 {
-		for _, v := range newViolations {
-			t.Errorf("new migration violation: %s", v.String())
-		}
-	}
+	assert.Empty(t, newViolations)
 }
 
 func fmtSscan(name string, out *int) (int, error) {
@@ -70,17 +67,13 @@ func (e *fmtErr) Error() string { return e.msg }
 func TestLint_CreateIndexWithoutConcurrently(t *testing.T) {
 	sql := `CREATE INDEX idx_bad ON job_runs (id);`
 	v := LintFile("test.up.sql", []byte(sql))
-	if !hasRule(v, RuleCreateIndexNonConcurrent) {
-		t.Errorf("expected %s, got %v", RuleCreateIndexNonConcurrent, v)
-	}
+	assertHasRule(t, v, RuleCreateIndexNonConcurrent)
 }
 
 func TestLint_CreateIndexConcurrentlyAccepted(t *testing.T) {
 	sql := `CREATE INDEX CONCURRENTLY idx_good ON job_runs (id);`
 	v := LintFile("test.up.sql", []byte(sql))
-	if hasRule(v, RuleCreateIndexNonConcurrent) {
-		t.Errorf("CONCURRENTLY should pass: %v", v)
-	}
+	assertNoRule(t, v, RuleCreateIndexNonConcurrent)
 }
 
 func TestLint_CreateIndexInTransactionalMigrationIsStillFlagged(t *testing.T) {
@@ -89,138 +82,104 @@ func TestLint_CreateIndexInTransactionalMigrationIsStillFlagged(t *testing.T) {
 CREATE INDEX idx_bad ON job_runs (id);
 COMMIT;`
 	v := LintFile("test.up.sql", []byte(sql))
-	if !hasRule(v, RuleCreateIndexNonConcurrent) {
-		t.Errorf("expected rule, got %v", v)
-	}
+	assertHasRule(t, v, RuleCreateIndexNonConcurrent)
 }
 
 func TestLint_CreateUniqueIndexWithoutConcurrently(t *testing.T) {
 	sql := `CREATE UNIQUE INDEX idx_bad ON users (email);`
 	v := LintFile("test.up.sql", []byte(sql))
-	if !hasRule(v, RuleCreateUniqueNonConcurrent) {
-		t.Errorf("expected %s, got %v", RuleCreateUniqueNonConcurrent, v)
-	}
+	assertHasRule(t, v, RuleCreateUniqueNonConcurrent)
 }
 
 func TestLint_SetNotNull(t *testing.T) {
 	sql := `ALTER TABLE users ALTER COLUMN email SET NOT NULL;`
 	v := LintFile("test.up.sql", []byte(sql))
-	if !hasRule(v, RuleSetNotNull) {
-		t.Errorf("expected %s, got %v", RuleSetNotNull, v)
-	}
+	assertHasRule(t, v, RuleSetNotNull)
 }
 
 func TestLint_AddColumnNotNullDefault(t *testing.T) {
 	sql := `ALTER TABLE users ADD COLUMN created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();`
 	v := LintFile("test.up.sql", []byte(sql))
-	if !hasRule(v, RuleAddColumnNotNullDefault) {
-		t.Errorf("expected %s, got %v", RuleAddColumnNotNullDefault, v)
-	}
+	assertHasRule(t, v, RuleAddColumnNotNullDefault)
 }
 
 func TestLint_AddColumnNullableAccepted(t *testing.T) {
 	sql := `ALTER TABLE users ADD COLUMN nickname TEXT;`
 	v := LintFile("test.up.sql", []byte(sql))
-	if len(v) > 0 {
-		t.Errorf("nullable column should pass: %v", v)
-	}
+	assert.Empty(t, v)
 }
 
 func TestLint_DropColumn(t *testing.T) {
 	sql := `ALTER TABLE users DROP COLUMN old;`
 	v := LintFile("test.up.sql", []byte(sql))
-	if !hasRule(v, RuleDropColumn) {
-		t.Errorf("expected %s, got %v", RuleDropColumn, v)
-	}
+	assertHasRule(t, v, RuleDropColumn)
 }
 
 func TestLint_VacuumFull(t *testing.T) {
 	sql := `VACUUM FULL job_runs;`
 	v := LintFile("test.up.sql", []byte(sql))
-	if !hasRule(v, RuleVacuumFull) {
-		t.Errorf("expected %s, got %v", RuleVacuumFull, v)
-	}
+	assertHasRule(t, v, RuleVacuumFull)
 }
 
 func TestLint_ReindexNonConcurrent(t *testing.T) {
 	sql := `REINDEX TABLE job_runs;`
 	v := LintFile("test.up.sql", []byte(sql))
-	if !hasRule(v, RuleReindexNonConcurrent) {
-		t.Errorf("expected %s, got %v", RuleReindexNonConcurrent, v)
-	}
+	assertHasRule(t, v, RuleReindexNonConcurrent)
 }
 
 func TestLint_ReindexConcurrentlyAccepted(t *testing.T) {
 	sql := `REINDEX INDEX CONCURRENTLY idx_ok;`
 	v := LintFile("test.up.sql", []byte(sql))
-	if hasRule(v, RuleReindexNonConcurrent) {
-		t.Errorf("CONCURRENTLY should pass: %v", v)
-	}
+	assertNoRule(t, v, RuleReindexNonConcurrent)
 }
 
 func TestLint_LockTable(t *testing.T) {
 	sql := `LOCK TABLE job_runs IN ACCESS EXCLUSIVE MODE;`
 	v := LintFile("test.up.sql", []byte(sql))
-	if !hasRule(v, RuleLockTable) {
-		t.Errorf("expected %s", RuleLockTable)
-	}
+	assertHasRule(t, v, RuleLockTable)
 }
 
 func TestLint_Cluster(t *testing.T) {
 	sql := `CLUSTER job_runs USING idx_runs_queue;`
 	v := LintFile("test.up.sql", []byte(sql))
-	if !hasRule(v, RuleCluster) {
-		t.Errorf("expected %s", RuleCluster)
-	}
+	assertHasRule(t, v, RuleCluster)
 }
 
 func TestLint_RenameColumn(t *testing.T) {
 	sql := `ALTER TABLE users RENAME COLUMN old_email TO email;`
 	v := LintFile("test.up.sql", []byte(sql))
-	if !hasRule(v, RuleRenameColumn) {
-		t.Errorf("expected %s", RuleRenameColumn)
-	}
+	assertHasRule(t, v, RuleRenameColumn)
 }
 
 func TestLint_RenameTable(t *testing.T) {
 	sql := `ALTER TABLE users RENAME TO people;`
 	v := LintFile("test.up.sql", []byte(sql))
-	if !hasRule(v, RuleRenameTable) {
-		t.Errorf("expected %s", RuleRenameTable)
-	}
+	assertHasRule(t, v, RuleRenameTable)
 }
 
 func TestLint_DropIndexBareFlagged(t *testing.T) {
 	sql := `DROP INDEX idx_bad;`
 	v := LintFile("test.up.sql", []byte(sql))
-	if !hasRule(v, RuleDropIndexNonConcurrent) {
-		t.Errorf("expected %s", RuleDropIndexNonConcurrent)
-	}
+	assertHasRule(t, v, RuleDropIndexNonConcurrent)
 }
 
 func TestLint_DropIndexIfExistsAccepted(t *testing.T) {
 	sql := `DROP INDEX IF EXISTS idx_ok;`
 	v := LintFile("test.up.sql", []byte(sql))
-	if hasRule(v, RuleDropIndexNonConcurrent) {
-		t.Errorf("IF EXISTS should pass: %v", v)
-	}
+	assertNoRule(t, v, RuleDropIndexNonConcurrent)
 }
 
 func TestLint_DropIndexConcurrentlyAccepted(t *testing.T) {
 	sql := `DROP INDEX CONCURRENTLY idx_ok;`
 	v := LintFile("test.up.sql", []byte(sql))
-	if hasRule(v, RuleDropIndexNonConcurrent) {
-		t.Errorf("CONCURRENTLY should pass: %v", v)
-	}
+	assertNoRule(t, v, RuleDropIndexNonConcurrent)
 }
 
 func TestLint_SafetyOKBypass(t *testing.T) {
 	sql := `-- safety-ok: brand new table, no readers yet
 CREATE INDEX idx_new ON brand_new (id);`
 	v := LintFile("test.up.sql", []byte(sql))
-	if len(v) != 0 {
-		t.Errorf("safety-ok should bypass, got %v", v)
-	}
+	assert.Empty(t, v)
 }
 
 func TestLint_SafetyOKRequiresReasonOnSameLine(t *testing.T) {
@@ -231,18 +190,14 @@ func TestLint_SafetyOKRequiresReasonOnSameLine(t *testing.T) {
 -- reason on next line
 CREATE INDEX idx_new ON unrelated (id);`
 	v := LintFile("test.up.sql", []byte(sql))
-	if len(v) == 0 {
-		t.Errorf("reason on next line should still flag; need inline reason")
-	}
+	assert.NotEmpty(t, v)
 }
 
 func TestLint_MultiStatementFileReportsAllViolations(t *testing.T) {
 	sql := `CREATE INDEX a ON t (c);
 VACUUM FULL t;`
 	v := LintFile("test.up.sql", []byte(sql))
-	if len(v) < 2 {
-		t.Errorf("expected at least 2 violations, got %d", len(v))
-	}
+	assert.GreaterOrEqual(t, len(v), 2)
 }
 
 func TestLint_PlpgsqlBlockNotMisparsed(t *testing.T) {
@@ -254,9 +209,7 @@ BEGIN
   EXECUTE 'CREATE INDEX idx_bad ON t (c)';
 END $$;`
 	v := LintFile("test.up.sql", []byte(sql))
-	if !hasRule(v, RuleCreateIndexNonConcurrent) {
-		t.Errorf("DO block with CREATE INDEX should be flagged")
-	}
+	assertHasRule(t, v, RuleCreateIndexNonConcurrent)
 }
 
 func TestLint_CommentsStrippedForMatching(t *testing.T) {
@@ -266,29 +219,20 @@ ALTER TABLE t ADD COLUMN x INT;`
 	v := LintFile("test.up.sql", []byte(sql))
 	// It's fine for the linter to either skip comments or still match
 	// them; we just want no false positive on safe ADD COLUMN.
-	if hasRule(v, RuleCreateIndexNonConcurrent) {
-		t.Errorf("comment text should not cause rule match: %v", v)
-	}
-	if len(v) > 0 {
-		t.Errorf("no violations expected, got %v", v)
-	}
+	assertNoRule(t, v, RuleCreateIndexNonConcurrent)
+	assert.Empty(t, v)
 }
 
 func TestLint_LineNumbersAccurate(t *testing.T) {
 	sql := "ALTER TABLE t ADD COLUMN x INT;\nCREATE INDEX idx ON t (x);\n"
 	v := LintFile("test.up.sql", []byte(sql))
-	if len(v) == 0 {
-		t.Fatal("expected violation")
-	}
-	if v[0].Line < 2 {
-		t.Errorf("line = %d, want >= 2", v[0].Line)
-	}
+	require.NotEmpty(t, v)
+	assert.GreaterOrEqual(t, v[0].Line, 2)
 }
 
 func TestLintDir_MissingDir(t *testing.T) {
-	if _, err := LintDir("/nope/not/here"); err == nil {
-		t.Error("missing dir should error")
-	}
+	_, err := LintDir("/nope/not/here")
+	assert.Error(t, err)
 }
 
 func TestLintDir_SortedOutput(t *testing.T) {
@@ -296,90 +240,58 @@ func TestLintDir_SortedOutput(t *testing.T) {
 	tmp := t.TempDir()
 	must := func(name, body string) {
 		t.Helper()
-		if err := os.WriteFile(filepath.Join(tmp, name), []byte(body), 0o600); err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, os.WriteFile(filepath.Join(tmp, name), []byte(body), 0o600))
 	}
 	must("000002_b.up.sql", `CREATE INDEX b ON t (c);`)
 	must("000001_a.up.sql", `VACUUM FULL t;`)
 	v, err := LintDir(tmp)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(v) < 2 {
-		t.Fatalf("expected 2, got %v", v)
-	}
-	if !strings.Contains(v[0].File, "000001_a") {
-		t.Errorf("expected sorted order, got %s first", v[0].File)
-	}
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, len(v), 2)
+	assert.Contains(t, v[0].File, "000001_a")
 }
 
 func TestLintPairs_AllRepoMigrationsArePaired(t *testing.T) {
 	dir := filepath.Join("..", "..", "migrations")
 	v, err := LintPairs(dir)
-	if err != nil {
-		t.Fatalf("LintPairs: %v", err)
-	}
-	if len(v) != 0 {
-		for _, vv := range v {
-			t.Errorf("orphan migration: %s", vv.String())
-		}
-	}
+	require.NoError(t, err)
+	assert.Empty(t, v)
 }
 
 func TestLintPairs_OrphanUpFlagged(t *testing.T) {
 	tmp := t.TempDir()
-	if err := os.WriteFile(filepath.Join(tmp, "000001_a.up.sql"), []byte(`SELECT 1;`), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(filepath.Join(tmp, "000001_a.up.sql"), []byte(`SELECT 1;`), 0o600))
+
 	v, err := LintPairs(tmp)
-	if err != nil {
-		t.Fatalf("LintPairs: %v", err)
-	}
-	if !hasRule(v, RuleUnpairedMigration) {
-		t.Fatalf("expected %s, got %v", RuleUnpairedMigration, v)
-	}
-	if !strings.Contains(v[0].Snippet, "000001_a.up.sql") {
-		t.Errorf("snippet should reference the orphan up file, got %q", v[0].Snippet)
-	}
+	require.NoError(t, err)
+	assertHasRule(t, v, RuleUnpairedMigration)
+	require.NotEmpty(t, v)
+	assert.Contains(t, v[0].Snippet, "000001_a.up.sql")
 }
 
 func TestLintPairs_OrphanDownFlagged(t *testing.T) {
 	tmp := t.TempDir()
-	if err := os.WriteFile(filepath.Join(tmp, "000001_a.down.sql"), []byte(`SELECT 1;`), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(filepath.Join(tmp, "000001_a.down.sql"), []byte(`SELECT 1;`), 0o600))
+
 	v, err := LintPairs(tmp)
-	if err != nil {
-		t.Fatalf("LintPairs: %v", err)
-	}
-	if !hasRule(v, RuleUnpairedMigration) {
-		t.Fatalf("expected %s, got %v", RuleUnpairedMigration, v)
-	}
-	if !strings.Contains(v[0].Snippet, "000001_a.down.sql") {
-		t.Errorf("snippet should reference the orphan down file, got %q", v[0].Snippet)
-	}
+	require.NoError(t, err)
+	assertHasRule(t, v, RuleUnpairedMigration)
+	require.NotEmpty(t, v)
+	assert.Contains(t, v[0].Snippet, "000001_a.down.sql")
 }
 
 func TestLintPairs_PairedAccepted(t *testing.T) {
 	tmp := t.TempDir()
 	must := func(name, body string) {
 		t.Helper()
-		if err := os.WriteFile(filepath.Join(tmp, name), []byte(body), 0o600); err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, os.WriteFile(filepath.Join(tmp, name), []byte(body), 0o600))
 	}
 	must("000001_a.up.sql", `SELECT 1;`)
 	must("000001_a.down.sql", `SELECT 1;`)
 	must("000002_b.up.sql", `SELECT 1;`)
 	must("000002_b.down.sql", `SELECT 1;`)
 	v, err := LintPairs(tmp)
-	if err != nil {
-		t.Fatalf("LintPairs: %v", err)
-	}
-	if len(v) != 0 {
-		t.Fatalf("paired migrations should pass, got %v", v)
-	}
+	require.NoError(t, err)
+	assert.Empty(t, v)
 }
 
 func TestLintPairs_PairedDeletionAccepted(t *testing.T) {
@@ -389,47 +301,32 @@ func TestLintPairs_PairedDeletionAccepted(t *testing.T) {
 	tmp := t.TempDir()
 	must := func(name, body string) {
 		t.Helper()
-		if err := os.WriteFile(filepath.Join(tmp, name), []byte(body), 0o600); err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, os.WriteFile(filepath.Join(tmp, name), []byte(body), 0o600))
 	}
 	must("000001_a.up.sql", `SELECT 1;`)
 	must("000001_a.down.sql", `SELECT 1;`)
 	v, err := LintPairs(tmp)
-	if err != nil {
-		t.Fatalf("LintPairs: %v", err)
-	}
-	if len(v) != 0 {
-		t.Fatalf("paired deletion should pass, got %v", v)
-	}
+	require.NoError(t, err)
+	assert.Empty(t, v)
 }
 
 func TestLintPairs_MissingDir(t *testing.T) {
-	if _, err := LintPairs("/nope/not/here"); err == nil {
-		t.Error("missing dir should error")
-	}
+	_, err := LintPairs("/nope/not/here")
+	assert.Error(t, err)
 }
 
 func TestLintPairs_SortedOutput(t *testing.T) {
 	tmp := t.TempDir()
 	must := func(name, body string) {
 		t.Helper()
-		if err := os.WriteFile(filepath.Join(tmp, name), []byte(body), 0o600); err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, os.WriteFile(filepath.Join(tmp, name), []byte(body), 0o600))
 	}
 	must("000002_b.up.sql", `SELECT 1;`)
 	must("000001_a.down.sql", `SELECT 1;`)
 	v, err := LintPairs(tmp)
-	if err != nil {
-		t.Fatalf("LintPairs: %v", err)
-	}
-	if len(v) != 2 {
-		t.Fatalf("expected 2 violations, got %v", v)
-	}
-	if !strings.Contains(v[0].File, "000001_a") {
-		t.Errorf("expected sorted order, got %s first", v[0].File)
-	}
+	require.NoError(t, err)
+	assert.Len(t, v, 2)
+	assert.Contains(t, v[0].File, "000001_a")
 }
 
 // FuzzLinterNoPanicOnGarbage asserts the linter never panics on arbitrary
@@ -442,11 +339,21 @@ func FuzzLinterNoPanicOnGarbage(f *testing.F) {
 	f.Fuzz(func(t *testing.T, src string) {
 		defer func() {
 			if r := recover(); r != nil {
-				t.Fatalf("panic: %v", r)
+				require.Failf(t, "panic", "%v", r)
 			}
 		}()
 		_ = LintFile("fuzz.up.sql", []byte(src))
 	})
+}
+
+func assertHasRule(t *testing.T, vs []Violation, r Rule) {
+	t.Helper()
+	assert.Truef(t, hasRule(vs, r), "expected %s, got %v", r, vs)
+}
+
+func assertNoRule(t *testing.T, vs []Violation, r Rule) {
+	t.Helper()
+	assert.Falsef(t, hasRule(vs, r), "unexpected %s in %v", r, vs)
 }
 
 func hasRule(vs []Violation, r Rule) bool {
