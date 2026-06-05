@@ -9,6 +9,8 @@ import (
 	"github.com/robfig/cron/v3"
 )
 
+const defaultJobQueueName = "default"
+
 // validateCreateJobCronFields validates the cron and execution_window_cron expressions.
 func validateCreateJobCronFields(req *CreateJobRequest) error {
 	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)

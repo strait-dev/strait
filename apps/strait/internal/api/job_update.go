@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -11,6 +12,52 @@ import (
 	"strait/internal/domain"
 	"strait/internal/store"
 )
+
+type UpdateJobRequest struct {
+	Name                      *string            `json:"name,omitempty"`
+	Slug                      *string            `json:"slug,omitempty"`
+	GroupID                   *string            `json:"group_id,omitempty"`
+	Description               *string            `json:"description,omitempty"`
+	Cron                      *string            `json:"cron,omitempty"`
+	PayloadSchema             *json.RawMessage   `json:"payload_schema,omitempty"`
+	Tags                      *map[string]string `json:"tags,omitempty"`
+	EndpointURL               *string            `json:"endpoint_url,omitempty" validate:"omitempty,url"`
+	EndpointSigningSecret     *string            `json:"endpoint_signing_secret,omitempty" validate:"omitempty,min=16,max=4096"`
+	WebhookSecret             *string            `json:"webhook_secret,omitempty" validate:"omitempty,min=16,max=4096" doc:"Alias of endpoint_signing_secret used by the Go SDK. When both are set, webhook_secret wins and a warning is logged."`
+	FallbackEndpointURL       *string            `json:"fallback_endpoint_url,omitempty" validate:"omitempty,url"`
+	MaxAttempts               *int               `json:"max_attempts,omitempty" validate:"omitempty,min=1,max=100"`
+	TimeoutSecs               *int               `json:"timeout_secs,omitempty" validate:"omitempty,min=1"`
+	MaxConcurrency            *int               `json:"max_concurrency,omitempty" validate:"omitempty,min=0"`
+	MaxConcurrencyPerKey      *int               `json:"max_concurrency_per_key,omitempty" validate:"omitempty,min=0"`
+	ExecutionWindowCron       *string            `json:"execution_window_cron,omitempty"`
+	Timezone                  *string            `json:"timezone,omitempty"`
+	RateLimitMax              *int               `json:"rate_limit_max,omitempty" validate:"omitempty,min=0"`
+	RateLimitWindowSecs       *int               `json:"rate_limit_window_secs,omitempty" validate:"omitempty,min=0"`
+	DedupWindowSecs           *int               `json:"dedup_window_secs,omitempty" validate:"omitempty,min=0"`
+	RunTTLSecs                *int               `json:"run_ttl_secs,omitempty" validate:"omitempty,min=0"`
+	RetryStrategy             *string            `json:"retry_strategy,omitempty" validate:"omitempty,oneof=exponential linear fixed custom"`
+	RetryDelaysSecs           *[]int             `json:"retry_delays_secs,omitempty"`
+	RetryPriorityBoost        *int               `json:"retry_priority_boost,omitempty" validate:"omitempty,min=0,max=10"`
+	EnvironmentID             *string            `json:"environment_id,omitempty"`
+	Enabled                   *bool              `json:"enabled,omitempty"`
+	VersionPolicy             *string            `json:"version_policy,omitempty" validate:"omitempty,oneof=pin latest minor"`
+	BackwardsCompatible       *bool              `json:"backwards_compatible,omitempty"`
+	DefaultRunMetadata        *map[string]string `json:"default_run_metadata,omitempty"`
+	ResultSchema              *json.RawMessage   `json:"result_schema,omitempty"`
+	CronOverlapPolicy         *string            `json:"cron_overlap_policy,omitempty" validate:"omitempty,oneof=allow skip cancel_running"`
+	DebounceWindowSecs        *int               `json:"debounce_window_secs,omitempty" validate:"omitempty,min=0"`
+	BatchWindowSecs           *int               `json:"batch_window_secs,omitempty" validate:"omitempty,min=0"`
+	BatchMaxSize              *int               `json:"batch_max_size,omitempty" validate:"omitempty,min=0"`
+	ExecutionMode             *string            `json:"execution_mode,omitempty" validate:"omitempty,oneof=http worker"`
+	QueueName                 *string            `json:"queue_name,omitempty"`
+	PoisonPillThreshold       *int               `json:"poison_pill_threshold,omitempty" validate:"omitempty,min=1" doc:"Consecutive identical errors before auto-quarantine to DLQ. NULL or 0 disables."`
+	OnCompleteTriggerWorkflow *string            `json:"on_complete_trigger_workflow,omitempty"`
+	OnCompleteTriggerJob      *string            `json:"on_complete_trigger_job,omitempty"`
+	OnCompletePayloadMapping  *json.RawMessage   `json:"on_complete_payload_mapping,omitempty"`
+	OnFailureTriggerJob       *string            `json:"on_failure_trigger_job,omitempty"`
+	OnFailureTriggerWorkflow  *string            `json:"on_failure_trigger_workflow,omitempty"`
+	OnFailurePayloadMapping   *json.RawMessage   `json:"on_failure_payload_mapping,omitempty"`
+}
 
 // UpdateJobInput is the typed input for updating a job.
 type UpdateJobInput struct {
