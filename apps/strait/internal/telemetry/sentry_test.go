@@ -10,15 +10,17 @@ import (
 	"testing"
 
 	"github.com/getsentry/sentry-go"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewSentryHandler_ReturnsNonNil(t *testing.T) {
 	t.Parallel()
 	inner := slog.NewTextHandler(&bytes.Buffer{}, nil)
 	h := NewSentryHandler(inner)
-	if h == nil {
-		t.Fatal("NewSentryHandler returned nil")
-	}
+	require.NotNil(t,
+		h)
+
 }
 
 func TestNewSentryHandler_WrapsInner(t *testing.T) {
@@ -30,10 +32,8 @@ func TestNewSentryHandler_WrapsInner(t *testing.T) {
 	// Log through the handler and verify it reaches the inner handler.
 	logger := slog.New(h)
 	logger.Info("test message", "key", "value")
+	assert.True(t, strings.Contains(buf.String(), "test message"))
 
-	if !strings.Contains(buf.String(), "test message") {
-		t.Errorf("inner handler did not receive log: %s", buf.String())
-	}
 }
 
 func TestSentryHandler_Enabled_RespectsInnerLevel(t *testing.T) {
@@ -41,19 +41,23 @@ func TestSentryHandler_Enabled_RespectsInnerLevel(t *testing.T) {
 	inner := slog.NewTextHandler(&bytes.Buffer{}, &slog.HandlerOptions{Level: slog.LevelWarn})
 	h := NewSentryHandler(inner)
 	ctx := context.Background()
+	assert.False(t, h.
+		Enabled(ctx,
+			slog.LevelDebug,
+		))
+	assert.False(t, h.
+		Enabled(ctx,
+			slog.LevelInfo,
+		))
+	assert.True(t, h.
+		Enabled(ctx,
+			slog.LevelWarn,
+		))
+	assert.True(t, h.
+		Enabled(ctx,
+			slog.LevelError,
+		))
 
-	if h.Enabled(ctx, slog.LevelDebug) {
-		t.Error("expected Enabled(Debug) = false for Warn-level inner handler")
-	}
-	if h.Enabled(ctx, slog.LevelInfo) {
-		t.Error("expected Enabled(Info) = false for Warn-level inner handler")
-	}
-	if !h.Enabled(ctx, slog.LevelWarn) {
-		t.Error("expected Enabled(Warn) = true for Warn-level inner handler")
-	}
-	if !h.Enabled(ctx, slog.LevelError) {
-		t.Error("expected Enabled(Error) = true for Warn-level inner handler")
-	}
 }
 
 func TestSentryHandler_WithAttrs_ReturnsNewHandler(t *testing.T) {
@@ -64,27 +68,20 @@ func TestSentryHandler_WithAttrs_ReturnsNewHandler(t *testing.T) {
 
 	attrs := []slog.Attr{slog.String("run_id", "run-123")}
 	newH := h.WithAttrs(attrs)
-
-	if newH == nil {
-		t.Fatal("WithAttrs returned nil")
-	}
+	require.NotNil(t,
+		newH)
 
 	// The new handler should be a SentryHandler.
 	sh, ok := newH.(*SentryHandler)
-	if !ok {
-		t.Fatalf("WithAttrs returned %T, want *SentryHandler", newH)
-	}
-	if sh == h {
-		t.Error("WithAttrs returned the same handler, want a new one")
-	}
+	require.True(t, ok)
+	assert.NotEqual(t,
+		h, sh)
 
 	// Verify the attr is included in log output.
 	logger := slog.New(newH)
 	logger.Info("with attrs test")
+	assert.True(t, strings.Contains(buf.String(), "run_id"))
 
-	if !strings.Contains(buf.String(), "run_id") {
-		t.Errorf("expected run_id in output: %s", buf.String())
-	}
 }
 
 func TestSentryHandler_WithAttrs_Empty(t *testing.T) {
@@ -93,9 +90,9 @@ func TestSentryHandler_WithAttrs_Empty(t *testing.T) {
 	h := NewSentryHandler(inner)
 
 	newH := h.WithAttrs(nil)
-	if newH == nil {
-		t.Fatal("WithAttrs(nil) returned nil")
-	}
+	require.NotNil(t,
+		newH)
+
 }
 
 func TestSentryHandler_WithGroup_ReturnsNewHandler(t *testing.T) {
@@ -105,26 +102,19 @@ func TestSentryHandler_WithGroup_ReturnsNewHandler(t *testing.T) {
 	h := NewSentryHandler(inner)
 
 	newH := h.WithGroup("request")
-
-	if newH == nil {
-		t.Fatal("WithGroup returned nil")
-	}
+	require.NotNil(t,
+		newH)
 
 	sh, ok := newH.(*SentryHandler)
-	if !ok {
-		t.Fatalf("WithGroup returned %T, want *SentryHandler", newH)
-	}
-	if sh == h {
-		t.Error("WithGroup returned the same handler, want a new one")
-	}
+	require.True(t, ok)
+	assert.NotEqual(t,
+		h, sh)
 
 	// Verify the group prefix appears in log output.
 	logger := slog.New(newH)
 	logger.Info("with group test", "method", "GET")
+	assert.True(t, strings.Contains(buf.String(), "request.method"))
 
-	if !strings.Contains(buf.String(), "request.method") {
-		t.Errorf("expected grouped key in output: %s", buf.String())
-	}
 }
 
 func TestSentryHandler_Handle_DelegatesToInner(t *testing.T) {
@@ -135,10 +125,8 @@ func TestSentryHandler_Handle_DelegatesToInner(t *testing.T) {
 
 	logger := slog.New(h)
 	logger.Info("info message", "key", "value")
+	assert.True(t, strings.Contains(buf.String(), "info message"))
 
-	if !strings.Contains(buf.String(), "info message") {
-		t.Errorf("inner handler missing log: %s", buf.String())
-	}
 }
 
 func TestSentryHandler_Handle_InfoDoesNotPanic(t *testing.T) {
@@ -163,10 +151,8 @@ func TestSentryHandler_Handle_ErrorLevel(t *testing.T) {
 	// the inner handler delegation.
 	logger := slog.New(h)
 	logger.Error("something failed", "error", errors.New("test error"), "run_id", "run-001")
+	assert.True(t, strings.Contains(buf.String(), "something failed"))
 
-	if !strings.Contains(buf.String(), "something failed") {
-		t.Errorf("inner handler missing error log: %s", buf.String())
-	}
 }
 
 func TestSentryHandler_Handle_ErrorWithTagKeys(t *testing.T) {
@@ -186,9 +172,10 @@ func TestSentryHandler_Handle_ErrorWithTagKeys(t *testing.T) {
 	)
 
 	output := buf.String()
-	if !strings.Contains(output, "tag test") {
-		t.Errorf("inner handler missing log: %s", output)
-	}
+	assert.True(t, strings.Contains(output,
+		"tag test",
+	))
+
 }
 
 func TestSentryHandler_Handle_ErrorWithSensitiveAttrs(t *testing.T) {
@@ -207,9 +194,10 @@ func TestSentryHandler_Handle_ErrorWithSensitiveAttrs(t *testing.T) {
 	)
 
 	output := buf.String()
-	if !strings.Contains(output, "sensitive test") {
-		t.Errorf("inner handler missing log: %s", output)
-	}
+	assert.True(t, strings.Contains(output,
+		"sensitive test",
+	))
+
 }
 
 func TestSentryHandler_Handle_ErrorWithMessageOnly(t *testing.T) {
@@ -221,10 +209,8 @@ func TestSentryHandler_Handle_ErrorWithMessageOnly(t *testing.T) {
 	// Error level without an "error" attr should use CaptureMessage path.
 	logger := slog.New(h)
 	logger.Error("plain error message")
+	assert.True(t, strings.Contains(buf.String(), "plain error message"))
 
-	if !strings.Contains(buf.String(), "plain error message") {
-		t.Errorf("inner handler missing log: %s", buf.String())
-	}
 }
 
 func TestSanitizeValue_SensitiveKeys(t *testing.T) {
@@ -252,9 +238,10 @@ func TestSanitizeValue_SensitiveKeys(t *testing.T) {
 		t.Run(tt.key, func(t *testing.T) {
 			t.Parallel()
 			got := SanitizeValue(tt.key, tt.val)
-			if got != tt.want {
-				t.Errorf("SanitizeValue(%q, %q) = %q, want %q", tt.key, tt.val, got, tt.want)
-			}
+			assert.Equal(t, tt.
+				want, got,
+			)
+
 		})
 	}
 }
@@ -277,9 +264,10 @@ func TestSanitizeValue_NonSensitiveKeys(t *testing.T) {
 		t.Run(tt.key, func(t *testing.T) {
 			t.Parallel()
 			got := SanitizeValue(tt.key, tt.val)
-			if got != tt.want {
-				t.Errorf("SanitizeValue(%q, %q) = %q, want %q", tt.key, tt.val, got, tt.want)
-			}
+			assert.Equal(t, tt.
+				want, got,
+			)
+
 		})
 	}
 }
@@ -289,12 +277,11 @@ func TestSanitizeValue_NonSensitiveKeyWithSecretPattern(t *testing.T) {
 
 	// A non-sensitive key but value contains a connection string.
 	got := SanitizeValue("error_message", "failed: postgres://user:pass@host:5432/db")
-	if !strings.Contains(got, "[REDACTED]") {
-		t.Errorf("expected connection string scrubbed in value: %q", got)
-	}
-	if strings.Contains(got, "postgres://") {
-		t.Errorf("connection string not scrubbed: %q", got)
-	}
+	assert.True(t, strings.Contains(got, "[REDACTED]"))
+	assert.False(t, strings.Contains(got,
+		"postgres://",
+	))
+
 }
 
 func TestSanitizeSentryEvent_RedactsNestedContext(t *testing.T) {
@@ -318,20 +305,12 @@ func TestSanitizeSentryEvent_RedactsNestedContext(t *testing.T) {
 	sanitizeSentryEvent(event)
 
 	request := event.Contexts["nested"]["request"].(map[string]any)
-	if _, ok := request["token"]; ok {
-		t.Fatal("nested token key should be dropped")
-	}
-	if got := request["error"].(string); strings.Contains(got, "postgres://") {
-		t.Fatalf("nested context error was not scrubbed: %q", got)
-	}
+	require.NotContains(t, request, "token")
+	require.NotContains(t, request["error"].(string), "postgres://")
 	items := request["items"].([]any)
 	item := items[0].(map[string]any)
-	if _, ok := item["authorization"]; ok {
-		t.Fatal("nested authorization key should be dropped")
-	}
-	if got := items[1].(string); strings.Contains(got, "redis://") {
-		t.Fatalf("nested slice value was not scrubbed: %q", got)
-	}
+	require.NotContains(t, item, "authorization")
+	require.NotContains(t, items[1].(string), "redis://")
 }
 
 func TestSanitizeBreadcrumbData_RedactsNestedValues(t *testing.T) {
@@ -345,82 +324,80 @@ func TestSanitizeBreadcrumbData_RedactsNestedValues(t *testing.T) {
 		},
 	})
 
-	if _, ok := got["headers"]; ok {
-		t.Fatal("headers key should be dropped")
-	}
+	require.NotContains(t, got, "headers")
 	details := got["details"].(map[string]any)
-	if _, ok := details["secret"]; ok {
-		t.Fatal("nested secret key should be dropped")
-	}
-	if value := details["error"].(string); strings.Contains(value, "redis://") {
-		t.Fatalf("nested breadcrumb value was not scrubbed: %q", value)
-	}
+	require.NotContains(t, details, "secret")
+	require.NotContains(t, details["error"].(string), "redis://")
 }
 
 func TestScrubSecrets_PostgresURL(t *testing.T) {
 	t.Parallel()
 	input := "connection failed: postgres://admin:password@db.host.com:5432/mydb"
 	got := ScrubSecrets(input)
-	if strings.Contains(got, "postgres://") {
-		t.Errorf("postgres URL not scrubbed: %q", got)
-	}
-	if !strings.Contains(got, "[REDACTED]") {
-		t.Errorf("expected [REDACTED] in output: %q", got)
-	}
+	assert.False(t, strings.Contains(got,
+		"postgres://",
+	))
+	assert.True(t, strings.Contains(got, "[REDACTED]"))
+
 }
 
 func TestScrubSecrets_RedisURL(t *testing.T) {
 	t.Parallel()
 	input := "redis error: redis://default:pass@redis.host:6379/0"
 	got := ScrubSecrets(input)
-	if strings.Contains(got, "redis://") {
-		t.Errorf("redis URL not scrubbed: %q", got)
-	}
+	assert.False(t, strings.Contains(got,
+		"redis://"))
+
 }
 
 func TestScrubSecrets_ClickHouseURL(t *testing.T) {
 	t.Parallel()
 	input := "insert failed: clickhouse://user:pass@ch.host:9000/analytics"
 	got := ScrubSecrets(input)
-	if strings.Contains(got, "clickhouse://") {
-		t.Errorf("clickhouse URL not scrubbed: %q", got)
-	}
+	assert.False(t, strings.Contains(got,
+		"clickhouse://",
+	))
+
 }
 
 func TestScrubSecrets_BearerToken(t *testing.T) {
 	t.Parallel()
 	input := "auth header: Bearer eyJhbGciOiJIUzI1NiJ9.payload.signature"
 	got := ScrubSecrets(input)
-	if strings.Contains(got, "Bearer eyJ") {
-		t.Errorf("bearer token not scrubbed: %q", got)
-	}
+	assert.False(t, strings.Contains(got,
+		"Bearer eyJ",
+	))
+
 }
 
 func TestScrubSecrets_APIKey(t *testing.T) {
 	t.Parallel()
 	input := "key used: strait_abcdefghij1234567890"
 	got := ScrubSecrets(input)
-	if strings.Contains(got, "strait_abcdefghij") {
-		t.Errorf("API key not scrubbed: %q", got)
-	}
+	assert.False(t, strings.Contains(got,
+		"strait_abcdefghij",
+	))
+
 }
 
 func TestScrubSecrets_SentryDSN(t *testing.T) {
 	t.Parallel()
 	input := "sentry dsn: https://sentry.io/12345"
 	got := ScrubSecrets(input)
-	if strings.Contains(got, "sentry.io/12345") {
-		t.Errorf("sentry DSN not scrubbed: %q", got)
-	}
+	assert.False(t, strings.Contains(got,
+		"sentry.io/12345",
+	))
+
 }
 
 func TestScrubSecrets_HTTPWithCredentials(t *testing.T) {
 	t.Parallel()
 	input := "url: https://user:password@api.example.com/v1/data"
 	got := ScrubSecrets(input)
-	if strings.Contains(got, "user:password@") {
-		t.Errorf("HTTP credentials not scrubbed: %q", got)
-	}
+	assert.False(t, strings.Contains(got,
+		"user:password@",
+	))
+
 }
 
 func TestScrubSecrets_MultiplePatterns(t *testing.T) {
@@ -428,34 +405,34 @@ func TestScrubSecrets_MultiplePatterns(t *testing.T) {
 	input := "db=postgres://u:p@h/d redis=redis://x:y@r:6379 token=Bearer abc123"
 	got := ScrubSecrets(input)
 	count := strings.Count(got, "[REDACTED]")
-	if count < 3 {
-		t.Errorf("expected at least 3 redactions, got %d in: %q", count, got)
-	}
+	assert.GreaterOrEqual(t, count,
+		3)
+
 }
 
 func TestScrubSecrets_NoSecrets(t *testing.T) {
 	t.Parallel()
 	input := "everything is fine, no secrets here"
 	got := ScrubSecrets(input)
-	if got != input {
-		t.Errorf("ScrubSecrets(%q) = %q, want original string", input, got)
-	}
+	assert.Equal(t, input,
+		got)
+
 }
 
 func TestScrubSecrets_EmptyString(t *testing.T) {
 	t.Parallel()
 	got := ScrubSecrets("")
-	if got != "" {
-		t.Errorf("ScrubSecrets(\"\") = %q, want empty", got)
-	}
+	assert.Equal(t, "",
+		got)
+
 }
 
 func TestSanitizeQueryString_InvalidInput(t *testing.T) {
 	t.Parallel()
 	got := SanitizeQueryString("%ZZ%YY%invalid")
-	if got != "" {
-		t.Errorf("SanitizeQueryString(invalid) = %q, want empty", got)
-	}
+	assert.Equal(t, "",
+		got)
+
 }
 
 func TestSanitizeQueryString_RedactsCredentialAliases(t *testing.T) {
@@ -463,9 +440,10 @@ func TestSanitizeQueryString_RedactsCredentialAliases(t *testing.T) {
 
 	got := SanitizeQueryString("access_token=a&client_secret=b&x-api-key=c&signature=d&tenant=prod")
 	for _, secret := range []string{"=a", "=b", "=c", "=d"} {
-		if strings.Contains(got, secret) {
-			t.Fatalf("sanitized query %q still contains secret marker %q", got, secret)
-		}
+		require.False(t,
+			strings.Contains(got,
+				secret))
+
 	}
 	for _, want := range []string{
 		"access_token=%5BREDACTED%5D",
@@ -474,9 +452,9 @@ func TestSanitizeQueryString_RedactsCredentialAliases(t *testing.T) {
 		"tenant=prod",
 		"x-api-key=%5BREDACTED%5D",
 	} {
-		if !strings.Contains(got, want) {
-			t.Fatalf("sanitized query %q missing %q", got, want)
-		}
+		require.True(t, strings.Contains(got,
+			want))
+
 	}
 }
 
@@ -491,9 +469,8 @@ func TestSentryTagKeys_Contains_KnownKeys(t *testing.T) {
 	}
 
 	for _, key := range knownKeys {
-		if _, ok := SentryTagFromString(key); !ok {
-			t.Errorf("SentryTagFromString missing %q", key)
-		}
+		_, ok := SentryTagFromString(key)
+		assert.True(t, ok)
 	}
 }
 
@@ -501,9 +478,8 @@ func TestSentryTagKeys_DoesNotContain_NonTagKeys(t *testing.T) {
 	t.Parallel()
 	nonTagKeys := []string{"error", "message", "level", "timestamp", "random_key"}
 	for _, key := range nonTagKeys {
-		if _, ok := SentryTagFromString(key); ok {
-			t.Errorf("SentryTagFromString should not contain %q", key)
-		}
+		_, ok := SentryTagFromString(key)
+		assert.False(t, ok)
 	}
 }
 
@@ -526,12 +502,13 @@ func TestSentryHandler_ChainedWithAttrsAndGroup(t *testing.T) {
 	logger.Info("chained test", "path", "/api/v1")
 
 	output := buf.String()
-	if !strings.Contains(output, "http.method") {
-		t.Errorf("expected grouped attr in output: %s", output)
-	}
-	if !strings.Contains(output, "http.path") {
-		t.Errorf("expected grouped key in output: %s", output)
-	}
+	assert.True(t, strings.Contains(output,
+		"http.method",
+	))
+	assert.True(t, strings.Contains(output,
+		"http.path",
+	))
+
 }
 
 type sentryEventCollector struct {
@@ -565,9 +542,9 @@ func initTestSentry(t *testing.T, collector *sentryEventCollector) {
 		BeforeSend: collector.collect,
 		Transport:  &sentry.HTTPSyncTransport{},
 	})
-	if err != nil {
-		t.Fatalf("sentry.Init error = %v", err)
-	}
+	require.NoError(t,
+		err)
+
 	t.Cleanup(func() {
 		sentry.Flush(0)
 	})
@@ -583,10 +560,10 @@ func TestSentryHandler_ErrorLevel_CapturesCalled(t *testing.T) {
 	logger := slog.New(h)
 
 	logger.Error("test error event")
+	require.Equal(t,
+		1, collector.
+			len())
 
-	if collector.len() != 1 {
-		t.Fatalf("expected 1 sentry event, got %d", collector.len())
-	}
 }
 
 func TestSentryHandler_WarnLevel_NoCaptureCall(t *testing.T) {
@@ -599,10 +576,10 @@ func TestSentryHandler_WarnLevel_NoCaptureCall(t *testing.T) {
 	logger := slog.New(h)
 
 	logger.Warn("test warning event")
+	require.Equal(t,
+		0, collector.
+			len())
 
-	if collector.len() != 0 {
-		t.Fatalf("expected 0 sentry events for warn level, got %d", collector.len())
-	}
 }
 
 func TestSentryHandler_ErrorWithErrorAttr_CapturesException(t *testing.T) {
@@ -615,14 +592,15 @@ func TestSentryHandler_ErrorWithErrorAttr_CapturesException(t *testing.T) {
 	logger := slog.New(h)
 
 	logger.Error("failed operation", "error", errors.New("db connection lost"))
+	require.Equal(t,
+		1, collector.
+			len())
 
-	if collector.len() != 1 {
-		t.Fatalf("expected 1 sentry event, got %d", collector.len())
-	}
 	event := collector.get(0)
-	if len(event.Exception) == 0 {
-		t.Fatal("expected exception in sentry event, got message-only")
-	}
+	require.NotEmpty(
+		t, event.Exception,
+	)
+
 }
 
 func TestSentryHandler_ErrorWithoutErrorAttr_CapturesMessage(t *testing.T) {
@@ -635,14 +613,16 @@ func TestSentryHandler_ErrorWithoutErrorAttr_CapturesMessage(t *testing.T) {
 	logger := slog.New(h)
 
 	logger.Error("plain error without error attr", "some_key", "some_value")
+	require.Equal(t,
+		1, collector.
+			len())
 
-	if collector.len() != 1 {
-		t.Fatalf("expected 1 sentry event, got %d", collector.len())
-	}
 	event := collector.get(0)
-	if event.Message != "plain error without error attr" {
-		t.Errorf("expected message='plain error without error attr', got %q", event.Message)
-	}
+	assert.Equal(t, "plain error without error attr",
+
+		event.Message,
+	)
+
 }
 
 func TestSentryHandler_TagKeys_SetAsTag(t *testing.T) {
@@ -655,17 +635,18 @@ func TestSentryHandler_TagKeys_SetAsTag(t *testing.T) {
 	logger := slog.New(h)
 
 	logger.Error("tag test", "run_id", "run-123", "project_id", "proj-456")
+	require.Equal(t,
+		1, collector.
+			len())
 
-	if collector.len() != 1 {
-		t.Fatalf("expected 1 sentry event, got %d", collector.len())
-	}
 	event := collector.get(0)
-	if event.Tags["run_id"] != "run-123" {
-		t.Errorf("expected tag run_id=run-123, got %q", event.Tags["run_id"])
-	}
-	if event.Tags["project_id"] != "proj-456" {
-		t.Errorf("expected tag project_id=proj-456, got %q", event.Tags["project_id"])
-	}
+	assert.Equal(t, "run-123",
+		event.
+			Tags["run_id"])
+	assert.Equal(t, "proj-456",
+
+		event.Tags["project_id"])
+
 }
 
 func TestSentryHandler_UsesContextHubScope(t *testing.T) {
@@ -674,9 +655,9 @@ func TestSentryHandler_UsesContextHubScope(t *testing.T) {
 
 	ctx := EnsureSentryHub(context.Background())
 	hub := sentry.GetHubFromContext(ctx)
-	if hub == nil {
-		t.Fatal("expected context hub")
-	}
+	require.NotNil(t,
+		hub)
+
 	hub.ConfigureScope(func(scope *sentry.Scope) {
 		SetSentryTag(scope, TagRequestID, "req-123")
 		scope.SetContext("http.request", sentry.Context{"route": "/v1/jobs"})
@@ -687,17 +668,19 @@ func TestSentryHandler_UsesContextHubScope(t *testing.T) {
 	logger := slog.New(NewSentryHandler(inner))
 
 	logger.ErrorContext(ctx, "request failed", "error", errors.New("boom"))
+	require.Equal(t,
+		1, collector.
+			len())
 
-	if collector.len() != 1 {
-		t.Fatalf("expected 1 sentry event, got %d", collector.len())
-	}
 	event := collector.get(0)
-	if got := event.Tags["request_id"]; got != "req-123" {
-		t.Fatalf("request_id tag = %q, want req-123", got)
-	}
-	if event.Contexts["http.request"]["route"] != "/v1/jobs" {
-		t.Fatalf("http.request context = %v, want route", event.Contexts["http.request"])
-	}
+	require.Equal(t,
+		"req-123",
+		event.Tags["request_id"])
+
+	require.Equal(t,
+		"/v1/jobs",
+		event.Contexts["http.request"]["route"])
+
 }
 
 func TestSentryHandler_NonTagKeys_SetAsExtra(t *testing.T) {
@@ -710,15 +693,15 @@ func TestSentryHandler_NonTagKeys_SetAsExtra(t *testing.T) {
 	logger := slog.New(h)
 
 	logger.Error("extra test", "custom_field", "custom_value")
+	require.Equal(t,
+		1, collector.
+			len())
 
-	if collector.len() != 1 {
-		t.Fatalf("expected 1 sentry event, got %d", collector.len())
-	}
 	event := collector.get(0)
-	if event.Contexts["extra"]["custom_field"] != "custom_value" {
-		t.Errorf("expected extra custom_field=custom_value, got %v", event.Contexts["extra"]["custom_field"])
-	}
-	if _, isTag := event.Tags["custom_field"]; isTag {
-		t.Error("custom_field should not be a tag")
-	}
+	assert.Equal(t, "custom_value",
+
+		event.
+			Contexts["extra"]["custom_field"])
+
+	assert.NotContains(t, event.Tags, "custom_field")
 }

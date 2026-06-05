@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 )
 
@@ -68,20 +70,17 @@ func TestPrometheusRules_MetricsExist(t *testing.T) {
 						break
 					}
 				}
-				if !found {
-					t.Errorf("rule %s references unknown metric %q (expr=%q)", prometheusRuleName(r.Alert, r.Record), tok, r.Expr)
-				}
+				assert.True(t,
+					found)
+
 				checked++
 			}
 		}
 	}
+	assert.GreaterOrEqual(t,
+		rules, 10)
+	require.NotEqual(t, 0, checked)
 
-	if rules < 10 {
-		t.Errorf("expected at least 10 alert/recording rules, got %d", rules)
-	}
-	if checked == 0 {
-		t.Fatalf("did not extract any metric tokens; regex or rule structure is wrong")
-	}
 }
 
 func TestPrometheusRules_Shape(t *testing.T) {
@@ -90,66 +89,60 @@ func TestPrometheusRules_Shape(t *testing.T) {
 	records := map[string]struct{}{}
 
 	for _, group := range doc.Groups {
-		if group.Name == "" {
-			t.Error("rule group is missing name")
-		}
+		assert.NotEqual(t, "", group.
+			Name)
+
 		for _, rule := range group.Rules {
 			switch {
 			case rule.Alert != "":
 				if _, exists := alerts[rule.Alert]; exists {
-					t.Errorf("duplicate alert name %q", rule.Alert)
+					assert.Failf(t, "duplicate alert name", "%q", rule.Alert)
 				}
 				alerts[rule.Alert] = struct{}{}
 				if strings.TrimSpace(rule.Expr) == "" {
-					t.Errorf("alert %s has empty expression", rule.Alert)
+					assert.Failf(t, "alert has empty expression", "%s", rule.Alert)
 				} else if err := validatePromQLShape(rule.Expr); err != nil {
-					t.Errorf("alert %s has invalid expression shape: %v", rule.Alert, err)
+					assert.NoErrorf(t, err, "alert %s has invalid expression shape", rule.Alert)
 				}
 				if rule.For == "" {
-					t.Errorf("alert %s is missing for duration", rule.Alert)
+					assert.Failf(t, "alert is missing for duration", "%s", rule.Alert)
 				}
-				if rule.Labels["app"] != "strait" {
-					t.Errorf("alert %s must set app=strait", rule.Alert)
-				}
-				if rule.Labels["owner"] != "platform" {
-					t.Errorf("alert %s must set owner=platform", rule.Alert)
-				}
+				assert.Equal(t, "strait", rule.Labels["app"])
+				assert.Equal(t, "platform", rule.Labels["owner"])
 				switch rule.Labels["severity"] {
 				case "warning", "page":
 				default:
-					t.Errorf("alert %s has unsupported severity %q", rule.Alert, rule.Labels["severity"])
+					assert.Failf(t, "alert has unsupported severity", "%s %q", rule.Alert, rule.Labels["severity"])
 				}
 				if strings.TrimSpace(rule.Annotations["summary"]) == "" {
-					t.Errorf("alert %s is missing summary annotation", rule.Alert)
+					assert.Failf(t, "alert is missing summary annotation", "%s", rule.Alert)
 				}
 				if strings.TrimSpace(rule.Annotations["description"]) == "" {
-					t.Errorf("alert %s is missing description annotation", rule.Alert)
+					assert.Failf(t, "alert is missing description annotation", "%s", rule.Alert)
 				}
 				if _, ok := rule.Annotations["runbook_url"]; ok {
-					t.Errorf("alert %s has runbook_url annotation; runbooks are intentionally deferred", rule.Alert)
+					assert.Failf(t, "alert has runbook_url annotation; runbooks are intentionally deferred", "%s", rule.Alert)
 				}
 			case rule.Record != "":
 				if _, exists := records[rule.Record]; exists {
-					t.Errorf("duplicate recording rule name %q", rule.Record)
+					assert.Failf(t, "duplicate recording rule name", "%q", rule.Record)
 				}
 				records[rule.Record] = struct{}{}
 				if strings.TrimSpace(rule.Expr) == "" {
-					t.Errorf("recording rule %s has empty expression", rule.Record)
+					assert.Failf(t, "recording rule has empty expression", "%s", rule.Record)
 				} else if err := validatePromQLShape(rule.Expr); err != nil {
-					t.Errorf("recording rule %s has invalid expression shape: %v", rule.Record, err)
+					assert.NoErrorf(t, err, "recording rule %s has invalid expression shape", rule.Record)
 				}
 			default:
-				t.Errorf("group %q has rule with neither alert nor record", group.Name)
+				assert.Failf(t, "group has rule with neither alert nor record", "%q", group.Name)
 			}
 		}
 	}
+	assert.GreaterOrEqual(t,
+		len(alerts), 20)
+	assert.GreaterOrEqual(t,
+		len(records), 10)
 
-	if len(alerts) < 20 {
-		t.Errorf("expected at least 20 alert rules, got %d", len(alerts))
-	}
-	if len(records) < 10 {
-		t.Errorf("expected at least 10 recording rules, got %d", len(records))
-	}
 }
 
 func TestPrometheusRules_RecordingRulesPresent(t *testing.T) {
@@ -185,12 +178,11 @@ func TestPrometheusRules_RecordingRulesPresent(t *testing.T) {
 	for record := range want {
 		expr, ok := got[record]
 		if !ok {
-			t.Errorf("recording rule %s missing", record)
+			assert.Failf(t, "recording rule missing", "%s", record)
 			continue
 		}
-		if expr == "" {
-			t.Errorf("recording rule %s has empty expr", record)
-		}
+		assert.NotEqual(t, "", expr)
+
 	}
 }
 
@@ -204,22 +196,18 @@ func TestPrometheusRules_Promtool(t *testing.T) {
 	}
 	rulesPath := locateRulesFile(t)
 	tmp, err := os.CreateTemp(t.TempDir(), "strait-rules-*.yaml")
-	if err != nil {
-		t.Fatalf("tmp file: %v", err)
-	}
+	require.NoError(t, err)
+
 	raw, err := os.ReadFile(rulesPath)
-	if err != nil {
-		t.Fatalf("read rules: %v", err)
-	}
-	if _, err := tmp.Write(raw); err != nil {
-		t.Fatalf("write tmp rules: %v", err)
-	}
+	require.NoError(t, err)
+
+	_, err = tmp.Write(raw)
+	require.NoError(t, err)
 	_ = tmp.Close()
 	cmd := exec.Command(bin, "check", "rules", tmp.Name())
 	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("promtool check rules failed: %v\n%s", err, out)
-	}
+	require.NoErrorf(t, err, "%s", out)
+
 }
 
 func locateRulesFile(t *testing.T) string {
@@ -230,13 +218,11 @@ func locateRulesFile(t *testing.T) string {
 func loadPrometheusRuleDoc(t *testing.T) prometheusRuleDoc {
 	t.Helper()
 	raw, err := os.ReadFile(locateRulesFile(t))
-	if err != nil {
-		t.Fatalf("read rules file: %v", err)
-	}
+	require.NoError(t, err)
+
 	var doc prometheusRuleDoc
-	if err := yaml.Unmarshal(raw, &doc); err != nil {
-		t.Fatalf("parse rules yaml: %v", err)
-	}
+	require.NoError(t, yaml.Unmarshal(raw, &doc))
+
 	return doc
 }
 
@@ -252,9 +238,8 @@ func prometheusRuleName(alert, record string) string {
 func moduleRoot(t *testing.T) string {
 	t.Helper()
 	wd, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("getwd: %v", err)
-	}
+	require.NoError(t, err)
+
 	dir := wd
 	for range 10 {
 		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
@@ -266,6 +251,6 @@ func moduleRoot(t *testing.T) string {
 		}
 		dir = parent
 	}
-	t.Fatalf("could not locate apps/strait module root from %s", wd)
+	require.Failf(t, "could not locate apps/strait module root", "%s", wd)
 	return ""
 }

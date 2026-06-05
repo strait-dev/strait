@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/getsentry/sentry-go"
+	"github.com/stretchr/testify/require"
 )
 
 func TestRequiredSentryTags_NormalizesRequiredValues(t *testing.T) {
@@ -18,32 +19,34 @@ func TestRequiredSentryTags_NormalizesRequiredValues(t *testing.T) {
 		"version":   "V1.2.3",
 	}
 	for key, expected := range want {
-		if got := tags[key]; got != expected {
-			t.Fatalf("tag %s = %q, want %q", key, got, expected)
-		}
+		require.Equal(t, expected,
+
+			tags[key])
+
 	}
 }
 
 func TestSentryTagFromString_KnownAndAliases(t *testing.T) {
 	t.Parallel()
 
-	if tag, ok := SentryTagFromString("run_id"); !ok || tag != TagRunID {
-		t.Fatalf("run_id tag = %q, %v; want %q, true", tag, ok, TagRunID)
-	}
-	if tag, ok := SentryTagFromString("workflow_run_id"); !ok || tag != TagWorkflowID {
-		t.Fatalf("workflow_run_id tag = %q, %v; want %q, true", tag, ok, TagWorkflowID)
-	}
-	if _, ok := SentryTagFromString("free_form_customer_name"); ok {
-		t.Fatal("unexpected free-form tag key")
-	}
+	tag, ok := SentryTagFromString("run_id")
+	require.True(t, ok)
+	require.Equal(t, TagRunID, tag)
+	tag, ok = SentryTagFromString("workflow_run_id")
+	require.True(t, ok)
+	require.Equal(t, TagWorkflowID, tag)
+	_, ok = SentryTagFromString("free_form_customer_name")
+	require.False(t, ok)
 }
 
 func TestNormalizeSubsystem_KnownBilling(t *testing.T) {
 	t.Parallel()
+	require.Equal(t, SubsystemBilling,
 
-	if got := NormalizeSubsystem("billing"); got != SubsystemBilling {
-		t.Fatalf("NormalizeSubsystem(billing) = %q, want %q", got, SubsystemBilling)
-	}
+		NormalizeSubsystem(
+			"billing",
+		))
+
 }
 
 func TestSetSentryTag_SkipsEmptyAndNormalizes(t *testing.T) {
@@ -53,16 +56,13 @@ func TestSetSentryTag_SkipsEmptyAndNormalizes(t *testing.T) {
 	SetSentryTag(scope, TagSubsystem, " Worker ")
 	SetSentryTag(scope, TagProjectID, "")
 	event := scope.ApplyToEvent(&sentry.Event{}, nil, nil)
-	if event == nil {
-		t.Fatal("expected event")
-		return
-	}
-	if got := event.Tags["subsystem"]; got != "worker" {
-		t.Fatalf("subsystem tag = %q, want worker", got)
-	}
-	if _, ok := event.Tags["project_id"]; ok {
-		t.Fatal("empty project_id tag should not be set")
-	}
+	require.NotNil(t, event)
+
+	require.Equal(t, "worker",
+
+		event.Tags["subsystem"])
+
+	require.NotContains(t, event.Tags, "project_id")
 }
 
 func TestApplySentryRuntimeScopeSetsRequiredTags(t *testing.T) {
@@ -77,10 +77,7 @@ func TestApplySentryRuntimeScopeSetsRequiredTags(t *testing.T) {
 		Version:   "2026.05.07",
 	})
 	event := scope.ApplyToEvent(&sentry.Event{}, nil, nil)
-	if event == nil {
-		t.Fatal("expected event")
-		return
-	}
+	require.NotNil(t, event)
 
 	want := map[string]string{
 		"edition":   "cloud",
@@ -90,9 +87,10 @@ func TestApplySentryRuntimeScopeSetsRequiredTags(t *testing.T) {
 		"version":   "2026.05.07",
 	}
 	for key, expected := range want {
-		if got := event.Tags[key]; got != expected {
-			t.Fatalf("tag %s = %q, want %q", key, got, expected)
-		}
+		require.Equal(t, expected,
+
+			event.Tags[key])
+
 	}
 }
 
@@ -107,8 +105,9 @@ func TestNormalizeHTTPStatusClass(t *testing.T) {
 		600: "",
 	}
 	for status, want := range cases {
-		if got := NormalizeHTTPStatusClass(status); got != want {
-			t.Fatalf("NormalizeHTTPStatusClass(%d) = %q, want %q", status, got, want)
-		}
+		require.Equal(t, want,
+
+			NormalizeHTTPStatusClass(status))
+
 	}
 }

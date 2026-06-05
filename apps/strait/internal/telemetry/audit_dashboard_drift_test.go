@@ -8,6 +8,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 // auditMetricRegex matches any prometheus-style audit metric name
@@ -25,14 +27,11 @@ func metricsGoAuditNames(t *testing.T) map[string]struct{} {
 	t.Helper()
 
 	_, thisFile, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller failed")
-	}
+	require.True(t, ok)
+
 	metricsPath := filepath.Join(filepath.Dir(thisFile), "metrics.go")
 	raw, err := os.ReadFile(metricsPath)
-	if err != nil {
-		t.Fatalf("read metrics.go: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Match the OTel dotted names in strings to avoid scraping
 	// comments that happen to mention a metric.
@@ -64,21 +63,16 @@ func dashboardAuditMetricRefs(t *testing.T) map[string]struct{} {
 	t.Helper()
 
 	_, thisFile, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller failed")
-	}
+	require.True(t, ok)
+
 	dashPath := filepath.Join(filepath.Dir(thisFile), "..", "..", "monitoring", "grafana", "audit-events.json")
 	raw, err := os.ReadFile(dashPath)
-	if err != nil {
-		t.Fatalf("read audit-events.json: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Validate JSON so a drift between dashboard and test is not
 	// caused by malformed JSON we are scanning with a regex.
 	var decoded any
-	if err := json.Unmarshal(raw, &decoded); err != nil {
-		t.Fatalf("unmarshal dashboard json: %v", err)
-	}
+	require.NoError(t, json.Unmarshal(raw, &decoded))
 
 	matches := auditMetricRegex.FindAllString(string(raw), -1)
 	set := map[string]struct{}{}
@@ -100,13 +94,8 @@ func TestAuditDashboardDrift(t *testing.T) {
 
 	refs := dashboardAuditMetricRefs(t)
 	registered := metricsGoAuditNames(t)
-
-	if len(refs) == 0 {
-		t.Fatal("no strait_audit_* references found in dashboard JSON; scanner regex or dashboard path is broken")
-	}
-	if len(registered) == 0 {
-		t.Fatal("no strait.audit.* registrations found in metrics.go; scanner regex is broken")
-	}
+	require.NotEmpty(t, refs)
+	require.NotEmpty(t, registered)
 
 	var missing []string
 	for ref := range refs {
@@ -115,9 +104,8 @@ func TestAuditDashboardDrift(t *testing.T) {
 		}
 		missing = append(missing, ref)
 	}
-	if len(missing) > 0 {
-		t.Fatalf("dashboard references %d metric(s) not registered in metrics.go: %v\nregistered names: %v", len(missing), missing, keysOf(registered))
-	}
+	require.LessOrEqual(t, len(missing), 0)
+
 }
 
 func keysOf(m map[string]struct{}) []string {

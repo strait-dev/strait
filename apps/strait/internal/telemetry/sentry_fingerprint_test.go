@@ -7,6 +7,7 @@ import (
 
 	"github.com/getsentry/sentry-go"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -31,9 +32,9 @@ func TestBuildSentryRelease(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			if got := BuildSentryRelease(tc.version, tc.commit); got != tc.want {
-				t.Fatalf("BuildSentryRelease() = %q, want %q", got, tc.want)
-			}
+			require.Equal(t, tc.
+				want, BuildSentryRelease(tc.version, tc.commit))
+
 		})
 	}
 }
@@ -101,13 +102,14 @@ func TestApplySentryFingerprint_Rules(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			got := BeforeSend(tc.event, &sentry.EventHint{OriginalException: tc.err})
-			if got == nil {
-				t.Fatal("BeforeSend dropped event")
-				return
-			}
-			if !reflect.DeepEqual(got.Fingerprint, tc.want) {
-				t.Fatalf("fingerprint = %#v, want %#v", got.Fingerprint, tc.want)
-			}
+			require.NotNil(t,
+				got)
+
+			require.True(t, reflect.
+				DeepEqual(got.Fingerprint,
+
+					tc.want))
+
 		})
 	}
 }
@@ -119,13 +121,14 @@ func TestApplySentryFingerprint_PreservesExplicitFingerprint(t *testing.T) {
 	got := BeforeSend(event, &sentry.EventHint{
 		OriginalException: &pgconn.PgError{Code: "23505", TableName: "job_runs"},
 	})
-	if got == nil {
-		t.Fatal("BeforeSend dropped event")
-		return
-	}
-	if !reflect.DeepEqual(got.Fingerprint, []string{"custom", "fingerprint"}) {
-		t.Fatalf("fingerprint = %#v, want explicit fingerprint", got.Fingerprint)
-	}
+	require.NotNil(t,
+		got)
+
+	require.True(t, reflect.
+		DeepEqual(got.Fingerprint,
+
+			[]string{"custom", "fingerprint"}))
+
 }
 
 func TestSentryClientOptionsCarriesRelease(t *testing.T) {
@@ -136,9 +139,11 @@ func TestSentryClientOptionsCarriesRelease(t *testing.T) {
 		Environment: "test",
 		Release:     "v1.2.3+abc123",
 	}, 0)
-	if opts.Release != "v1.2.3+abc123" {
-		t.Fatalf("Release = %q, want v1.2.3+abc123", opts.Release)
-	}
+	require.Equal(t, "v1.2.3+abc123",
+
+		opts.Release,
+	)
+
 }
 
 func TestSentryClientOptionsEnablesTracingWithSampler(t *testing.T) {
@@ -151,20 +156,23 @@ func TestSentryClientOptionsEnablesTracingWithSampler(t *testing.T) {
 		MaxErrorDepth:           16,
 		StrictTraceContinuation: true,
 	}, 0.25)
-	if !opts.EnableTracing {
-		t.Fatal("expected tracing to be enabled")
-	}
-	if opts.TracesSampler == nil {
-		t.Fatal("expected traces sampler")
-		return
-	}
-	if opts.TracesSampleRate != 0 {
-		t.Fatalf("TracesSampleRate = %v, want sampler-only config", opts.TracesSampleRate)
-	}
-	if opts.MaxBreadcrumbs != 64 || opts.MaxSpans != 256 || opts.MaxErrorDepth != 16 {
-		t.Fatalf("Sentry limits = breadcrumbs:%d spans:%d depth:%d", opts.MaxBreadcrumbs, opts.MaxSpans, opts.MaxErrorDepth)
-	}
-	if !opts.StrictTraceContinuation {
-		t.Fatal("expected strict trace continuation")
-	}
+	require.True(t, opts.
+		EnableTracing,
+	)
+	require.NotNil(t,
+		opts.TracesSampler,
+	)
+
+	require.EqualValues(t, 0,
+		opts.TracesSampleRate,
+	)
+	require.False(t, opts.
+		MaxBreadcrumbs !=
+		64 ||
+		opts.MaxSpans != 256 || opts.
+		MaxErrorDepth != 16)
+	require.True(t, opts.
+		StrictTraceContinuation,
+	)
+
 }

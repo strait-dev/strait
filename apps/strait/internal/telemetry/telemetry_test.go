@@ -6,6 +6,9 @@ import (
 	"log/slog"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestInit_NoEndpoint verifies that Init handles empty endpoint gracefully.
@@ -13,20 +16,16 @@ func TestInit_NoEndpoint(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	shutdown, err := Init(ctx, "test-service", "", "test")
-
-	if err != nil {
-		t.Errorf("Init with empty endpoint returned error: %v", err)
-	}
-
-	if shutdown == nil {
-		t.Error("Init returned nil shutdown function")
-	}
+	assert.NoError(t,
+		err)
+	assert.NotNil(t,
+		shutdown)
 
 	// Verify shutdown function works without error
 	err = shutdown(ctx)
-	if err != nil {
-		t.Errorf("shutdown() returned error: %v", err)
-	}
+	assert.NoError(t,
+		err)
+
 }
 
 // TestInit_WithEndpoint verifies that Init can be called with a valid endpoint.
@@ -40,10 +39,11 @@ func TestInit_WithEndpoint(t *testing.T) {
 	// We expect an error because the endpoint doesn't exist, but the function
 	// should attempt to create the exporter
 	if err == nil {
+		assert.NotNil(t,
+			shutdown)
+
 		// If no error, verify shutdown function exists
-		if shutdown == nil {
-			t.Error("Init returned nil shutdown function")
-		}
+
 		// Clean up
 		_ = shutdown(ctx)
 	}
@@ -60,26 +60,22 @@ func TestInit_RedactsCredentialedEndpointInStartupLog(t *testing.T) {
 	})
 
 	shutdown, err := Init(ctx, "test-service", "http://user:pass@localhost:4318/v1/traces?sig=signed&tenant=prod", "test")
-	if err != nil {
-		t.Fatalf("Init() error = %v", err)
-	}
+	require.NoError(t,
+		err)
+
 	_ = shutdown(ctx)
 
 	out := buf.String()
-	if !strings.Contains(out, "otel tracing enabled") {
-		t.Fatalf("startup log missing enable message: %s", out)
-	}
+	require.True(t, strings.Contains(out, "otel tracing enabled"))
+
 	for _, leaked := range []string{"user", "pass", "signed"} {
-		if strings.Contains(out, leaked) {
-			t.Fatalf("startup log leaked %q: %s", leaked, out)
-		}
+		require.False(t,
+			strings.Contains(out, leaked))
+
 	}
-	if !strings.Contains(out, "sig=%5Bredacted%5D") {
-		t.Fatalf("startup log missing redacted signature query: %s", out)
-	}
-	if !strings.Contains(out, "tenant=prod") {
-		t.Fatalf("startup log should preserve non-sensitive query params: %s", out)
-	}
+	require.True(t, strings.Contains(out, "sig=%5Bredacted%5D"))
+	require.True(t, strings.Contains(out, "tenant=prod"))
+
 }
 
 // TestInit_ServiceName verifies that Init accepts a service name.
@@ -96,12 +92,11 @@ func TestInit_ServiceName(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			shutdown, err := Init(ctx, name, "", "test")
-			if err != nil {
-				t.Errorf("Init with service name %q returned error: %v", name, err)
-			}
-			if shutdown == nil {
-				t.Error("Init returned nil shutdown function")
-			}
+			assert.NoError(t,
+				err)
+			assert.NotNil(t,
+				shutdown)
+
 			_ = shutdown(ctx)
 		})
 	}
@@ -112,12 +107,11 @@ func TestInit_EmptyEnvironment(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	shutdown, err := Init(ctx, "test-service", "", "")
-	if err != nil {
-		t.Fatalf("Init with empty environment returned error: %v", err)
-	}
-	if shutdown == nil {
-		t.Fatal("Init returned nil shutdown function")
-	}
+	require.NoError(t,
+		err)
+	require.NotNil(t,
+		shutdown)
+
 	_ = shutdown(ctx)
 }
 
@@ -126,16 +120,15 @@ func TestInit_ShutdownIdempotent(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	shutdown, err := Init(ctx, "test-service", "", "test")
-	if err != nil {
-		t.Fatalf("Init failed: %v", err)
-	}
+	require.NoError(t,
+		err)
 
 	// Call shutdown multiple times
-	for i := range 3 {
+	for range 3 {
 		err := shutdown(ctx)
-		if err != nil {
-			t.Errorf("shutdown call %d returned error: %v", i+1, err)
-		}
+		assert.NoError(t,
+			err)
+
 	}
 }
 
@@ -143,12 +136,10 @@ func TestInit_InvalidURL_ReturnsError(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	_, err := Init(ctx, "test-service", "://bad", "test")
-	if err == nil {
-		t.Fatal("expected error for invalid URL")
-	}
-	if !strings.Contains(err.Error(), "parse otel trace endpoint") {
-		t.Errorf("error = %q, want 'parse otel trace endpoint'", err.Error())
-	}
+	require.Error(t,
+		err)
+	assert.True(t, strings.Contains(err.Error(), "parse otel trace endpoint"))
+
 }
 
 func TestInit_HttpsScheme(t *testing.T) {
@@ -173,26 +164,21 @@ func TestInitLogBridge_InvalidURL_ReturnsError(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	logger, shutdown, err := InitLogBridge(ctx, "test-service", "://bad", "test")
-	if err == nil {
-		t.Fatal("expected error for invalid URL")
-	}
-	if logger != nil {
-		t.Error("expected nil logger on error")
-	}
-	if shutdown != nil {
-		t.Error("expected nil shutdown on error")
-	}
+	require.Error(t,
+		err)
+	assert.Nil(t, logger)
+	assert.Nil(t, shutdown)
+
 }
 
 func TestInitLogBridge_HttpsScheme(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	logger, shutdown, err := InitLogBridge(ctx, "test-service", "https://localhost:4318", "test")
-	if err != nil {
-		t.Fatalf("InitLogBridge() error = %v", err)
-	}
-	if logger == nil {
-		t.Fatal("expected non-nil logger")
-	}
+	require.NoError(t,
+		err)
+	require.NotNil(t,
+		logger)
+
 	_ = shutdown(ctx)
 }

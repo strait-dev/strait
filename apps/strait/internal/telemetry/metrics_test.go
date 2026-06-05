@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/metric"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
@@ -18,49 +20,45 @@ func TestInitMetrics(t *testing.T) {
 		if strings.Contains(err.Error(), "conflicting Schema URL") {
 			t.Skipf("OTel schema URL conflict (known issue): %v", err)
 		}
-		t.Fatalf("InitMetrics() error = %v", err)
+		require.NoError(t, err)
 	}
 	defer func() { _ = shutdown(context.Background()) }()
+	require.NotNil(t, metrics)
 
-	if metrics == nil {
-		t.Fatal("metrics is nil")
-		return
-	}
-	if handler == nil {
-		t.Fatal("handler is nil")
-	}
+	require.NotNil(t, handler)
+	assert.NotNil(t, metrics.
+		RunTransitions,
+	)
+	assert.NotNil(t, metrics.
+		DequeueDuration,
+	)
+	assert.NotNil(t, metrics.
+		DispatchDuration,
+	)
+	assert.NotNil(t, metrics.
+		DispatchErrors,
+	)
+	assert.NotNil(t, metrics.
+		WebhookDeliveriesTotal,
+	)
+	assert.NotNil(t, metrics.
+		WebhookDeliveryDuration,
+	)
+	assert.NotNil(t, metrics.
+		WebhookDeliveryAttempts,
+	)
+	assert.NotNil(t, metrics.
+		WebhookCircuitBreaker,
+	)
+	assert.NotNil(t, metrics.
+		WebhookPayloadBytes,
+	)
+	assert.NotNil(t, metrics.
+		PprofRequests,
+	)
 
 	// Verify all metric fields are initialized.
-	if metrics.RunTransitions == nil {
-		t.Error("RunTransitions is nil")
-	}
-	if metrics.DequeueDuration == nil {
-		t.Error("DequeueDuration is nil")
-	}
-	if metrics.DispatchDuration == nil {
-		t.Error("DispatchDuration is nil")
-	}
-	if metrics.DispatchErrors == nil {
-		t.Error("DispatchErrors is nil")
-	}
-	if metrics.WebhookDeliveriesTotal == nil {
-		t.Error("WebhookDeliveriesTotal is nil")
-	}
-	if metrics.WebhookDeliveryDuration == nil {
-		t.Error("WebhookDeliveryDuration is nil")
-	}
-	if metrics.WebhookDeliveryAttempts == nil {
-		t.Error("WebhookDeliveryAttempts is nil")
-	}
-	if metrics.WebhookCircuitBreaker == nil {
-		t.Error("WebhookCircuitBreaker is nil")
-	}
-	if metrics.WebhookPayloadBytes == nil {
-		t.Error("WebhookPayloadBytes is nil")
-	}
-	if metrics.PprofRequests == nil {
-		t.Error("PprofRequests is nil")
-	}
+
 }
 
 func TestInitMetrics_EmptyEnvironment(t *testing.T) {
@@ -70,16 +68,12 @@ func TestInitMetrics_EmptyEnvironment(t *testing.T) {
 		if strings.Contains(err.Error(), "conflicting Schema URL") {
 			t.Skipf("OTel schema URL conflict: %v", err)
 		}
-		t.Fatalf("InitMetrics() error = %v", err)
+		require.NoError(t, err)
 	}
 	defer func() { _ = shutdown(context.Background()) }()
+	require.NotNil(t, metrics)
+	require.NotNil(t, handler)
 
-	if metrics == nil {
-		t.Fatal("metrics is nil")
-	}
-	if handler == nil {
-		t.Fatal("handler is nil")
-	}
 }
 
 func TestInitMetrics_ShutdownIdempotent(t *testing.T) {
@@ -89,14 +83,14 @@ func TestInitMetrics_ShutdownIdempotent(t *testing.T) {
 		if strings.Contains(err.Error(), "conflicting Schema URL") {
 			t.Skipf("OTel schema URL conflict: %v", err)
 		}
-		t.Fatalf("InitMetrics() error = %v", err)
+		require.NoError(t, err)
 	}
 
 	ctx := context.Background()
-	for i := range 3 {
-		if err := shutdown(ctx); err != nil {
-			t.Errorf("shutdown call %d error = %v", i+1, err)
-		}
+	for range 3 {
+		assert.NoError(t, shutdown(
+			ctx))
+
 	}
 }
 
@@ -114,41 +108,39 @@ func TestCounterRecording(t *testing.T) {
 		metric.WithDescription("test counter"),
 		metric.WithUnit("1"),
 	)
-	if err != nil {
-		t.Fatalf("Int64Counter() error = %v", err)
-	}
+	require.NoError(t,
+		err)
 
 	ctx := context.Background()
 	counter.Add(ctx, 1)
 	counter.Add(ctx, 5)
 
 	var rm metricdata.ResourceMetrics
-	if err := reader.Collect(ctx, &rm); err != nil {
-		t.Fatalf("Collect() error = %v", err)
-	}
-
-	if len(rm.ScopeMetrics) == 0 {
-		t.Fatal("no scope metrics collected")
-	}
-	if len(rm.ScopeMetrics[0].Metrics) == 0 {
-		t.Fatal("no metrics collected")
-	}
+	require.NoError(t,
+		reader.Collect(ctx,
+			&rm))
+	require.NotEmpty(t,
+		rm.ScopeMetrics,
+	)
+	require.NotEmpty(t,
+		rm.ScopeMetrics[0].
+			Metrics)
 
 	m := rm.ScopeMetrics[0].Metrics[0]
-	if m.Name != "test.counter" {
-		t.Errorf("name = %q, want %q", m.Name, "test.counter")
-	}
+	assert.Equal(t, "test.counter",
+
+		m.Name,
+	)
 
 	sum, ok := m.Data.(metricdata.Sum[int64])
-	if !ok {
-		t.Fatalf("data type = %T, want Sum[int64]", m.Data)
-	}
-	if len(sum.DataPoints) == 0 {
-		t.Fatal("no data points")
-	}
-	if sum.DataPoints[0].Value != 6 {
-		t.Errorf("counter value = %d, want 6", sum.DataPoints[0].Value)
-	}
+	require.True(t, ok)
+	require.NotEmpty(t,
+		sum.DataPoints,
+	)
+	assert.EqualValues(t, 6,
+		sum.DataPoints[0].Value,
+	)
+
 }
 
 // TestHistogramRecording verifies Float64Histogram records values correctly.
@@ -164,9 +156,8 @@ func TestHistogramRecording(t *testing.T) {
 		metric.WithDescription("test duration"),
 		metric.WithUnit("s"),
 	)
-	if err != nil {
-		t.Fatalf("Float64Histogram() error = %v", err)
-	}
+	require.NoError(t,
+		err)
 
 	ctx := context.Background()
 	hist.Record(ctx, 0.5)
@@ -174,37 +165,37 @@ func TestHistogramRecording(t *testing.T) {
 	hist.Record(ctx, 2.0)
 
 	var rm metricdata.ResourceMetrics
-	if err := reader.Collect(ctx, &rm); err != nil {
-		t.Fatalf("Collect() error = %v", err)
-	}
-
-	if len(rm.ScopeMetrics) == 0 {
-		t.Fatal("no scope metrics collected")
-	}
-	if len(rm.ScopeMetrics[0].Metrics) == 0 {
-		t.Fatal("no metrics collected")
-	}
+	require.NoError(t,
+		reader.Collect(ctx,
+			&rm))
+	require.NotEmpty(t,
+		rm.ScopeMetrics,
+	)
+	require.NotEmpty(t,
+		rm.ScopeMetrics[0].
+			Metrics)
 
 	m := rm.ScopeMetrics[0].Metrics[0]
-	if m.Name != "test.duration" {
-		t.Errorf("name = %q, want %q", m.Name, "test.duration")
-	}
+	assert.Equal(t, "test.duration",
+
+		m.Name,
+	)
 
 	histogram, ok := m.Data.(metricdata.Histogram[float64])
-	if !ok {
-		t.Fatalf("data type = %T, want Histogram[float64]", m.Data)
-	}
-	if len(histogram.DataPoints) == 0 {
-		t.Fatal("no data points")
-	}
+	require.True(t, ok)
+	require.NotEmpty(t,
+		histogram.
+			DataPoints,
+	)
 
 	dp := histogram.DataPoints[0]
-	if dp.Count != 3 {
-		t.Errorf("count = %d, want 3", dp.Count)
-	}
-	if dp.Sum != 4.0 {
-		t.Errorf("sum = %f, want 4.0", dp.Sum)
-	}
+	assert.EqualValues(t, 3,
+		dp.Count,
+	)
+	assert.EqualValues(t, 4.0,
+		dp.Sum,
+	)
+
 }
 
 // TestStraitMetricInstruments verifies all production metric instruments
@@ -221,68 +212,64 @@ func TestStraitMetricInstruments(t *testing.T) {
 		metric.WithDescription("Total run status transitions"),
 		metric.WithUnit("1"),
 	)
-	if err != nil {
-		t.Fatalf("Int64Counter(run.transitions) error = %v", err)
-	}
+	require.NoError(t,
+		err)
 
 	dequeueDuration, err := meter.Float64Histogram("strait_worker_dequeue_duration_seconds",
 		metric.WithDescription("Duration of dequeue operations"),
 		metric.WithUnit("s"),
 	)
-	if err != nil {
-		t.Fatalf("Float64Histogram(dequeue.duration) error = %v", err)
-	}
+	require.NoError(t,
+		err)
 
 	dispatchDuration, err := meter.Float64Histogram("strait_dispatch_duration_seconds",
 		metric.WithDescription("Duration of HTTP dispatch operations"),
 		metric.WithUnit("s"),
 	)
-	if err != nil {
-		t.Fatalf("Float64Histogram(dispatch.duration) error = %v", err)
-	}
+	require.NoError(t,
+		err)
 
 	dispatchErrors, err := meter.Int64Counter("strait_dispatch_errors_total",
 		metric.WithDescription("Total dispatch errors"),
 		metric.WithUnit("1"),
 	)
-	if err != nil {
-		t.Fatalf("Int64Counter(dispatch.errors) error = %v", err)
-	}
+	require.NoError(t,
+		err)
+
 	webhookDeliveriesTotal, err := meter.Int64Counter("strait_webhook_deliveries_total",
 		metric.WithDescription("Total webhook deliveries by delivery status and retry policy"),
 		metric.WithUnit("1"),
 	)
-	if err != nil {
-		t.Fatalf("Int64Counter(webhook.deliveries.total) error = %v", err)
-	}
+	require.NoError(t,
+		err)
+
 	webhookDeliveryDuration, err := meter.Float64Histogram("strait_webhook_delivery_duration_seconds",
 		metric.WithDescription("Webhook delivery HTTP request duration in seconds"),
 		metric.WithUnit("s"),
 	)
-	if err != nil {
-		t.Fatalf("Float64Histogram(webhook.delivery.duration) error = %v", err)
-	}
+	require.NoError(t,
+		err)
+
 	webhookDeliveryAttempts, err := meter.Int64Counter("strait_webhook_delivery_attempts_total",
 		metric.WithDescription("Total webhook delivery attempts"),
 		metric.WithUnit("1"),
 	)
-	if err != nil {
-		t.Fatalf("Int64Counter(webhook.delivery.attempts) error = %v", err)
-	}
+	require.NoError(t,
+		err)
+
 	webhookCircuitBreaker, err := meter.Int64Gauge("strait_webhook_circuit_breaker_state",
 		metric.WithDescription("Webhook circuit breaker state (1=current state, 0=other states)"),
 		metric.WithUnit("1"),
 	)
-	if err != nil {
-		t.Fatalf("Int64Gauge(webhook.circuit_breaker.state) error = %v", err)
-	}
+	require.NoError(t,
+		err)
+
 	webhookPayloadBytes, err := meter.Int64Histogram("strait_webhook_payload_bytes",
 		metric.WithDescription("Webhook payload size in bytes"),
 		metric.WithUnit("By"),
 	)
-	if err != nil {
-		t.Fatalf("Int64Histogram(webhook.payload.bytes) error = %v", err)
-	}
+	require.NoError(t,
+		err)
 
 	ctx := context.Background()
 	runTransitions.Add(ctx, 10)
@@ -296,16 +283,16 @@ func TestStraitMetricInstruments(t *testing.T) {
 	webhookPayloadBytes.Record(ctx, 256)
 
 	var rm metricdata.ResourceMetrics
-	if err := reader.Collect(ctx, &rm); err != nil {
-		t.Fatalf("Collect() error = %v", err)
-	}
+	require.NoError(t,
+		reader.Collect(ctx,
+			&rm))
+	require.NotEmpty(t,
+		rm.ScopeMetrics,
+	)
+	assert.EqualValues(t, 9,
+		len(rm.ScopeMetrics[0].Metrics),
+	)
 
-	if len(rm.ScopeMetrics) == 0 {
-		t.Fatal("no scope metrics collected")
-	}
-	if got := len(rm.ScopeMetrics[0].Metrics); got != 9 {
-		t.Errorf("collected %d metrics, want 9", got)
-	}
 }
 
 type mockBreakerStateProvider struct {
@@ -322,14 +309,15 @@ func TestObserveSIEMBreakerState_NilProvider(t *testing.T) {
 
 	meter := provider.Meter("test")
 	gauge, err := meter.Int64ObservableGauge("test.siem.breaker")
-	if err != nil {
-		t.Fatalf("Int64ObservableGauge error = %v", err)
-	}
+	require.NoError(t,
+		err)
 
 	m := &Metrics{AuditSIEMBreakerState: gauge}
-	if err := m.ObserveSIEMBreakerState(meter, nil); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t,
+		m.ObserveSIEMBreakerState(meter,
+
+			nil))
+
 }
 
 func TestObserveSIEMBreakerState_NilGauge(t *testing.T) {
@@ -341,9 +329,11 @@ func TestObserveSIEMBreakerState_NilGauge(t *testing.T) {
 	meter := provider.Meter("test")
 	m := &Metrics{AuditSIEMBreakerState: nil}
 	bp := &mockBreakerStateProvider{state: 1}
-	if err := m.ObserveSIEMBreakerState(meter, bp); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t,
+		m.ObserveSIEMBreakerState(meter,
+
+			bp))
+
 }
 
 func TestObserveSIEMBreakerState_RecordsValue(t *testing.T) {
@@ -354,42 +344,40 @@ func TestObserveSIEMBreakerState_RecordsValue(t *testing.T) {
 
 	meter := provider.Meter("test")
 	gauge, err := meter.Int64ObservableGauge("test.siem.breaker.state")
-	if err != nil {
-		t.Fatalf("Int64ObservableGauge error = %v", err)
-	}
+	require.NoError(t,
+		err)
 
 	m := &Metrics{AuditSIEMBreakerState: gauge}
 	bp := &mockBreakerStateProvider{state: 2}
-	if err := m.ObserveSIEMBreakerState(meter, bp); err != nil {
-		t.Fatalf("ObserveSIEMBreakerState error = %v", err)
-	}
+	require.NoError(t,
+		m.ObserveSIEMBreakerState(meter,
+
+			bp))
 
 	var rm metricdata.ResourceMetrics
-	if err := reader.Collect(context.Background(), &rm); err != nil {
-		t.Fatalf("Collect error = %v", err)
-	}
+	require.NoError(t,
+		reader.Collect(context.
+			Background(), &rm))
 
 	found := false
 	for _, sm := range rm.ScopeMetrics {
 		for _, met := range sm.Metrics {
 			if met.Name == "test.siem.breaker.state" {
 				g, ok := met.Data.(metricdata.Gauge[int64])
-				if !ok {
-					t.Fatalf("data type = %T, want Gauge[int64]", met.Data)
-				}
-				if len(g.DataPoints) == 0 {
-					t.Fatal("no data points")
-				}
-				if g.DataPoints[0].Value != 2 {
-					t.Errorf("breaker state = %d, want 2", g.DataPoints[0].Value)
-				}
+				require.True(t, ok)
+				require.NotEmpty(t,
+					g.DataPoints,
+				)
+				assert.EqualValues(t, 2,
+					g.DataPoints[0].Value,
+				)
+
 				found = true
 			}
 		}
 	}
-	if !found {
-		t.Fatal("siem breaker state metric not found")
-	}
+	require.True(t, found)
+
 }
 
 type mockPoolStats struct {
@@ -445,15 +433,14 @@ func TestObservePool_SaturateInt64_MaxUint64(t *testing.T) {
 		failed:    1000,
 		dropped:   42,
 	}
-
-	if err := m.ObservePool(meter, pool); err != nil {
-		t.Fatalf("ObservePool error = %v", err)
-	}
+	require.NoError(t,
+		m.ObservePool(meter,
+			pool))
 
 	var rm metricdata.ResourceMetrics
-	if err := reader.Collect(context.Background(), &rm); err != nil {
-		t.Fatalf("Collect error = %v", err)
-	}
+	require.NoError(t,
+		reader.Collect(context.
+			Background(), &rm))
 
 	values := map[string]int64{}
 	for _, sm := range rm.ScopeMetrics {
@@ -470,26 +457,20 @@ func TestObservePool_SaturateInt64_MaxUint64(t *testing.T) {
 			}
 		}
 	}
+	assert.EqualValues(t, 5,
+		values["test.pool.running"])
+	assert.EqualValues(t, math.
+		MaxInt64,
+		values["test.pool.waiting"])
+	assert.EqualValues(t, 500_000,
+		values["test.pool.submitted"])
+	assert.EqualValues(t, 499_000,
+		values["test.pool.completed"])
+	assert.EqualValues(t, 0,
+		values["test.pool.success"])
+	assert.EqualValues(t, 1000,
+		values["test.pool.failed"])
+	assert.EqualValues(t, 42,
+		values["test.pool.dropped"])
 
-	if v := values["test.pool.running"]; v != 5 {
-		t.Errorf("running = %d, want 5", v)
-	}
-	if v := values["test.pool.waiting"]; v != math.MaxInt64 {
-		t.Errorf("waiting = %d, want MaxInt64 (saturated from MaxUint64)", v)
-	}
-	if v := values["test.pool.submitted"]; v != 500_000 {
-		t.Errorf("submitted = %d, want 500000", v)
-	}
-	if v := values["test.pool.completed"]; v != 499_000 {
-		t.Errorf("completed = %d, want 499000", v)
-	}
-	if v := values["test.pool.success"]; v != 0 {
-		t.Errorf("success = %d, want 0", v)
-	}
-	if v := values["test.pool.failed"]; v != 1000 {
-		t.Errorf("failed = %d, want 1000", v)
-	}
-	if v := values["test.pool.dropped"]; v != 42 {
-		t.Errorf("dropped = %d, want 42", v)
-	}
 }

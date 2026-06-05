@@ -6,6 +6,9 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 var metricNameRE = regexp.MustCompile(`^strait_[a-z0-9_]+$`)
@@ -13,9 +16,9 @@ var metricNameRE = regexp.MustCompile(`^strait_[a-z0-9_]+$`)
 func TestMetricsPolicy_NamingConvention(t *testing.T) {
 	registered := registeredMetricNames(t)
 	for name := range registered {
-		if !metricNameRE.MatchString(name) {
-			t.Errorf("metric %q does not match strait_<subsystem>_<measurement> convention", name)
-		}
+		assert.True(t,
+			metricNameRE.MatchString(name))
+
 	}
 }
 
@@ -28,7 +31,7 @@ func TestMetricsPolicy_HistogramSuffixes(t *testing.T) {
 		if strings.HasSuffix(name, "_seconds") || strings.HasSuffix(name, "_bytes") || strings.HasSuffix(name, "_rows") || strings.HasSuffix(name, "_ratio") || strings.HasSuffix(name, "_number") || strings.HasSuffix(name, "_items") || strings.HasSuffix(name, "_microusd") {
 			continue
 		}
-		t.Errorf("histogram metric %q must include an explicit unit suffix", name)
+		assert.Failf(t, "histogram metric must include an explicit unit suffix", "%q", name)
 	}
 }
 
@@ -74,12 +77,9 @@ func registeredMetricTypes(t *testing.T) map[string]string {
 		}
 		return nil
 	})
-	if err != nil {
-		t.Fatalf("scan metric registrations: %v", err)
-	}
-	if len(types) == 0 {
-		t.Fatal("no metric registrations found")
-	}
+	require.NoError(t, err)
+	require.NotEmpty(t, types)
+
 	return types
 }
 
@@ -103,9 +103,8 @@ func metricKindFromConstructor(constructor string) string {
 func repoRoot(t *testing.T) string {
 	t.Helper()
 	wd, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("getwd: %v", err)
-	}
+	require.NoError(t, err)
+
 	dir := wd
 	for range 10 {
 		if _, err := os.Stat(filepath.Join(dir, "apps", "strait", "go.mod")); err == nil {
@@ -117,6 +116,6 @@ func repoRoot(t *testing.T) string {
 		}
 		dir = parent
 	}
-	t.Fatalf("could not locate repo root from %s", wd)
+	require.Failf(t, "could not locate repo root", "%s", wd)
 	return ""
 }

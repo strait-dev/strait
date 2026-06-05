@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 )
@@ -37,33 +39,32 @@ func newTestMetricsWithReader(t *testing.T) (*Metrics, *sdkmetric.MeterProvider,
 	meter := provider.Meter("test-observe-pool")
 
 	poolRunning, err := meter.Int64ObservableGauge("strait_worker_pool_running")
-	if err != nil {
-		t.Fatalf("create pool running gauge: %v", err)
-	}
+	require.NoError(t,
+		err)
+
 	poolWaiting, err := meter.Int64ObservableGauge("strait_worker_pool_waiting")
-	if err != nil {
-		t.Fatalf("create pool waiting gauge: %v", err)
-	}
+	require.NoError(t,
+		err)
+
 	poolSubmitted, err := meter.Int64ObservableCounter("strait_worker_pool_submitted_total")
-	if err != nil {
-		t.Fatalf("create pool submitted counter: %v", err)
-	}
+	require.NoError(t,
+		err)
+
 	poolCompleted, err := meter.Int64ObservableCounter("strait_worker_pool_completed_total")
-	if err != nil {
-		t.Fatalf("create pool completed counter: %v", err)
-	}
+	require.NoError(t,
+		err)
+
 	poolSuccessful, err := meter.Int64ObservableCounter("strait_worker_pool_successful_total")
-	if err != nil {
-		t.Fatalf("create pool successful counter: %v", err)
-	}
+	require.NoError(t,
+		err)
+
 	poolFailed, err := meter.Int64ObservableCounter("strait_worker_pool_failed_total")
-	if err != nil {
-		t.Fatalf("create pool failed counter: %v", err)
-	}
+	require.NoError(t,
+		err)
+
 	poolDropped, err := meter.Int64ObservableCounter("strait_worker_pool_dropped_total")
-	if err != nil {
-		t.Fatalf("create pool dropped counter: %v", err)
-	}
+	require.NoError(t,
+		err)
 
 	m := &Metrics{
 		PoolRunningWorkers:  poolRunning,
@@ -85,33 +86,34 @@ func TestObservePool_ZeroValues(t *testing.T) {
 
 	meter := provider.Meter("test-observe-pool")
 	pool := &stubPool{}
-
-	if err := m.ObservePool(meter, pool); err != nil {
-		t.Fatalf("ObservePool() error = %v", err)
-	}
+	require.NoError(t,
+		m.ObservePool(meter,
+			pool))
 
 	var rm metricdata.ResourceMetrics
-	if err := reader.Collect(context.Background(), &rm); err != nil {
-		t.Fatalf("Collect() error = %v", err)
-	}
-
-	if len(rm.ScopeMetrics) == 0 {
-		t.Fatal("no scope metrics collected")
-	}
+	require.NoError(t,
+		reader.Collect(context.
+			Background(), &rm),
+	)
+	require.NotEmpty(t,
+		rm.ScopeMetrics,
+	)
 
 	for _, sm := range rm.ScopeMetrics[0].Metrics {
 		switch data := sm.Data.(type) {
 		case metricdata.Gauge[int64]:
 			for _, dp := range data.DataPoints {
-				if dp.Value != 0 {
-					t.Errorf("metric %q: got %d, want 0", sm.Name, dp.Value)
-				}
+				assert.EqualValues(t, 0,
+					dp.Value,
+				)
+
 			}
 		case metricdata.Sum[int64]:
 			for _, dp := range data.DataPoints {
-				if dp.Value != 0 {
-					t.Errorf("metric %q: got %d, want 0", sm.Name, dp.Value)
-				}
+				assert.EqualValues(t, 0,
+					dp.Value,
+				)
+
 			}
 		}
 	}
@@ -132,19 +134,18 @@ func TestObservePool_NonZeroValues(t *testing.T) {
 		failed:     5,
 		dropped:    2,
 	}
-
-	if err := m.ObservePool(meter, pool); err != nil {
-		t.Fatalf("ObservePool() error = %v", err)
-	}
+	require.NoError(t,
+		m.ObservePool(meter,
+			pool))
 
 	var rm metricdata.ResourceMetrics
-	if err := reader.Collect(context.Background(), &rm); err != nil {
-		t.Fatalf("Collect() error = %v", err)
-	}
-
-	if len(rm.ScopeMetrics) == 0 {
-		t.Fatal("no scope metrics collected")
-	}
+	require.NoError(t,
+		reader.Collect(context.
+			Background(), &rm),
+	)
+	require.NotEmpty(t,
+		rm.ScopeMetrics,
+	)
 
 	values := collectMetricValues(t, rm)
 
@@ -160,12 +161,12 @@ func TestObservePool_NonZeroValues(t *testing.T) {
 	for name, want := range checks {
 		got, ok := values[name]
 		if !ok {
-			t.Errorf("metric %q not found in collected metrics", name)
+			assert.Failf(t, "metric not found in collected metrics", "%q", name)
 			continue
 		}
-		if got != want {
-			t.Errorf("metric %q = %d, want %d", name, got, want)
-		}
+		assert.Equal(t, want,
+			got)
+
 	}
 }
 
@@ -184,19 +185,18 @@ func TestObservePool_LargeUint64Saturation(t *testing.T) {
 		failed:     math.MaxUint64,
 		dropped:    math.MaxUint64,
 	}
-
-	if err := m.ObservePool(meter, pool); err != nil {
-		t.Fatalf("ObservePool() error = %v", err)
-	}
+	require.NoError(t,
+		m.ObservePool(meter,
+			pool))
 
 	var rm metricdata.ResourceMetrics
-	if err := reader.Collect(context.Background(), &rm); err != nil {
-		t.Fatalf("Collect() error = %v", err)
-	}
-
-	if len(rm.ScopeMetrics) == 0 {
-		t.Fatal("no scope metrics collected after large uint64 values")
-	}
+	require.NoError(t,
+		reader.Collect(context.
+			Background(), &rm),
+	)
+	require.NotEmpty(t,
+		rm.ScopeMetrics,
+	)
 
 	// Verify saturateInt64 clamps MaxUint64 to MaxInt64 (no negative values).
 	// Only check Gauge metrics here. Observable counters (Sum) use cumulative
@@ -209,9 +209,9 @@ func TestObservePool_LargeUint64Saturation(t *testing.T) {
 		switch data := sm.Data.(type) {
 		case metricdata.Gauge[int64]:
 			for _, dp := range data.DataPoints {
-				if dp.Value < 0 {
-					t.Errorf("metric %q has negative value %d after saturation", sm.Name, dp.Value)
-				}
+				assert.GreaterOrEqual(t, dp.
+					Value, int64(0))
+
 			}
 		case metricdata.Sum[int64]:
 			// Counter metrics are not checked for value correctness here
@@ -230,15 +230,16 @@ func TestObservePool_NegativeRunningWorkers(t *testing.T) {
 
 	meter := provider.Meter("test-observe-pool")
 	pool := &stubPool{running: -1}
-
-	if err := m.ObservePool(meter, pool); err != nil {
-		t.Fatalf("ObservePool() error = %v", err)
-	}
+	require.NoError(t,
+		m.ObservePool(meter,
+			pool))
 
 	var rm metricdata.ResourceMetrics
-	if err := reader.Collect(context.Background(), &rm); err != nil {
-		t.Fatalf("Collect() error = %v", err)
-	}
+	require.NoError(t,
+		reader.Collect(context.
+			Background(), &rm),
+	)
+
 }
 
 func TestObservePool_CallbackReflectsLiveState(t *testing.T) {
@@ -248,28 +249,26 @@ func TestObservePool_CallbackReflectsLiveState(t *testing.T) {
 
 	meter := provider.Meter("test-observe-pool")
 	pool := &stubPool{running: 3, waiting: 7}
-
-	if err := m.ObservePool(meter, pool); err != nil {
-		t.Fatalf("ObservePool() error = %v", err)
-	}
+	require.NoError(t,
+		m.ObservePool(meter,
+			pool))
 
 	// Mutate pool state before collecting -- callback should read live values.
 	pool.running = 10
 	pool.waiting = 20
 
 	var rm metricdata.ResourceMetrics
-	if err := reader.Collect(context.Background(), &rm); err != nil {
-		t.Fatalf("Collect() error = %v", err)
-	}
+	require.NoError(t,
+		reader.Collect(context.
+			Background(), &rm),
+	)
 
 	values := collectMetricValues(t, rm)
+	assert.EqualValues(t, 10,
+		values["strait_worker_pool_running"])
+	assert.EqualValues(t, 20,
+		values["strait_worker_pool_waiting"])
 
-	if got := values["strait_worker_pool_running"]; got != 10 {
-		t.Errorf("running_workers = %d, want 10 (latest value)", got)
-	}
-	if got := values["strait_worker_pool_waiting"]; got != 20 {
-		t.Errorf("waiting_tasks = %d, want 20 (latest value)", got)
-	}
 }
 
 // collectMetricValues extracts metric name -> value from collected resource metrics.
@@ -351,22 +350,22 @@ func TestSanitizeQueryString_SensitiveParams(t *testing.T) {
 			t.Parallel()
 			result := SanitizeQueryString(tt.input)
 			params, err := url.ParseQuery(result)
-			if err != nil {
-				t.Fatalf("parsing result %q: %v", result, err)
-			}
+			require.NoError(t,
+				err)
 
 			for _, key := range tt.redacted {
 				val := params.Get(key)
-				if val != "[REDACTED]" {
-					t.Errorf("param %q = %q, want [REDACTED]", key, val)
-				}
+				assert.Equal(t, "[REDACTED]",
+
+					val)
+
 			}
 
 			for key, want := range tt.preserved {
 				got := params.Get(key)
-				if got != want {
-					t.Errorf("param %q = %q, want %q", key, got, want)
-				}
+				assert.Equal(t, want,
+					got)
+
 			}
 		})
 	}
@@ -378,9 +377,9 @@ func TestSanitizeQueryString_EdgeCases(t *testing.T) {
 	t.Run("empty string returns empty", func(t *testing.T) {
 		t.Parallel()
 		result := SanitizeQueryString("")
-		if result != "" {
-			t.Errorf("SanitizeQueryString(%q) = %q, want empty", "", result)
-		}
+		assert.Equal(t, "",
+			result)
+
 	})
 
 	t.Run("no sensitive params preserved", func(t *testing.T) {
@@ -388,27 +387,28 @@ func TestSanitizeQueryString_EdgeCases(t *testing.T) {
 		input := "page=1&limit=50&sort=asc"
 		result := SanitizeQueryString(input)
 		params, err := url.ParseQuery(result)
-		if err != nil {
-			t.Fatalf("parsing result: %v", err)
-		}
-		if params.Get("page") != "1" {
-			t.Errorf("page = %q, want 1", params.Get("page"))
-		}
-		if params.Get("limit") != "50" {
-			t.Errorf("limit = %q, want 50", params.Get("limit"))
-		}
-		if params.Get("sort") != "asc" {
-			t.Errorf("sort = %q, want asc", params.Get("sort"))
-		}
+		require.NoError(t,
+			err)
+		assert.Equal(t, "1",
+			params.
+				Get("page"))
+		assert.Equal(t, "50",
+			params.
+				Get("limit"))
+		assert.Equal(t, "asc",
+			params.
+				Get("sort"))
+
 	})
 
 	t.Run("malformed percent encoding returns empty", func(t *testing.T) {
 		t.Parallel()
 		result := SanitizeQueryString("%ZZ%YY")
+		assert.Equal(t, "",
+			result)
+
 		// url.ParseQuery fails on invalid percent encoding; function returns "".
-		if result != "" {
-			t.Errorf("SanitizeQueryString(malformed) = %q, want empty", result)
-		}
+
 	})
 
 	t.Run("key with no value", func(t *testing.T) {
@@ -419,7 +419,7 @@ func TestSanitizeQueryString_EdgeCases(t *testing.T) {
 			// If token key is present, it should be redacted.
 			params, _ := url.ParseQuery(result)
 			if v := params.Get("token"); v != "" && v != "[REDACTED]" {
-				t.Errorf("token = %q, want empty or [REDACTED]", v)
+				assert.Failf(t, "token should be empty or redacted", "%q", v)
 			}
 		}
 	})
@@ -434,12 +434,12 @@ func TestSanitizeQueryString_EdgeCases(t *testing.T) {
 		t.Parallel()
 		result := SanitizeQueryString("api_key=&page=1")
 		params, err := url.ParseQuery(result)
-		if err != nil {
-			t.Fatalf("parsing result: %v", err)
-		}
-		if v := params.Get("api_key"); v != "[REDACTED]" {
-			t.Errorf("api_key = %q, want [REDACTED]", v)
-		}
+		require.NoError(t,
+			err)
+		assert.Equal(t, "[REDACTED]",
+
+			params.Get("api_key"))
+
 	})
 }
 
@@ -454,10 +454,10 @@ func TestInitProfiling_InvalidEndpoint(t *testing.T) {
 	// Pyroscope.Start may or may not error depending on implementation.
 	// The important thing is that it does not panic.
 	if err != nil {
+		assert.True(t, strings.Contains(err.Error(), "pyroscope"))
+
 		// Verify the error is wrapped properly.
-		if !strings.Contains(err.Error(), "pyroscope") {
-			t.Errorf("error should mention pyroscope: %v", err)
-		}
+
 	}
 }
 
@@ -467,21 +467,19 @@ func TestInitProfiling_MissingServiceName(t *testing.T) {
 	shutdown, err := InitProfiling(ProfilingConfig{
 		Endpoint: "",
 	})
-	if err != nil {
-		t.Fatalf("expected nil error with empty endpoint, got %v", err)
-	}
+	require.NoError(t,
+		err)
+
 	shutdown()
 }
 
 func TestInitProfiling_AllFieldsEmpty(t *testing.T) {
 	t.Parallel()
 	shutdown, err := InitProfiling(ProfilingConfig{})
-	if err != nil {
-		t.Fatalf("expected nil error for zero-value config, got %v", err)
-	}
-	if shutdown == nil {
-		t.Fatal("expected non-nil shutdown function")
-	}
+	require.NoError(t,
+		err)
+	require.NotNil(t, shutdown)
+
 	// Double shutdown should not panic.
 	shutdown()
 	shutdown()
@@ -494,31 +492,31 @@ func TestInitMetrics_AllPoolMetricsInitialized(t *testing.T) {
 		if strings.Contains(err.Error(), "conflicting Schema URL") {
 			t.Skipf("OTel schema URL conflict: %v", err)
 		}
-		t.Fatalf("InitMetrics() error = %v", err)
+		require.NoError(t, err)
 	}
 	defer func() { _ = shutdown(context.Background()) }()
+	assert.NotNil(t, m.
+		PoolRunningWorkers,
+	)
+	assert.NotNil(t, m.
+		PoolWaitingTasks,
+	)
+	assert.NotNil(t, m.
+		PoolSubmittedTasks,
+	)
+	assert.NotNil(t, m.
+		PoolCompletedTasks,
+	)
+	assert.NotNil(t, m.
+		PoolSuccessfulTasks,
+	)
+	assert.NotNil(t, m.
+		PoolFailedTasks,
+	)
+	assert.NotNil(t, m.
+		PoolDroppedTasks,
+	)
 
-	if m.PoolRunningWorkers == nil {
-		t.Error("PoolRunningWorkers is nil")
-	}
-	if m.PoolWaitingTasks == nil {
-		t.Error("PoolWaitingTasks is nil")
-	}
-	if m.PoolSubmittedTasks == nil {
-		t.Error("PoolSubmittedTasks is nil")
-	}
-	if m.PoolCompletedTasks == nil {
-		t.Error("PoolCompletedTasks is nil")
-	}
-	if m.PoolSuccessfulTasks == nil {
-		t.Error("PoolSuccessfulTasks is nil")
-	}
-	if m.PoolFailedTasks == nil {
-		t.Error("PoolFailedTasks is nil")
-	}
-	if m.PoolDroppedTasks == nil {
-		t.Error("PoolDroppedTasks is nil")
-	}
 }
 
 func TestInitMetrics_NotificationMetricsInitialized(t *testing.T) {
@@ -528,13 +526,13 @@ func TestInitMetrics_NotificationMetricsInitialized(t *testing.T) {
 		if strings.Contains(err.Error(), "conflicting Schema URL") {
 			t.Skipf("OTel schema URL conflict: %v", err)
 		}
-		t.Fatalf("InitMetrics() error = %v", err)
+		require.NoError(t, err)
 	}
 	defer func() { _ = shutdown(context.Background()) }()
+	assert.NotNil(t, m.
+		NotificationDeliveryFailures,
+	)
 
-	if m.NotificationDeliveryFailures == nil {
-		t.Error("NotificationDeliveryFailures is nil")
-	}
 }
 
 func TestInitMetrics_OperationalMetricsInitialized(t *testing.T) {
@@ -544,34 +542,34 @@ func TestInitMetrics_OperationalMetricsInitialized(t *testing.T) {
 		if strings.Contains(err.Error(), "conflicting Schema URL") {
 			t.Skipf("OTel schema URL conflict: %v", err)
 		}
-		t.Fatalf("InitMetrics() error = %v", err)
+		require.NoError(t, err)
 	}
 	defer func() { _ = shutdown(context.Background()) }()
+	assert.NotNil(t, m.
+		WebhookBacklogDepth,
+	)
+	assert.NotNil(t, m.
+		ClickHouseExporterPending,
+	)
+	assert.NotNil(t, m.
+		RunDuration,
+	)
+	assert.NotNil(t, m.
+		CronDrift,
+	)
+	assert.NotNil(t, m.
+		ClickHouseDroppedRecords,
+	)
+	assert.NotNil(t, m.
+		ClickHouseFlushFailures,
+	)
+	assert.NotNil(t, m.
+		DBPoolTotalConns,
+	)
+	assert.NotNil(t, m.
+		HTTPRequestDuration,
+	)
 
-	if m.WebhookBacklogDepth == nil {
-		t.Error("WebhookBacklogDepth is nil")
-	}
-	if m.ClickHouseExporterPending == nil {
-		t.Error("ClickHouseExporterPending is nil")
-	}
-	if m.RunDuration == nil {
-		t.Error("RunDuration is nil")
-	}
-	if m.CronDrift == nil {
-		t.Error("CronDrift is nil")
-	}
-	if m.ClickHouseDroppedRecords == nil {
-		t.Error("ClickHouseDroppedRecords is nil")
-	}
-	if m.ClickHouseFlushFailures == nil {
-		t.Error("ClickHouseFlushFailures is nil")
-	}
-	if m.DBPoolTotalConns == nil {
-		t.Error("DBPoolTotalConns is nil")
-	}
-	if m.HTTPRequestDuration == nil {
-		t.Error("HTTPRequestDuration is nil")
-	}
 }
 
 func TestGaugeRecording(t *testing.T) {
@@ -583,33 +581,29 @@ func TestGaugeRecording(t *testing.T) {
 	meter := provider.Meter("test-gauge")
 
 	gauge, err := meter.Int64Gauge("test.gauge")
-	if err != nil {
-		t.Fatalf("Int64Gauge() error = %v", err)
-	}
+	require.NoError(t,
+		err)
 
 	ctx := context.Background()
 	gauge.Record(ctx, 42)
 
 	var rm metricdata.ResourceMetrics
-	if err := reader.Collect(ctx, &rm); err != nil {
-		t.Fatalf("Collect() error = %v", err)
-	}
-
-	if len(rm.ScopeMetrics) == 0 || len(rm.ScopeMetrics[0].Metrics) == 0 {
-		t.Fatal("no metrics collected")
-	}
+	require.NoError(t,
+		reader.Collect(ctx,
+			&rm))
+	require.False(t, len(rm.ScopeMetrics) ==
+		0 || len(rm.ScopeMetrics[0].Metrics) == 0)
 
 	m := rm.ScopeMetrics[0].Metrics[0]
 	data, ok := m.Data.(metricdata.Gauge[int64])
-	if !ok {
-		t.Fatalf("data type = %T, want Gauge[int64]", m.Data)
-	}
-	if len(data.DataPoints) == 0 {
-		t.Fatal("no data points")
-	}
-	if data.DataPoints[0].Value != 42 {
-		t.Errorf("gauge value = %d, want 42", data.DataPoints[0].Value)
-	}
+	require.True(t, ok)
+	require.NotEmpty(t,
+		data.DataPoints,
+	)
+	assert.EqualValues(t, 42,
+		data.DataPoints[0].
+			Value)
+
 }
 
 func TestUpDownCounterRecording(t *testing.T) {
@@ -621,32 +615,28 @@ func TestUpDownCounterRecording(t *testing.T) {
 	meter := provider.Meter("test-updown")
 
 	counter, err := meter.Int64UpDownCounter("test.updown")
-	if err != nil {
-		t.Fatalf("Int64UpDownCounter() error = %v", err)
-	}
+	require.NoError(t,
+		err)
 
 	ctx := context.Background()
 	counter.Add(ctx, 5)
 	counter.Add(ctx, -3)
 
 	var rm metricdata.ResourceMetrics
-	if err := reader.Collect(ctx, &rm); err != nil {
-		t.Fatalf("Collect() error = %v", err)
-	}
-
-	if len(rm.ScopeMetrics) == 0 || len(rm.ScopeMetrics[0].Metrics) == 0 {
-		t.Fatal("no metrics collected")
-	}
+	require.NoError(t,
+		reader.Collect(ctx,
+			&rm))
+	require.False(t, len(rm.ScopeMetrics) ==
+		0 || len(rm.ScopeMetrics[0].Metrics) == 0)
 
 	m := rm.ScopeMetrics[0].Metrics[0]
 	sum, ok := m.Data.(metricdata.Sum[int64])
-	if !ok {
-		t.Fatalf("data type = %T, want Sum[int64]", m.Data)
-	}
-	if len(sum.DataPoints) == 0 {
-		t.Fatal("no data points")
-	}
-	if sum.DataPoints[0].Value != 2 {
-		t.Errorf("updown counter value = %d, want 2", sum.DataPoints[0].Value)
-	}
+	require.True(t, ok)
+	require.NotEmpty(t,
+		sum.DataPoints,
+	)
+	assert.EqualValues(t, 2,
+		sum.DataPoints[0].Value,
+	)
+
 }

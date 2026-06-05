@@ -10,17 +10,17 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 )
 
 func TestGrafanaDashboards_JSONValidAndRegisteredMetrics(t *testing.T) {
 	dashboardPaths, err := filepath.Glob(filepath.Join(moduleRoot(t), "monitoring", "grafana", "*.json"))
-	if err != nil {
-		t.Fatalf("glob dashboards: %v", err)
-	}
-	if len(dashboardPaths) != 10 {
-		t.Fatalf("dashboard count = %d, want 10: %v", len(dashboardPaths), dashboardPaths)
-	}
+	require.NoError(t, err)
+	require.Len(t, dashboardPaths,
+		10,
+	)
 
 	registeredMetrics := registeredMetricNames(t)
 	metricTokenRE := regexp.MustCompile(`strait_[a-z0-9_]+`)
@@ -29,9 +29,7 @@ func TestGrafanaDashboards_JSONValidAndRegisteredMetrics(t *testing.T) {
 
 	for _, path := range dashboardPaths {
 		raw, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatalf("read %s: %v", path, err)
-		}
+		require.NoError(t, err)
 
 		var doc struct {
 			Dashboard struct {
@@ -46,37 +44,40 @@ func TestGrafanaDashboards_JSONValidAndRegisteredMetrics(t *testing.T) {
 				} `json:"panels"`
 			} `json:"dashboard"`
 		}
-		if err := json.Unmarshal(raw, &doc); err != nil {
-			t.Fatalf("%s does not parse as dashboard JSON: %v", filepath.Base(path), err)
-		}
-		if doc.Dashboard.UID == "" {
-			t.Errorf("%s missing dashboard.uid", filepath.Base(path))
-		}
-		if doc.Dashboard.Title == "" {
-			t.Errorf("%s missing dashboard.title", filepath.Base(path))
-		}
-		if previous := seenUIDs[doc.Dashboard.UID]; previous != "" {
-			t.Errorf("%s duplicates uid %q from %s", filepath.Base(path), doc.Dashboard.UID, previous)
-		}
-		if previous := seenTitles[doc.Dashboard.Title]; previous != "" {
-			t.Errorf("%s duplicates title %q from %s", filepath.Base(path), doc.Dashboard.Title, previous)
-		}
+		require.NoError(t, json.Unmarshal(raw,
+			&doc))
+		assert.NotEqual(t, "", doc.
+			Dashboard.
+			UID,
+		)
+		assert.NotEqual(t, "", doc.
+			Dashboard.
+			Title,
+		)
+		assert.Equal(t, "", seenUIDs[doc.
+			Dashboard.
+			UID])
+		assert.Equal(t, "", seenTitles[doc.
+			Dashboard.
+			Title])
+
 		seenUIDs[doc.Dashboard.UID] = filepath.Base(path)
 		seenTitles[doc.Dashboard.Title] = filepath.Base(path)
-		if len(doc.Dashboard.Panels) < 4 {
-			t.Errorf("%s has %d panels, want at least 4", filepath.Base(path), len(doc.Dashboard.Panels))
-		}
+		assert.GreaterOrEqual(t,
+			len(doc.
+				Dashboard.
+				Panels,
+			), 4)
 
 		metricRefs := map[string]struct{}{}
 		for _, token := range metricTokenRE.FindAllString(string(raw), -1) {
 			metricRefs[normalizeDashboardMetricRef(token, registeredMetrics)] = struct{}{}
 		}
-		if len(metricRefs) == 0 {
-			t.Errorf("%s references no Strait metrics", filepath.Base(path))
-		}
+		assert.NotEmpty(t, metricRefs)
+
 		for metric := range metricRefs {
 			if _, ok := registeredMetrics[metric]; !ok {
-				t.Errorf("%s references metric %q that is not registered", filepath.Base(path), metric)
+				assert.Failf(t, "dashboard references unregistered metric", "%s %q", filepath.Base(path), metric)
 			}
 		}
 	}
@@ -84,12 +85,8 @@ func TestGrafanaDashboards_JSONValidAndRegisteredMetrics(t *testing.T) {
 
 func TestGrafanaDashboards_PromQLShape(t *testing.T) {
 	dashboardPaths, err := filepath.Glob(filepath.Join(moduleRoot(t), "monitoring", "grafana", "*.json"))
-	if err != nil {
-		t.Fatalf("glob dashboards: %v", err)
-	}
-	if len(dashboardPaths) == 0 {
-		t.Fatal("no dashboard JSON files found")
-	}
+	require.NoError(t, err)
+	require.NotEmpty(t, dashboardPaths)
 
 	var checked int
 	for _, path := range dashboardPaths {
@@ -97,54 +94,59 @@ func TestGrafanaDashboards_PromQLShape(t *testing.T) {
 		for _, expr := range exprs {
 			checked++
 			if strings.TrimSpace(expr) == "" {
-				t.Errorf("%s has an empty PromQL expression", filepath.Base(path))
+				assert.Failf(t, "dashboard has an empty PromQL expression", "%s", filepath.Base(path))
 				continue
 			}
-			if err := validatePromQLShape(expr); err != nil {
-				t.Errorf("%s invalid PromQL shape for %q: %v", filepath.Base(path), expr, err)
-			}
+			assert.NoError(t, validatePromQLShape(
+				expr))
+
 		}
 	}
-	if checked == 0 {
-		t.Fatal("no dashboard PromQL expressions checked")
-	}
+	require.NotEqual(t, 0, checked)
+
 }
 
 func TestGrafanaDashboards_DatasourceAndIntervalVariables(t *testing.T) {
 	dashboardPaths, err := filepath.Glob(filepath.Join(moduleRoot(t), "monitoring", "grafana", "*.json"))
-	if err != nil {
-		t.Fatalf("glob dashboards: %v", err)
-	}
+	require.NoError(t, err)
+
 	for _, path := range dashboardPaths {
 		doc := loadGrafanaDashboard(t, path)
 		variables := map[string]string{}
 		for _, variable := range doc.Dashboard.Templating.List {
 			variables[variable.Name] = variable.Type
 		}
-		if variables["datasource"] != "datasource" {
-			t.Errorf("%s missing datasource variable", filepath.Base(path))
-		}
-		if variables["interval"] != "interval" {
-			t.Errorf("%s missing interval variable", filepath.Base(path))
-		}
+		assert.Equal(t, "datasource",
+			variables["datasource"])
+		assert.Equal(t, "interval",
+			variables["interval"],
+		)
 
 		for _, panel := range doc.Dashboard.Panels {
 			if len(panel.Targets) == 0 {
 				continue
 			}
-			if panel.Datasource.UID != "${datasource}" {
-				t.Errorf("%s panel %q must use datasource variable, got %q", filepath.Base(path), panel.Title, panel.Datasource.UID)
-			}
+			assert.Equal(t, "${datasource}",
+
+				panel.
+					Datasource.
+					UID)
+
 			for _, target := range panel.Targets {
 				if target.Expr == "" {
 					continue
 				}
-				if target.Datasource.UID != "${datasource}" {
-					t.Errorf("%s panel %q target %q must use datasource variable, got %q", filepath.Base(path), panel.Title, target.RefID, target.Datasource.UID)
-				}
-				if strings.Contains(target.Expr, "[5m]") || strings.Contains(target.Expr, "[1h]") {
-					t.Errorf("%s panel %q target %q has hard-coded short range selector: %s", filepath.Base(path), panel.Title, target.RefID, target.Expr)
-				}
+				assert.Equal(t, "${datasource}",
+
+					target.
+						Datasource.
+						UID)
+				assert.False(t, strings.Contains(target.
+					Expr, "[5m]",
+				) || strings.Contains(target.
+					Expr,
+					"[1h]"))
+
 			}
 		}
 	}
@@ -152,17 +154,15 @@ func TestGrafanaDashboards_DatasourceAndIntervalVariables(t *testing.T) {
 
 func TestGrafanaDashboards_MetricRefsRegistered(t *testing.T) {
 	dashboardPaths, err := filepath.Glob(filepath.Join(moduleRoot(t), "monitoring", "grafana", "*.json"))
-	if err != nil {
-		t.Fatalf("glob dashboards: %v", err)
-	}
+	require.NoError(t, err)
+
 	registered := registeredMetricNames(t)
 	metricTokenRE := regexp.MustCompile(`strait_[a-z0-9_]+`)
 
 	for _, path := range dashboardPaths {
 		raw, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatalf("read %s: %v", path, err)
-		}
+		require.NoError(t, err)
+
 		for _, token := range metricTokenRE.FindAllString(string(raw), -1) {
 			base := normalizePrometheusMetricToken(token)
 			candidates := []string{token}
@@ -179,9 +179,8 @@ func TestGrafanaDashboards_MetricRefsRegistered(t *testing.T) {
 					break
 				}
 			}
-			if !found {
-				t.Errorf("%s references metric %q that is not registered in source", filepath.Base(path), token)
-			}
+			assert.True(t, found)
+
 		}
 	}
 }
@@ -194,16 +193,13 @@ func TestGrafanaProvisioningFiles(t *testing.T) {
 	}
 	for _, path := range files {
 		raw, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatalf("read %s: %v", path, err)
-		}
+		require.NoError(t, err)
+
 		var parsed map[string]any
-		if err := yaml.Unmarshal(raw, &parsed); err != nil {
-			t.Fatalf("%s is invalid YAML: %v", filepath.Base(path), err)
-		}
-		if parsed["apiVersion"] == nil {
-			t.Errorf("%s missing apiVersion", filepath.Base(path))
-		}
+		require.NoError(t, yaml.Unmarshal(raw,
+			&parsed))
+		assert.NotNil(t, parsed["apiVersion"])
+
 	}
 }
 
@@ -214,14 +210,14 @@ func TestGrafanaSmokeScriptSyntax(t *testing.T) {
 	}
 	for _, script := range scripts {
 		if info, err := os.Stat(script); err != nil {
-			t.Fatalf("stat script %s: %v", script, err)
+			require.NoErrorf(t, err, "stat script %s", script)
 		} else if info.Mode()&0o111 == 0 {
-			t.Fatalf("%s is not executable: mode %s", filepath.Base(script), info.Mode())
+			require.Failf(t, "script is not executable", "%s mode %s", filepath.Base(script), info.Mode())
 		}
 
 		cmd := exec.Command("bash", "-n", script)
 		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("bash -n %s failed: %v\n%s", filepath.Base(script), err, out)
+			require.NoErrorf(t, err, "bash -n %s failed: %s", filepath.Base(script), out)
 		}
 	}
 }
@@ -268,13 +264,12 @@ type grafanaDatasource struct {
 func loadGrafanaDashboard(t *testing.T, path string) grafanaDashboardDoc {
 	t.Helper()
 	raw, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read %s: %v", path, err)
-	}
+	require.NoError(t, err)
+
 	var doc grafanaDashboardDoc
-	if err := json.Unmarshal(raw, &doc); err != nil {
-		t.Fatalf("%s does not parse as dashboard JSON: %v", filepath.Base(path), err)
-	}
+	require.NoError(t, json.Unmarshal(raw,
+		&doc))
+
 	return doc
 }
 
