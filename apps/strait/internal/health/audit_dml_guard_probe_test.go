@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type fakeAuditDMLChecker struct {
@@ -21,12 +24,8 @@ func TestAuditDMLGuardProbe_EnforcedWhenRestricted(t *testing.T) {
 	t.Parallel()
 	checker := &fakeAuditDMLChecker{unrestricted: false}
 	probe := NewAuditDMLGuardProbe(checker)
-	if err := probe.Check(context.Background()); err != nil {
-		t.Errorf("expected nil error when UPDATE is restricted, got %v", err)
-	}
-	if !checker.called {
-		t.Error("expected checker to be invoked")
-	}
+	require.NoError(t, probe.Check(context.Background()))
+	assert.True(t, checker.called)
 }
 
 func TestAuditDMLGuardProbe_DegradedWhenUnrestricted(t *testing.T) {
@@ -34,12 +33,8 @@ func TestAuditDMLGuardProbe_DegradedWhenUnrestricted(t *testing.T) {
 	checker := &fakeAuditDMLChecker{unrestricted: true}
 	probe := NewAuditDMLGuardProbe(checker)
 	err := probe.Check(context.Background())
-	if err == nil {
-		t.Fatal("expected non-nil error when UPDATE is unrestricted")
-	}
-	if !containsSubstring(err.Error(), "UPDATE/DELETE/TRUNCATE") {
-		t.Errorf("error = %q, expected mention of UPDATE/DELETE/TRUNCATE", err.Error())
-	}
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "UPDATE/DELETE/TRUNCATE")
 }
 
 func TestAuditDMLGuardProbe_ErrorReturnsDegraded(t *testing.T) {
@@ -47,25 +42,19 @@ func TestAuditDMLGuardProbe_ErrorReturnsDegraded(t *testing.T) {
 	checker := &fakeAuditDMLChecker{err: errors.New("privilege probe failed")}
 	probe := NewAuditDMLGuardProbe(checker)
 	err := probe.Check(context.Background())
-	if err == nil {
-		t.Fatal("expected error when privilege probe errors")
-	}
+	require.Error(t, err)
 }
 
 func TestAuditDMLGuardProbe_NilCheckerIsHealthy(t *testing.T) {
 	t.Parallel()
 	probe := NewAuditDMLGuardProbe(nil)
-	if err := probe.Check(context.Background()); err != nil {
-		t.Errorf("expected nil checker to be healthy, got %v", err)
-	}
+	require.NoError(t, probe.Check(context.Background()))
 }
 
 func TestAuditDMLGuardProbe_Name(t *testing.T) {
 	t.Parallel()
 	probe := NewAuditDMLGuardProbe(nil)
-	if probe.Name() != "audit_dml_guard" {
-		t.Errorf("name = %q, want audit_dml_guard", probe.Name())
-	}
+	assert.Equal(t, "audit_dml_guard", probe.Name())
 }
 
 func TestAuditDMLGuardProbe_NonCritical(t *testing.T) {
@@ -76,7 +65,5 @@ func TestAuditDMLGuardProbe_NonCritical(t *testing.T) {
 	reg := NewRegistry()
 	reg.Register(NewAuditDMLGuardProbe(&fakeAuditDMLChecker{unrestricted: true}))
 	result := reg.CheckAll(context.Background())
-	if result.Status != StatusDegraded {
-		t.Errorf("status = %q, want degraded", result.Status)
-	}
+	assert.Equal(t, StatusDegraded, result.Status)
 }

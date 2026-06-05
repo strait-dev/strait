@@ -7,6 +7,9 @@ import (
 	"math"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestHealthScore_ExtremeValues verifies registry behavior when checkers return extreme latencies.
@@ -20,21 +23,13 @@ func TestHealthScore_ExtremeValues(t *testing.T) {
 	}))
 
 	result := r.CheckAll(context.Background())
-	if result.Status != StatusUp {
-		t.Fatalf("status = %q, want %q", result.Status, StatusUp)
-	}
-	if len(result.Components) != 1 {
-		t.Fatalf("components = %d, want 1", len(result.Components))
-	}
+	require.Equal(t, StatusUp, result.Status)
+	require.Len(t, result.Components, 1)
 
 	// Verify the component result fields are sane even with very fast execution.
 	comp := result.Components[0]
-	if comp.Latency < 0 {
-		t.Errorf("latency = %v, should not be negative", comp.Latency)
-	}
-	if comp.LatencyMs < 0 {
-		t.Errorf("latency_ms = %d, should not be negative", comp.LatencyMs)
-	}
+	assert.GreaterOrEqual(t, comp.Latency, time.Duration(0))
+	assert.GreaterOrEqual(t, comp.LatencyMs, int64(0))
 
 	// Test with a checker that returns an error message containing MaxFloat64.
 	r2 := NewRegistry()
@@ -43,12 +38,9 @@ func TestHealthScore_ExtremeValues(t *testing.T) {
 	}))
 
 	result2 := r2.CheckAll(context.Background())
-	if result2.Status != StatusDown {
-		t.Fatalf("status = %q, want %q for error checker", result2.Status, StatusDown)
-	}
-	if result2.Components[0].Error == "" {
-		t.Fatal("expected error message in component")
-	}
+	require.Equal(t, StatusDown, result2.Status)
+	require.Len(t, result2.Components, 1)
+	assert.NotEmpty(t, result2.Components[0].Error)
 }
 
 // TestHealthScore_NaN verifies registry handles NaN-related edge cases gracefully.
@@ -66,12 +58,9 @@ func TestHealthScore_NaN(t *testing.T) {
 	}))
 
 	result := r.CheckAll(context.Background())
-	if result.Status != StatusDown {
-		t.Fatalf("status = %q, want %q", result.Status, StatusDown)
-	}
-	if result.Components[0].Error == "" {
-		t.Fatal("expected error message for NaN checker")
-	}
+	require.Equal(t, StatusDown, result.Status)
+	require.Len(t, result.Components, 1)
+	assert.NotEmpty(t, result.Components[0].Error)
 }
 
 // TestRegistry_ManyCheckers verifies the registry handles 1000 concurrent checkers.
@@ -88,18 +77,12 @@ func TestRegistry_ManyCheckers(t *testing.T) {
 	}
 
 	result := r.CheckAll(context.Background())
-	if result.Status != StatusUp {
-		t.Fatalf("status = %q, want %q with %d checkers", result.Status, StatusUp, count)
-	}
-	if len(result.Components) != count {
-		t.Fatalf("components = %d, want %d", len(result.Components), count)
-	}
+	require.Equal(t, StatusUp, result.Status)
+	require.Len(t, result.Components, count)
 
 	// Verify all components reported up.
 	for _, comp := range result.Components {
-		if comp.Status != StatusUp {
-			t.Errorf("component %q status = %q, want %q", comp.Name, comp.Status, StatusUp)
-		}
+		assert.Equal(t, StatusUp, comp.Status, "component %q", comp.Name)
 	}
 }
 
@@ -112,21 +95,15 @@ func TestRegistry_DuplicateNames(t *testing.T) {
 	r.Register(NewChecker("db", func(_ context.Context) error { return errors.New("second db failed") }))
 
 	result := r.CheckAll(context.Background())
-	if len(result.Components) != 2 {
-		t.Fatalf("components = %d, want 2 (duplicate names allowed)", len(result.Components))
-	}
+	require.Len(t, result.Components, 2)
 
 	// Both should have the same name.
 	for _, comp := range result.Components {
-		if comp.Name != "db" {
-			t.Errorf("component name = %q, want %q", comp.Name, "db")
-		}
+		assert.Equal(t, "db", comp.Name)
 	}
 
 	// Overall status should be down because one checker failed and defaults to critical.
-	if result.Status != StatusDown {
-		t.Fatalf("status = %q, want %q (one duplicate failed)", result.Status, StatusDown)
-	}
+	require.Equal(t, StatusDown, result.Status)
 }
 
 // TestChecker_Timeout verifies that a never-returning checker respects context cancellation.
@@ -146,16 +123,11 @@ func TestChecker_Timeout(t *testing.T) {
 	result := r.CheckAll(ctx)
 	elapsed := time.Since(start)
 
-	if result.Status != StatusDown {
-		t.Fatalf("status = %q, want %q for timed-out checker", result.Status, StatusDown)
-	}
+	require.Equal(t, StatusDown, result.Status)
 	// Should complete in roughly the timeout period, not hang forever.
-	if elapsed > 2*time.Second {
-		t.Fatalf("elapsed = %v, expected completion near the 100ms timeout", elapsed)
-	}
-	if result.Components[0].Error == "" {
-		t.Fatal("expected error message for timed-out checker")
-	}
+	require.LessOrEqual(t, elapsed, 2*time.Second)
+	require.Len(t, result.Components, 1)
+	assert.NotEmpty(t, result.Components[0].Error)
 }
 
 // FuzzHealthScoreComputation fuzzes checker registration and execution with varied inputs.
@@ -178,21 +150,13 @@ func FuzzHealthScoreComputation(f *testing.F) {
 		// Must not panic.
 		result := r.CheckAll(context.Background())
 
-		if len(result.Components) != 1 {
-			t.Fatalf("components = %d, want 1", len(result.Components))
-		}
+		require.Len(t, result.Components, 1)
 		comp := result.Components[0]
-		if comp.Name != name {
-			t.Errorf("name = %q, want %q", comp.Name, name)
-		}
+		assert.Equal(t, name, comp.Name)
 		if shouldFail && errMsg != "" {
-			if comp.Status != StatusDown {
-				t.Errorf("status = %q, want %q for failing checker", comp.Status, StatusDown)
-			}
+			assert.Equal(t, StatusDown, comp.Status)
 		} else {
-			if comp.Status != StatusUp {
-				t.Errorf("status = %q, want %q for passing checker", comp.Status, StatusUp)
-			}
+			assert.Equal(t, StatusUp, comp.Status)
 		}
 	})
 }
