@@ -5,6 +5,9 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestExportBundle_EmptyJobs verifies exporting with no jobs produces empty job list.
@@ -13,19 +16,10 @@ func TestExportBundle_EmptyJobs(t *testing.T) {
 
 	b := ExportBundle("proj-1", nil, nil, nil, nil, nil, nil)
 
-	if b == nil {
-		t.Fatal("expected non-nil bundle")
-		return
-	}
-	if len(b.Resources.Jobs) != 0 {
-		t.Errorf("expected 0 jobs, got %d", len(b.Resources.Jobs))
-	}
-	if b.Version != Version {
-		t.Errorf("version = %q, want %q", b.Version, Version)
-	}
-	if b.SourceProjectID != "proj-1" {
-		t.Errorf("source project = %q, want %q", b.SourceProjectID, "proj-1")
-	}
+	require.NotNil(t, b)
+	assert.Empty(t, b.Resources.Jobs)
+	assert.Equal(t, Version, b.Version)
+	assert.Equal(t, "proj-1", b.SourceProjectID)
 }
 
 // TestExportBundle_EmptyWorkflows verifies exporting with jobs but no workflows.
@@ -38,15 +32,9 @@ func TestExportBundle_EmptyWorkflows(t *testing.T) {
 
 	b := ExportBundle("proj-1", jobs, nil, nil, nil, nil, nil)
 
-	if len(b.Resources.Jobs) != 1 {
-		t.Fatalf("expected 1 job, got %d", len(b.Resources.Jobs))
-	}
-	if b.Resources.Jobs[0].Slug != "test-job" {
-		t.Errorf("job slug = %q, want %q", b.Resources.Jobs[0].Slug, "test-job")
-	}
-	if len(b.Resources.Workflows) != 0 {
-		t.Errorf("expected 0 workflows, got %d", len(b.Resources.Workflows))
-	}
+	require.Len(t, b.Resources.Jobs, 1)
+	assert.Equal(t, "test-job", b.Resources.Jobs[0].Slug)
+	assert.Empty(t, b.Resources.Workflows)
 }
 
 // TestExportBundle_MissingSlugMapping verifies that a job ID not in the slug map
@@ -67,16 +55,10 @@ func TestExportBundle_MissingSlugMapping(t *testing.T) {
 
 	b := ExportBundle("proj-1", nil, workflows, steps, nil, jobIDToSlug, nil)
 
-	if len(b.Resources.Workflows) != 1 {
-		t.Fatalf("expected 1 workflow, got %d", len(b.Resources.Workflows))
-	}
+	require.Len(t, b.Resources.Workflows, 1)
 	wf := b.Resources.Workflows[0]
-	if len(wf.Steps) != 1 {
-		t.Fatalf("expected 1 step, got %d", len(wf.Steps))
-	}
-	if wf.Steps[0].JobSlug != "" {
-		t.Errorf("expected empty job slug for unmapped ID, got %q", wf.Steps[0].JobSlug)
-	}
+	require.Len(t, wf.Steps, 1)
+	assert.Empty(t, wf.Steps[0].JobSlug)
 }
 
 // TestExportBundle_NilMaps verifies nil maps do not cause panics.
@@ -93,17 +75,10 @@ func TestExportBundle_NilMaps(t *testing.T) {
 	// All maps are nil.
 	b := ExportBundle("proj-1", jobs, workflows, nil, nil, nil, nil)
 
-	if b == nil {
-		t.Fatal("expected non-nil bundle")
-		return
-	}
-	if len(b.Resources.Jobs) != 1 {
-		t.Errorf("expected 1 job, got %d", len(b.Resources.Jobs))
-	}
+	require.NotNil(t, b)
+	require.Len(t, b.Resources.Jobs, 1)
 	// Environment slug should be empty since envIDToSlug is nil.
-	if b.Resources.Jobs[0].EnvironmentSlug != "" {
-		t.Errorf("expected empty env slug, got %q", b.Resources.Jobs[0].EnvironmentSlug)
-	}
+	assert.Empty(t, b.Resources.Jobs[0].EnvironmentSlug)
 }
 
 // TestExportBundle_LargeBundle verifies exporting 1000 jobs and 100 workflows.
@@ -131,20 +106,12 @@ func TestExportBundle_LargeBundle(t *testing.T) {
 
 	b := ExportBundle("proj-1", jobs, workflows, steps, nil, jobIDToSlug, nil)
 
-	if len(b.Resources.Jobs) != 1000 {
-		t.Errorf("expected 1000 jobs, got %d", len(b.Resources.Jobs))
-	}
-	if len(b.Resources.Workflows) != 100 {
-		t.Errorf("expected 100 workflows, got %d", len(b.Resources.Workflows))
-	}
+	assert.Len(t, b.Resources.Jobs, 1000)
+	require.Len(t, b.Resources.Workflows, 100)
 
 	// Verify step slug resolution for the first workflow.
-	if len(b.Resources.Workflows[0].Steps) != 1 {
-		t.Fatalf("expected 1 step in first workflow, got %d", len(b.Resources.Workflows[0].Steps))
-	}
-	if b.Resources.Workflows[0].Steps[0].JobSlug != "slug-0" {
-		t.Errorf("step job slug = %q, want %q", b.Resources.Workflows[0].Steps[0].JobSlug, "slug-0")
-	}
+	require.Len(t, b.Resources.Workflows[0].Steps, 1)
+	assert.Equal(t, "slug-0", b.Resources.Workflows[0].Steps[0].JobSlug)
 }
 
 // FuzzExportBundle fuzzes the number of jobs and workflows passed to ExportBundle.
@@ -187,15 +154,8 @@ func FuzzExportBundle(f *testing.F) {
 		}
 
 		b := ExportBundle("proj", jobs, workflows, nil, nil, nil, nil)
-		if b == nil {
-			t.Fatal("expected non-nil bundle")
-			return
-		}
-		if len(b.Resources.Jobs) != numJobs {
-			t.Errorf("job count = %d, want %d", len(b.Resources.Jobs), numJobs)
-		}
-		if len(b.Resources.Workflows) != numWorkflows {
-			t.Errorf("workflow count = %d, want %d", len(b.Resources.Workflows), numWorkflows)
-		}
+		require.NotNil(t, b)
+		assert.Len(t, b.Resources.Jobs, numJobs)
+		assert.Len(t, b.Resources.Workflows, numWorkflows)
 	})
 }

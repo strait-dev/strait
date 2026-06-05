@@ -3,6 +3,9 @@ package bundle
 import (
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestUnmarshalYAML_NormalSize_Passes(t *testing.T) {
@@ -14,9 +17,7 @@ jobs:
     endpoint_url: https://example.com/webhook
 `
 	_, err := UnmarshalYAML([]byte(yaml))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, err)
 }
 
 func TestUnmarshalYAML_AtMaxSize_Passes(t *testing.T) {
@@ -33,14 +34,12 @@ jobs:
 	padding := strings.Repeat("x", maxBundleYAMLSize-len(header)-len(footer))
 	yaml := header + padding + footer
 
-	if len(yaml) > maxBundleYAMLSize {
-		t.Fatalf("test setup: YAML size %d > max %d", len(yaml), maxBundleYAMLSize)
-	}
+	require.LessOrEqual(t, len(yaml), maxBundleYAMLSize)
 
 	// Should not error on size (may error on content, but that's fine).
 	_, err := UnmarshalYAML([]byte(yaml))
-	if err != nil && strings.Contains(err.Error(), "exceeds maximum size") {
-		t.Fatalf("should not reject YAML at max size boundary: %v", err)
+	if err != nil {
+		assert.NotContains(t, err.Error(), "exceeds maximum size")
 	}
 }
 
@@ -53,12 +52,8 @@ func TestUnmarshalYAML_OverMaxSize_Rejected(t *testing.T) {
 	}
 
 	_, err := UnmarshalYAML(data)
-	if err == nil {
-		t.Fatal("expected error for oversized YAML")
-	}
-	if !strings.Contains(err.Error(), "exceeds maximum size") {
-		t.Errorf("error = %q, want contains 'exceeds maximum size'", err.Error())
-	}
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "exceeds maximum size")
 }
 
 func FuzzUnmarshalYAML(f *testing.F) {

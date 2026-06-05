@@ -6,6 +6,9 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestExportBundle_BasicRoundTrip(t *testing.T) {
@@ -38,27 +41,13 @@ func TestExportBundle_BasicRoundTrip(t *testing.T) {
 
 	b := ExportBundle("proj-1", jobs, workflows, steps, envs, jobIDToSlug, envIDToSlug)
 
-	if b.Version != Version {
-		t.Errorf("version = %q, want %q", b.Version, Version)
-	}
-	if b.SourceProjectID != "proj-1" {
-		t.Errorf("source_project_id = %q, want %q", b.SourceProjectID, "proj-1")
-	}
-	if len(b.Resources.Jobs) != 1 {
-		t.Fatalf("expected 1 job, got %d", len(b.Resources.Jobs))
-	}
-	if b.Resources.Jobs[0].Slug != "resize-image" {
-		t.Errorf("job slug = %q", b.Resources.Jobs[0].Slug)
-	}
-	if len(b.Resources.Workflows) != 1 {
-		t.Fatalf("expected 1 workflow, got %d", len(b.Resources.Workflows))
-	}
-	if len(b.Resources.Workflows[0].Steps) != 1 {
-		t.Fatalf("expected 1 step, got %d", len(b.Resources.Workflows[0].Steps))
-	}
-	if b.Resources.Workflows[0].Steps[0].JobSlug != "resize-image" {
-		t.Errorf("step job_slug = %q, want %q", b.Resources.Workflows[0].Steps[0].JobSlug, "resize-image")
-	}
+	assert.Equal(t, Version, b.Version)
+	assert.Equal(t, "proj-1", b.SourceProjectID)
+	require.Len(t, b.Resources.Jobs, 1)
+	assert.Equal(t, "resize-image", b.Resources.Jobs[0].Slug)
+	require.Len(t, b.Resources.Workflows, 1)
+	require.Len(t, b.Resources.Workflows[0].Steps, 1)
+	assert.Equal(t, "resize-image", b.Resources.Workflows[0].Steps[0].JobSlug)
 }
 
 func TestExportBundle_SecretsRedacted(t *testing.T) {
@@ -72,14 +61,10 @@ func TestExportBundle_SecretsRedacted(t *testing.T) {
 
 	b := ExportBundle("proj-1", nil, nil, nil, envs, nil, nil)
 
-	if len(b.Resources.Environments) != 1 {
-		t.Fatalf("expected 1 env, got %d", len(b.Resources.Environments))
-	}
+	require.Len(t, b.Resources.Environments, 1)
 	env := b.Resources.Environments[0]
 	for key, val := range env.Variables {
-		if val != RedactedPlaceholder {
-			t.Errorf("variable %q should be redacted, got %q", key, val)
-		}
+		assert.Equal(t, RedactedPlaceholder, val, "variable %q should be redacted", key)
 	}
 }
 
@@ -87,15 +72,9 @@ func TestExportBundle_EmptyProject(t *testing.T) {
 	t.Parallel()
 	b := ExportBundle("proj-empty", nil, nil, nil, nil, nil, nil)
 
-	if b.Version != Version {
-		t.Errorf("version should be set for empty bundle")
-	}
-	if len(b.Resources.Jobs) != 0 {
-		t.Error("empty project should have no jobs")
-	}
-	if len(b.Resources.Workflows) != 0 {
-		t.Error("empty project should have no workflows")
-	}
+	assert.Equal(t, Version, b.Version)
+	assert.Empty(t, b.Resources.Jobs)
+	assert.Empty(t, b.Resources.Workflows)
 }
 
 func TestExportBundle_EnvironmentSlugResolution(t *testing.T) {
@@ -107,9 +86,8 @@ func TestExportBundle_EnvironmentSlugResolution(t *testing.T) {
 
 	b := ExportBundle("proj-1", jobs, nil, nil, nil, nil, envIDToSlug)
 
-	if b.Resources.Jobs[0].EnvironmentSlug != "production" {
-		t.Errorf("environment_slug = %q, want %q", b.Resources.Jobs[0].EnvironmentSlug, "production")
-	}
+	require.Len(t, b.Resources.Jobs, 1)
+	assert.Equal(t, "production", b.Resources.Jobs[0].EnvironmentSlug)
 }
 
 func TestMarshalUnmarshalYAML_RoundTrip(t *testing.T) {
@@ -134,33 +112,18 @@ func TestMarshalUnmarshalYAML_RoundTrip(t *testing.T) {
 	}
 
 	data, err := MarshalYAML(b)
-	if err != nil {
-		t.Fatalf("MarshalYAML: %v", err)
-	}
-	if len(data) == 0 {
-		t.Fatal("marshaled data is empty")
-	}
+	require.NoError(t, err)
+	require.NotEmpty(t, data)
 
 	parsed, err := UnmarshalYAML(data)
-	if err != nil {
-		t.Fatalf("UnmarshalYAML: %v", err)
-	}
+	require.NoError(t, err)
 
-	if parsed.Version != b.Version {
-		t.Errorf("version = %q, want %q", parsed.Version, b.Version)
-	}
-	if parsed.SourceProjectID != b.SourceProjectID {
-		t.Errorf("source_project_id = %q, want %q", parsed.SourceProjectID, b.SourceProjectID)
-	}
-	if len(parsed.Resources.Jobs) != 1 {
-		t.Fatalf("expected 1 job, got %d", len(parsed.Resources.Jobs))
-	}
-	if parsed.Resources.Jobs[0].Slug != "job-1" {
-		t.Errorf("job slug = %q", parsed.Resources.Jobs[0].Slug)
-	}
-	if len(parsed.Resources.Workflows) != 1 || len(parsed.Resources.Workflows[0].Steps) != 1 {
-		t.Error("workflow steps not preserved")
-	}
+	assert.Equal(t, b.Version, parsed.Version)
+	assert.Equal(t, b.SourceProjectID, parsed.SourceProjectID)
+	require.Len(t, parsed.Resources.Jobs, 1)
+	assert.Equal(t, "job-1", parsed.Resources.Jobs[0].Slug)
+	require.Len(t, parsed.Resources.Workflows, 1)
+	require.Len(t, parsed.Resources.Workflows[0].Steps, 1)
 }
 
 func TestUnmarshalYAML_InvalidVersion(t *testing.T) {
@@ -170,9 +133,7 @@ source_project_id: proj-1
 resources: {}
 `)
 	_, err := UnmarshalYAML(data)
-	if err == nil {
-		t.Fatal("expected error for unsupported version")
-	}
+	require.Error(t, err)
 }
 
 func TestUnmarshalYAML_MissingVersion(t *testing.T) {
@@ -181,17 +142,13 @@ func TestUnmarshalYAML_MissingVersion(t *testing.T) {
 resources: {}
 `)
 	_, err := UnmarshalYAML(data)
-	if err == nil {
-		t.Fatal("expected error for missing version")
-	}
+	require.Error(t, err)
 }
 
 func TestUnmarshalYAML_InvalidYAML(t *testing.T) {
 	t.Parallel()
 	_, err := UnmarshalYAML([]byte(`{not valid yaml`))
-	if err == nil {
-		t.Fatal("expected error for invalid YAML")
-	}
+	require.Error(t, err)
 }
 
 func TestComputeDiff_AllNew(t *testing.T) {
@@ -214,9 +171,7 @@ func TestComputeDiff_AllNew(t *testing.T) {
 			creates++
 		}
 	}
-	if creates != 3 {
-		t.Errorf("expected 3 creates, got %d", creates)
-	}
+	assert.Equal(t, 3, creates)
 }
 
 func TestComputeDiff_AllExisting(t *testing.T) {
@@ -241,9 +196,7 @@ func TestComputeDiff_AllExisting(t *testing.T) {
 			updates++
 		}
 	}
-	if updates != 3 {
-		t.Errorf("expected 3 updates, got %d", updates)
-	}
+	assert.Equal(t, 3, updates)
 }
 
 func TestComputeDiff_StandardEnvsSkipped(t *testing.T) {
@@ -270,12 +223,8 @@ func TestComputeDiff_StandardEnvsSkipped(t *testing.T) {
 			// not expected in this test
 		}
 	}
-	if skips != 1 {
-		t.Errorf("expected 1 skip (standard env), got %d", skips)
-	}
-	if creates != 1 {
-		t.Errorf("expected 1 create (custom env), got %d", creates)
-	}
+	assert.Equal(t, 1, skips)
+	assert.Equal(t, 1, creates)
 }
 
 func TestComputeDiff_DependencyOrder(t *testing.T) {
@@ -294,35 +243,19 @@ func TestComputeDiff_DependencyOrder(t *testing.T) {
 	diff := ComputeDiff(b, map[string]bool{}, map[string]bool{}, map[string]bool{})
 
 	// Verify order: environments, jobs, workflows, webhooks.
-	if len(diff) != 4 {
-		t.Fatalf("expected 4 diff entries, got %d", len(diff))
-	}
-	if diff[0].ResourceType != "environment" {
-		t.Errorf("first entry should be environment, got %q", diff[0].ResourceType)
-	}
-	if diff[1].ResourceType != "job" {
-		t.Errorf("second entry should be job, got %q", diff[1].ResourceType)
-	}
-	if diff[2].ResourceType != "workflow" {
-		t.Errorf("third entry should be workflow, got %q", diff[2].ResourceType)
-	}
-	if diff[3].ResourceType != "webhook_subscription" {
-		t.Errorf("fourth entry should be webhook_subscription, got %q", diff[3].ResourceType)
-	}
+	require.Len(t, diff, 4)
+	assert.Equal(t, "environment", diff[0].ResourceType)
+	assert.Equal(t, "job", diff[1].ResourceType)
+	assert.Equal(t, "workflow", diff[2].ResourceType)
+	assert.Equal(t, "webhook_subscription", diff[3].ResourceType)
 }
 
 func TestDependencyOrder(t *testing.T) {
 	t.Parallel()
 	order := DependencyOrder()
-	if len(order) != 4 {
-		t.Fatalf("expected 4 resource types, got %d", len(order))
-	}
-	if order[0] != "environment" {
-		t.Errorf("first = %q, want environment", order[0])
-	}
-	if order[3] != "webhook_subscription" {
-		t.Errorf("last = %q, want webhook_subscription", order[3])
-	}
+	require.Len(t, order, 4)
+	assert.Equal(t, "environment", order[0])
+	assert.Equal(t, "webhook_subscription", order[3])
 }
 
 func TestExportBundle_MultipleJobs(t *testing.T) {
@@ -337,9 +270,7 @@ func TestExportBundle_MultipleJobs(t *testing.T) {
 	}
 
 	b := ExportBundle("proj-1", jobs, nil, nil, nil, nil, nil)
-	if len(b.Resources.Jobs) != 10 {
-		t.Errorf("expected 10 jobs, got %d", len(b.Resources.Jobs))
-	}
+	assert.Len(t, b.Resources.Jobs, 10)
 }
 
 func TestImportResult_Fields(t *testing.T) {
@@ -350,29 +281,19 @@ func TestImportResult_Fields(t *testing.T) {
 		Skipped: 1,
 		Failed:  0,
 	}
-	if result.Created+result.Updated+result.Skipped+result.Failed != 6 {
-		t.Error("counts don't add up")
-	}
+	assert.Equal(t, 6, result.Created+result.Updated+result.Skipped+result.Failed)
 }
 
 func TestDiffEntry_Actions(t *testing.T) {
 	t.Parallel()
-	if DiffCreate != "CREATE" {
-		t.Errorf("DiffCreate = %q", DiffCreate)
-	}
-	if DiffUpdate != "UPDATE" {
-		t.Errorf("DiffUpdate = %q", DiffUpdate)
-	}
-	if DiffSkip != "SKIP" {
-		t.Errorf("DiffSkip = %q", DiffSkip)
-	}
+	assert.Equal(t, DiffAction("CREATE"), DiffCreate)
+	assert.Equal(t, DiffAction("UPDATE"), DiffUpdate)
+	assert.Equal(t, DiffAction("SKIP"), DiffSkip)
 }
 
 func TestRedactedPlaceholder(t *testing.T) {
 	t.Parallel()
-	if RedactedPlaceholder != "<REDACTED>" {
-		t.Errorf("RedactedPlaceholder = %q", RedactedPlaceholder)
-	}
+	assert.Equal(t, "<REDACTED>", RedactedPlaceholder)
 }
 
 func TestExportBundle_WebhookURLPreserved(t *testing.T) {
@@ -381,12 +302,8 @@ func TestExportBundle_WebhookURLPreserved(t *testing.T) {
 		{Slug: "hook-job", Name: "Hook Job", WebhookURL: "https://hooks.example.com/notify"},
 	}
 	b := ExportBundle("proj-1", jobs, nil, nil, nil, nil, nil)
-	if len(b.Resources.Jobs) != 1 {
-		t.Fatalf("expected 1 job, got %d", len(b.Resources.Jobs))
-	}
-	if b.Resources.Jobs[0].WebhookURL != "https://hooks.example.com/notify" {
-		t.Errorf("WebhookURL = %q, want %q", b.Resources.Jobs[0].WebhookURL, "https://hooks.example.com/notify")
-	}
+	require.Len(t, b.Resources.Jobs, 1)
+	assert.Equal(t, "https://hooks.example.com/notify", b.Resources.Jobs[0].WebhookURL)
 }
 
 func TestExportBundle_EmptyWebhookURLStaysEmpty(t *testing.T) {
@@ -395,9 +312,8 @@ func TestExportBundle_EmptyWebhookURLStaysEmpty(t *testing.T) {
 		{Slug: "no-hook", Name: "No Hook", WebhookURL: ""},
 	}
 	b := ExportBundle("proj-1", jobs, nil, nil, nil, nil, nil)
-	if b.Resources.Jobs[0].WebhookURL != "" {
-		t.Errorf("WebhookURL = %q, want empty", b.Resources.Jobs[0].WebhookURL)
-	}
+	require.Len(t, b.Resources.Jobs, 1)
+	assert.Empty(t, b.Resources.Jobs[0].WebhookURL)
 }
 
 func TestExportBundle_NilVariablesStayNil(t *testing.T) {
@@ -406,9 +322,8 @@ func TestExportBundle_NilVariablesStayNil(t *testing.T) {
 		{Name: "Empty", Slug: "empty", Variables: nil},
 	}
 	b := ExportBundle("proj-1", nil, nil, nil, envs, nil, nil)
-	if b.Resources.Environments[0].Variables != nil {
-		t.Errorf("expected nil Variables for env with no vars, got %v", b.Resources.Environments[0].Variables)
-	}
+	require.Len(t, b.Resources.Environments, 1)
+	assert.Nil(t, b.Resources.Environments[0].Variables)
 }
 
 func TestExportBundle_VariablesRedactedNonNil(t *testing.T) {
@@ -417,16 +332,11 @@ func TestExportBundle_VariablesRedactedNonNil(t *testing.T) {
 		{Name: "Prod", Slug: "prod", Variables: map[string]string{"SECRET": "hunter2", "TOKEN": "abc123"}},
 	}
 	b := ExportBundle("proj-1", nil, nil, nil, envs, nil, nil)
+	require.Len(t, b.Resources.Environments, 1)
 	vars := b.Resources.Environments[0].Variables
-	if vars == nil {
-		t.Fatal("expected non-nil Variables map for env with variables")
-	}
-	if len(vars) != 2 {
-		t.Fatalf("expected 2 variable keys, got %d", len(vars))
-	}
+	require.NotNil(t, vars)
+	require.Len(t, vars, 2)
 	for k, v := range vars {
-		if v != RedactedPlaceholder {
-			t.Errorf("variable %q = %q, want %q", k, v, RedactedPlaceholder)
-		}
+		assert.Equal(t, RedactedPlaceholder, v, "variable %q", k)
 	}
 }
