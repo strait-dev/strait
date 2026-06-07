@@ -502,13 +502,51 @@ func validateMigrationConfig(cfg *Config) error {
 }
 
 func validateDatabaseConfig(cfg *Config) error {
-	if strings.Contains(strings.ToLower(cfg.DatabaseURL), "sslmode=disable") {
-		if !isRelaxedDeploymentEnvironment(cfg.DeploymentEnvironment) {
-			return &domain.ConfigError{Field: "DATABASE_URL", Message: "sslmode=disable is not allowed in non-development environments"}
-		}
-		slog.Warn("DATABASE_URL has sslmode=disable; connections are not encrypted")
+	return ValidateDatabaseSSLMode(cfg.DatabaseURL, cfg.DeploymentEnvironment)
+}
+
+// insecureSSLModes are libpq sslmode values that permit (or silently fall back
+// to) an unencrypted connection. "prefer" — the effective default when sslmode
+// is unset — downgrades to plaintext when the server does not advertise TLS.
+var insecureSSLModes = map[string]bool{
+	"disable": true,
+	"allow":   true,
+	"prefer":  true,
+}
+
+// databaseSSLMode extracts the (lowercased) sslmode from a postgres URL or a
+// keyword/value DSN. It returns "" when sslmode is not specified at all.
+func databaseSSLMode(databaseURL string) string {
+	if u, err := url.Parse(databaseURL); err == nil && u.Scheme != "" {
+		return strings.ToLower(strings.TrimSpace(u.Query().Get("sslmode")))
 	}
-	return nil
+	for _, field := range strings.Fields(databaseURL) {
+		if k, v, ok := strings.Cut(field, "="); ok && strings.EqualFold(strings.TrimSpace(k), "sslmode") {
+			return strings.ToLower(strings.TrimSpace(v))
+		}
+	}
+	return ""
+}
+
+// ValidateDatabaseSSLMode rejects database URLs that would permit an
+// unencrypted connection outside development. An unset sslmode is rejected as
+// well: libpq treats it as "prefer", which silently uses a plaintext
+// connection when the server does not advertise TLS.
+func ValidateDatabaseSSLMode(databaseURL, environment string) error {
+	if IsRelaxedDeploymentEnvironment(environment) {
+		if databaseSSLMode(databaseURL) == "disable" {
+			slog.Warn("DATABASE_URL has sslmode=disable; connections are not encrypted")
+		}
+		return nil
+	}
+	switch sslMode := databaseSSLMode(databaseURL); {
+	case sslMode == "":
+		return &domain.ConfigError{Field: "DATABASE_URL", Message: "sslmode must be set to require, verify-ca, or verify-full in non-development environments (an unset sslmode defaults to 'prefer' and can use an unencrypted connection)"}
+	case insecureSSLModes[sslMode]:
+		return &domain.ConfigError{Field: "DATABASE_URL", Message: "sslmode=" + sslMode + " is not allowed in non-development environments; use require, verify-ca, or verify-full"}
+	default:
+		return nil
+	}
 }
 
 func validateSequinConfig(cfg *Config) error {
@@ -559,7 +597,7 @@ func validateCORSConfig(cfg *Config) error {
 			}
 		}
 		if origin == "*" {
-			if !isRelaxedDeploymentEnvironment(cfg.DeploymentEnvironment) {
+			if !IsRelaxedDeploymentEnvironment(cfg.DeploymentEnvironment) {
 				return &domain.ConfigError{
 					Field:   "CORS_ALLOWED_ORIGINS",
 					Message: "wildcard origin (*) is not allowed in non-development environments",
@@ -571,7 +609,7 @@ func validateCORSConfig(cfg *Config) error {
 	return nil
 }
 
-func isRelaxedDeploymentEnvironment(environment string) bool {
+func IsRelaxedDeploymentEnvironment(environment string) bool {
 	switch strings.ToLower(strings.TrimSpace(environment)) {
 	case "development", "dev", "test":
 		return true

@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"strait/internal/config"
 	"strait/migrations"
 
 	"github.com/golang-migrate/migrate/v4"
@@ -224,11 +225,13 @@ func parsePositiveInt(raw string) (int, error) {
 	return n, nil
 }
 
+// validateMigrationDatabaseURL delegates to the shared config validator so the
+// migration path enforces exactly the same TLS rules as server startup: it
+// rejects sslmode=disable (and other modes that allow plaintext, including an
+// unset sslmode that defaults to "prefer") outside development, and accepts the
+// same set of development aliases (development, dev, test).
 func validateMigrationDatabaseURL(databaseURL, environment string) error {
-	if strings.Contains(strings.ToLower(databaseURL), "sslmode=disable") && environment != "development" && environment != "test" {
-		return fmt.Errorf("DATABASE_URL sslmode=disable is not allowed in non-development environments")
-	}
-	return nil
+	return config.ValidateDatabaseSSLMode(databaseURL, environment)
 }
 
 func nextMigrationVersion(dir string) (int, error) {

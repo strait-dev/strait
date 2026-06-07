@@ -359,6 +359,19 @@ func TestValidateMigrationDatabaseURLAllowsDisableSSLInDevelopment(t *testing.T)
 		""))
 }
 
+// TestValidateMigrationDatabaseURLSharesConfigRules guards that the migration
+// path uses the shared config validator: it accepts the "dev" alias and rejects
+// an absent sslmode in production (which would default to libpq "prefer").
+func TestValidateMigrationDatabaseURLSharesConfigRules(t *testing.T) {
+	t.Parallel()
+	require.NoError(t, validateMigrationDatabaseURL(
+		"postgres://localhost/strait?sslmode=disable", "dev"))
+	require.Error(t, validateMigrationDatabaseURL(
+		"postgres://localhost/strait", "production"))
+	require.NoError(t, validateMigrationDatabaseURL(
+		"postgres://localhost/strait?sslmode=require", "production"))
+}
+
 // migrate.go: sanitizeMigrationName
 
 func TestSanitizeMigrationName(t *testing.T) {
