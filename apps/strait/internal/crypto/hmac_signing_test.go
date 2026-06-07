@@ -32,11 +32,18 @@ func TestSignWebhookRequest_GoldenHeaders(t *testing.T) {
 	mac.Write(body)
 	wantSig := hex.EncodeToString(mac.Sum(nil))
 
+	// The sha256= header must be a body-only HMAC (GitHub convention), distinct
+	// from the compound structured signature.
+	bodyMac := hmac.New(sha256.New, secret)
+	bodyMac.Write(body)
+	wantBodySig := hex.EncodeToString(bodyMac.Sum(nil))
+
 	assert.Equal(t, timestamp, req.Header.Get("X-Strait-Timestamp"))
 	assert.Equal(t, deliveryID, req.Header.Get("X-Strait-Delivery-ID"))
 	wantStructured := "t=" + timestamp + ",d=" + deliveryID + ",v1=" + wantSig
 	assert.Equal(t, wantStructured, req.Header.Get("X-Strait-Signature"))
-	assert.Equal(t, "sha256="+wantSig, req.Header.Get("X-Strait-Signature-256"))
+	assert.Equal(t, "sha256="+wantBodySig, req.Header.Get("X-Strait-Signature-256"))
+	assert.NotEqual(t, wantSig, wantBodySig, "compound and body-only signatures must differ")
 }
 
 func TestSignWebhookRequest_NoSecretIsNoop(t *testing.T) {

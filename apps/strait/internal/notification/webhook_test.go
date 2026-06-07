@@ -182,11 +182,9 @@ func TestWebhookSender_HMACSignature(t *testing.T) {
 		capturedDeliveryID,
 	)
 
+	// X-Strait-Signature-256 follows the GitHub convention: HMAC over the raw
+	// body alone (not the compound timestamp.id.body input).
 	mac := hmac.New(sha256.New, []byte(secret))
-	mac.Write([]byte(capturedTimestamp))
-	mac.Write([]byte("."))
-	mac.Write([]byte(del.ID))
-	mac.Write([]byte("."))
 	mac.Write(payload)
 	expected := "sha256=" + hex.EncodeToString(mac.Sum(nil))
 	require.Equal(t, expected,
@@ -210,7 +208,10 @@ func TestWebhookSender_HMACSignatureChangesWithDeliveryID(t *testing.T) {
 	var signatures []string
 	transport.RegisterResponder("POST", "https://example.com/hook",
 		func(req *http.Request) (*http.Response, error) {
-			signatures = append(signatures, req.Header.Get("X-Strait-Signature-256"))
+			// Per-delivery replay resistance lives in the structured signature
+			// (it binds the delivery ID); X-Strait-Signature-256 is body-only and
+			// is identical for identical payloads regardless of delivery ID.
+			signatures = append(signatures, req.Header.Get("X-Strait-Signature"))
 			return httpmock.NewStringResponse(200, "ok"), nil
 		})
 

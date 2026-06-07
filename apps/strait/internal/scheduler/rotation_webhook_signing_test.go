@@ -96,9 +96,13 @@ func TestNotifyRotationWebhook_SignsWithHMACWhenSecretPresent(t *testing.T) {
 	require.Equal(t,
 		wantStructured,
 		gotSig)
+
+	// X-Strait-Signature-256 is the GitHub-style body-only HMAC, distinct from
+	// the compound structured signature.
+	bodyMac := hmac.New(sha256.New, signingSecret)
+	bodyMac.Write(gotBody)
 	require.Equal(t,
-		"sha256="+
-			wantSig, gotSig256,
+		"sha256="+hex.EncodeToString(bodyMac.Sum(nil)), gotSig256,
 	)
 	require.True(t, bytes.
 		Contains(gotBody, []byte(`"event":"api_key.auto_rotated"`)))
