@@ -923,7 +923,12 @@ func webhookDeliveryPayload(d *domain.WebhookDelivery) []byte {
 	if d.LastError != "" {
 		var js json.RawMessage
 		if json.Unmarshal([]byte(d.LastError), &js) == nil {
-			return []byte(d.LastError)
+			payload := []byte(d.LastError)
+			// Clear LastError after lifting the legacy-row payload out of it, so a
+			// subsequent failed-attempt error message cannot be mistaken for the
+			// payload on the next retry (matches extractPayload on the batch path).
+			d.LastError = ""
+			return payload
 		}
 	}
 	body, _ := json.Marshal(map[string]any{
