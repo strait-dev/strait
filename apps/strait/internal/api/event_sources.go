@@ -384,12 +384,17 @@ func (s *Server) handleDispatchEvent(ctx context.Context, input *DispatchEventIn
 	if err != nil {
 		return nil, err
 	}
-	if err := s.verifyEventSourceSignature(ctx, source, req.Payload); err != nil {
+	replayKey, err := s.verifyEventSourceSignature(ctx, source, req.Payload)
+	if err != nil {
 		return nil, err
 	}
 
 	subs, err := s.store.ListEventSubscriptionsBySource(ctx, source.ID)
 	if err != nil {
+		// verifyEventSourceSignature durably claimed a replay key before
+		// dispatch. Release it on failure so the caller's retry is not rejected
+		// as a replay, which would otherwise silently drop the event.
+		s.releaseEventSourceSignatureReplay(ctx, source.ProjectID, replayKey)
 		return nil, huma.Error500InternalServerError("failed to list subscriptions")
 	}
 
@@ -423,9 +428,13 @@ func (s *Server) loadDispatchEventSource(ctx context.Context, req DispatchEventR
 	return source, nil
 }
 
-func (s *Server) verifyEventSourceSignature(ctx context.Context, source *domain.EventSource, payload json.RawMessage) error {
+// verifyEventSourceSignature validates the inbound signature and, for replayable
+// algorithms, durably claims a replay key. It returns that claimed key (empty
+// when no replay guard applies) so the caller can release it if a later dispatch
+// step fails.
+func (s *Server) verifyEventSourceSignature(ctx context.Context, source *domain.EventSource, payload json.RawMessage) (string, error) {
 	if source.SignatureAlgorithm == "" {
-		return nil
+		return "", nil
 	}
 	if source.SignatureHeader == "" || len(source.SignatureSecretEnc) == 0 || s.encryptor == nil {
 		slog.Error("event source signature verification is misconfigured",
@@ -434,38 +443,39 @@ func (s *Server) verifyEventSourceSignature(ctx context.Context, source *domain.
 			"has_secret", len(source.SignatureSecretEnc) > 0,
 			"has_encryptor", s.encryptor != nil,
 		)
-		return huma.Error500InternalServerError("signature verification is not configured")
+		return "", huma.Error500InternalServerError("signature verification is not configured")
 	}
 
 	r := requestFromContext(ctx)
 	if r == nil {
-		return huma.Error500InternalServerError("internal error")
+		return "", huma.Error500InternalServerError("internal error")
 	}
 	sigHeader := r.Header.Get(source.SignatureHeader)
 	if sigHeader == "" {
-		return huma.Error401Unauthorized("missing signature header: " + source.SignatureHeader)
+		// Do not echo the configured header name; it identifies the privileged
+		// signing scheme to unauthenticated callers.
+		return "", huma.Error401Unauthorized("missing signature header")
 	}
 
 	secret, err := s.encryptor.Decrypt(source.SignatureSecretEnc)
 	if err != nil {
 		slog.Error("failed to decrypt event source signature secret", "source_id", source.ID, "error", err)
-		return huma.Error500InternalServerError("signature verification failed")
+		return "", huma.Error500InternalServerError("signature verification failed")
 	}
 	if err := webhook.ValidateSignature(source.SignatureAlgorithm, string(secret), payload, sigHeader); err != nil {
 		slog.Warn("event source signature validation failed", "source_id", source.ID, "error", err)
-		return huma.Error401Unauthorized("signature validation failed")
+		return "", huma.Error401Unauthorized("signature validation failed")
 	}
-	if err := s.claimEventSourceSignatureReplay(ctx, source, sigHeader); err != nil {
-		return err
-	}
-	return nil
+	return s.claimEventSourceSignatureReplay(ctx, source, sigHeader)
 }
 
-func (s *Server) claimEventSourceSignatureReplay(ctx context.Context, source *domain.EventSource, sigHeader string) error {
+// claimEventSourceSignatureReplay durably claims a replay key for the validated
+// signature and returns it (empty for non-replayable algorithms).
+func (s *Server) claimEventSourceSignatureReplay(ctx context.Context, source *domain.EventSource, sigHeader string) (string, error) {
 	switch source.SignatureAlgorithm {
 	case "hmac-sha256", "github-sha256":
 	default:
-		return nil
+		return "", nil
 	}
 	key := eventSourceSignatureReplayKey(source.ID, source.SignatureAlgorithm, sigHeader)
 	status, _, _, _, err := s.store.TryAcquireIdempotencyKey(
@@ -476,13 +486,25 @@ func (s *Server) claimEventSourceSignatureReplay(ctx context.Context, source *do
 	)
 	if err != nil {
 		slog.Error("event source signature replay guard failed", "source_id", source.ID, "error", err)
-		return huma.Error503ServiceUnavailable("signature replay guard unavailable")
+		return "", huma.Error503ServiceUnavailable("signature replay guard unavailable")
 	}
 	if status != store.IdempotencyAcquired {
 		slog.Warn("event source signature replay rejected", "source_id", source.ID)
-		return huma.Error401Unauthorized("signature replay rejected")
+		return "", huma.Error401Unauthorized("signature replay rejected")
 	}
-	return nil
+	return key, nil
+}
+
+// releaseEventSourceSignatureReplay deletes a previously claimed replay key so a
+// failed dispatch can be retried. Best-effort: on error the short-lived replay
+// key simply lingers until its TTL expires.
+func (s *Server) releaseEventSourceSignatureReplay(ctx context.Context, projectID, key string) {
+	if key == "" {
+		return
+	}
+	if _, err := s.store.DeleteIdempotencyKey(store.ContextWithoutTx(ctx), projectID, key); err != nil {
+		slog.Warn("failed to release event source signature replay key", "project_id", projectID, "error", err)
+	}
 }
 
 func eventSourceSignatureReplayKey(sourceID, algorithm, sigHeader string) string {
