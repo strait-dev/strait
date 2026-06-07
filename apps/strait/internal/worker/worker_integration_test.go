@@ -136,6 +136,193 @@ func newExecutor(
 	return exec, q
 }
 
+func newExecutorWithQueue(
+	t *testing.T,
+	env *testutil.TestEnv,
+	q queue.Queue,
+	wake <-chan struct{},
+	concurrency int,
+	httpClient *http.Client,
+	pollInterval time.Duration,
+	maxDequeueBatchSize int,
+) *worker.Executor {
+	t.Helper()
+
+	st := store.New(env.DB.Pool)
+	pub := pubsub.NewRedisPublisher(env.Redis.Client)
+	pool := worker.NewPool(concurrency)
+
+	if httpClient == nil {
+		httpClient = &http.Client{Timeout: 10 * time.Second}
+	}
+
+	exec := worker.NewExecutor(worker.ExecutorConfig{
+		Pool:                pool,
+		Queue:               q,
+		Wake:                wake,
+		Store:               st,
+		TxPool:              env.DB.Pool,
+		Publisher:           pub,
+		HTTPClient:          httpClient,
+		PollInterval:        pollInterval,
+		HeartbeatInterval:   time.Hour,
+		WebhookMaxAttempts:  1,
+		MaxDequeueBatchSize: maxDequeueBatchSize,
+	})
+
+	t.Cleanup(func() {
+		exec.CloseCache()
+		_ = pool.Shutdown(context.Background())
+	})
+
+	return exec
+}
+
+func enqueueHTTPRuns(t *testing.T, ctx context.Context, q queue.Queue, job *domain.Job, count int) []string {
+	t.Helper()
+
+	runIDs := make([]string, count)
+	for i := range count {
+		run := &domain.JobRun{
+			ID:        newID(),
+			JobID:     job.ID,
+			ProjectID: job.ProjectID,
+			Priority:  i,
+		}
+		runIDs[i] = run.ID
+		require.NoError(t, q.Enqueue(ctx,
+			run))
+	}
+
+	return runIDs
+}
+
+func waitForRunsCompleted(t *testing.T, ctx context.Context, st *store.Queries, runIDs []string, timeout time.Duration) {
+	t.Helper()
+
+	require.Eventually(t, func() bool {
+		for _, id := range runIDs {
+			got, err := st.GetRun(ctx, id)
+			if err != nil {
+				return false
+			}
+			if got.Status != domain.StatusCompleted {
+				require.False(t, got.Status.IsTerminal(), "run %s reached terminal status %q", id, got.Status)
+				return false
+			}
+		}
+		return true
+	}, timeout, 50*time.Millisecond)
+}
+
+func TestExecutorDrainsBurstWithoutRepeatedWake(t *testing.T) {
+	ctx := context.Background()
+	env := mustEnv(t)
+	mustCleanEnv(t, ctx)
+
+	var dispatched atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		dispatched.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	st := store.New(env.DB.Pool)
+	q := newWorkerQueue(t, env)
+	job := mustCreateJob(t, ctx, st, "project-burst-drain", srv.URL)
+
+	const (
+		runCount  = 24
+		batchSize = 6
+	)
+	runIDs := enqueueHTTPRuns(t, ctx, q, job, runCount)
+	require.NoError(t, q.ForceTick(ctx,
+		"http"))
+
+	wake := make(chan struct{}, 1)
+	exec := newExecutorWithQueue(t, env, q, wake, batchSize, srv.Client(), time.Hour, batchSize)
+	execCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		exec.Run(execCtx)
+	}()
+
+	wake <- struct{}{}
+
+	waitForRunsCompleted(t, ctx, st, runIDs, 20*time.Second)
+	require.EqualValues(t, runCount,
+		dispatched.Load())
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		require.Fail(t, "executor did not stop")
+	}
+}
+
+func TestExecutorDrainsBurstAfterSaturatedBatchCompletes(t *testing.T) {
+	ctx := context.Background()
+	env := mustEnv(t)
+	mustCleanEnv(t, ctx)
+
+	const (
+		runCount  = 12
+		batchSize = 4
+	)
+	releaseFirstBatch := make(chan struct{})
+	var dispatched atomic.Int32
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		current := dispatched.Add(1)
+		if current <= batchSize {
+			<-releaseFirstBatch
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	st := store.New(env.DB.Pool)
+	q := newWorkerQueue(t, env)
+	job := mustCreateJob(t, ctx, st, "project-saturated-burst-drain", srv.URL)
+	runIDs := enqueueHTTPRuns(t, ctx, q, job, runCount)
+	require.NoError(t, q.ForceTick(ctx,
+		"http"))
+
+	wake := make(chan struct{}, 1)
+	exec := newExecutorWithQueue(t, env, q, wake, batchSize, srv.Client(), time.Hour, batchSize)
+	execCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		exec.Run(execCtx)
+	}()
+
+	wake <- struct{}{}
+
+	require.Eventually(t, func() bool {
+		return dispatched.Load() == batchSize
+	}, 10*time.Second, 25*time.Millisecond)
+	time.Sleep(250 * time.Millisecond)
+	require.EqualValues(t, batchSize,
+		dispatched.Load())
+
+	close(releaseFirstBatch)
+	waitForRunsCompleted(t, ctx, st, runIDs, 20*time.Second)
+	require.EqualValues(t, runCount,
+		dispatched.Load())
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		require.Fail(t, "executor did not stop")
+	}
+}
+
 // TestJobExecutionEndToEnd enqueues a job run, starts the executor, and verifies
 // the run reaches "completed" status after the endpoint returns 200.
 func TestJobExecutionEndToEnd(t *testing.T) {
