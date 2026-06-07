@@ -17,6 +17,7 @@ import (
 func (e *Executor) poll(ctx context.Context) {
 	start := time.Now()
 	if e.checkMemoryPressure() {
+		e.backlogHint.Store(false)
 		return
 	}
 	available := e.computeAvailable()
@@ -28,6 +29,7 @@ func (e *Executor) poll(ctx context.Context) {
 	// we don't pile up goroutines on a slow Postgres.
 	if e.dbCircuit != nil && e.dbCircuit.State() == queue.CircuitOpen {
 		e.logger.Debug("poll skipped: db circuit open")
+		e.backlogHint.Store(false)
 		return
 	}
 
@@ -42,6 +44,7 @@ func (e *Executor) poll(ctx context.Context) {
 		e.metrics.DequeueDuration.Record(ctx, time.Since(start).Seconds())
 	}
 	if dequeueErr != nil {
+		e.backlogHint.Store(false)
 		if errors.Is(dequeueErr, queue.ErrCircuitOpen) {
 			e.logger.Debug("poll: db circuit open, skipping")
 		} else {
@@ -50,8 +53,10 @@ func (e *Executor) poll(ctx context.Context) {
 		return
 	}
 	if len(runs) == 0 {
+		e.backlogHint.Store(false)
 		return
 	}
+	e.backlogHint.Store(len(runs) >= available)
 
 	// Capture the claim time as close to DequeueN's return as possible so
 	// the ClaimToStart histogram measures the real gap between a run being
@@ -78,6 +83,7 @@ func (e *Executor) poll(ctx context.Context) {
 			"priority": run.Priority,
 		})
 		e.pool.Submit(execCtx, func() {
+			defer e.requestBacklogDrain()
 			if qm, qmErr := queue.Metrics(); qmErr == nil && qm != nil {
 				qm.ClaimToStart.Record(execCtx, time.Since(claimedAt).Seconds())
 			}
@@ -109,6 +115,16 @@ func (e *Executor) poll(ctx context.Context) {
 			}()
 			e.execute(execCtx, &run)
 		})
+	}
+}
+
+func (e *Executor) requestBacklogDrain() {
+	if e == nil || e.drainWake == nil || !e.backlogHint.Load() {
+		return
+	}
+	select {
+	case e.drainWake <- struct{}{}:
+	default:
 	}
 }
 

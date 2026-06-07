@@ -74,6 +74,8 @@ type Executor struct {
 	callbackWG               conc.WaitGroup
 	pollInFlight             atomic.Int64
 	runStarted               atomic.Bool
+	drainWake                chan struct{}
+	backlogHint              atomic.Bool
 	degradedPollInterval     time.Duration
 	degraded                 queue.DegradedNotifier
 	dbCircuit                *queue.DBCircuit

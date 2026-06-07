@@ -75,6 +75,8 @@ func (e *Executor) Run(ctx context.Context) {
 				e.logger.Info("executor restored normal poll interval after wake reconnect")
 			}
 			e.doPoll(ctx)
+		case <-e.drainWake:
+			e.doPoll(ctx)
 		case <-degradedCh:
 			ticker.Reset(e.degradedPollInterval)
 			inDegradedMode = true

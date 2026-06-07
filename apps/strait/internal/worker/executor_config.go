@@ -166,6 +166,7 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		dlqCapEnforcer:           cfg.DLQCapEnforcer,
 		secretDecryptor:          cfg.SecretDecryptor,
 		healthScorer:             NewHealthScorer(cfg.Store),
+		drainWake:                make(chan struct{}, 1),
 		onCompleteTrigger: NewOnCompleteTrigger(
 			cfg.WorkflowLookup,
 			cfg.WorkflowTriggerer,
