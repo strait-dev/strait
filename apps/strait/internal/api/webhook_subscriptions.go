@@ -285,8 +285,18 @@ type RotateWebhookSecretInput struct {
 	Body RotateWebhookSecretRequest
 }
 
+// RotateWebhookSecretResponse is the typed body of a secret-rotation response.
+// A concrete type (rather than `any`) lets Huma generate an accurate OpenAPI
+// schema for the endpoint.
+type RotateWebhookSecretResponse struct {
+	SubscriptionID     string    `json:"subscription_id"`
+	NewSecret          string    `json:"new_secret"`
+	GraceExpiresAt     time.Time `json:"grace_expires_at"`
+	GracePeriodMinutes int       `json:"grace_period_minutes"`
+}
+
 type RotateWebhookSecretOutput struct {
-	Body any
+	Body RotateWebhookSecretResponse
 }
 
 func (s *Server) handleRotateWebhookSecret(ctx context.Context, input *RotateWebhookSecretInput) (*RotateWebhookSecretOutput, error) {
@@ -341,11 +351,11 @@ func (s *Server) handleRotateWebhookSecret(ctx context.Context, input *RotateWeb
 		"grace_period_minutes": graceMins,
 	})
 
-	return &RotateWebhookSecretOutput{Body: map[string]any{
-		"subscription_id":      input.ID,
-		"new_secret":           newSecret,
-		"grace_expires_at":     graceExpiresAt,
-		"grace_period_minutes": graceMins,
+	return &RotateWebhookSecretOutput{Body: RotateWebhookSecretResponse{
+		SubscriptionID:     input.ID,
+		NewSecret:          newSecret,
+		GraceExpiresAt:     graceExpiresAt,
+		GracePeriodMinutes: graceMins,
 	}}, nil
 }
 
