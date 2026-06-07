@@ -175,11 +175,16 @@ func TestHandleRotateAPIKey_GRPCEnabledRequiresPubSubBeforeRotating(t *testing.T
 	require.False(t, rotated)
 }
 
-func TestHandleRotateAPIKey_RevokeReplacementWhenMarkFails(t *testing.T) {
+// TestHandleRotateAPIKey_NoGhostKeyWhenMarkFails is the regression guard for the
+// rotation ghost-row bug: rotation now goes through the atomic CreateRotatedAPIKey
+// transaction, so when marking the old key rotated fails the new key is rolled
+// back. The handler must return 500 without any compensating RevokeAPIKey call
+// (which previously could itself fail and leave an orphaned active key).
+func TestHandleRotateAPIKey_NoGhostKeyWhenMarkFails(t *testing.T) {
 	t.Parallel()
 
 	expiresAt := time.Now().Add(24 * time.Hour)
-	var revokedReplacement atomic.Bool
+	var revokeCalled atomic.Bool
 	ms := &APIStoreMock{}
 	ms.GetAPIKeyByIDFunc = func(_ context.Context, id string) (*domain.APIKey, error) {
 		return &domain.APIKey{ID: id, ProjectID: "proj-1", OrgID: "org-1", Name: "prod key", Scopes: []string{"jobs:read"}, ExpiresAt: &expiresAt}, nil
@@ -196,12 +201,8 @@ func TestHandleRotateAPIKey_RevokeReplacementWhenMarkFails(t *testing.T) {
 
 		return errors.New("lost rotation race")
 	}
-	ms.RevokeAPIKeyFunc = func(_ context.Context, id string) error {
-		require.Equal(t, "key-replacement",
-
-			id)
-
-		revokedReplacement.Store(true)
+	ms.RevokeAPIKeyFunc = func(_ context.Context, _ string) error {
+		revokeCalled.Store(true)
 		return nil
 	}
 
@@ -209,12 +210,9 @@ func TestHandleRotateAPIKey_RevokeReplacementWhenMarkFails(t *testing.T) {
 	req := authedRequest(http.MethodPost, "/v1/api-keys/key-1/rotate", `{"grace_period_minutes":30}`)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-	require.Equal(t, http.StatusInternalServerError,
-
-		w.Code)
-	require.True(
-		t, revokedReplacement.
-			Load())
+	require.Equal(t, http.StatusInternalServerError, w.Code)
+	require.False(t, revokeCalled.Load(),
+		"atomic rotation rolls back; no compensating revoke should run")
 }
 
 func TestAPIKeyAuth_RejectsExpiredRotationGrace(t *testing.T) {

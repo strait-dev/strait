@@ -376,22 +376,12 @@ func (s *Server) handleRotateAPIKey(ctx context.Context, input *RotateAPIKeyInpu
 		nr := time.Now().Add(time.Duration(*oldKey.RotationIntervalDays) * 24 * time.Hour)
 		newKey.NextRotationAt = &nr
 	}
-	if err := s.store.CreateAPIKey(ctx, newKey); err != nil {
-		return nil, huma.Error500InternalServerError("failed to create rotated api key")
-	}
 	graceExpiresAt := time.Now().Add(time.Duration(req.GracePeriodMinutes) * time.Minute)
-	if err := s.store.MarkAPIKeyRotated(ctx, oldKey.ID, newKey.ID, graceExpiresAt); err != nil {
-		if newKey.ID != "" {
-			if revokeErr := s.store.RevokeAPIKey(ctx, newKey.ID); revokeErr != nil {
-				slog.Error("api key rotation cleanup failed",
-					"old_key_id", oldKey.ID,
-					"new_key_id", newKey.ID,
-					"error", revokeErr,
-				)
-			}
-		}
-		s.apiKeyCache.Invalidate(ctx, newKey.KeyHash)
-		return nil, huma.Error500InternalServerError("failed to mark old key as rotated")
+	// Create the replacement key and mark the old key rotated atomically. A
+	// single transaction means a failure rolls back the new key instead of
+	// leaving an orphaned, active, non-revoked key row behind.
+	if err := s.store.CreateRotatedAPIKey(ctx, oldKey.ID, newKey, graceExpiresAt); err != nil {
+		return nil, huma.Error500InternalServerError("failed to rotate api key")
 	}
 	s.apiKeyCache.Set(ctx, newKey)
 	oldKeyVersion := oldKey.CacheVersion + 1
