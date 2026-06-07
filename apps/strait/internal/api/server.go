@@ -115,7 +115,7 @@ type JobStore interface {
 	ListEnvironments(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.Environment, error)
 	UpdateEnvironment(ctx context.Context, env *domain.Environment) error
 	DeleteEnvironment(ctx context.Context, id, projectID string) error
-	GetResolvedEnvironmentVariables(ctx context.Context, id string) (map[string]string, error)
+	GetResolvedEnvironmentVariables(ctx context.Context, projectID, id string) (map[string]string, error)
 	CreateJobSecret(ctx context.Context, secret *domain.JobSecret) error
 	ListJobSecrets(ctx context.Context, projectID, jobID, environment string, limit int, cursor *time.Time) ([]domain.JobSecret, error)
 	GetJobSecret(ctx context.Context, id, projectID string) (*domain.JobSecret, error)

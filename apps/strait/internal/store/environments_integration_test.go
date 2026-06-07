@@ -372,7 +372,7 @@ func TestGetResolvedEnvironmentVariables(t *testing.T) {
 	require.NoError(t, q.CreateEnvironment(ctx,
 		child))
 
-	resolved, err := q.GetResolvedEnvironmentVariables(ctx, child.ID)
+	resolved, err := q.GetResolvedEnvironmentVariables(ctx, child.ProjectID, child.ID)
 	require.NoError(t, err)
 
 	want := map[string]string{"A": "1", "B": "2", "SHARED": "child"}
@@ -386,7 +386,7 @@ func TestGetResolvedEnvironmentVariables(t *testing.T) {
 	}
 
 	// Root only.
-	rootVars, err := q.GetResolvedEnvironmentVariables(ctx, parent.ID)
+	rootVars, err := q.GetResolvedEnvironmentVariables(ctx, parent.ProjectID, parent.ID)
 	require.NoError(t, err)
 	require.Len(t, rootVars,
 
@@ -506,7 +506,7 @@ func TestEnvironmentVariablesRejectLegacyPlaintextWithoutCiphertext(t *testing.T
 
 			"GetEnvironment() error = %v, want ErrEnvironmentVariableEncryptionRequired", err)
 	}
-	if _, err := q.GetResolvedEnvironmentVariables(ctx, env.ID); !errors.Is(err, store.ErrEnvironmentVariableEncryptionRequired) {
+	if _, err := q.GetResolvedEnvironmentVariables(ctx, env.ProjectID, env.ID); !errors.Is(err, store.ErrEnvironmentVariableEncryptionRequired) {
 		require.Failf(t, "test failure",
 
 			"GetResolvedEnvironmentVariables() error = %v, want ErrEnvironmentVariableEncryptionRequired", err)
@@ -539,7 +539,7 @@ func TestResolvedEnvironmentVariablesUseEncryptedParentChain(t *testing.T) {
 	require.NoError(t, q.CreateEnvironment(ctx,
 		child))
 
-	resolved, err := q.GetResolvedEnvironmentVariables(ctx, child.ID)
+	resolved, err := q.GetResolvedEnvironmentVariables(ctx, child.ProjectID, child.ID)
 	require.NoError(t, err)
 
 	want := map[string]string{"API_TOKEN": "parent-token", "SHARED": "child"}
@@ -561,11 +561,43 @@ func TestGetResolvedEnvironmentVariables_NotFound(t *testing.T) {
 	q := mustStore(t)
 	mustClean(t, ctx)
 
-	_, err := q.GetResolvedEnvironmentVariables(ctx, newID())
+	_, err := q.GetResolvedEnvironmentVariables(ctx, newID(), newID())
 	require.True(t, errors.Is(err, store.
 		ErrEnvironmentNotFound,
 	))
 
+}
+
+// TestGetResolvedEnvironmentVariables_CrossTenantSeedReturnsNotFound is the
+// regression guard for the unscoped-resolve finding: resolving an environment
+// id while scoped to a different project must not return or decrypt that
+// environment's variables. The seed row is filtered by project_id so a snapshot
+// id leaked across tenants cannot recover another tenant's secrets.
+func TestGetResolvedEnvironmentVariables_CrossTenantSeedReturnsNotFound(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	q.SetSecretEncryptionKey("0123456789abcdef0123456789abcdef")
+	mustClean(t, ctx)
+
+	ownerProject := "proj-owner-" + newID()
+	attackerProject := "proj-attacker-" + newID()
+
+	env := &domain.Environment{
+		ProjectID: ownerProject,
+		Name:      "Secrets",
+		Slug:      "secrets",
+		Variables: map[string]string{"API_TOKEN": "owner-secret"},
+	}
+	require.NoError(t, q.CreateEnvironment(ctx, env))
+
+	// Same id, attacker's project: must not resolve the owner's chain.
+	_, err := q.GetResolvedEnvironmentVariables(ctx, attackerProject, env.ID)
+	require.ErrorIs(t, err, store.ErrEnvironmentNotFound)
+
+	// Sanity: the owning project still resolves correctly.
+	resolved, err := q.GetResolvedEnvironmentVariables(ctx, ownerProject, env.ID)
+	require.NoError(t, err)
+	require.Equal(t, "owner-secret", resolved["API_TOKEN"])
 }
 
 // TestGetResolvedEnvironmentVariables_MaxDepthChainResolves builds a chain of
@@ -600,7 +632,7 @@ func TestGetResolvedEnvironmentVariables_MaxDepthChainResolves(t *testing.T) {
 		leafID = env.ID
 	}
 
-	resolved, err := q.GetResolvedEnvironmentVariables(ctx, leafID)
+	resolved, err := q.GetResolvedEnvironmentVariables(ctx, projectID, leafID)
 	require.NoError(t, err)
 
 	// The leaf's overlay wins; the variables map should reflect the deepest
@@ -640,7 +672,7 @@ func TestGetResolvedEnvironmentVariables_TruncatedChainErrors(t *testing.T) {
 		leafID = env.ID
 	}
 
-	_, err := q.GetResolvedEnvironmentVariables(ctx, leafID)
+	_, err := q.GetResolvedEnvironmentVariables(ctx, projectID, leafID)
 	require.Error(t, err)
 
 }

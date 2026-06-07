@@ -32,7 +32,7 @@ type ExecutorStore interface {
 	) error
 	RecordEndpointCircuitSuccess(ctx context.Context, endpointURL string) error
 	GetJobHealthStats(ctx context.Context, jobID string, since time.Time) (*store.JobHealthStats, error)
-	GetResolvedEnvironmentVariables(ctx context.Context, id string) (map[string]string, error)
+	GetResolvedEnvironmentVariables(ctx context.Context, projectID, id string) (map[string]string, error)
 	GetLatestCheckpoint(ctx context.Context, runID string) (*domain.RunCheckpoint, error)
 	GetRun(ctx context.Context, id string) (*domain.JobRun, error)
 	GetProjectQuota(ctx context.Context, projectID string) (*store.ProjectQuota, error)

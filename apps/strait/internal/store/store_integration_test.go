@@ -4079,7 +4079,7 @@ func TestEnvironment_InheritanceResolution(t *testing.T) {
 		grandchild,
 	))
 
-	resolved, err := q.GetResolvedEnvironmentVariables(ctx, grandchild.ID)
+	resolved, err := q.GetResolvedEnvironmentVariables(ctx, grandchild.ProjectID, grandchild.ID)
 	require.NoError(t, err)
 
 	want := map[string]string{"A": "1", "P": "p", "SHARED": "child", "B": "override", "C": "3"}
@@ -4092,7 +4092,7 @@ func TestEnvironment_InheritanceResolution(t *testing.T) {
 
 	}
 
-	rootOnly, err := q.GetResolvedEnvironmentVariables(ctx, parent.ID)
+	rootOnly, err := q.GetResolvedEnvironmentVariables(ctx, parent.ProjectID, parent.ID)
 	require.NoError(t, err)
 	require.Len(t, rootOnly,
 
@@ -4105,7 +4105,7 @@ func TestEnvironment_InheritanceResolution(t *testing.T) {
 
 	}
 
-	if _, err := q.GetResolvedEnvironmentVariables(ctx, newID()); !errors.Is(err, store.ErrEnvironmentNotFound) {
+	if _, err := q.GetResolvedEnvironmentVariables(ctx, newID(), newID()); !errors.Is(err, store.ErrEnvironmentNotFound) {
 		require.Failf(t, "test failure",
 
 			"GetResolvedEnvironmentVariables() missing error = %v, want ErrEnvironmentNotFound", err)
@@ -4127,7 +4127,7 @@ func TestEnvironment_InheritanceResolution(t *testing.T) {
 		prevID = env.ID
 	}
 
-	if _, err := q.GetResolvedEnvironmentVariables(ctx, prevID); err == nil {
+	if _, err := q.GetResolvedEnvironmentVariables(ctx, deepProjectID, prevID); err == nil {
 		require.Fail(t,
 
 			"GetResolvedEnvironmentVariables() deep chain error = nil, want error")
@@ -4159,7 +4159,7 @@ func TestEnvironment_InheritanceResolutionDoesNotCrossProjects(t *testing.T) {
 	require.NoError(t, q.CreateEnvironment(ctx,
 		child))
 
-	resolved, err := q.GetResolvedEnvironmentVariables(ctx, child.ID)
+	resolved, err := q.GetResolvedEnvironmentVariables(ctx, child.ProjectID, child.ID)
 	require.NoError(t, err)
 	require.Equal(t, "", resolved["PARENT_ONLY"])
 	require.Equal(t, "ok",

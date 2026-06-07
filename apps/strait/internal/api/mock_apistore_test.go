@@ -1279,7 +1279,7 @@ type APIStoreMock struct {
 	GetProjectRoleFunc func(ctx context.Context, id string) (*domain.ProjectRole, error)
 
 	// GetResolvedEnvironmentVariablesFunc mocks the GetResolvedEnvironmentVariables method.
-	GetResolvedEnvironmentVariablesFunc func(ctx context.Context, id string) (map[string]string, error)
+	GetResolvedEnvironmentVariablesFunc func(ctx context.Context, projectID string, id string) (map[string]string, error)
 
 	// GetResourcePoliciesFunc mocks the GetResourcePolicies method.
 	GetResourcePoliciesFunc func(ctx context.Context, projectID string, resourceType string, resourceID string, userID string) ([]string, error)
@@ -2847,6 +2847,8 @@ type APIStoreMock struct {
 		GetResolvedEnvironmentVariables []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// ProjectID is the projectID argument value.
+			ProjectID string
 			// ID is the id argument value.
 			ID string
 		}
@@ -10267,13 +10269,15 @@ func (mock *APIStoreMock) GetProjectRoleCalls() []struct {
 }
 
 // GetResolvedEnvironmentVariables calls GetResolvedEnvironmentVariablesFunc.
-func (mock *APIStoreMock) GetResolvedEnvironmentVariables(ctx context.Context, id string) (map[string]string, error) {
+func (mock *APIStoreMock) GetResolvedEnvironmentVariables(ctx context.Context, projectID string, id string) (map[string]string, error) {
 	callInfo := struct {
-		Ctx context.Context
-		ID  string
+		Ctx       context.Context
+		ProjectID string
+		ID        string
 	}{
-		Ctx: ctx,
-		ID:  id,
+		Ctx:       ctx,
+		ProjectID: projectID,
+		ID:        id,
 	}
 	mock.lockGetResolvedEnvironmentVariables.Lock()
 	mock.calls.GetResolvedEnvironmentVariables = append(mock.calls.GetResolvedEnvironmentVariables, callInfo)
@@ -10285,7 +10289,7 @@ func (mock *APIStoreMock) GetResolvedEnvironmentVariables(ctx context.Context, i
 		)
 		return stringToStringOut, errOut
 	}
-	return mock.GetResolvedEnvironmentVariablesFunc(ctx, id)
+	return mock.GetResolvedEnvironmentVariablesFunc(ctx, projectID, id)
 }
 
 // GetResolvedEnvironmentVariablesCalls gets all the calls that were made to GetResolvedEnvironmentVariables.
@@ -10293,12 +10297,14 @@ func (mock *APIStoreMock) GetResolvedEnvironmentVariables(ctx context.Context, i
 //
 //	len(mockedAPIStore.GetResolvedEnvironmentVariablesCalls())
 func (mock *APIStoreMock) GetResolvedEnvironmentVariablesCalls() []struct {
-	Ctx context.Context
-	ID  string
+	Ctx       context.Context
+	ProjectID string
+	ID        string
 } {
 	var calls []struct {
-		Ctx context.Context
-		ID  string
+		Ctx       context.Context
+		ProjectID string
+		ID        string
 	}
 	mock.lockGetResolvedEnvironmentVariables.RLock()
 	calls = mock.calls.GetResolvedEnvironmentVariables

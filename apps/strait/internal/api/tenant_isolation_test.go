@@ -804,7 +804,9 @@ func TestTenantIsolation_GetResolvedVariables_CrossProject(t *testing.T) {
 	t.Parallel()
 
 	ms := newIsolationStore()
-	ms.GetResolvedEnvironmentVariablesFunc = func(_ context.Context, _ string) (map[string]string, error) {
+	var gotProjectID string
+	ms.GetResolvedEnvironmentVariablesFunc = func(_ context.Context, projectID string, _ string) (map[string]string, error) {
+		gotProjectID = projectID
 		return map[string]string{"FOO": "bar"}, nil
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
@@ -821,11 +823,19 @@ func TestTenantIsolation_GetResolvedVariables_CrossProject(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			gotProjectID = ""
 			w := httptest.NewRecorder()
 			srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/environments/"+tt.envID+"/variables", "", tt.projectID))
 			assert.Equal(
 				t, tt.wantCode, w.
 					Code)
+			// Regression guard (I1): when the resolve runs, it must be scoped to
+			// the caller's project so the secret-decrypting query cannot resolve
+			// another tenant's environment chain.
+			if tt.wantCode == http.StatusOK {
+				assert.Equal(t, tt.projectID, gotProjectID,
+					"GetResolvedEnvironmentVariables must be called with the request's project")
+			}
 		})
 	}
 }
