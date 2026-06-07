@@ -15,6 +15,39 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TestRevokeAPIKey_RateLimited is the regression guard for the missing rate
+// limit on the API-key revoke endpoint: like create and rotate, DELETE must be
+// throttled so a single key holder cannot fire unbounded revocations.
+func TestRevokeAPIKey_RateLimited(t *testing.T) {
+	t.Parallel()
+	ms := &APIStoreMock{
+		GetAPIKeyByIDFunc: func(_ context.Context, id string) (*domain.APIKey, error) {
+			return &domain.APIKey{ID: id, KeyHash: "h"}, nil
+		},
+		RevokeAPIKeyFunc: func(_ context.Context, _ string) error { return nil },
+	}
+	cfg := &config.Config{
+		InternalSecret:      "test-secret-value",
+		MaxBulkTriggerItems: 500,
+		JWTSigningKey:       testJWTSigningKey,
+		RateLimitRequests:   10000, // global cap high; the per-route revoke cap is 10/min
+		RateLimitWindow:     time.Minute,
+	}
+	srv := NewServer(ServerDeps{Config: cfg, Store: ms, Queue: &mockQueue{}, Edition: domain.EditionCommunity})
+	t.Cleanup(srv.Close)
+
+	var got429 bool
+	for range 15 {
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/api-keys/key-1", ""))
+		if w.Code == http.StatusTooManyRequests {
+			got429 = true
+			break
+		}
+	}
+	require.True(t, got429, "DELETE /v1/api-keys/{keyID} must be rate limited")
+}
+
 func TestHandleRotateAPIKey(t *testing.T) {
 	t.Parallel()
 
