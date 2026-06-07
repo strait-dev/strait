@@ -25,7 +25,7 @@ func skipIfCommunity(t *testing.T) {
 // setRequiredEnv sets the minimum required env vars for a valid config.
 func setRequiredEnv(t *testing.T) {
 	t.Helper()
-	t.Setenv("DATABASE_URL", "postgres://localhost/test")
+	t.Setenv("DATABASE_URL", "postgres://localhost/test?sslmode=require")
 	t.Setenv("REDIS_URL", "redis://localhost:6379")
 	t.Setenv("SEQUIN_BASE_URL", "http://localhost:7376")
 	t.Setenv("SEQUIN_CONSUMER_NAME", "strait-cdc")
@@ -200,7 +200,7 @@ func TestLoad_RequiredFields(t *testing.T) {
 			setEnv: func(t *testing.T) {
 				t.Helper()
 
-				t.Setenv("DATABASE_URL", "postgres://localhost/test")
+				t.Setenv("DATABASE_URL", "postgres://localhost/test?sslmode=require")
 				t.Setenv("JWT_SIGNING_KEY", "aaaa-test-jwt-signing-key-00000000")
 			},
 			errorSub: "INTERNAL_SECRET",
@@ -210,7 +210,7 @@ func TestLoad_RequiredFields(t *testing.T) {
 			setEnv: func(t *testing.T) {
 				t.Helper()
 
-				t.Setenv("DATABASE_URL", "postgres://localhost/test")
+				t.Setenv("DATABASE_URL", "postgres://localhost/test?sslmode=require")
 				t.Setenv("INTERNAL_SECRET", "test-secret-value")
 				t.Setenv("JWT_SIGNING_KEY", "too-short")
 			},

@@ -31,7 +31,7 @@ func validConfig() *Config {
 		WorkerDisconnectSweepInterval: 30 * time.Second,
 		WorkerDisconnectAckTimeout:    5 * time.Second,
 		GRPCPubsubStartupTimeout:      30 * time.Second,
-		DatabaseURL:                   "postgres://localhost/test",
+		DatabaseURL:                   "postgres://localhost/test?sslmode=require",
 		RedisURL:                      "redis://localhost:6379",
 		SequinBaseURL:                 "http://localhost:7376",
 		SequinConsumerName:            "strait-cdc",
@@ -342,7 +342,7 @@ func FuzzValidateNeverPanics(f *testing.F) {
 
 func setRequiredAuditEnv(t *testing.T) {
 	t.Helper()
-	t.Setenv("DATABASE_URL", "postgres://localhost/test")
+	t.Setenv("DATABASE_URL", "postgres://localhost/test?sslmode=require")
 	t.Setenv("REDIS_URL", "redis://localhost:6379")
 	t.Setenv("SEQUIN_BASE_URL", "http://localhost:7376")
 	t.Setenv("SEQUIN_CONSUMER_NAME", "strait-cdc")
