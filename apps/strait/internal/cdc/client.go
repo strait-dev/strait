@@ -290,6 +290,13 @@ func (c *Client) doRequest(ctx context.Context, method, endpointPath string, bod
 		return req, nil
 	}
 
+	return c.executeWithPolicies(ctx, buildRequest)
+}
+
+// executeWithPolicies runs build()+Do under the client's circuit breaker and
+// retry policy and returns the resulting response. Every Sequin call routes
+// through here so transient failures and breaker state are handled uniformly.
+func (c *Client) executeWithPolicies(ctx context.Context, build func() (*http.Request, error)) (*http.Response, error) {
 	// failsafe-go evaluates policies outermost-first: circuit breaker should be
 	// first (outermost) so it short-circuits before retry attempts are wasted.
 	var policies []failsafe.Policy[*http.Response]
@@ -299,26 +306,25 @@ func (c *Client) doRequest(ctx context.Context, method, endpointPath string, bod
 	if c.retryPolicy != nil {
 		policies = append(policies, c.retryPolicy)
 	}
-	if len(policies) > 0 {
-		return failsafe.With[*http.Response](policies...).WithContext(ctx).GetWithExecution(func(exec failsafe.Execution[*http.Response]) (*http.Response, error) {
-			// Drain and close body from previous retry attempt to release the connection.
-			if prev := exec.LastResult(); prev != nil && prev.Body != nil {
-				_, _ = io.Copy(io.Discard, prev.Body)
-				_ = prev.Body.Close()
-			}
-			req, err := buildRequest()
-			if err != nil {
-				return nil, err
-			}
-			return c.httpClient.Do(req)
-		})
+	if len(policies) == 0 {
+		req, err := build()
+		if err != nil {
+			return nil, err
+		}
+		return c.httpClient.Do(req)
 	}
-
-	req, err := buildRequest()
-	if err != nil {
-		return nil, err
-	}
-	return c.httpClient.Do(req)
+	return failsafe.With[*http.Response](policies...).WithContext(ctx).GetWithExecution(func(exec failsafe.Execution[*http.Response]) (*http.Response, error) {
+		// Drain and close body from previous retry attempt to release the connection.
+		if prev := exec.LastResult(); prev != nil && prev.Body != nil {
+			_, _ = io.Copy(io.Discard, prev.Body)
+			_ = prev.Body.Close()
+		}
+		req, err := build()
+		if err != nil {
+			return nil, err
+		}
+		return c.httpClient.Do(req)
+	})
 }
 
 // readError reads the error body from a non-200 response.
@@ -327,19 +333,55 @@ func (c *Client) readError(resp *http.Response) error {
 	return fmt.Errorf("sequin api error (status %d): %s", resp.StatusCode, string(body))
 }
 
+// consumerExists reports whether the configured Sequin sink consumer already
+// exists, using a read-only GET that does NOT lease any stream messages. A
+// Receive call would atomically dequeue a real message and start its
+// visibility timer, so it must never be used as an existence/liveness probe.
+func (c *Client) consumerExists(ctx context.Context) (bool, error) {
+	endpoint := *c.baseURL
+	endpoint.Path = stdpath.Join(endpoint.Path, "/api/sinks", c.consumerName)
+	if endpoint.Scheme == "" || endpoint.Host == "" {
+		return false, fmt.Errorf("invalid base url")
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
+	if err != nil {
+		return false, fmt.Errorf("create consumer probe request: %w", err)
+	}
+	if c.apiToken != "" {
+		req.Header.Set("Authorization", "Bearer "+c.apiToken)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return false, fmt.Errorf("sequin consumer probe: %w", err)
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		return true, nil
+	case http.StatusNotFound:
+		return false, nil
+	default:
+		return false, c.readError(resp)
+	}
+}
+
 // EnsureConsumer checks if the named consumer exists and creates it if not.
 // Idempotent and safe to call on every startup.
 func (c *Client) EnsureConsumer(ctx context.Context, tables []string) error {
-	// Probe: try a non-blocking receive to check if the consumer exists.
-	// Sequin rejects batch_size=0, so use the smallest valid batch.
-	_, err := c.Receive(ctx, 1, 0)
-	if err == nil {
-		return nil
+	// Probe existence without leasing stream messages.
+	if exists, err := c.consumerExists(ctx); err == nil && exists {
+		return c.waitForConsumerReady(ctx)
 	}
 
 	// Create sink via Sequin management API.
 	endpoint := *c.baseURL
 	endpoint.Path = stdpath.Join(endpoint.Path, "/api/sinks")
+	if endpoint.Scheme == "" || endpoint.Host == "" {
+		return fmt.Errorf("invalid base url")
+	}
 
 	sinkBody := map[string]any{
 		"name":        c.consumerName,
@@ -347,18 +389,25 @@ func (c *Client) EnsureConsumer(ctx context.Context, tables []string) error {
 		"source":      map[string]any{"include_tables": tables},
 		"destination": map[string]any{"type": "sequin_stream"},
 	}
-	bodyData, _ := json.Marshal(sinkBody)
-
-	req, reqErr := http.NewRequestWithContext(ctx, http.MethodPost, endpoint.String(), bytes.NewReader(bodyData))
-	if reqErr != nil {
-		return fmt.Errorf("create ensure consumer request: %w", reqErr)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	if c.apiToken != "" {
-		req.Header.Set("Authorization", "Bearer "+c.apiToken)
+	bodyData, err := json.Marshal(sinkBody)
+	if err != nil {
+		return fmt.Errorf("marshal ensure consumer request: %w", err)
 	}
 
-	resp, doErr := c.httpClient.Do(req)
+	// Route the create through the same retry + circuit-breaker policies as
+	// every other Sequin call so a transient 5xx during startup doesn't crash
+	// the process.
+	resp, doErr := c.executeWithPolicies(ctx, func() (*http.Request, error) {
+		req, reqErr := http.NewRequestWithContext(ctx, http.MethodPost, endpoint.String(), bytes.NewReader(bodyData))
+		if reqErr != nil {
+			return nil, fmt.Errorf("create ensure consumer request: %w", reqErr)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		if c.apiToken != "" {
+			req.Header.Set("Authorization", "Bearer "+c.apiToken)
+		}
+		return req, nil
+	})
 	if doErr != nil {
 		return fmt.Errorf("create sequin sink: %w", doErr)
 	}
@@ -378,7 +427,9 @@ func (c *Client) EnsureConsumer(ctx context.Context, tables []string) error {
 func (c *Client) waitForConsumerReady(ctx context.Context) error {
 	var lastErr error
 	for attempt := range 30 {
-		_, err := c.Receive(ctx, 1, 0)
+		// Poll the management API for readiness; never Receive(), which would
+		// lease a real stream message just to check liveness.
+		err := c.SinkConsumerHealth(ctx)
 		if err == nil {
 			return nil
 		}
