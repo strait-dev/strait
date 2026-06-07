@@ -66,7 +66,7 @@ type CallbackStore interface {
 	UpdateEventTriggerStatus(ctx context.Context, id string, status string, responsePayload json.RawMessage, receivedAt *time.Time, errMsg string) error
 	AdvisoryXactLock(ctx context.Context, lockID int64) error
 	CreateWorkflowStepDecision(ctx context.Context, d *domain.WorkflowStepDecision) error
-	GetWorkflowSnapshot(ctx context.Context, id string) (*domain.WorkflowSnapshot, error)
+	GetWorkflowSnapshot(ctx context.Context, projectID, id string) (*domain.WorkflowSnapshot, error)
 	RequeuePausedJobRuns(ctx context.Context, workflowRunID string) (int64, error)
 }
 
@@ -133,7 +133,7 @@ func (s *StepCallback) loadWfCtx(ctx context.Context, workflowRunID string) (*wf
 // falling back to the live workflow_version_steps table for pre-snapshot runs.
 func (s *StepCallback) loadStepDefinitions(ctx context.Context, wfRun *domain.WorkflowRun) ([]domain.WorkflowStep, error) {
 	if wfRun.WorkflowSnapshotID != "" {
-		snapshot, err := s.store.GetWorkflowSnapshot(ctx, wfRun.WorkflowSnapshotID)
+		snapshot, err := s.store.GetWorkflowSnapshot(ctx, wfRun.ProjectID, wfRun.WorkflowSnapshotID)
 		if err != nil {
 			s.logger.Warn("failed to load snapshot, falling back to live table",
 				"workflow_run_id", wfRun.ID, "snapshot_id", wfRun.WorkflowSnapshotID, "error", err)

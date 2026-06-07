@@ -52,7 +52,7 @@ func (q *Queries) GetOrCreateWorkflowSnapshot(
 	// Trigger-time step overrides can change the serialized step set while
 	// keeping the workflow version stable, so version_id alone is insufficient.
 	if wf.VersionID != "" {
-		existing, err := q.getWorkflowSnapshotByVersionAndHash(ctx, wf.ID, wf.VersionID, hash)
+		existing, err := q.getWorkflowSnapshotByVersionAndHash(ctx, wf.ProjectID, wf.ID, wf.VersionID, hash)
 		if err == nil && existing != nil {
 			return existing, nil
 		}
@@ -68,8 +68,8 @@ func (q *Queries) GetOrCreateWorkflowSnapshot(
 	}
 
 	query := `
-		INSERT INTO workflow_snapshots (id, workflow_id, version_id, version, definition, definition_hash)
-		VALUES ($1, $2, $3, $4, $5::jsonb, $6)
+		INSERT INTO workflow_snapshots (id, workflow_id, project_id, version_id, version, definition, definition_hash)
+		VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7)
 		ON CONFLICT (workflow_id, version_id, definition_hash) WHERE version_id != ''
 		DO UPDATE SET id = workflow_snapshots.id
 		RETURNING id, created_at`
@@ -78,6 +78,7 @@ func (q *Queries) GetOrCreateWorkflowSnapshot(
 		ctx, query,
 		snapshot.ID,
 		snapshot.WorkflowID,
+		wf.ProjectID,
 		snapshot.VersionID,
 		snapshot.Version,
 		snapshot.Definition,
@@ -95,19 +96,21 @@ func workflowSnapshotDefinitionHash(definition []byte) string {
 	return fmt.Sprintf("%x", sum[:])
 }
 
-// GetWorkflowSnapshot retrieves a workflow snapshot by ID.
-func (q *Queries) GetWorkflowSnapshot(ctx context.Context, id string) (*domain.WorkflowSnapshot, error) {
+// GetWorkflowSnapshot retrieves a workflow snapshot by ID, scoped to the
+// caller's project so a snapshot id from one tenant cannot read another
+// tenant's snapshot definition.
+func (q *Queries) GetWorkflowSnapshot(ctx context.Context, projectID, id string) (*domain.WorkflowSnapshot, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetWorkflowSnapshot")
 	defer span.End()
 
 	query := `
 		SELECT id, workflow_id, version_id, version, definition, created_at
 		FROM workflow_snapshots
-		WHERE id = $1`
+		WHERE id = $1 AND project_id = $2`
 
 	var s domain.WorkflowSnapshot
 	var defBytes []byte
-	err := q.db.QueryRow(ctx, query, id).Scan(
+	err := q.db.QueryRow(ctx, query, id, projectID).Scan(
 		&s.ID, &s.WorkflowID, &s.VersionID, &s.Version, &defBytes, &s.CreatedAt,
 	)
 	if err != nil {
@@ -122,15 +125,15 @@ func (q *Queries) GetWorkflowSnapshot(ctx context.Context, id string) (*domain.W
 
 // getWorkflowSnapshotByVersionAndHash retrieves a snapshot by exact definition
 // identity within a workflow version.
-func (q *Queries) getWorkflowSnapshotByVersionAndHash(ctx context.Context, workflowID, versionID, definitionHash string) (*domain.WorkflowSnapshot, error) {
+func (q *Queries) getWorkflowSnapshotByVersionAndHash(ctx context.Context, projectID, workflowID, versionID, definitionHash string) (*domain.WorkflowSnapshot, error) {
 	query := `
 		SELECT id, workflow_id, version_id, version, definition, created_at
 		FROM workflow_snapshots
-		WHERE workflow_id = $1 AND version_id = $2 AND definition_hash = $3`
+		WHERE workflow_id = $1 AND version_id = $2 AND definition_hash = $3 AND project_id = $4`
 
 	var s domain.WorkflowSnapshot
 	var defBytes []byte
-	err := q.db.QueryRow(ctx, query, workflowID, versionID, definitionHash).Scan(
+	err := q.db.QueryRow(ctx, query, workflowID, versionID, definitionHash, projectID).Scan(
 		&s.ID, &s.WorkflowID, &s.VersionID, &s.Version, &defBytes, &s.CreatedAt,
 	)
 	if err != nil {
@@ -165,19 +168,20 @@ func ParseSnapshotDefinition(definition json.RawMessage) (*domain.WorkflowSnapsh
 	return &def, nil
 }
 
-// ListWorkflowSnapshotsByWorkflow returns snapshots for a workflow, newest first.
-func (q *Queries) ListWorkflowSnapshotsByWorkflow(ctx context.Context, workflowID string, limit int) ([]domain.WorkflowSnapshot, error) {
+// ListWorkflowSnapshotsByWorkflow returns snapshots for a workflow, newest
+// first, scoped to the caller's project.
+func (q *Queries) ListWorkflowSnapshotsByWorkflow(ctx context.Context, projectID, workflowID string, limit int) ([]domain.WorkflowSnapshot, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListWorkflowSnapshotsByWorkflow")
 	defer span.End()
 
 	query := `
 		SELECT id, workflow_id, version_id, version, definition, created_at
 		FROM workflow_snapshots
-		WHERE workflow_id = $1
+		WHERE workflow_id = $1 AND project_id = $2
 		ORDER BY created_at DESC
-		LIMIT $2`
+		LIMIT $3`
 
-	rows, err := q.db.Query(ctx, query, workflowID, limit)
+	rows, err := q.db.Query(ctx, query, workflowID, projectID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("list workflow snapshots: %w", err)
 	}
@@ -200,8 +204,8 @@ func (q *Queries) ListWorkflowSnapshotsByWorkflow(ctx context.Context, workflowI
 // WorkflowSnapshotStore defines snapshot operations for the Store interface.
 type WorkflowSnapshotStore interface {
 	GetOrCreateWorkflowSnapshot(ctx context.Context, wf *domain.Workflow, steps []domain.WorkflowStep) (*domain.WorkflowSnapshot, error)
-	GetWorkflowSnapshot(ctx context.Context, id string) (*domain.WorkflowSnapshot, error)
-	ListWorkflowSnapshotsByWorkflow(ctx context.Context, workflowID string, limit int) ([]domain.WorkflowSnapshot, error)
+	GetWorkflowSnapshot(ctx context.Context, projectID, id string) (*domain.WorkflowSnapshot, error)
+	ListWorkflowSnapshotsByWorkflow(ctx context.Context, projectID, workflowID string, limit int) ([]domain.WorkflowSnapshot, error)
 }
 
 // Ensure Queries implements WorkflowSnapshotStore.
