@@ -845,6 +845,22 @@ type PoolStatter interface {
 	EmptyAcquireWaitTime() time.Duration
 }
 
+// PoolBackpressureStats is a single consistent pool-stat snapshot used by the
+// admission-control hot path.
+type PoolBackpressureStats struct {
+	AcquiredConns        int32
+	MaxConns             int32
+	EmptyAcquireCount    int64
+	EmptyAcquireWaitTime time.Duration
+}
+
+// PoolBackpressureSnapshotter lets real pool adapters expose all backpressure
+// fields from one Stat() call. PoolStatter remains for lightweight tests and
+// adapters that do not have a native snapshot API.
+type PoolBackpressureSnapshotter interface {
+	BackpressureStats() PoolBackpressureStats
+}
+
 // NewServer creates a new HTTP API server with the given dependencies.
 func NewServer(deps ServerDeps) *Server {
 	maxBody := deps.Config.MaxRequestBodySize
@@ -972,14 +988,20 @@ func (s *Server) dbBackpressure(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if s.shouldApplyDBBackpressure() {
 			w.Header().Set("Retry-After", "1")
-			http.Error(w, "service temporarily unavailable", http.StatusServiceUnavailable)
+			respondError(w, r, http.StatusTooManyRequests, APIError{
+				Code:    ErrorCodeRateLimited,
+				Message: "database admission control throttled",
+				Details: []string{
+					"retry_after_seconds=1",
+				},
+			})
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
 }
 
-// shouldApplyDBBackpressure decides whether to 503 an incoming request because
+// shouldApplyDBBackpressure decides whether to 429 an incoming request because
 // the connection pool can't currently serve it. Two independent signals:
 //
 //  1. Snapshot pool occupancy: if >90% of max connections are checked out
@@ -991,15 +1013,29 @@ func (s *Server) dbBackpressure(next http.Handler) http.Handler {
 //     request would see a near-zero delta against the just-updated baseline
 //     and admit).
 func (s *Server) shouldApplyDBBackpressure() bool {
-	acquired := s.poolStatter.AcquiredConns()
-	maxConns := s.poolStatter.MaxConns()
-	if maxConns > 0 && acquired > int32(float64(maxConns)*0.9) {
+	stats := poolBackpressureStats(s.poolStatter)
+	if stats.MaxConns > 0 && stats.AcquiredConns > int32(float64(stats.MaxConns)*0.9) {
 		return true
 	}
 	if s.poolBackpressure != nil && s.poolBackpressure.Shedding() {
 		return true
 	}
 	return false
+}
+
+func poolBackpressureStats(ps PoolStatter) PoolBackpressureStats {
+	if ps == nil {
+		return PoolBackpressureStats{}
+	}
+	if snapshotter, ok := ps.(PoolBackpressureSnapshotter); ok {
+		return snapshotter.BackpressureStats()
+	}
+	return PoolBackpressureStats{
+		AcquiredConns:        ps.AcquiredConns(),
+		MaxConns:             ps.MaxConns(),
+		EmptyAcquireCount:    ps.EmptyAcquireCount(),
+		EmptyAcquireWaitTime: ps.EmptyAcquireWaitTime(),
+	}
 }
 
 func permCacheTTL(cfg *config.Config) time.Duration {
