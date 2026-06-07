@@ -61,6 +61,37 @@ func (f *fakePoolStatter) setOccupancy(acquired, max int32) {
 	f.acquired, f.maxConns = acquired, max
 }
 
+type snapshotPoolStatter struct {
+	stats         PoolBackpressureStats
+	snapshotReads atomic.Int32
+	fallbackReads atomic.Int32
+}
+
+func (s *snapshotPoolStatter) BackpressureStats() PoolBackpressureStats {
+	s.snapshotReads.Add(1)
+	return s.stats
+}
+
+func (s *snapshotPoolStatter) AcquiredConns() int32 {
+	s.fallbackReads.Add(1)
+	return s.stats.AcquiredConns
+}
+
+func (s *snapshotPoolStatter) MaxConns() int32 {
+	s.fallbackReads.Add(1)
+	return s.stats.MaxConns
+}
+
+func (s *snapshotPoolStatter) EmptyAcquireCount() int64 {
+	s.fallbackReads.Add(1)
+	return s.stats.EmptyAcquireCount
+}
+
+func (s *snapshotPoolStatter) EmptyAcquireWaitTime() time.Duration {
+	s.fallbackReads.Add(1)
+	return s.stats.EmptyAcquireWaitTime
+}
+
 // Baseline tick (no delta) keeps shedding false.
 func TestPoolBackpressureSampler_NoDeltaAdmits(t *testing.T) {
 	ps := &fakePoolStatter{}
@@ -96,6 +127,37 @@ func TestPoolBackpressureSampler_ThresholdGate(t *testing.T) {
 	ps.set(20, 700*time.Millisecond)
 	s.sampleOnce()
 	require.False(t, s.Shedding())
+}
+
+func TestPoolBackpressureStats_UsesSingleSnapshotWhenAvailable(t *testing.T) {
+	ps := &snapshotPoolStatter{stats: PoolBackpressureStats{
+		AcquiredConns:        91,
+		MaxConns:             100,
+		EmptyAcquireCount:    10,
+		EmptyAcquireWaitTime: time.Second,
+	}}
+
+	stats := poolBackpressureStats(ps)
+
+	require.Equal(t, ps.stats, stats)
+	require.EqualValues(t, 1, ps.snapshotReads.Load())
+	require.EqualValues(t, 0, ps.fallbackReads.Load())
+}
+
+func TestPoolBackpressureSampler_UsesSingleSnapshotPerSample(t *testing.T) {
+	ps := &snapshotPoolStatter{stats: PoolBackpressureStats{
+		EmptyAcquireCount:    10,
+		EmptyAcquireWaitTime: time.Second,
+	}}
+	s := newPoolBackpressureSampler(ps, time.Second, 50*time.Millisecond)
+	s.lastCount = 0
+	s.lastWait = 0
+
+	s.sampleOnce()
+
+	require.True(t, s.Shedding())
+	require.EqualValues(t, 1, ps.snapshotReads.Load())
+	require.EqualValues(t, 0, ps.fallbackReads.Load())
 }
 
 // All concurrent readers must observe the same verdict — this is the property
@@ -148,6 +210,12 @@ func waitForEmptyAcquireCountReads(t *testing.T, ch <-chan struct{}, want int) {
 			require.Failf(t, "test failure", "timed out waiting for %d EmptyAcquireCount reads, got %d", want, got)
 		}
 	}
+}
+
+func TestShouldApplyDBBackpressure_NoPoolStatterAdmits(t *testing.T) {
+	srv := &Server{}
+
+	require.False(t, srv.shouldApplyDBBackpressure())
 }
 
 // Verifies that shouldApplyDBBackpressure reaches the same verdict regardless

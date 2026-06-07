@@ -16,7 +16,11 @@ import (
 
 func (e *Executor) poll(ctx context.Context) {
 	start := time.Now()
+	if e.drain == nil {
+		e.drain = newDrainController(e.queueMetrics)
+	}
 	if e.checkMemoryPressure() {
+		e.drain.clear()
 		return
 	}
 	available := e.computeAvailable()
@@ -28,6 +32,7 @@ func (e *Executor) poll(ctx context.Context) {
 	// we don't pile up goroutines on a slow Postgres.
 	if e.dbCircuit != nil && e.dbCircuit.State() == queue.CircuitOpen {
 		e.logger.Debug("poll skipped: db circuit open")
+		e.drain.clear()
 		return
 	}
 
@@ -42,6 +47,7 @@ func (e *Executor) poll(ctx context.Context) {
 		e.metrics.DequeueDuration.Record(ctx, time.Since(start).Seconds())
 	}
 	if dequeueErr != nil {
+		e.drain.observePoll(available, 0, dequeueErr)
 		if errors.Is(dequeueErr, queue.ErrCircuitOpen) {
 			e.logger.Debug("poll: db circuit open, skipping")
 		} else {
@@ -50,8 +56,10 @@ func (e *Executor) poll(ctx context.Context) {
 		return
 	}
 	if len(runs) == 0 {
+		e.drain.observePoll(available, 0, nil)
 		return
 	}
+	e.drain.observePoll(available, len(runs), nil)
 
 	// Capture the claim time as close to DequeueN's return as possible so
 	// the ClaimToStart histogram measures the real gap between a run being
@@ -60,11 +68,11 @@ func (e *Executor) poll(ctx context.Context) {
 	// latency and clock skew).
 	claimedAt := time.Now()
 
-	e.logger.Info("dequeued runs", "count", len(runs))
+	e.logger.Debug("dequeued runs", "count", len(runs), "requested", available)
 
 	for i := range runs {
 		run := runs[i]
-		e.logger.Info(
+		e.logger.Debug(
 			"dequeued run",
 			"run_id", run.ID,
 			"job_id", run.JobID,
@@ -78,8 +86,9 @@ func (e *Executor) poll(ctx context.Context) {
 			"priority": run.Priority,
 		})
 		e.pool.Submit(execCtx, func() {
-			if qm, qmErr := queue.Metrics(); qmErr == nil && qm != nil {
-				qm.ClaimToStart.Record(execCtx, time.Since(claimedAt).Seconds())
+			defer e.requestBacklogDrain()
+			if e.queueMetrics != nil {
+				e.queueMetrics.ClaimToStart.Record(execCtx, time.Since(claimedAt).Seconds())
 			}
 			addWorkerRunBreadcrumb(execCtx, "worker.dispatch", "run dispatch starting", &run, nil, nil)
 			defer func() {
@@ -109,6 +118,15 @@ func (e *Executor) poll(ctx context.Context) {
 			}()
 			e.execute(execCtx, &run)
 		})
+	}
+}
+
+func (e *Executor) requestBacklogDrain() {
+	if e == nil {
+		return
+	}
+	if e.drain != nil {
+		e.drain.request(context.Background())
 	}
 }
 

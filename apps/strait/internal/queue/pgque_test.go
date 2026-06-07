@@ -432,6 +432,35 @@ func TestPgQueActiveBatchLockedReturnsSentinelForEmptyReceive(t *testing.T) {
 	require.Nil(t, batch)
 }
 
+func TestPgQueActiveBatchLockedBoundsEmptyLagCatchUp(t *testing.T) {
+	ctx := context.Background()
+	var receiveCalls int
+	var lagCalls int
+	db := &mockDBTX{
+		queryFn: func(_ context.Context, _ string, _ ...any) (pgx.Rows, error) {
+			receiveCalls++
+			return &noRows{}, nil
+		},
+		queryRowFn: func(_ context.Context, _ string, _ ...any) pgx.Row {
+			lagCalls++
+			return &mockRow{scanFn: func(dest ...any) error {
+				lag, ok := dest[0].(*int64)
+				require.True(t, ok)
+				*lag = 1
+				return nil
+			}}
+		},
+	}
+	q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
+
+	batch, err := q.activeBatchLocked(ctx, &pgQueRouteState{}, "stq_empty_lag")
+	require.ErrorIs(t, err, errPgQueNoMessages)
+	require.Nil(t, batch)
+	require.Equal(t, pgQueMaxCatchUpBatches, receiveCalls)
+	require.Equal(t, pgQueMaxCatchUpBatches, lagCalls)
+	require.Less(t, receiveCalls, 1024)
+}
+
 func TestUnclaimedReservedCandidates(t *testing.T) {
 	newCandidates := func() []pgQueCandidate {
 		return []pgQueCandidate{
