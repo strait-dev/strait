@@ -27,7 +27,7 @@ const (
 	pgQueReceiveAll                 = 2147483647
 	pgQueMaxAttempts                = 3
 	pgQueMaxDequeueFillBatches      = 32
-	pgQueMaxCatchUpBatches          = 1024
+	pgQueMaxCatchUpBatches          = 64
 	pgQueDefaultMaintenanceInterval = 30 * time.Second
 	pgQueDefaultRotationPeriod      = 5 * time.Minute
 )

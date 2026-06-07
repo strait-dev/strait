@@ -100,8 +100,9 @@ func (s *poolBackpressureSampler) run() {
 	// Establish the baseline. The first window after Start runs from now
 	// until the first tick; we don't have meaningful delta data yet so we
 	// stay in admit mode.
-	s.lastCount = s.poolStatter.EmptyAcquireCount()
-	s.lastWait = s.poolStatter.EmptyAcquireWaitTime()
+	stats := poolBackpressureStats(s.poolStatter)
+	s.lastCount = stats.EmptyAcquireCount
+	s.lastWait = stats.EmptyAcquireWaitTime
 
 	t := time.NewTicker(s.interval)
 	defer t.Stop()
@@ -121,8 +122,9 @@ func (s *poolBackpressureSampler) run() {
 // Pulled out so unit tests can drive the sampler synchronously without timing
 // dependencies.
 func (s *poolBackpressureSampler) sampleOnce() {
-	count := s.poolStatter.EmptyAcquireCount()
-	wait := s.poolStatter.EmptyAcquireWaitTime()
+	stats := poolBackpressureStats(s.poolStatter)
+	count := stats.EmptyAcquireCount
+	wait := stats.EmptyAcquireWaitTime
 	deltaCount := count - s.lastCount
 	deltaWait := wait - s.lastWait
 	s.lastCount = count
