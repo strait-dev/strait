@@ -128,6 +128,13 @@ func (wr *WebhookReceiver) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		return
 	}
+	// processed gates the dedupe claim: it is only set true once the primary
+	// AND every additional handler have succeeded. Any earlier failure leaves
+	// processed false so the deferred releaseDedupe runs, freeing the claim and
+	// letting Sequin redeliver. CDC delivery is at-least-once and these handlers
+	// are the same idempotent handlers used by the poll-based consumer, so a
+	// redelivery re-running them is safe; retaining the claim on partial failure
+	// would instead drop the side effect permanently.
 	processed := false
 	defer func() {
 		if !processed {
@@ -164,10 +171,12 @@ func (wr *WebhookReceiver) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	processed = true
 
 	// Run additional handlers (webhook delivery, notifications, audit, etc.).
 	// Always runs regardless of whether the primary handler used Collect or Handle.
+	// processed stays false until this loop completes: an additional-handler
+	// failure must release the dedupe claim so Sequin redelivers, otherwise the
+	// side effect is silently dropped.
 	for _, ah := range wr.additionalHandlers[tableName] {
 		if ahErr := ah.Handle(r.Context(), msg); ahErr != nil {
 			wr.logger.Error("cdc webhook: additional handler failed",
