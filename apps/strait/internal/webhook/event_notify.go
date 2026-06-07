@@ -642,7 +642,7 @@ func (n *DeliveryWorker) attemptBatchDelivery(ctx context.Context, webhookURL st
 	resp, err := n.client.Do(req)
 	if err != nil {
 		if n.circuitBreaker != nil {
-			n.circuitBreaker.RecordFailure(ctx, breakerKey(batchOrgID(deliveries), webhookURL))
+			n.circuitBreaker.RecordFailure(ctx, breakerKey(batchTenantScope(deliveries), webhookURL))
 		}
 		errMsg := fmt.Sprintf("http request: %s", sanitizeHTTPClientError(err))
 		for i := range deliveries {
@@ -679,7 +679,7 @@ func (n *DeliveryWorker) checkBatchCircuitBreaker(
 	if n.circuitBreaker == nil {
 		return false
 	}
-	cbKey := breakerKey(batchOrgID(deliveries), webhookURL)
+	cbKey := breakerKey(batchTenantScope(deliveries), webhookURL)
 	canDeliver, err := n.circuitBreaker.CanDeliver(ctx, cbKey)
 	if err != nil {
 		n.logger.Warn("webhook circuit breaker check failed", "url_host", extractDomain(webhookURL), "error", err)
@@ -709,7 +709,7 @@ func (n *DeliveryWorker) handleBatchResponseStatus(
 ) bool {
 	if statusCode >= 500 {
 		if n.circuitBreaker != nil {
-			n.circuitBreaker.RecordFailure(ctx, breakerKey(batchOrgID(deliveries), webhookURL))
+			n.circuitBreaker.RecordFailure(ctx, breakerKey(batchTenantScope(deliveries), webhookURL))
 		}
 		errMsg := fmt.Sprintf("server error: status %d", statusCode)
 		for i := range deliveries {
@@ -746,7 +746,7 @@ func (n *DeliveryWorker) handleBatchResponseStatus(
 // markBatchDelivered records a successful batch delivery for all deliveries.
 func (n *DeliveryWorker) markBatchDelivered(ctx context.Context, webhookURL string, deliveries []domain.WebhookDelivery, now time.Time, statusCode int) {
 	if n.circuitBreaker != nil {
-		n.circuitBreaker.RecordSuccess(ctx, breakerKey(batchOrgID(deliveries), webhookURL))
+		n.circuitBreaker.RecordSuccess(ctx, breakerKey(batchTenantScope(deliveries), webhookURL))
 	}
 	for i := range deliveries {
 		n.markSingleDelivered(ctx, &deliveries[i], now, statusCode)
@@ -851,12 +851,16 @@ func deliveryTenantScope(delivery domain.WebhookDelivery) string {
 	return ""
 }
 
-// batchOrgID returns the OrgID shared by every delivery in a batch.
-// groupByURL guarantees homogeneity, so the first non-empty value wins.
-func batchOrgID(deliveries []domain.WebhookDelivery) string {
+// batchTenantScope returns the tenant scope (org, falling back to project)
+// shared by every delivery in a batch. groupByURL groups by this same scope, so
+// the first non-empty value represents the whole batch. Keying the circuit
+// breaker on the tenant scope — rather than OrgID alone — prevents deliveries
+// with an empty OrgID from collapsing unrelated tenants into one URL-only
+// breaker bucket, where one tenant's failures could trip another's breaker.
+func batchTenantScope(deliveries []domain.WebhookDelivery) string {
 	for i := range deliveries {
-		if deliveries[i].OrgID != "" {
-			return deliveries[i].OrgID
+		if scope := deliveryTenantScope(deliveries[i]); scope != "" {
+			return scope
 		}
 	}
 	return ""
@@ -1132,7 +1136,7 @@ func (n *DeliveryWorker) checkDeliveryCircuit(
 	if n.circuitBreaker == nil {
 		return true
 	}
-	cbKey := breakerKey(d.OrgID, d.WebhookURL)
+	cbKey := breakerKey(deliveryTenantScope(*d), d.WebhookURL)
 	canDeliver, err := n.circuitBreaker.CanDeliver(ctx, cbKey)
 	if err != nil {
 		n.logger.Warn("webhook circuit breaker check failed", "delivery_id", d.ID, "url_host", extractDomain(d.WebhookURL), "error", err)
@@ -1160,7 +1164,7 @@ func (n *DeliveryWorker) executeDeliveryRequest(
 		return resp, true
 	}
 	if n.circuitBreaker != nil {
-		n.circuitBreaker.RecordFailure(ctx, breakerKey(d.OrgID, d.WebhookURL))
+		n.circuitBreaker.RecordFailure(ctx, breakerKey(deliveryTenantScope(*d), d.WebhookURL))
 	}
 	errMsg := fmt.Sprintf("http request: %s", sanitizeHTTPClientError(err))
 	n.recordFailure(ctx, d, now, true, errMsg)
@@ -1181,7 +1185,7 @@ func (n *DeliveryWorker) handleDeliveryResponse(
 
 	if statusCode >= 500 {
 		if n.circuitBreaker != nil {
-			n.circuitBreaker.RecordFailure(ctx, breakerKey(d.OrgID, d.WebhookURL))
+			n.circuitBreaker.RecordFailure(ctx, breakerKey(deliveryTenantScope(*d), d.WebhookURL))
 		}
 		errMsg := fmt.Sprintf("server error: status %d", statusCode)
 		n.recordFailure(ctx, d, now, true, errMsg)
@@ -1212,7 +1216,7 @@ func (n *DeliveryWorker) markDeliverySucceeded(
 	span trace.Span,
 ) {
 	if n.circuitBreaker != nil {
-		n.circuitBreaker.RecordSuccess(ctx, breakerKey(d.OrgID, d.WebhookURL))
+		n.circuitBreaker.RecordSuccess(ctx, breakerKey(deliveryTenantScope(*d), d.WebhookURL))
 	}
 	d.Status = domain.WebhookStatusDelivered
 	d.DeliveredAt = &now
