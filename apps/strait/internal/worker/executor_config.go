@@ -105,6 +105,7 @@ func resolveDegradedPollInterval(d time.Duration) time.Duration {
 
 func NewExecutor(cfg ExecutorConfig) *Executor {
 	httpClient := resolveExecutorHTTPClient(cfg)
+	queueMetrics := resolveQueueMetrics()
 
 	whMaxAttempts := cfg.WebhookMaxAttempts
 	if whMaxAttempts <= 0 {
@@ -166,7 +167,7 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		dlqCapEnforcer:           cfg.DLQCapEnforcer,
 		secretDecryptor:          cfg.SecretDecryptor,
 		healthScorer:             NewHealthScorer(cfg.Store),
-		drainWake:                make(chan struct{}, 1),
+		drain:                    newDrainController(queueMetrics),
 		onCompleteTrigger: NewOnCompleteTrigger(
 			cfg.WorkflowLookup,
 			cfg.WorkflowTriggerer,
@@ -181,7 +182,7 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		dbCircuit:            queue.NewDBCircuit(cfg.DBCircuitConfig),
 		queueSnapshotter:     cfg.QueueSnapshotter,
 		workerDispatcher:     cfg.WorkerDispatcher,
-		queueMetrics:         resolveQueueMetrics(),
+		queueMetrics:         queueMetrics,
 	}
 }
 

@@ -540,7 +540,7 @@ func TestExecutorRun_EmptyDrainClearsBacklogHint(t *testing.T) {
 	wake <- struct{}{}
 
 	require.Eventually(t, func() bool {
-		return completed.Load() == 2 && dequeueCalls.Load() >= 2 && !exec.backlogHint.Load()
+		return completed.Load() == 2 && dequeueCalls.Load() >= 2 && !exec.drain.hasBacklogHint()
 	}, 2*time.Second, 10*time.Millisecond)
 
 	cancel()

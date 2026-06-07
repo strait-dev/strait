@@ -57,6 +57,10 @@ type QueueMetrics struct {
 	OutboxClaimTableLiveTuples    metric.Int64Gauge
 	PgQueBackgroundErrors         metric.Int64Counter
 	PgQueConsumerLag              metric.Int64Gauge
+	ExecutorDrainWakeRequested    metric.Int64Counter
+	ExecutorDrainWakeDelivered    metric.Int64Counter
+	ExecutorDrainWakeCoalesced    metric.Int64Counter
+	ExecutorPolls                 metric.Int64Counter
 }
 
 var (
@@ -286,6 +290,38 @@ func newQueueMetrics() (*QueueMetrics, error) {
 	if err != nil {
 		return nil, fmt.Errorf("pgque consumer lag gauge: %w", err)
 	}
+	executorDrainWakeRequested, err := meter.Int64Counter(
+		"strait_worker_drain_wake_requested_total",
+		metric.WithDescription("Number of internal executor drain wakes requested after a full dequeue batch"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("executor drain wake requested counter: %w", err)
+	}
+	executorDrainWakeDelivered, err := meter.Int64Counter(
+		"strait_worker_drain_wake_delivered_total",
+		metric.WithDescription("Number of internal executor drain wakes delivered to the run loop"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("executor drain wake delivered counter: %w", err)
+	}
+	executorDrainWakeCoalesced, err := meter.Int64Counter(
+		"strait_worker_drain_wake_coalesced_total",
+		metric.WithDescription("Number of internal executor drain wakes coalesced because one was already pending"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("executor drain wake coalesced counter: %w", err)
+	}
+	executorPolls, err := meter.Int64Counter(
+		"strait_worker_polls_total",
+		metric.WithDescription("Executor poll loop invocations grouped by bounded trigger"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("executor polls counter: %w", err)
+	}
 	m := &QueueMetrics{
 		OldestQueuedAge:             oldestAge,
 		DequeueScanRows:             scanRows,
@@ -312,6 +348,10 @@ func newQueueMetrics() (*QueueMetrics, error) {
 		SchedulerShutdownTimeouts:   schedulerShutdownTimeouts,
 		PgQueBackgroundErrors:       pgqueBackgroundErrors,
 		PgQueConsumerLag:            pgqueConsumerLag,
+		ExecutorDrainWakeRequested:  executorDrainWakeRequested,
+		ExecutorDrainWakeDelivered:  executorDrainWakeDelivered,
+		ExecutorDrainWakeCoalesced:  executorDrainWakeCoalesced,
+		ExecutorPolls:               executorPolls,
 	}
 	if err := initArchiveMetrics(meter, m); err != nil {
 		return nil, err

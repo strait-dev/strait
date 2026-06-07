@@ -112,13 +112,20 @@ func (q *PgQueQueue) dequeueFromRoute(ctx context.Context, n int, routeKey strin
 		return nil, err
 	}
 
-	for attempt := 0; attempt < pgQueMaxAttempts; attempt++ {
-		reservation, err := q.reserveFromActiveBatch(ctx, state, queueName, n)
+	claimed := make([]domain.JobRun, 0, n)
+	emptyAttempts := 0
+	for batchScan := 0; batchScan < pgQueMaxDequeueFillBatches && len(claimed) < n && emptyAttempts < pgQueMaxAttempts; batchScan++ {
+		remaining := n - len(claimed)
+		reservation, err := q.reserveFromActiveBatch(ctx, state, queueName, remaining)
 		if err != nil {
+			if len(claimed) > 0 {
+				q.logBackgroundError(ctx, "dequeue_fill", "pgque dequeue fill stopped after partial claim", err)
+				return claimed, nil
+			}
 			return nil, err
 		}
 		if reservation.Batch == nil {
-			return nil, nil
+			return claimed, nil
 		}
 
 		for _, msg := range reservation.Invalid {
@@ -126,12 +133,17 @@ func (q *PgQueQueue) dequeueFromRoute(ctx context.Context, n int, routeKey strin
 		}
 		if len(reservation.Candidates) == 0 {
 			if err := q.finishBatchReservation(ctx, state, reservation.Batch, nil); err != nil {
+				if len(claimed) > 0 {
+					q.logBackgroundError(ctx, "dequeue_fill", "pgque empty batch finish failed after partial claim", err)
+					return claimed, nil
+				}
 				return nil, err
 			}
+			emptyAttempts++
 			continue
 		}
 
-		runs, unclaimed, nackUnclaimed, err := q.claimReservedCandidates(ctx, reservation.Candidates, n, filter)
+		runs, unclaimed, nackUnclaimed, err := q.claimReservedCandidates(ctx, reservation.Candidates, remaining, filter)
 		returnCandidates := unclaimed
 		if nackUnclaimed {
 			for _, candidate := range unclaimed {
@@ -143,19 +155,39 @@ func (q *PgQueQueue) dequeueFromRoute(ctx context.Context, n int, routeKey strin
 			returnCandidates = reservation.Candidates
 		}
 		if finishErr := q.finishBatchReservation(ctx, state, reservation.Batch, returnCandidates); finishErr != nil {
-			return runs, finishErr
+			if len(runs) > 0 {
+				for i := range runs {
+					q.runWriter.recordClaimMetrics(ctx, &runs[i])
+				}
+				claimed = append(claimed, runs...)
+			}
+			if len(claimed) > 0 {
+				q.logBackgroundError(ctx, "dequeue_fill", "pgque batch finish failed after partial claim", finishErr)
+				return claimed, nil
+			}
+			return nil, finishErr
 		}
 		if err != nil {
+			if len(claimed) > 0 {
+				q.logBackgroundError(ctx, "dequeue_fill", "pgque claim failed after partial claim", err)
+				return claimed, nil
+			}
 			return nil, err
 		}
 		if len(runs) > 0 {
 			for i := range runs {
 				q.runWriter.recordClaimMetrics(ctx, &runs[i])
 			}
-			return runs, nil
+			claimed = append(claimed, runs...)
+			if len(unclaimed) > 0 {
+				return claimed, nil
+			}
+			emptyAttempts = 0
+			continue
 		}
+		emptyAttempts++
 	}
-	return nil, nil
+	return claimed, nil
 }
 
 func (q *PgQueQueue) nackReservedMessage(ctx context.Context, msg pgQueMessage, reason string) {

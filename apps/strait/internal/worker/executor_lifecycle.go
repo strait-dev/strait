@@ -9,11 +9,12 @@ import (
 
 // doPoll wraps a single poll cycle with proper WaitGroup tracking via
 // defer so that pollWG.Done is always called even if poll panics.
-func (e *Executor) doPoll(ctx context.Context) {
+func (e *Executor) doPoll(ctx context.Context, trigger string) {
 	e.pollWG.Add(1)
 	e.pollInFlight.Add(1)
 	defer e.pollWG.Done()
 	defer e.pollInFlight.Add(-1)
+	recordExecutorPoll(ctx, e.queueMetrics, trigger)
 	e.poll(ctx)
 }
 
@@ -51,6 +52,9 @@ func (e *Executor) Run(ctx context.Context) {
 	if e.degraded != nil {
 		degradedCh = e.degraded.Degraded()
 	}
+	if e.drain == nil {
+		e.drain = newDrainController(e.queueMetrics)
+	}
 	inDegradedMode := false
 
 	for {
@@ -74,9 +78,9 @@ func (e *Executor) Run(ctx context.Context) {
 				}
 				e.logger.Info("executor restored normal poll interval after wake reconnect")
 			}
-			e.doPoll(ctx)
-		case <-e.drainWake:
-			e.doPoll(ctx)
+			e.doPoll(ctx, executorPollTriggerExternal)
+		case <-e.drain.wakeChan():
+			e.doPoll(ctx, executorPollTriggerDrain)
 		case <-degradedCh:
 			ticker.Reset(e.degradedPollInterval)
 			inDegradedMode = true
@@ -84,9 +88,9 @@ func (e *Executor) Run(ctx context.Context) {
 			e.logger.Warn("executor entering degraded mode: fast polling engaged",
 				"degraded_poll_interval", e.degradedPollInterval,
 			)
-			e.doPoll(ctx)
+			e.doPoll(ctx, executorPollTriggerDegraded)
 		case <-ticker.C:
-			e.doPoll(ctx)
+			e.doPoll(ctx, executorPollTriggerTicker)
 		}
 	}
 }
