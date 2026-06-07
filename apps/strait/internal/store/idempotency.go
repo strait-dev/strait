@@ -1,7 +1,6 @@
 package store
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
@@ -359,14 +358,13 @@ func (q *Queries) decryptIdempotencyResponseBody(raw []byte) ([]byte, error) {
 	if len(raw) == 0 {
 		return nil, nil
 	}
-	if !bytes.Contains(raw, []byte(`"encrypted"`)) {
-		return raw, nil
-	}
+	// Encrypted bodies are a JSON object emitted by encryptIdempotencyResponseBody
+	// carrying "encrypted":true. Detect by strict decode, not a substring match:
+	// a legacy/plaintext body that is non-JSON, or JSON that merely contains the
+	// word "encrypted", must pass through untouched rather than being misparsed
+	// (which previously corrupted the replay or returned an error).
 	var wrapper encryptedIdempotencyResponseBody
-	if err := json.Unmarshal(raw, &wrapper); err != nil {
-		return nil, fmt.Errorf("decode encrypted body wrapper: %w", err)
-	}
-	if !wrapper.Encrypted {
+	if err := json.Unmarshal(raw, &wrapper); err != nil || !wrapper.Encrypted {
 		return raw, nil
 	}
 	if wrapper.Version != 1 {
