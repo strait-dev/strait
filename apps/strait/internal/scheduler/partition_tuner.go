@@ -184,13 +184,23 @@ func (t *PartitionTuner) runLocked(ctx context.Context) error {
 				return
 			}
 			if _, isHot := hot[p]; isHot {
-				if err := t.store.ExecDDL(ctx, hotSettingsSQL(p)); err != nil {
+				sql, err := hotSettingsSQL(p)
+				if err != nil {
+					t.logger.Warn("build hot settings SQL failed", "partition", p, "error", err)
+					return
+				}
+				if err := t.store.ExecDDL(ctx, sql); err != nil {
 					t.logger.Warn("apply hot settings failed", "partition", p, "error", err)
 					return
 				}
 				hotN.Add(1)
 			} else {
-				if err := t.store.ExecDDL(ctx, resetSettingsSQL(p)); err != nil {
+				sql, err := resetSettingsSQL(p)
+				if err != nil {
+					t.logger.Warn("build reset settings SQL failed", "partition", p, "error", err)
+					return
+				}
+				if err := t.store.ExecDDL(ctx, sql); err != nil {
 					t.logger.Warn("reset settings failed", "partition", p, "error", err)
 					return
 				}
@@ -208,7 +218,12 @@ func (t *PartitionTuner) runLocked(ctx context.Context) error {
 			if current == jobRunsFillfactor {
 				return
 			}
-			if err := t.store.ExecDDL(ctx, fillfactorSQL(p)); err != nil {
+			ffSQL, err := fillfactorSQL(p)
+			if err != nil {
+				t.logger.Warn("build fillfactor SQL failed", "partition", p, "error", err)
+				return
+			}
+			if err := t.store.ExecDDL(ctx, ffSQL); err != nil {
 				t.logger.Warn("apply fillfactor failed", "partition", p, "error", err)
 			}
 		})
@@ -235,10 +250,15 @@ func hotPartitionNames(now time.Time) map[string]struct{} {
 	return out
 }
 
-func hotSettingsSQL(partition string) string {
+// hotSettingsSQL/resetSettingsSQL/fillfactorSQL return an error when the
+// partition identifier fails validation instead of returning an empty string.
+// An empty string previously made the caller's ExecDDL(ctx, "") fail with a
+// generic Postgres "empty query" error, masking the real identifier-validation
+// failure.
+func hotSettingsSQL(partition string) (string, error) {
 	quoted, err := store.SafeQuoteIdent(partition)
 	if err != nil {
-		return "" // caller will get an empty SQL error
+		return "", fmt.Errorf("quote partition identifier: %w", err)
 	}
 	return fmt.Sprintf(`ALTER TABLE %s SET (
         autovacuum_vacuum_scale_factor = 0.01,
@@ -246,21 +266,21 @@ func hotSettingsSQL(partition string) string {
         autovacuum_vacuum_cost_delay = 2,
         autovacuum_vacuum_cost_limit = 1000,
         autovacuum_vacuum_insert_scale_factor = 0.01
-    )`, quoted)
+    )`, quoted), nil
 }
 
-func fillfactorSQL(partition string) string {
+func fillfactorSQL(partition string) (string, error) {
 	quoted, err := store.SafeQuoteIdent(partition)
 	if err != nil {
-		return ""
+		return "", fmt.Errorf("quote partition identifier: %w", err)
 	}
-	return fmt.Sprintf(`ALTER TABLE %s SET (fillfactor = %s)`, quoted, jobRunsFillfactor)
+	return fmt.Sprintf(`ALTER TABLE %s SET (fillfactor = %s)`, quoted, jobRunsFillfactor), nil
 }
 
-func resetSettingsSQL(partition string) string {
+func resetSettingsSQL(partition string) (string, error) {
 	quoted, err := store.SafeQuoteIdent(partition)
 	if err != nil {
-		return ""
+		return "", fmt.Errorf("quote partition identifier: %w", err)
 	}
 	return fmt.Sprintf(`ALTER TABLE %s RESET (
         autovacuum_vacuum_scale_factor,
@@ -268,7 +288,7 @@ func resetSettingsSQL(partition string) string {
         autovacuum_vacuum_cost_delay,
         autovacuum_vacuum_cost_limit,
         autovacuum_vacuum_insert_scale_factor
-    )`, quoted)
+    )`, quoted), nil
 }
 
 // parsePartitionMonth extracts (year, month) from names like
