@@ -24,6 +24,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -1631,6 +1632,8 @@ const replayKeyHexLen = 32
 
 const idempotencyKeyPrefix = "ik_"
 
+var idempotencyKeySeparatorBytes = []byte{':'}
+
 // ComputeReplayKey derives a subscriber-visible replay key that is
 // stable across every retry of the same physical delivery row AND bound
 // to the subscription's HMAC secret. Subscribers can verify the key by
@@ -1669,15 +1672,20 @@ func ComputeIdempotencyKey(secret []byte, deliveryID string, attempt int) string
 	if deliveryID == "" || attempt < 1 {
 		return ""
 	}
-	raw := make([]byte, 0, len(deliveryID)+1+20)
-	raw = append(raw, deliveryID...)
-	raw = append(raw, ':')
-	raw = strconv.AppendInt(raw, int64(attempt), 10)
 	if len(secret) == 0 {
-		return string(raw)
+		var raw strings.Builder
+		raw.Grow(len(deliveryID) + 1 + 20)
+		raw.WriteString(deliveryID)
+		raw.WriteByte(':')
+		raw.WriteString(strconv.Itoa(attempt))
+		return raw.String()
 	}
 	mac := hmac.New(sha256.New, secret)
-	_, _ = mac.Write(raw)
+	writeStringToHash(mac, deliveryID)
+	_, _ = mac.Write(idempotencyKeySeparatorBytes)
+	var attemptBuf [20]byte
+	attemptBytes := strconv.AppendInt(attemptBuf[:0], int64(attempt), 10)
+	_, _ = mac.Write(attemptBytes)
 	var digest [sha256.Size]byte
 	sum := mac.Sum(digest[:0])
 	rawLen := min(replayKeyHexLen/2, len(sum))
