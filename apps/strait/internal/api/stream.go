@@ -57,7 +57,7 @@ func (s *Server) streamSSE(w http.ResponseWriter, r *http.Request, opts sseStrea
 		writeTypedError(w, r, err)
 		return
 	}
-	s.emitInternalSecretBypassAuditIfProjectless(r.Context(), "stream_sse.project_match", "streamSSE", "run", run.ID)
+	s.emitInternalSecretBypassAuditIfProjectless(r.Context(), run.ProjectID, "stream_sse.project_match", "streamSSE", "run", run.ID)
 	if opts.rejectIfTerminal && run.Status.IsTerminal() {
 		respondError(w, r, http.StatusGone, "run already in terminal state")
 		return

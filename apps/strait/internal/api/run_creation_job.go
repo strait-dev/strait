@@ -40,6 +40,6 @@ func (s *Server) loadRunCreationJob(ctx context.Context, jobID, auditAction, han
 	if err := requireEnvironmentMatch(ctx, job.EnvironmentID); err != nil {
 		return nil, huma.Error404NotFound("job not found")
 	}
-	s.emitInternalSecretBypassAuditIfProjectless(ctx, auditAction, handlerName, "job", job.ID)
+	s.emitInternalSecretBypassAuditIfProjectless(ctx, job.ProjectID, auditAction, handlerName, "job", job.ID)
 	return job, nil
 }

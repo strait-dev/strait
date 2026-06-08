@@ -75,6 +75,8 @@ func requireBypassAudit(t *testing.T, cap *auditCapture, gate, handler, resource
 	assert.Equal(
 		t, resourceID, ev.
 			ResourceID)
+	assert.Equal(
+		t, "proj-1", ev.ProjectID)
 	assert.NotEmpty(t, detailString(t, ev,
 		"caller"))
 }
@@ -174,6 +176,32 @@ func TestBatchEnableJobs_ProjectScopedCaller_NoBypassAudit(t *testing.T) {
 	}
 }
 
+func TestCreateJob_InternalSecretAudit_UsesRequestProject(t *testing.T) {
+	t.Parallel()
+
+	cap := &auditCapture{}
+	ms := &APIStoreMock{
+		CreateJobFunc: func(_ context.Context, job *domain.Job) error {
+			job.ID = "job-created"
+			job.CreatedAt = time.Now()
+			job.UpdatedAt = time.Now()
+			return nil
+		},
+		CreateAuditEventFunc: cap.record,
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	body := `{"project_id":"proj-1","name":"Created","slug":"created","endpoint_url":"https://example.com/hook"}`
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/", body))
+	require.Equal(t, http.StatusCreated, w.Code)
+
+	created := cap.findByAction(domain.AuditActionJobCreated)
+	require.Len(t, created, 1)
+	assert.Equal(t, "proj-1", created[0].ProjectID)
+	assert.Equal(t, "job-created", created[0].ResourceID)
+}
+
 // TestSendEvent_InternalSecretBypass_EmitsAudit walks the same bypass
 // pattern for the event-trigger send path. The trigger.ID must end up
 // in the audit row's resource_id so a reviewer can pivot back to the
@@ -219,6 +247,8 @@ func TestSendEvent_InternalSecretBypass_EmitsAudit(t *testing.T) {
 		t, "send_event.project_match",
 
 		detailString(t, bypass[0], "gate"))
+	assert.Equal(
+		t, trigger.ProjectID, bypass[0].ProjectID)
 }
 
 // TestGetEventTrigger_InternalSecretBypass_EmitsAudit covers the read path.
@@ -249,6 +279,8 @@ func TestGetEventTrigger_InternalSecretBypass_EmitsAudit(t *testing.T) {
 	assert.Equal(
 		t, "handleGetEventTrigger",
 		detailString(t, bypass[0], "handler"))
+	assert.Equal(
+		t, trigger.ProjectID, bypass[0].ProjectID)
 }
 
 // TestCancelEventTrigger_InternalSecretBypass_EmitsAudit covers the
@@ -282,6 +314,8 @@ func TestCancelEventTrigger_InternalSecretBypass_EmitsAudit(t *testing.T) {
 		t, "cancel_event_trigger.project_match",
 
 		detailString(t, bypass[0], "gate"))
+	assert.Equal(
+		t, trigger.ProjectID, bypass[0].ProjectID)
 }
 
 func TestTriggerJob_InternalSecretBypass_EmitsAudit(t *testing.T) {
@@ -304,6 +338,14 @@ func TestTriggerJob_InternalSecretBypass_EmitsAudit(t *testing.T) {
 	)
 
 	requireBypassAudit(t, cap, "trigger_job.project_match", "handleTriggerJob", "job", "job-123")
+	var triggered []*domain.AuditEvent
+	require.Eventually(t, func() bool {
+		triggered = cap.findByAction(domain.AuditActionJobTriggered)
+		return len(triggered) == 1
+	}, time.Second, 10*time.Millisecond)
+	require.Len(t, triggered, 1)
+	assert.Equal(t, "proj-1", triggered[0].ProjectID)
+	assert.Equal(t, "job-123", triggered[0].ResourceID)
 }
 
 func TestSetJobEndpoint_InternalSecretBypass_EmitsAudit(t *testing.T) {

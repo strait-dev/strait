@@ -207,7 +207,7 @@ func (s *Server) handleCreateWorkflow(ctx context.Context, input *CreateWorkflow
 		return nil, huma.Error500InternalServerError("failed to create workflow")
 	}
 
-	s.emitAuditEvent(ctx, domain.AuditActionWorkflowCreated, "workflow", wf.ID, map[string]any{
+	s.emitAuditEvent(auditContextWithProject(ctx, wf.ProjectID), domain.AuditActionWorkflowCreated, "workflow", wf.ID, map[string]any{
 		"name":       wf.Name,
 		"slug":       wf.Slug,
 		"step_count": len(steps),
@@ -668,7 +668,7 @@ func (s *Server) handleTriggerWorkflow(ctx context.Context, input *TriggerWorkfl
 	}
 	s.publishWorkflowRunHook(ctx, run, domain.WfStatusPending, run.Status, "trigger")
 
-	s.emitAuditEventAsync(ctx, domain.AuditActionWorkflowTriggered, "workflow", workflowID, map[string]any{
+	s.emitAuditEventAsync(auditContextWithProject(ctx, wf.ProjectID), domain.AuditActionWorkflowTriggered, "workflow", workflowID, map[string]any{
 		"run_id":       run.ID,
 		"triggered_by": triggeredBy,
 		"tag_keys":     tagKeys(req.Tags),

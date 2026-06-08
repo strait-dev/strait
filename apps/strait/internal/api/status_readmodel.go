@@ -51,30 +51,42 @@ func cloneStringMap(in map[string]string) map[string]string {
 	return out
 }
 
-func (s *Server) getRunFromStatusReadModel(ctx context.Context, id string) (*domain.JobRun, bool) {
+func (s *Server) getRunFromStatusReadModel(ctx context.Context, id string) (*domain.JobRun, int64, bool) {
 	if s.runStatusReadModel == nil {
-		return nil, false
+		return nil, 0, false
 	}
 	got, err := s.runStatusReadModel.Get(ctx, id)
 	if err != nil || got.Value == nil {
-		return nil, false
+		return nil, 0, false
 	}
-	return got.Value, true
+	return got.Value, got.Version, true
 }
 
-func (s *Server) getWorkflowRunFromStatusReadModel(ctx context.Context, id string) (*domain.WorkflowRun, bool) {
+func (s *Server) getWorkflowRunFromStatusReadModel(ctx context.Context, id string) (*domain.WorkflowRun, int64, bool) {
 	if s.workflowRunStatusReadModel == nil {
-		return nil, false
+		return nil, 0, false
 	}
 	got, err := s.workflowRunStatusReadModel.Get(ctx, id)
 	if err != nil || got.Value == nil {
-		return nil, false
+		return nil, 0, false
 	}
-	return got.Value, true
+	return got.Value, got.Version, true
 }
 
 func (s *Server) getRunWithStatusReadModel(ctx context.Context, id string) (*domain.JobRun, error) {
-	if run, ok := s.getRunFromStatusReadModel(ctx, id); ok {
+	if run, cachedVersion, ok := s.getRunFromStatusReadModel(ctx, id); ok {
+		if run.Status.IsTerminal() {
+			return run, nil
+		}
+		fresh, version, loadErr := s.loadRunForStatusReadModel(ctx, id)
+		if loadErr == nil {
+			if fresh != nil && (version > cachedVersion || fresh.Status.IsTerminal()) {
+				if s.runStatusReadModel != nil {
+					_, _ = s.runStatusReadModel.CompareAndSet(ctx, id, fresh, version)
+				}
+				return fresh, nil
+			}
+		}
 		return run, nil
 	}
 	run, version, err := s.loadRunForStatusReadModel(ctx, id)
@@ -88,7 +100,19 @@ func (s *Server) getRunWithStatusReadModel(ctx context.Context, id string) (*dom
 }
 
 func (s *Server) getWorkflowRunWithStatusReadModel(ctx context.Context, id string) (*domain.WorkflowRun, error) {
-	if run, ok := s.getWorkflowRunFromStatusReadModel(ctx, id); ok {
+	if run, cachedVersion, ok := s.getWorkflowRunFromStatusReadModel(ctx, id); ok {
+		if run.Status.IsTerminal() {
+			return run, nil
+		}
+		fresh, version, loadErr := s.loadWorkflowRunForStatusReadModel(ctx, id)
+		if loadErr == nil {
+			if fresh != nil && (version > cachedVersion || fresh.Status.IsTerminal()) {
+				if s.workflowRunStatusReadModel != nil {
+					_, _ = s.workflowRunStatusReadModel.CompareAndSet(ctx, id, fresh, version)
+				}
+				return fresh, nil
+			}
+		}
 		return run, nil
 	}
 	run, version, err := s.loadWorkflowRunForStatusReadModel(ctx, id)

@@ -33,14 +33,25 @@ func (s *Server) emitInternalSecretBypassAudit(ctx context.Context, gate, handle
 	})
 }
 
+func auditContextWithProject(ctx context.Context, projectID string) context.Context {
+	if projectID == "" || projectIDFromContext(ctx) != "" {
+		return ctx
+	}
+	return context.WithValue(ctx, ctxProjectIDKey, projectID)
+}
+
+func (s *Server) emitInternalSecretBypassAuditForProject(ctx context.Context, projectID, gate, handler, resourceType, resourceID string) {
+	s.emitInternalSecretBypassAudit(auditContextWithProject(ctx, projectID), gate, handler, resourceType, resourceID)
+}
+
 // emitInternalSecretBypassAuditIfProjectless records successful authorization
 // fallthroughs where the internal secret reached a project-owned resource
 // without an API-key project context.
-func (s *Server) emitInternalSecretBypassAuditIfProjectless(ctx context.Context, gate, handler, resourceType, resourceID string) {
+func (s *Server) emitInternalSecretBypassAuditIfProjectless(ctx context.Context, projectID, gate, handler, resourceType, resourceID string) {
 	if projectIDFromContext(ctx) != "" || !isInternalCaller(ctx) {
 		return
 	}
-	s.emitInternalSecretBypassAudit(ctx, gate, handler, resourceType, resourceID)
+	s.emitInternalSecretBypassAuditForProject(ctx, projectID, gate, handler, resourceType, resourceID)
 }
 
 // bypassCallerLabel returns the most specific identity available for an

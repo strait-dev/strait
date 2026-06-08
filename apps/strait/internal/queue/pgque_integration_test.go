@@ -81,6 +81,47 @@ func TestPgQue_EnqueueInTxRollbackLeavesNoClaimableEvent(t *testing.T) {
 
 }
 
+func TestPgQue_EnqueueInTxWorkerRunOnFreshRouteIsClaimable(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	mustClean(t, ctx)
+	st := mustStore(t)
+	projectID := "project-pgque-worker-tx"
+	job := mustCreateJob(t, ctx, st, projectID)
+	markWorkerJobQueue(t, ctx, job, "tx-worker")
+	q := mustPgQueQueue(t)
+
+	tx, err := testDB.Pool.Begin(ctx)
+	require.NoError(t, err)
+
+	run := &domain.JobRun{
+		ID:            newID(),
+		JobID:         job.ID,
+		ProjectID:     projectID,
+		ExecutionMode: domain.ExecutionModeWorker,
+		QueueName:     "tx-worker",
+	}
+	if err := q.EnqueueInTx(ctx, tx, run); err != nil {
+		_ = tx.Rollback(ctx)
+		require.Failf(t, "test failure",
+
+			"EnqueueInTx: %v", err)
+	}
+	require.NoError(t, tx.Commit(ctx))
+
+	claimed, err := q.DequeueNForWorkerQueues(ctx, 1, []domain.WorkerQueueRef{{
+		ProjectID: projectID,
+		QueueName: "tx-worker",
+	}})
+	require.NoError(t, err)
+	require.Len(t, claimed,
+
+		1)
+	require.Equal(t, run.ID, claimed[0].ID)
+	assertCurrentGenerationActiveClaim(t, ctx, run.ID)
+
+}
+
 func TestPgQue_EnqueueReadyRunRecordsEmitMarker(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -1437,6 +1478,22 @@ func TestPgQue_TerminalTransitionCompletesActiveClaimWithoutUpdatingHotState(t *
 		StatusCompleted,
 		readStatus,
 	)
+
+	var activeClaims int
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM job_run_active_claims WHERE run_id = $1`,
+
+		run.ID).Scan(&activeClaims))
+	require.EqualValues(t, 0, activeClaims)
+
+	var queueRows int
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM job_run_queue WHERE run_id = $1`,
+
+		run.ID).Scan(&queueRows))
+	require.EqualValues(t, 0, queueRows)
 
 }
 

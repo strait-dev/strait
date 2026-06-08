@@ -29,7 +29,7 @@ func (s *Server) handleDebounceTrigger(ctx context.Context, state *triggerReques
 	}); err != nil {
 		return nil, true, triggerLimitAPIError(err, "failed to upsert debounce pending")
 	}
-	s.emitAuditEventAsync(ctx, domain.AuditActionJobTriggered, "job", job.ID, map[string]any{
+	s.emitAuditEventAsync(auditContextWithProject(ctx, job.ProjectID), domain.AuditActionJobTriggered, "job", job.ID, map[string]any{
 		"debounced":         true,
 		"fire_at":           pending.FireAt,
 		"priority":          req.Priority,
@@ -98,7 +98,7 @@ func (s *Server) handleBatchTrigger(ctx context.Context, input *TriggerJobInput,
 		return nil, true, triggerLimitAPIError(err, "failed to insert batch buffer item")
 	}
 	if batchOutput != nil {
-		s.emitAuditEventAsync(ctx, domain.AuditActionJobTriggered, "job", job.ID, map[string]any{
+		s.emitAuditEventAsync(auditContextWithProject(ctx, job.ProjectID), domain.AuditActionJobTriggered, "job", job.ID, map[string]any{
 			"run_id":           batchRunID,
 			"batch":            true,
 			"priority":         req.Priority,
@@ -111,7 +111,7 @@ func (s *Server) handleBatchTrigger(ctx context.Context, input *TriggerJobInput,
 		return batchOutput, true, nil
 	}
 
-	s.emitAuditEventAsync(ctx, domain.AuditActionJobTriggered, "job", job.ID, map[string]any{
+	s.emitAuditEventAsync(auditContextWithProject(ctx, job.ProjectID), domain.AuditActionJobTriggered, "job", job.ID, map[string]any{
 		"buffered":         true,
 		"priority":         req.Priority,
 		"batch_key_hash":   hashIdempotencyKey(req.BatchKey),

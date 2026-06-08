@@ -20,10 +20,8 @@ func (q *PgQueQueue) sendReadyEvent(ctx context.Context, db store.DBTX, run *dom
 		return err
 	}
 	queueName := pgQueQueueName(routeKey)
-	if !q.routeConfigured(routeKey) {
-		if err := q.ensureRoute(ctx, db, routeKey, queueName); err != nil {
-			return err
-		}
+	if err := q.prepareReadyRoute(ctx, routeKey, queueName); err != nil {
+		return err
 	}
 	generation, err := q.readyGeneration(ctx, db, run.ID)
 	if err != nil {
@@ -111,15 +109,21 @@ func (q *PgQueQueue) sendReadyEvents(ctx context.Context, db store.DBTX, runs []
 
 func (q *PgQueQueue) sendReadyPayloadBatch(ctx context.Context, db store.DBTX, routeKey string, payloads []string) error {
 	queueName := pgQueQueueName(routeKey)
-	if !q.routeConfigured(routeKey) {
-		if err := q.ensureRoute(ctx, db, routeKey, queueName); err != nil {
-			return err
-		}
+	if err := q.prepareReadyRoute(ctx, routeKey, queueName); err != nil {
+		return err
 	}
 	if err := q.pgque(db).sendTextBatch(ctx, queueName, pgQueReadyEventType, payloads); err != nil {
 		return fmt.Errorf("pgque send ready event batch: %w", err)
 	}
 	return nil
+}
+
+func (q *PgQueQueue) prepareReadyRoute(ctx context.Context, routeKey, queueName string) error {
+	if q.routeConfigured(routeKey) {
+		return nil
+	}
+	state := q.routeState(routeKey)
+	return q.ensureRouteCached(ctx, state, routeKey, queueName)
 }
 
 func (q *PgQueQueue) readyRunsForEvents(ctx context.Context, db store.DBTX, runs []*domain.JobRun) ([]pgQueReadyRun, []string, error) {

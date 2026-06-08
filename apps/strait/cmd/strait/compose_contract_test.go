@@ -56,6 +56,7 @@ func TestComposeRuntimeContractIncludesRedisAndSequin(t *testing.T) {
 		"- \"16379:6379\"",
 		"sequin:",
 		"- \"7376:7376\"",
+		"STRAIT_ENV: development",
 	} {
 		requireContains(t, dev, want)
 	}

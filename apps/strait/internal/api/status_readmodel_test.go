@@ -14,7 +14,7 @@ import (
 	"strait/internal/domain"
 )
 
-func TestStatusReadModel_GetRunUsesRedisBeforeStore(t *testing.T) {
+func TestStatusReadModel_GetRunTerminalCacheUsesRedisBeforeStore(t *testing.T) {
 	t.Parallel()
 
 	mr := miniredis.RunT(t)
@@ -27,7 +27,7 @@ func TestStatusReadModel_GetRunUsesRedisBeforeStore(t *testing.T) {
 		Clone:     cloneJobRunForStatusCache,
 		Sanitize:  cloneJobRunForStatusCache,
 	})
-	if ok, err := model.CompareAndSet(context.Background(), "run-1", &domain.JobRun{ID: "run-1", ProjectID: "proj-1", Status: domain.StatusExecuting}, 3); err != nil || !ok {
+	if ok, err := model.CompareAndSet(context.Background(), "run-1", &domain.JobRun{ID: "run-1", ProjectID: "proj-1", Status: domain.StatusCompleted}, 3); err != nil || !ok {
 		require.Failf(t, "test failure",
 
 			"CompareAndSet() = %v, %v; want true, nil", ok, err)
@@ -45,12 +45,62 @@ func TestStatusReadModel_GetRunUsesRedisBeforeStore(t *testing.T) {
 
 	got, err := srv.getRunWithStatusReadModel(context.Background(), "run-1")
 	require.NoError(t, err)
-	require.Equal(t, domain.StatusExecuting,
+	require.Equal(t, domain.StatusCompleted,
 
 		got.Status,
 	)
 	require.EqualValues(t, 0, storeCalls.
 		Load())
+}
+
+func TestStatusReadModel_GetRunRefreshesNonTerminalCacheFromStore(t *testing.T) {
+	t.Parallel()
+
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = rdb.Close() })
+	model := straitcache.NewReadModel[*domain.JobRun](straitcache.ReadModelConfig[*domain.JobRun]{
+		Client:    rdb,
+		Namespace: "status_job_run",
+		TTL:       time.Minute,
+		Clone:     cloneJobRunForStatusCache,
+		Sanitize:  cloneJobRunForStatusCache,
+	})
+	ok, err := model.CompareAndSet(context.Background(), "run-1", &domain.JobRun{
+		ID:           "run-1",
+		ProjectID:    "proj-1",
+		Status:       domain.StatusQueued,
+		CacheVersion: 2,
+	}, 2)
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	var storeCalls atomic.Int64
+	srv := &Server{
+		store: &versionedStatusStore{
+			APIStoreMock: &APIStoreMock{},
+			getRunWithVersion: func(_ context.Context, id string) (*domain.JobRun, int64, error) {
+				storeCalls.Add(1)
+				return &domain.JobRun{
+					ID:           id,
+					ProjectID:    "proj-1",
+					Status:       domain.StatusDeadLetter,
+					CacheVersion: 3,
+				}, 3, nil
+			},
+		},
+		runStatusReadModel: model,
+	}
+
+	got, err := srv.getRunWithStatusReadModel(context.Background(), "run-1")
+	require.NoError(t, err)
+	require.Equal(t, domain.StatusDeadLetter, got.Status)
+	require.EqualValues(t, 1, storeCalls.Load())
+
+	cached, err := model.Get(context.Background(), "run-1")
+	require.NoError(t, err)
+	require.EqualValues(t, 3, cached.Version)
+	require.Equal(t, domain.StatusDeadLetter, cached.Value.Status)
 }
 
 func TestStatusReadModel_GetRunColdFallbackFillsRedis(t *testing.T) {
@@ -71,7 +121,7 @@ func TestStatusReadModel_GetRunColdFallbackFillsRedis(t *testing.T) {
 		store: &APIStoreMock{
 			GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
 				storeCalls.Add(1)
-				return &domain.JobRun{ID: id, ProjectID: "proj-1", Status: domain.StatusQueued}, nil
+				return &domain.JobRun{ID: id, ProjectID: "proj-1", Status: domain.StatusCompleted}, nil
 			},
 		},
 		runStatusReadModel: model,
@@ -80,7 +130,7 @@ func TestStatusReadModel_GetRunColdFallbackFillsRedis(t *testing.T) {
 	for range 2 {
 		got, err := srv.getRunWithStatusReadModel(context.Background(), "run-1")
 		require.NoError(t, err)
-		require.Equal(t, domain.StatusQueued,
+		require.Equal(t, domain.StatusCompleted,
 			got.
 				Status,
 		)
@@ -182,6 +232,56 @@ func TestStatusReadModel_GetWorkflowRunColdFallbackUsesStoreCacheVersion(t *test
 	)
 	require.EqualValues(t, 1, storeCalls.
 		Load())
+}
+
+func TestStatusReadModel_GetWorkflowRunRefreshesNonTerminalCacheFromStore(t *testing.T) {
+	t.Parallel()
+
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = rdb.Close() })
+	model := straitcache.NewReadModel[*domain.WorkflowRun](straitcache.ReadModelConfig[*domain.WorkflowRun]{
+		Client:    rdb,
+		Namespace: "status_workflow_run",
+		TTL:       time.Minute,
+		Clone:     cloneWorkflowRunForStatusCache,
+		Sanitize:  cloneWorkflowRunForStatusCache,
+	})
+	ok, err := model.CompareAndSet(context.Background(), "wfr-1", &domain.WorkflowRun{
+		ID:           "wfr-1",
+		ProjectID:    "proj-1",
+		Status:       domain.WfStatusRunning,
+		CacheVersion: 2,
+	}, 2)
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	var storeCalls atomic.Int64
+	srv := &Server{
+		store: &versionedStatusStore{
+			APIStoreMock: &APIStoreMock{},
+			getWorkflowRunWithVersion: func(_ context.Context, id string) (*domain.WorkflowRun, int64, error) {
+				storeCalls.Add(1)
+				return &domain.WorkflowRun{
+					ID:           id,
+					ProjectID:    "proj-1",
+					Status:       domain.WfStatusCompleted,
+					CacheVersion: 3,
+				}, 3, nil
+			},
+		},
+		workflowRunStatusReadModel: model,
+	}
+
+	got, err := srv.getWorkflowRunWithStatusReadModel(context.Background(), "wfr-1")
+	require.NoError(t, err)
+	require.Equal(t, domain.WfStatusCompleted, got.Status)
+	require.EqualValues(t, 1, storeCalls.Load())
+
+	cached, err := model.Get(context.Background(), "wfr-1")
+	require.NoError(t, err)
+	require.EqualValues(t, 3, cached.Version)
+	require.Equal(t, domain.WfStatusCompleted, cached.Value.Status)
 }
 
 type versionedStatusStore struct {

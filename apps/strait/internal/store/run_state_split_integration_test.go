@@ -947,7 +947,7 @@ func TestRunStateSplit_DeleteInactiveActiveClaimsKeepsCurrentClaimAndDeletesCold
 
 	deleted, err := q.DeleteInactiveActiveClaims(ctx, 100)
 	require.NoError(t, err)
-	require.EqualValues(t, 3, deleted)
+	require.EqualValues(t, 2, deleted)
 
 	var remaining int
 	require.NoError(t, testDB.

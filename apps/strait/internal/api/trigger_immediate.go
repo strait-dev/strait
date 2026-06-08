@@ -168,7 +168,7 @@ func (s *Server) emitImmediateTriggerAudit(
 	if waitingRun {
 		details["waiting"] = true
 	}
-	s.emitAuditEventAsync(ctx, domain.AuditActionJobTriggered, "job", job.ID, details)
+	s.emitAuditEventAsync(auditContextWithProject(ctx, job.ProjectID), domain.AuditActionJobTriggered, "job", job.ID, details)
 }
 
 func triggerRunOutput(run *domain.JobRun, payloadHash string, idempotencyHit bool) *TriggerJobOutput {
