@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"time"
 
 	"strait/internal/pubsub"
@@ -102,7 +103,7 @@ func (b *Bus) publish(ctx context.Context, msg BusMessage) error {
 	}
 	msg.Origin = b.origin
 	msg.SentAt = time.Now().UTC()
-	data, err := json.Marshal(msg)
+	data, err := marshalBusMessage(msg)
 	if err != nil {
 		return fmt.Errorf("marshal cachebus message: %w", err)
 	}
@@ -118,6 +119,42 @@ func (b *Bus) publish(ctx context.Context, msg BusMessage) error {
 	}
 	recordCacheBusEvent(ctx, string(msg.Action), msg.Namespace, "publish", msg.SentAt)
 	return nil
+}
+
+func marshalBusMessage(msg BusMessage) ([]byte, error) {
+	if len(msg.Payload) > 0 && !json.Valid(msg.Payload) {
+		return nil, fmt.Errorf("invalid cachebus payload")
+	}
+
+	size := len(`{"action":"","namespace":"","key":"","origin":"","sent_at":""}`) +
+		len(msg.Action) + len(msg.Namespace) + len(msg.Key) + len(msg.Origin) + len(time.RFC3339Nano)
+	if msg.Version != 0 {
+		size += len(`,"version":`) + 20
+	}
+	if len(msg.Payload) > 0 {
+		size += len(`,"payload":`) + len(msg.Payload)
+	}
+	out := make([]byte, 0, size)
+	out = append(out, `{"action":`...)
+	out = strconv.AppendQuote(out, string(msg.Action))
+	out = append(out, `,"namespace":`...)
+	out = strconv.AppendQuote(out, msg.Namespace)
+	out = append(out, `,"key":`...)
+	out = strconv.AppendQuote(out, msg.Key)
+	if msg.Version != 0 {
+		out = append(out, `,"version":`...)
+		out = strconv.AppendInt(out, msg.Version, 10)
+	}
+	out = append(out, `,"origin":`...)
+	out = strconv.AppendQuote(out, msg.Origin)
+	if len(msg.Payload) > 0 {
+		out = append(out, `,"payload":`...)
+		out = append(out, msg.Payload...)
+	}
+	out = append(out, `,"sent_at":"`...)
+	out = msg.SentAt.AppendFormat(out, time.RFC3339Nano)
+	out = append(out, `"}`...)
+	return out, nil
 }
 
 func (b *Bus) Run(ctx context.Context, registry *Registry) error {
