@@ -136,8 +136,12 @@ func marshalOnFailurePayload(job *domain.Job, run *domain.JobRun, errMsg string)
 		})
 	}
 
+	const (
+		onFailurePayloadFixedBytes = 98
+		maxIntDecimalBytes         = 20
+	)
 	payload := make([]byte, 0,
-		140+len(job.ID)+len(run.ID)+len(errMsg)+len(run.ErrorClass)+len(run.Status)+len(originalInput))
+		onFailurePayloadFixedBytes+maxIntDecimalBytes+len(job.ID)+len(run.ID)+len(errMsg)+len(run.ErrorClass)+len(run.Status)+len(originalInput))
 	payload = append(payload, `{"source_job_id":`...)
 	payload = strconv.AppendQuote(payload, job.ID)
 	payload = append(payload, `,"source_run_id":`...)
