@@ -76,6 +76,7 @@ func (h *NotificationTriggerHandler) Handle(ctx context.Context, msg Message) er
 		}
 		if payload == nil {
 			var marshalErr error
+			now := time.Now().UTC()
 			payload, marshalErr = marshalNotificationTriggerPayload(
 				eventType,
 				record.ID,
@@ -84,12 +85,12 @@ func (h *NotificationTriggerHandler) Handle(ctx context.Context, msg Message) er
 				record.Status,
 				record.Attempt,
 				record.Error,
-				time.Now().UTC(),
+				now,
 			)
 			if marshalErr != nil {
 				return fmt.Errorf("notification trigger: marshal payload: %w", marshalErr)
 			}
-			nextRetryAt = time.Now()
+			nextRetryAt = now
 		}
 
 		if createErr := h.store.CreateNotificationDelivery(ctx, &domain.NotificationDelivery{

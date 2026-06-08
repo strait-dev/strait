@@ -83,6 +83,7 @@ func (h *WebhookTriggerHandler) Handle(ctx context.Context, msg Message) error {
 
 		if payload == nil {
 			var marshalErr error
+			now := time.Now().UTC()
 			payload, marshalErr = marshalWebhookTriggerPayload(
 				eventType,
 				record.ID,
@@ -91,12 +92,12 @@ func (h *WebhookTriggerHandler) Handle(ctx context.Context, msg Message) error {
 				record.Status,
 				record.Attempt,
 				record.Error,
-				time.Now().UTC(),
+				now,
 			)
 			if marshalErr != nil {
 				return fmt.Errorf("webhook trigger: marshal payload: %w", marshalErr)
 			}
-			nextRetryAt = time.Now()
+			nextRetryAt = now
 		}
 
 		if createErr := h.store.CreateWebhookDelivery(ctx, &domain.WebhookDelivery{
