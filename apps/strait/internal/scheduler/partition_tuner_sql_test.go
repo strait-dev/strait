@@ -1,7 +1,6 @@
 package scheduler
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -31,5 +30,5 @@ func TestPartitionSQLBuilders_RejectInvalidIdentifier(t *testing.T) {
 	good := "job_runs_2026_01"
 	sql, err := hotSettingsSQL(good)
 	require.NoError(t, err)
-	require.True(t, strings.Contains(sql, good))
+	require.Contains(t, sql, good)
 }

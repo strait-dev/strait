@@ -140,10 +140,12 @@ func TestEnsureConsumer_AlreadyExists(t *testing.T) {
 	t.Parallel()
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// The existence probe and readiness poll are read-only GETs against the
-		// management API; a Receive (message lease) must never happen.
-		require.NotContains(t, r.URL.Path, "/receive")
-		require.Equal(t, http.MethodGet, r.Method)
-		require.Equal(t, "/api/sinks/test-consumer", r.URL.Path)
+		// management API; a Receive (message lease) must never happen. Use assert
+		// (not require) inside the handler goroutine — require's FailNow must only
+		// run on the test goroutine.
+		assert.NotContains(t, r.URL.Path, "/receive")
+		assert.Equal(t, http.MethodGet, r.Method)
+		assert.Equal(t, "/api/sinks/test-consumer", r.URL.Path)
 
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"name":"test-consumer","status":"active","health":{"status":"healthy"}}`))
@@ -247,7 +249,7 @@ func TestEnsureConsumer_DuplicateNameWaitsForConsumer(t *testing.T) {
 	t.Parallel()
 	var posted atomic.Bool
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.NotContains(t, r.URL.Path, "/receive")
+		assert.NotContains(t, r.URL.Path, "/receive")
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/api/sinks/test-consumer":
 			if !posted.Load() {

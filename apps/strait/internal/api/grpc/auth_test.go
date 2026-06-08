@@ -384,7 +384,7 @@ func TestValidateWorkerAPIKey_UniformLifecycleError(t *testing.T) {
 		{ID: "k", Scopes: scopes, ExpiresAt: &past},
 		{ID: "k", Scopes: scopes, GraceExpiresAt: &past},
 	}
-	var msgs []string
+	msgs := make([]string, 0, len(cases))
 	for _, k := range cases {
 		err := validateWorkerAPIKey(k)
 		require.Error(t, err)

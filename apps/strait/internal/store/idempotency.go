@@ -364,8 +364,12 @@ func (q *Queries) decryptIdempotencyResponseBody(raw []byte) ([]byte, error) {
 	// word "encrypted", must pass through untouched rather than being misparsed
 	// (which previously corrupted the replay or returned an error).
 	var wrapper encryptedIdempotencyResponseBody
+	// A non-JSON body, or JSON not flagged encrypted:true, is a legacy/plaintext
+	// response returned verbatim. The unmarshal error is intentionally swallowed:
+	// surfacing it would corrupt the idempotent replay of a valid plaintext body
+	// that merely fails JSON parsing.
 	if err := json.Unmarshal(raw, &wrapper); err != nil || !wrapper.Encrypted {
-		return raw, nil
+		return raw, nil //nolint:nilerr // intentional: malformed/plaintext body passes through as plaintext
 	}
 	if wrapper.Version != 1 {
 		return nil, fmt.Errorf("unsupported encrypted body version %d", wrapper.Version)

@@ -19,9 +19,8 @@ func TestNewValidationError_UsesJSONFieldNames(t *testing.T) {
 	verr := v.Struct(&reqBody{})
 	require.Error(t, verr)
 
-	got := newValidationError(verr)
-	te, ok := got.(*typedAPIError)
-	require.True(t, ok)
+	var te *typedAPIError
+	require.ErrorAs(t, newValidationError(verr), &te)
 	require.NotEmpty(t, te.apiError.Details)
 	joined := strings.Join(te.apiError.Details, " ")
 	require.Contains(t, joined, "project_id")

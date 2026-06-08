@@ -1137,8 +1137,8 @@ func normalizeWorkerLogLevel(level string) string {
 // when it is within a plausible window of now, otherwise the server's current
 // time. Bounds reject non-positive, far-future, and stale/replayed timestamps.
 func sanitizeWorkerLogTimestamp(tsMillis int64, now time.Time) int64 {
-	const maxFutureSkewMs = int64(24 * 60 * 60 * 1000)     // 1 day
-	const maxPastAgeMs = int64(30 * 24 * 60 * 60 * 1000)   // 30 days
+	const maxFutureSkewMs = int64(24 * 60 * 60 * 1000)   // 1 day
+	const maxPastAgeMs = int64(30 * 24 * 60 * 60 * 1000) // 30 days
 	nowMs := now.UnixMilli()
 	if tsMillis <= 0 || tsMillis > nowMs+maxFutureSkewMs || tsMillis < nowMs-maxPastAgeMs {
 		return nowMs
@@ -1185,9 +1185,9 @@ func (s *workerService) handleLogLine(ctx context.Context, workerID, projectID s
 		Timestamp int64  `json:"timestamp_unix_ms"`
 	}
 	payload, _ := json.Marshal(logLineEvent{
-		RunID:     ll.RunId,
-		Level:     level,
-		Message:   msg,
+		RunID:   ll.RunId,
+		Level:   level,
+		Message: msg,
 		// timestamp_unix_ms is fully worker-controlled; clamp implausible values
 		// (non-positive, far-future, or stale/replayed) to server time so they
 		// cannot corrupt downstream ordering.
