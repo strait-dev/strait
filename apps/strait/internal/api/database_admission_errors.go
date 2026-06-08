@@ -15,7 +15,7 @@ func isRetryableDatabaseAdmissionError(err error) bool {
 	if err == nil {
 		return false
 	}
-	if errors.Is(err, context.DeadlineExceeded) {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return true
 	}
 	if pgconn.Timeout(err) || pgconn.SafeToRetry(err) {

@@ -90,6 +90,26 @@ func TestRLSTxMiddleware_RetryableBeginFailureReturns429(t *testing.T) {
 	require.Equal(t, "1", w.Header().Get("Retry-After"))
 }
 
+func TestRLSTxMiddleware_CanceledBeginFailureReturns429(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
+	srv.txPool = fakeTxBeginner{
+		beginErr: fmt.Errorf("begin transaction: %w", context.Canceled),
+	}
+	handler := srv.rlsTxMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+	}))
+	req := httptest.NewRequest(http.MethodPost, "/", nil)
+	ctx := context.WithValue(req.Context(), ctxProjectIDKey, "proj-1")
+	req = req.WithContext(ctx)
+
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	require.Equal(t, http.StatusTooManyRequests, w.Code)
+	require.Equal(t, "1", w.Header().Get("Retry-After"))
+}
+
 func TestRLSTxMiddleware_RetryableSetConfigFailureReturns429(t *testing.T) {
 	t.Parallel()
 
