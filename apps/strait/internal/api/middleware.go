@@ -1328,7 +1328,7 @@ func (h *txCompletionHooks) runRollback(ctx context.Context) {
 }
 
 const maxRLSBufferedResponseBytes = 16 << 20
-const databaseAdmissionOperationTimeout = time.Second
+const databaseAdmissionOperationTimeout = 250 * time.Millisecond
 
 var errRLSBufferedResponseTooLarge = errors.New("response too large")
 
