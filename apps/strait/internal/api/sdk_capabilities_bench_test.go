@@ -45,3 +45,14 @@ func BenchmarkSDKCapabilitiesHeader(b *testing.B) {
 		}
 	}
 }
+
+func BenchmarkResolveSDKCapabilities(b *testing.B) {
+	cases := []string{"1.0", "2.0", "2.1.3", "10.0", "abc", " 2.0 "}
+
+	b.ReportAllocs()
+	for b.Loop() {
+		for _, version := range cases {
+			_ = resolveSDKCapabilities(version)
+		}
+	}
+}

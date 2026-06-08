@@ -129,8 +129,14 @@ func resolveSDKCapabilities(version string) SDKCapabilities {
 	if version == "" {
 		return SDKCapabilities{}
 	}
+	if len(version) == 1 {
+		return sdkCapabilitiesForOneDigitMajor(version[0])
+	}
+	if version[1] == '.' {
+		return sdkCapabilitiesForOneDigitMajor(version[0])
+	}
 	majorRaw := version
-	if idx := strings.Index(majorRaw, "."); idx >= 0 {
+	if idx := strings.IndexByte(majorRaw, '.'); idx >= 0 {
 		majorRaw = majorRaw[:idx]
 	}
 	major, err := strconv.Atoi(majorRaw)
@@ -138,6 +144,13 @@ func resolveSDKCapabilities(version string) SDKCapabilities {
 		return SDKCapabilities{}
 	}
 	return SDKCapabilities{Progress: true, Checkpoint: true}
+}
+
+func sdkCapabilitiesForOneDigitMajor(major byte) SDKCapabilities {
+	if major >= '2' && major <= '9' {
+		return SDKCapabilities{Progress: true, Checkpoint: true}
+	}
+	return SDKCapabilities{}
 }
 
 func applySDKResponseHeaders(ctx context.Context, w http.ResponseWriter) {
