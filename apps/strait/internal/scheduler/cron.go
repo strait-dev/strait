@@ -552,7 +552,7 @@ func cronFireKey(kind, id string, now time.Time) string {
 		out = append(out, ':')
 		out = append(out, id...)
 		out = append(out, ':')
-		out = strconv.AppendInt(out, now.Truncate(time.Minute).Unix(), 10)
+		out = strconv.AppendInt(out, cronFireUnixMinute(now), 10)
 		return string(out)
 	}
 	out := make([]byte, 0, size)
@@ -561,8 +561,13 @@ func cronFireKey(kind, id string, now time.Time) string {
 	out = append(out, ':')
 	out = append(out, id...)
 	out = append(out, ':')
-	out = strconv.AppendInt(out, now.Truncate(time.Minute).Unix(), 10)
+	out = strconv.AppendInt(out, cronFireUnixMinute(now), 10)
 	return string(out)
+}
+
+func cronFireUnixMinute(now time.Time) int64 {
+	unix := now.Unix()
+	return unix - unix%60
 }
 
 func cronFireLockID(key string) int64 {
