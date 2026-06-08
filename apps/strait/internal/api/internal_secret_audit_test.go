@@ -319,7 +319,7 @@ func TestSetJobEndpoint_InternalSecretBypass_EmitsAudit(t *testing.T) {
 		GetJobFunc: func(_ context.Context, _ string) (*domain.Job, error) {
 			return job, nil
 		},
-		UpdateJobEndpointFunc: func(context.Context, string, string, string, string) error {
+		UpdateJobEndpointFunc: func(context.Context, string, string, string, string, string) error {
 			return nil
 		},
 		CreateAuditEventFunc: cap.record,

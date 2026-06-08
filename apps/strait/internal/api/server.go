@@ -131,7 +131,7 @@ type JobStore interface {
 	ListAPIKeysExpiringSoon(ctx context.Context, projectID string, withinDays int) ([]domain.APIKey, error)
 	PauseJob(ctx context.Context, id, reason string) error
 	ResumeJob(ctx context.Context, id string) error
-	UpdateJobEndpoint(ctx context.Context, jobID, endpointURL, fallbackURL, signingSecret string) error
+	UpdateJobEndpoint(ctx context.Context, jobID, projectID, endpointURL, fallbackURL, signingSecret string) error
 }
 
 // RunStore keeps the existing API store contract while grouping run-related

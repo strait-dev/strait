@@ -23,7 +23,7 @@ func newJobEndpointTestServer(t *testing.T, job *domain.Job, capture *atomic.Poi
 		ListJobSecretsFunc: func(_ context.Context, _, _, _ string, _ int, _ *time.Time) ([]domain.JobSecret, error) {
 			return nil, nil
 		},
-		UpdateJobEndpointFunc: func(_ context.Context, jobID, endpointURL, fallbackURL, signingSecret string) error {
+		UpdateJobEndpointFunc: func(_ context.Context, jobID, _, endpointURL, fallbackURL, signingSecret string) error {
 			capture.Store(&capturedEndpointUpdate{
 				JobID:         jobID,
 				EndpointURL:   endpointURL,

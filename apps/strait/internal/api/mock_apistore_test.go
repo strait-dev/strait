@@ -1657,7 +1657,7 @@ type APIStoreMock struct {
 	UpdateJobFunc func(ctx context.Context, job *domain.Job) error
 
 	// UpdateJobEndpointFunc mocks the UpdateJobEndpoint method.
-	UpdateJobEndpointFunc func(ctx context.Context, jobID string, endpointURL string, fallbackURL string, signingSecret string) error
+	UpdateJobEndpointFunc func(ctx context.Context, jobID string, projectID string, endpointURL string, fallbackURL string, signingSecret string) error
 
 	// UpdateJobGroupFunc mocks the UpdateJobGroup method.
 	UpdateJobGroupFunc func(ctx context.Context, group *domain.JobGroup) error
@@ -4131,6 +4131,8 @@ type APIStoreMock struct {
 			Ctx context.Context
 			// JobID is the jobID argument value.
 			JobID string
+			// ProjectID is the projectID argument value.
+			ProjectID string
 			// EndpointURL is the endpointURL argument value.
 			EndpointURL string
 			// FallbackURL is the fallbackURL argument value.
@@ -16083,16 +16085,18 @@ func (mock *APIStoreMock) UpdateJobCalls() []struct {
 }
 
 // UpdateJobEndpoint calls UpdateJobEndpointFunc.
-func (mock *APIStoreMock) UpdateJobEndpoint(ctx context.Context, jobID string, endpointURL string, fallbackURL string, signingSecret string) error {
+func (mock *APIStoreMock) UpdateJobEndpoint(ctx context.Context, jobID string, projectID string, endpointURL string, fallbackURL string, signingSecret string) error {
 	callInfo := struct {
 		Ctx           context.Context
 		JobID         string
+		ProjectID     string
 		EndpointURL   string
 		FallbackURL   string
 		SigningSecret string
 	}{
 		Ctx:           ctx,
 		JobID:         jobID,
+		ProjectID:     projectID,
 		EndpointURL:   endpointURL,
 		FallbackURL:   fallbackURL,
 		SigningSecret: signingSecret,
@@ -16106,7 +16110,7 @@ func (mock *APIStoreMock) UpdateJobEndpoint(ctx context.Context, jobID string, e
 		)
 		return errOut
 	}
-	return mock.UpdateJobEndpointFunc(ctx, jobID, endpointURL, fallbackURL, signingSecret)
+	return mock.UpdateJobEndpointFunc(ctx, jobID, projectID, endpointURL, fallbackURL, signingSecret)
 }
 
 // UpdateJobEndpointCalls gets all the calls that were made to UpdateJobEndpoint.
@@ -16116,6 +16120,7 @@ func (mock *APIStoreMock) UpdateJobEndpoint(ctx context.Context, jobID string, e
 func (mock *APIStoreMock) UpdateJobEndpointCalls() []struct {
 	Ctx           context.Context
 	JobID         string
+	ProjectID     string
 	EndpointURL   string
 	FallbackURL   string
 	SigningSecret string
@@ -16123,6 +16128,7 @@ func (mock *APIStoreMock) UpdateJobEndpointCalls() []struct {
 	var calls []struct {
 		Ctx           context.Context
 		JobID         string
+		ProjectID     string
 		EndpointURL   string
 		FallbackURL   string
 		SigningSecret string
