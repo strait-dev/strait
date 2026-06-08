@@ -111,8 +111,8 @@ func validateStripeV1(secret string, body []byte, headerValue string) error {
 		return fmt.Errorf("stripe-v1 timestamp too old: %ds", int(age))
 	}
 
-	mac := hmac.New(sha256.New, []byte(secret))
-	_, _ = mac.Write([]byte(ts))
+	mac := hmac.New(sha256.New, readOnlyStringBytes(secret))
+	_, _ = mac.Write(readOnlyStringBytes(ts))
 	_, _ = mac.Write(timestampedHMACSeparator)
 	_, _ = mac.Write(body)
 	digest := mac.Sum(nil)
@@ -143,8 +143,8 @@ func ComputeHMACSHA256(secret string, body []byte) string {
 // ComputeTimestampedHMACSHA256 signs "timestamp.body" so receivers can reject
 // stale replay attempts while still validating the exact delivered bytes.
 func ComputeTimestampedHMACSHA256(secret, timestamp string, body []byte) string {
-	mac := hmac.New(sha256.New, []byte(secret))
-	_, _ = mac.Write([]byte(timestamp))
+	mac := hmac.New(sha256.New, readOnlyStringBytes(secret))
+	_, _ = mac.Write(readOnlyStringBytes(timestamp))
 	_, _ = mac.Write(timestampedHMACSeparator)
 	_, _ = mac.Write(body)
 	return hmacHexString(mac)
