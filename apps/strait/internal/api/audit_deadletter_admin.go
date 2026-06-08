@@ -198,62 +198,34 @@ func (s *Server) handleReplayDeadletter(ctx context.Context, input *ReplayDeadle
 		return nil, huma.Error400BadRequest("id is required")
 	}
 
-	if replayer, ok := s.store.(auditDeadletterAtomicReplayer); ok {
-		newEventID := uuid.Must(uuid.NewV7()).String()
-		newEvent, replayed, replayErr := replayer.ReplayAuditEventDeadletter(ctx, input.ID, projectID, newEventID)
-		if replayErr != nil {
-			slog.Error("audit deadletter atomic replay failed",
-				"deadletter_id", input.ID, "project_id", projectID, "error", replayErr)
-			return nil, huma.Error500InternalServerError("failed to replay deadletter into audit chain")
-		}
-		if !replayed || newEvent == nil {
-			return nil, huma.Error404NotFound("deadletter entry not found")
-		}
-		s.emitAuditEvent(ctx, domain.AuditActionDeadletterReplayed, "audit_deadletter", input.ID, map[string]any{
-			"deadletter_id": input.ID,
-			"new_event_id":  newEvent.ID,
-		})
-		return &ReplayDeadletterOutput{Body: ReplayDeadletterResponse{
-			DeadletterID: input.ID,
-			NewEventID:   newEvent.ID,
-		}}, nil
+	// Replay must be atomic: inserting into the tamper-evident audit chain,
+	// marking the DLQ row reclaimed, and deleting it have to commit or roll back
+	// together. The previous non-transactional fallback could insert a DUPLICATE
+	// chain event on retry when the insert succeeded but the mark/delete failed.
+	// Require the atomic replayer rather than risk a corrupted chain.
+	replayer, ok := s.store.(auditDeadletterAtomicReplayer)
+	if !ok {
+		slog.Error("audit deadletter replay requires an atomic replayer store",
+			"deadletter_id", input.ID, "project_id", projectID)
+		return nil, huma.Error500InternalServerError("audit deadletter replay is not supported")
 	}
 
-	// Structural tenant isolation: the store fetch is scoped by project_id,
-	// so an admin of project A asking for project B's row gets nil back
-	// and we surface a 404 — never a cross-tenant leak.
-	ev, err := s.store.GetAuditEventDeadletter(ctx, input.ID, projectID)
-	if err != nil {
-		slog.Error("failed to fetch audit deadletter", "id", input.ID, "project_id", projectID, "error", err)
-		return nil, huma.Error500InternalServerError("failed to fetch deadletter entry")
-	}
-	if ev == nil {
-		return nil, huma.Error404NotFound("deadletter entry not found")
-	}
-
-	newEvent := *ev
-	newEvent.ID = uuid.Must(uuid.NewV7()).String()
-	if createErr := s.store.CreateAuditEvent(ctx, &newEvent); createErr != nil {
-		slog.Error("audit deadletter replay chain insert failed",
-			"deadletter_id", input.ID, "project_id", projectID, "error", createErr)
+	// Structural tenant isolation: the atomic replay is scoped by project_id, so
+	// an admin of project A asking for project B's row gets a 404 — never a leak.
+	newEventID := uuid.Must(uuid.NewV7()).String()
+	newEvent, replayed, replayErr := replayer.ReplayAuditEventDeadletter(ctx, input.ID, projectID, newEventID)
+	if replayErr != nil {
+		slog.Error("audit deadletter atomic replay failed",
+			"deadletter_id", input.ID, "project_id", projectID, "error", replayErr)
 		return nil, huma.Error500InternalServerError("failed to replay deadletter into audit chain")
 	}
-	if markErr := s.store.MarkAuditDeadletterReclaimed(ctx, input.ID, newEvent.ID); markErr != nil {
-		slog.Error("failed to mark deadletter as reclaimed",
-			"deadletter_id", input.ID, "new_event_id", newEvent.ID, "error", markErr)
-		return nil, huma.Error500InternalServerError("failed to finalize deadletter replay")
+	if !replayed || newEvent == nil {
+		return nil, huma.Error404NotFound("deadletter entry not found")
 	}
-	if delErr := s.store.DeleteAuditEventDeadletter(ctx, input.ID, projectID); delErr != nil {
-		slog.Error("audit deadletter delete failed after successful chain insert",
-			"deadletter_id", input.ID, "new_event_id", newEvent.ID, "error", delErr)
-		return nil, huma.Error500InternalServerError("failed to finalize deadletter replay")
-	}
-
 	s.emitAuditEvent(ctx, domain.AuditActionDeadletterReplayed, "audit_deadletter", input.ID, map[string]any{
 		"deadletter_id": input.ID,
 		"new_event_id":  newEvent.ID,
 	})
-
 	return &ReplayDeadletterOutput{Body: ReplayDeadletterResponse{
 		DeadletterID: input.ID,
 		NewEventID:   newEvent.ID,

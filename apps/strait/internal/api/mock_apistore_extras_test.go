@@ -39,6 +39,34 @@ func (mock *APIStoreMock) GetRunTokenState(ctx context.Context, id string) (doma
 	return fn(ctx, id)
 }
 
+// ReplayAuditEventDeadletter is the manual implementation of the atomic
+// dead-letter replayer on the moq-generated APIStoreMock. The production store
+// runs the steps in one transaction; the mock mirrors the sequence by delegating
+// to the configured Get/Create/Mark/Delete funcs so existing tests keep working.
+// Any step's error surfaces as the method's error (matching the all-or-nothing
+// transactional contract).
+func (mock *APIStoreMock) ReplayAuditEventDeadletter(ctx context.Context, id, projectID, newEventID string) (*domain.AuditEvent, bool, error) {
+	ev, err := mock.GetAuditEventDeadletter(ctx, id, projectID)
+	if err != nil {
+		return nil, false, err
+	}
+	if ev == nil {
+		return nil, false, nil
+	}
+	newEvent := *ev
+	newEvent.ID = newEventID
+	if err := mock.CreateAuditEvent(ctx, &newEvent); err != nil {
+		return nil, false, err
+	}
+	if err := mock.MarkAuditDeadletterReclaimed(ctx, id, newEvent.ID); err != nil {
+		return nil, false, err
+	}
+	if err := mock.DeleteAuditEventDeadletter(ctx, id, projectID); err != nil {
+		return nil, false, err
+	}
+	return &newEvent, true, nil
+}
+
 // CreateRotatedAPIKey is the manual implementation of the atomic rotation method
 // on the moq-generated APIStoreMock. The production store runs CreateAPIKey and
 // MarkAPIKeyRotated in a single transaction; the mock mirrors that by delegating
