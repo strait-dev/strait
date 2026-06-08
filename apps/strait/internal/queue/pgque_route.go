@@ -98,8 +98,7 @@ func normalizePgQueWorkerQueueRefs(refs []domain.WorkerQueueRef) []domain.Worker
 		if ref.ProjectID == "" || ref.QueueName == "" {
 			return nil
 		}
-		ref.QueueName = runQueueName(ref.QueueName)
-		return []domain.WorkerQueueRef{ref}
+		return refs
 	}
 	normalized := make([]domain.WorkerQueueRef, 0, len(refs))
 	var seen map[domain.WorkerQueueRef]struct{}
