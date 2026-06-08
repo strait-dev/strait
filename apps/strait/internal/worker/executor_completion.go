@@ -3,6 +3,8 @@ package worker
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"time"
 
 	"strait/internal/domain"
@@ -16,6 +18,12 @@ import (
 // The run must be in StatusExecuting when this is called.
 func (e *Executor) completeRunWithWebhook(ctx context.Context, run *domain.JobRun, job *domain.Job, to domain.RunStatus, fields map[string]any) error {
 	completion := newTerminalRunCompletion(run, job, to, fields)
+	return e.retryTerminalCompletion(ctx, run, job, func(ctx context.Context) error {
+		return e.completeRunWithWebhookOnce(ctx, run, job, completion)
+	})
+}
+
+func (e *Executor) completeRunWithWebhookOnce(ctx context.Context, run *domain.JobRun, job *domain.Job, completion terminalRunCompletion) error {
 	if e.txPool != nil {
 		return store.WithTx(ctx, e.txPool, func(q *store.Queries) error {
 			if err := q.UpdateRunStatus(ctx, run.ID, completion.from, completion.to, completion.fields); err != nil {
@@ -38,6 +46,82 @@ func (e *Executor) completeRunWithWebhook(ctx context.Context, run *domain.JobRu
 			"run_id", run.ID, "job_id", job.ID, "webhook_url", httputil.RedactURLForLog(job.WebhookURL))
 	}
 	return e.store.UpdateRunStatus(ctx, run.ID, completion.from, completion.to, completion.fields)
+}
+
+func (e *Executor) retryTerminalCompletion(
+	ctx context.Context,
+	run *domain.JobRun,
+	job *domain.Job,
+	fn func(context.Context) error,
+) error {
+	err := fn(ctx)
+	if err == nil || !isRetryableTerminalCompletionError(err) {
+		return err
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return fmt.Errorf("terminal run persistence retry stopped: %w: %w", ctxErr, err)
+	}
+
+	timeout := e.terminalRetryTimeout
+	if timeout == 0 {
+		timeout = defaultTerminalRetryTimeout
+	}
+	if timeout < 0 {
+		return err
+	}
+	retryCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	backoff := e.terminalRetryInitial
+	if backoff <= 0 {
+		backoff = defaultTerminalRetryInitial
+	}
+	maxBackoff := e.terminalRetryMax
+	if maxBackoff <= 0 {
+		maxBackoff = defaultTerminalRetryMax
+	}
+	if maxBackoff < backoff {
+		maxBackoff = backoff
+	}
+
+	attempt := 1
+	for {
+		e.logger.Warn(
+			"retrying terminal run persistence after transient database failure",
+			"run_id", run.ID,
+			"job_id", job.ID,
+			"attempt", attempt,
+			"backoff", backoff,
+			"error", err,
+		)
+		timer := time.NewTimer(backoff)
+		select {
+		case <-retryCtx.Done():
+			timer.Stop()
+			return fmt.Errorf("terminal run persistence retry exhausted: %w: %w", retryCtx.Err(), err)
+		case <-timer.C:
+		}
+
+		err = fn(retryCtx)
+		if err == nil {
+			return nil
+		}
+		if retryCtx.Err() != nil || !isRetryableTerminalCompletionError(err) {
+			return err
+		}
+		attempt++
+		backoff *= 2
+		if backoff > maxBackoff {
+			backoff = maxBackoff
+		}
+	}
+}
+
+func isRetryableTerminalCompletionError(err error) bool {
+	if err == nil || errors.Is(err, context.Canceled) {
+		return false
+	}
+	return isRetryablePostgresError(err)
 }
 
 type terminalRunCompletion struct {

@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -149,6 +151,59 @@ func TestCompleteRunWithWebhook_StoreError_Propagated(t *testing.T) {
 	require.Equal(t,
 		"db write failed",
 		err.Error())
+}
+
+func TestCompleteRunWithWebhook_RetryableStoreErrorRetries(t *testing.T) {
+	t.Parallel()
+
+	var attempts atomic.Int32
+	store := &mockExecutorStore{
+		updateRunStatusFn: func(_ context.Context, _ string, _, _ domain.RunStatus, _ map[string]any) error {
+			if attempts.Add(1) < 3 {
+				return fmt.Errorf("update run status: %w", retryableCompletionErr{})
+			}
+			return nil
+		},
+	}
+	exec := newSnoozeTestExecutor(t, store, 0)
+	exec.terminalRetryTimeout = 100 * time.Millisecond
+	exec.terminalRetryInitial = time.Millisecond
+	exec.terminalRetryMax = time.Millisecond
+
+	run := &domain.JobRun{ID: "run-1", Status: domain.StatusExecuting}
+	job := &domain.Job{ID: "job-1", WebhookURL: ""}
+
+	err := exec.completeRunWithWebhook(context.Background(), run, job,
+		domain.StatusCompleted, map[string]any{})
+	require.NoError(t, err)
+	require.EqualValues(t, 3, attempts.Load())
+	require.Len(t, store.statusUpdates(), 3)
+}
+
+func TestCompleteRunWithWebhook_RetryableStoreErrorStopsOnContextCancel(t *testing.T) {
+	t.Parallel()
+
+	store := &mockExecutorStore{
+		updateRunStatusFn: func(_ context.Context, _ string, _, _ domain.RunStatus, _ map[string]any) error {
+			return fmt.Errorf("update run status: %w", retryableCompletionErr{})
+		},
+	}
+	exec := newSnoozeTestExecutor(t, store, 0)
+	exec.terminalRetryTimeout = time.Second
+	exec.terminalRetryInitial = time.Hour
+	exec.terminalRetryMax = time.Hour
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	run := &domain.JobRun{ID: "run-1", Status: domain.StatusExecuting}
+	job := &domain.Job{ID: "job-1", WebhookURL: ""}
+
+	err := exec.completeRunWithWebhook(ctx, run, job,
+		domain.StatusCompleted, map[string]any{})
+	require.Error(t, err)
+	require.ErrorIs(t, err, context.Canceled)
+	require.Len(t, store.statusUpdates(), 1)
 }
 
 func TestTerminalRunCompletion_CompletedEndpointWebhook(t *testing.T) {
@@ -455,4 +510,11 @@ func (m *mockRow) Scan(dest ...any) error {
 		}
 	}
 	return errors.New("mock row: not implemented")
+}
+
+type retryableCompletionErr struct{}
+
+func (retryableCompletionErr) Error() string { return "conn closed" }
+func (retryableCompletionErr) SafeToRetry() bool {
+	return true
 }

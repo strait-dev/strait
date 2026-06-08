@@ -41,6 +41,9 @@ type Executor struct {
 	onCompleteTrigger        *OnCompleteTrigger
 	logger                   *slog.Logger
 	webhookMaxRetry          int
+	terminalRetryTimeout     time.Duration
+	terminalRetryInitial     time.Duration
+	terminalRetryMax         time.Duration
 	executionTraceMode       executionTraceMode
 	middlewares              []ExecutionMiddleware
 	subscribers              []RunEventSubscriber

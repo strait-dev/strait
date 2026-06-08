@@ -57,3 +57,11 @@ func newDatabaseAdmission429() *typedAPIError {
 		},
 	}
 }
+
+func respondDatabaseAdmission429(w http.ResponseWriter, r *http.Request) {
+	apiErr := newDatabaseAdmission429()
+	for key, value := range apiErr.headers {
+		w.Header().Set(key, value)
+	}
+	respondError(w, r, apiErr.status, apiErr.apiError)
+}

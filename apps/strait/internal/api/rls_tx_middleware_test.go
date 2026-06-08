@@ -70,6 +70,48 @@ func TestRLSTxMiddleware_TimeoutCommitFailureReturnsRetryable429(t *testing.T) {
 	require.True(t, tx.setProjectContext)
 }
 
+func TestRLSTxMiddleware_RetryableBeginFailureReturns429(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
+	srv.txPool = fakeTxBeginner{
+		beginErr: fmt.Errorf("begin transaction: %w", retryableAdmissionErr{}),
+	}
+	handler := srv.rlsTxMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+	}))
+	req := httptest.NewRequest(http.MethodPost, "/", nil)
+	ctx := context.WithValue(req.Context(), ctxProjectIDKey, "proj-1")
+	req = req.WithContext(ctx)
+
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	require.Equal(t, http.StatusTooManyRequests, w.Code)
+	require.Equal(t, "1", w.Header().Get("Retry-After"))
+}
+
+func TestRLSTxMiddleware_RetryableSetConfigFailureReturns429(t *testing.T) {
+	t.Parallel()
+
+	tx := &fakeRLSTx{
+		execErr: fmt.Errorf("set project context: %w", retryableAdmissionErr{}),
+	}
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
+	srv.txPool = fakeTxBeginner{tx: tx}
+	handler := srv.rlsTxMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+	}))
+	req := httptest.NewRequest(http.MethodPost, "/", nil)
+	ctx := context.WithValue(req.Context(), ctxProjectIDKey, "proj-1")
+	req = req.WithContext(ctx)
+
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	require.Equal(t, http.StatusTooManyRequests, w.Code)
+	require.Equal(t, "1", w.Header().Get("Retry-After"))
+	require.True(t, tx.rollbackCalled)
+}
+
 func TestRLSTxMiddleware_PostgresTimeoutCommitFailureReturnsRetryable429(t *testing.T) {
 	t.Parallel()
 
@@ -212,17 +254,22 @@ func TestRLSTxMiddleware_WebhookTestBypassesBufferedTransaction(t *testing.T) {
 type fakeTxBeginner struct {
 	tx         *fakeRLSTx
 	beginCount *atomic.Int32
+	beginErr   error
 }
 
 func (f fakeTxBeginner) Begin(context.Context) (pgx.Tx, error) {
 	if f.beginCount != nil {
 		f.beginCount.Add(1)
 	}
+	if f.beginErr != nil {
+		return nil, f.beginErr
+	}
 	return f.tx, nil
 }
 
 type fakeRLSTx struct {
 	commitErr         error
+	execErr           error
 	setProjectContext bool
 	commitCalled      bool
 	rollbackCalled    bool
@@ -248,6 +295,9 @@ func (f *fakeRLSTx) Prepare(context.Context, string, string) (*pgconn.StatementD
 func (f *fakeRLSTx) Exec(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
 	if sql == "SELECT set_config('app.current_project_id', $1, true)" {
 		f.setProjectContext = true
+	}
+	if f.execErr != nil {
+		return pgconn.CommandTag{}, f.execErr
 	}
 	return pgconn.CommandTag{}, nil
 }

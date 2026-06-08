@@ -1197,6 +1197,11 @@ func (s *Server) rlsTxMiddleware(next http.Handler) http.Handler {
 		ctx := r.Context()
 		tx, err := s.txPool.Begin(ctx)
 		if err != nil {
+			if isRetryableDatabaseAdmissionError(err) {
+				slog.Info("retryable RLS tx begin failure", "project_id", projectID, "error", err)
+				respondDatabaseAdmission429(w, r)
+				return
+			}
 			slog.Error("failed to begin RLS tx", "project_id", projectID, "error", err)
 			respondError(w, r, http.StatusInternalServerError, "security context initialization failed")
 			return
@@ -1205,6 +1210,11 @@ func (s *Server) rlsTxMiddleware(next http.Handler) http.Handler {
 		if _, err := tx.Exec(ctx, "SELECT set_config('app.current_project_id', $1, true)", projectID); err != nil {
 			if rbErr := tx.Rollback(ctx); rbErr != nil && !errors.Is(rbErr, context.Canceled) {
 				slog.Warn("failed to rollback RLS tx after set_config error", "error", rbErr)
+			}
+			if isRetryableDatabaseAdmissionError(err) {
+				slog.Info("retryable RLS project context failure", "project_id", projectID, "error", err)
+				respondDatabaseAdmission429(w, r)
+				return
 			}
 			slog.Error("failed to set RLS project context", "project_id", projectID, "error", err)
 			respondError(w, r, http.StatusInternalServerError, "security context initialization failed")
@@ -1251,11 +1261,7 @@ func (s *Server) rlsTxMiddleware(next http.Handler) http.Handler {
 			hooks.runRollback(context.Background())
 			if isRetryableDatabaseAdmissionError(err) {
 				slog.Info("retryable RLS tx commit failure", "project_id", projectID, "error", err)
-				apiErr := newDatabaseAdmission429()
-				for key, value := range apiErr.headers {
-					w.Header().Set(key, value)
-				}
-				respondError(w, r, apiErr.status, apiErr.apiError)
+				respondDatabaseAdmission429(w, r)
 				return
 			}
 			slog.Warn("failed to commit RLS tx", "project_id", projectID, "error", err)

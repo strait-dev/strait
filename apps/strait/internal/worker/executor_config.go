@@ -36,6 +36,9 @@ type ExecutorConfig struct {
 	ExecutorIdleConnTimeout    time.Duration
 	AllowPrivateEndpoints      bool
 	WebhookMaxAttempts         int
+	TerminalRetryTimeout       time.Duration
+	TerminalRetryInitial       time.Duration
+	TerminalRetryMax           time.Duration
 	ExecutionTraceMode         string
 	MaxDequeueBatchSize        int
 	DefaultJobMaxConcurrency   int
@@ -97,6 +100,9 @@ const (
 	defaultCircuitFailureThreshold = 5
 	defaultCircuitOpenDuration     = time.Minute
 	defaultDegradedPollInterval    = time.Second
+	defaultTerminalRetryTimeout    = 2 * time.Minute
+	defaultTerminalRetryInitial    = 200 * time.Millisecond
+	defaultTerminalRetryMax        = 2 * time.Second
 )
 
 func resolveDegradedPollInterval(d time.Duration) time.Duration {
@@ -104,6 +110,29 @@ func resolveDegradedPollInterval(d time.Duration) time.Duration {
 		return defaultDegradedPollInterval
 	}
 	return d
+}
+
+func resolveTerminalRetryTimeout(d time.Duration) time.Duration {
+	if d < 0 {
+		return -1
+	}
+	if d == 0 {
+		return defaultTerminalRetryTimeout
+	}
+	return d
+}
+
+func resolveTerminalRetryBackoff(initial, max time.Duration) (time.Duration, time.Duration) {
+	if initial <= 0 {
+		initial = defaultTerminalRetryInitial
+	}
+	if max <= 0 {
+		max = defaultTerminalRetryMax
+	}
+	if max < initial {
+		max = initial
+	}
+	return initial, max
 }
 
 func NewExecutor(cfg ExecutorConfig) *Executor {
@@ -125,6 +154,7 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 	runVersionCache := newTierWorkflowRunVersionCache(cfg.RunVersionCacheTTL, cacheDeps)
 	stepsVersionCache := newTierWorkflowStepsVersionCache(cfg.VersionCacheTTL, cacheDeps)
 	jobHealthCache := newTierJobHealthCache(cfg.JobHealthCacheTTL, cacheDeps)
+	terminalRetryInitial, terminalRetryMax := resolveTerminalRetryBackoff(cfg.TerminalRetryInitial, cfg.TerminalRetryMax)
 
 	return &Executor{
 		pool:                     cfg.Pool,
@@ -145,6 +175,9 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		circuitOpenFor:           defaultCircuitOpenDuration,
 		logger:                   slog.Default(),
 		webhookMaxRetry:          whMaxAttempts,
+		terminalRetryTimeout:     resolveTerminalRetryTimeout(cfg.TerminalRetryTimeout),
+		terminalRetryInitial:     terminalRetryInitial,
+		terminalRetryMax:         terminalRetryMax,
 		executionTraceMode:       normalizeExecutionTraceMode(cfg.ExecutionTraceMode),
 		eventCh:                  make(chan runEventEnvelope, resolveEventChannelSize(cfg.EventChannelSize)),
 		eventChannelSize:         resolveEventChannelSize(cfg.EventChannelSize),
