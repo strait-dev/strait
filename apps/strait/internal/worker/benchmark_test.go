@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 func BenchmarkCircuitBreakerAllow(b *testing.B) {
@@ -249,6 +251,17 @@ func BenchmarkSignHTTPDispatch(b *testing.B) {
 			b.Fatal("SignHTTPDispatch() returned empty signature")
 		}
 	}
+}
+
+func TestSignHTTPDispatchDeterministic(t *testing.T) {
+	t.Parallel()
+
+	body := []byte(`{"event":"run.completed","run_id":"run-1","status":"completed"}`)
+	got := SignHTTPDispatch("endpoint-signing-secret", "1780839000", body)
+	require.Equal(t, got, SignHTTPDispatch("endpoint-signing-secret", "1780839000", body))
+	require.NotEqual(t, got, SignHTTPDispatch("different-secret", "1780839000", body))
+	require.NotEqual(t, got, SignHTTPDispatch("endpoint-signing-secret", "1780839001", body))
+	require.NotEqual(t, got, SignHTTPDispatch("endpoint-signing-secret", "1780839000", []byte(`{"event":"other"}`)))
 }
 
 func TestApplyWebhookSignatureReplacesExistingHeaderValues(t *testing.T) {
