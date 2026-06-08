@@ -1659,31 +1659,31 @@ func (s *Server) projectRateLimit(next http.Handler) http.Handler {
 // at runtime. The list intentionally over-redacts — false positives
 // (e.g. an "author" or "design" param) only cost log fidelity, while
 // false negatives leak credentials into logs and traces.
-var sensitiveQueryKeywords = map[string]struct{}{
-	"secret":         {},
-	"password":       {},
-	"token":          {},
-	"key":            {},
-	"auth":           {},
-	"credential":     {},
-	"sig":            {},
-	"jwt":            {},
-	"bearer":         {},
-	"hmac":           {},
-	"nonce":          {},
-	"csrf":           {},
-	"state":          {},
-	"code_verifier":  {},
-	"code_challenge": {},
-	"session":        {},
+var sensitiveQueryKeywords = [...]string{
+	"secret",
+	"password",
+	"token",
+	"key",
+	"auth",
+	"credential",
+	"sig",
+	"jwt",
+	"bearer",
+	"hmac",
+	"nonce",
+	"csrf",
+	"state",
+	"code_verifier",
+	"code_challenge",
+	"session",
 }
 
 // containsSensitiveKeyword reports whether name contains any of the
-// configured credential keywords (case-insensitive). The map iteration
-// order is irrelevant: containment is commutative across keywords.
+// configured credential keywords (case-insensitive). Keyword order is
+// irrelevant: containment is commutative across keywords.
 func containsSensitiveKeyword(name string) bool {
 	lower := strings.ToLower(name)
-	for kw := range sensitiveQueryKeywords {
+	for _, kw := range sensitiveQueryKeywords {
 		if strings.Contains(lower, kw) {
 			return true
 		}
