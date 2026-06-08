@@ -43,7 +43,7 @@ func (s *Server) routes() chi.Router {
 		AllowCredentials: s.config.CORSAllowCredentials,
 		MaxAge:           300,
 	}))
-	r.Use(securityHeaders)
+	r.Use(s.securityHeaders)
 
 	r.Use(chimw.RequestID)
 	r.Use(otelchi.Middleware("strait", otelchi.WithChiRoutes(r)))
