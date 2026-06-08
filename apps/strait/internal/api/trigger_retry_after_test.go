@@ -2,6 +2,7 @@ package api
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"slices"
 	"strconv"
@@ -93,6 +94,19 @@ func TestTriggerLimitAPIError_UnknownErrorBecomes500(t *testing.T) {
 	require.Equal(t, http.StatusInternalServerError,
 
 		se.GetStatus())
+}
+
+func TestTriggerLimitAPIError_RetryableDatabaseErrorBecomes429(t *testing.T) {
+	out := triggerLimitAPIError(
+		fmt.Errorf("enqueue run in tx: failed to deallocate cached statement(s): %w", retryableAdmissionErr{}),
+		"failed to enqueue run",
+	)
+	var tae *typedAPIError
+	require.ErrorAs(t, out, &tae)
+	require.Equal(t, http.StatusTooManyRequests, tae.status)
+	require.Equal(t, ErrorCodeRateLimited, tae.apiError.Code)
+	require.Equal(t, "1", tae.headers["Retry-After"])
+	require.True(t, slices.Contains(tae.apiError.Details, "retry_after_seconds=1"))
 }
 
 // TestNewTriggerLimit429_ResponseShape directly exercises the helper so

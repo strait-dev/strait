@@ -321,6 +321,8 @@ func triggerLimitAPIError(err error, fallback string) error {
 		return newTriggerLimit429("job rate limit exceeded")
 	case errors.Is(err, errTriggerAdmissionContended):
 		return newTriggerLimit429("trigger admission busy")
+	case isRetryableDatabaseAdmissionError(err):
+		return newDatabaseAdmission429()
 	default:
 		return huma.Error500InternalServerError(fallback)
 	}

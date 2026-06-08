@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -86,6 +87,49 @@ func TestRLSTxMiddleware_PostgresTimeoutCommitFailureReturnsRetryable429(t *test
 	handler.ServeHTTP(w, req)
 	require.Equal(t, http.StatusTooManyRequests, w.Code)
 	require.Equal(t, "1", w.Header().Get("Retry-After"))
+}
+
+func TestRLSTxMiddleware_SafeToRetryCommitFailureReturnsRetryable429(t *testing.T) {
+	t.Parallel()
+
+	tx := &fakeRLSTx{
+		commitErr: fmt.Errorf("failed to deallocate cached statement(s): %w", retryableAdmissionErr{}),
+	}
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
+	srv.txPool = fakeTxBeginner{tx: tx}
+	handler := srv.rlsTxMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+	}))
+	req := httptest.NewRequest(http.MethodPost, "/", nil)
+	ctx := context.WithValue(req.Context(), ctxProjectIDKey, "proj-1")
+	req = req.WithContext(ctx)
+
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	require.Equal(t, http.StatusTooManyRequests, w.Code)
+	require.Equal(t, "1", w.Header().Get("Retry-After"))
+	require.True(t, tx.commitCalled)
+}
+
+func TestRLSTxMiddleware_ServerErrorResponseRollsBackWithoutCommit(t *testing.T) {
+	t.Parallel()
+
+	tx := &fakeRLSTx{commitErr: errors.New("commit should not run")}
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
+	srv.txPool = fakeTxBeginner{tx: tx}
+	handler := srv.rlsTxMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		respondError(w, nil, http.StatusInternalServerError, "failed to enqueue run")
+	}))
+	req := httptest.NewRequest(http.MethodPost, "/", nil)
+	ctx := context.WithValue(req.Context(), ctxProjectIDKey, "proj-1")
+	req = req.WithContext(ctx)
+
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	require.Equal(t, http.StatusInternalServerError, w.Code)
+	require.False(t, tx.commitCalled)
+	require.True(t, tx.rollbackCalled)
+	require.Contains(t, w.Body.String(), "failed to enqueue run")
 }
 
 func TestRLSTxMiddleware_ResponseBufferLimitRollsBack(t *testing.T) {
@@ -212,3 +256,10 @@ func (f *fakeRLSTx) Query(context.Context, string, ...any) (pgx.Rows, error) {
 }
 func (f *fakeRLSTx) QueryRow(context.Context, string, ...any) pgx.Row { return nil }
 func (f *fakeRLSTx) Conn() *pgx.Conn                                  { return nil }
+
+type retryableAdmissionErr struct{}
+
+func (retryableAdmissionErr) Error() string { return "conn closed" }
+func (retryableAdmissionErr) SafeToRetry() bool {
+	return true
+}
