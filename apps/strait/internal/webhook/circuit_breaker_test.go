@@ -30,6 +30,17 @@ func TestHashURL_UsesSHA256Hex(t *testing.T) {
 		64)
 }
 
+func TestCircuitBreakerKeysUseHashedURL(t *testing.T) {
+	t.Parallel()
+
+	raw := "org-1\x00https://hooks.example.com/webhook"
+	cb := &RedisWebhookCircuitBreaker{}
+	hash := hashURL(raw)
+
+	require.Equal(t, webhookCircuitFailuresPrefix+hash, cb.failureKey(raw))
+	require.Equal(t, webhookCircuitOpenPrefix+hash, cb.openKey(raw))
+}
+
 func BenchmarkHashURL(b *testing.B) {
 	raw := "org-1\x00https://hooks.example.com/webhook"
 
@@ -39,6 +50,29 @@ func BenchmarkHashURL(b *testing.B) {
 			b.Fatal("hashURL returned empty hash")
 		}
 	}
+}
+
+func BenchmarkCircuitBreakerKeys(b *testing.B) {
+	cb := &RedisWebhookCircuitBreaker{}
+	raw := "org-1\x00https://hooks.example.com/webhook"
+
+	b.Run("failure", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			if cb.failureKey(raw) == "" {
+				b.Fatal("failureKey returned empty key")
+			}
+		}
+	})
+
+	b.Run("open", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			if cb.openKey(raw) == "" {
+				b.Fatal("openKey returned empty key")
+			}
+		}
+	})
 }
 
 type redisProcessFunc func(ctx context.Context, cmd redis.Cmder) error

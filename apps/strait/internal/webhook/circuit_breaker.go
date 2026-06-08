@@ -17,6 +17,9 @@ const (
 	defaultWebhookFailureThreshold = 5
 	defaultWebhookFailureWindow    = time.Minute
 	defaultWebhookOpenDuration     = time.Minute
+
+	webhookCircuitFailuresPrefix = "webhook:circuit:failures:"
+	webhookCircuitOpenPrefix     = "webhook:circuit:open:"
 )
 
 type WebhookCircuitBreaker interface {
@@ -140,11 +143,17 @@ func (cb *RedisWebhookCircuitBreaker) RecordFailure(ctx context.Context, url str
 }
 
 func (cb *RedisWebhookCircuitBreaker) failureKey(url string) string {
-	return "webhook:circuit:failures:" + hashURL(url)
+	var out [len(webhookCircuitFailuresPrefix) + sha256.Size*2]byte
+	copy(out[:], webhookCircuitFailuresPrefix)
+	writeURLHashHex(out[len(webhookCircuitFailuresPrefix):], url)
+	return string(out[:])
 }
 
 func (cb *RedisWebhookCircuitBreaker) openKey(url string) string {
-	return "webhook:circuit:open:" + hashURL(url)
+	var out [len(webhookCircuitOpenPrefix) + sha256.Size*2]byte
+	copy(out[:], webhookCircuitOpenPrefix)
+	writeURLHashHex(out[len(webhookCircuitOpenPrefix):], url)
+	return string(out[:])
 }
 
 func hashURL(url string) string {
@@ -154,4 +163,9 @@ func hashURL(url string) string {
 	var out [sha256.Size * 2]byte
 	hex.Encode(out[:], sum[:])
 	return string(out[:])
+}
+
+func writeURLHashHex(dst []byte, url string) {
+	sum := sha256.Sum256(unsafe.Slice(unsafe.StringData(url), len(url)))
+	hex.Encode(dst, sum[:])
 }
