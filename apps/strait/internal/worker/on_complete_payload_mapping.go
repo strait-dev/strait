@@ -1,6 +1,7 @@
 package worker
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -71,7 +72,7 @@ func parsePayloadMapping(mapping json.RawMessage) ([]payloadMappingPath, bool, e
 		return nil, false, fmt.Errorf("unmarshal payload mapping: invalid JSON object")
 	}
 
-	var paths []payloadMappingPath
+	paths := make([]payloadMappingPath, 0, bytes.Count(mapping, []byte{':'}))
 	hasEmptyPath := false
 	var parseErr error
 	gjson.ParseBytes(mapping).ForEach(func(key, value gjson.Result) bool {
