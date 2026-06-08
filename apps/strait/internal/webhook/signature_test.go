@@ -118,6 +118,14 @@ func TestValidateSignature_StripeV1(t *testing.T) {
 		err := ValidateSignature("stripe-v1", secret, body, header)
 		require.NoError(t, err)
 	})
+
+	t.Run("accepts matching extra v1 signature", func(t *testing.T) {
+		t.Parallel()
+		sig := signStripe(ts, body)
+		header := fmt.Sprintf("t=%s,v1=deadbeef,v1=%s", ts, sig)
+		err := ValidateSignature("stripe-v1", secret, body, header)
+		require.NoError(t, err)
+	})
 }
 
 func TestValidateSignature_GitHubSHA256(t *testing.T) {

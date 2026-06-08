@@ -115,13 +115,14 @@ func validateStripeV1(secret string, body []byte, headerValue string) error {
 	_, _ = mac.Write(readOnlyStringBytes(ts))
 	_, _ = mac.Write(timestampedHMACSeparator)
 	_, _ = mac.Write(body)
-	digest := mac.Sum(nil)
+	var digest [sha256.Size]byte
+	sum := mac.Sum(digest[:0])
 
-	if equalHMACHexString(firstSignature, digest) {
+	if equalHMACHexString(firstSignature, sum) {
 		return nil
 	}
 	for _, sig := range extraSignatures {
-		if equalHMACHexString(sig, digest) {
+		if equalHMACHexString(sig, sum) {
 			return nil
 		}
 	}
