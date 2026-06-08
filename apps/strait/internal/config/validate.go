@@ -61,7 +61,10 @@ func (c *Config) Validate() error {
 	if c.SequinWaitTimeMs <= 0 {
 		errs = append(errs, fmt.Errorf("SEQUIN_WAIT_TIME_MS must be > 0, got %d", c.SequinWaitTimeMs))
 	}
-	if c.SequinWebhookSecret == "" && c.SentryEnvironment != "development" && c.SentryEnvironment != "test" {
+	// Gate on STRAIT_ENV, not SENTRY_ENVIRONMENT (an observability label, not a
+	// security boundary): keying CDC webhook auth on Sentry's env let production
+	// disable signature verification by setting SENTRY_ENVIRONMENT=development.
+	if c.SequinWebhookSecret == "" && !IsRelaxedDeploymentEnvironment(c.DeploymentEnvironment) {
 		errs = append(errs, fmt.Errorf("SEQUIN_WEBHOOK_SECRET is required in non-development environments"))
 	}
 

@@ -30,6 +30,9 @@ func setRequiredEnv(t *testing.T) {
 	t.Setenv("SEQUIN_BASE_URL", "http://localhost:7376")
 	t.Setenv("SEQUIN_CONSUMER_NAME", "strait-cdc")
 	t.Setenv("SEQUIN_API_TOKEN", "sequin-api-token")
+	// Relaxed deployment env so the optional SEQUIN_WEBHOOK_SECRET is not required;
+	// keeps the baseline minimal (defaults tests assert the secret stays unset).
+	t.Setenv("STRAIT_ENV", "development")
 	t.Setenv("INTERNAL_SECRET", "test-secret-value")
 	t.Setenv("JWT_SIGNING_KEY", "aaaa-test-jwt-signing-key-00000000")
 }

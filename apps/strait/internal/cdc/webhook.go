@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"strait/internal/pubsub"
 )
 
 const (
@@ -151,6 +153,11 @@ func (wr *WebhookReceiver) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Try batch collection if handler supports it and publisher is available.
+	// The Collect result is published only after every additional handler has
+	// also succeeded (below): publishing here would double-emit the pub/sub event
+	// whenever an additional handler fails and Sequin redelivers (the redelivery
+	// re-runs Collect and re-publishes).
+	var pendingPub *pubsub.PubSubMessage
 	if ch, ok := handler.(CollectableHandler); ok && wr.publisher != nil {
 		pubMsg, collectErr := ch.Collect(r.Context(), msg)
 		if collectErr != nil {
@@ -158,11 +165,7 @@ func (wr *WebhookReceiver) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "handler error", http.StatusInternalServerError)
 			return
 		}
-		if pubMsg != nil {
-			if pubErr := wr.publisher.Publish(r.Context(), pubMsg.Channel, pubMsg.Data); pubErr != nil {
-				wr.logger.Error("cdc webhook: publish failed", "table", tableName, "channel", pubMsg.Channel, "error", pubErr)
-			}
-		}
+		pendingPub = pubMsg
 	} else {
 		// Fallback: inline handle.
 		if handleErr := handler.Handle(r.Context(), msg); handleErr != nil {
@@ -183,6 +186,14 @@ func (wr *WebhookReceiver) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				"table", tableName, "handler", ah.Table(), "error", ahErr)
 			http.Error(w, "handler error", http.StatusInternalServerError)
 			return
+		}
+	}
+
+	// Publish only after all handlers succeeded, so a redelivery caused by an
+	// additional-handler failure does not emit the pub/sub event twice.
+	if pendingPub != nil {
+		if pubErr := wr.publisher.Publish(r.Context(), pendingPub.Channel, pendingPub.Data); pubErr != nil {
+			wr.logger.Error("cdc webhook: publish failed", "table", tableName, "channel", pendingPub.Channel, "error", pubErr)
 		}
 	}
 

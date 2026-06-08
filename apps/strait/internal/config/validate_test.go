@@ -41,6 +41,7 @@ func validConfig() *Config {
 		DBMaxConns:                    50,
 		DBMinConns:                    10,
 		SentryEnvironment:             "development",
+		DeploymentEnvironment:         "development",
 		ExecutionTraceMode:            "off",
 		DLQMaxPerJob:                  1000,
 		DLQMaxPerProject:              10000,
@@ -57,7 +58,7 @@ func TestValidate_SequinWebhookSecretRequiredOutsideDevelopment(t *testing.T) {
 	t.Parallel()
 
 	c := validConfig()
-	c.SentryEnvironment = "production"
+	c.DeploymentEnvironment = "production"
 	c.SequinWebhookSecret = ""
 	err := c.Validate()
 	require.Error(t,
@@ -69,6 +70,22 @@ func TestValidate_SequinWebhookSecretRequiredOutsideDevelopment(t *testing.T) {
 	c.SequinWebhookSecret = "sequin-webhook-secret"
 	require.NoError(
 		t, c.Validate())
+}
+
+// TestValidate_SequinWebhookSecretGatesOnDeploymentEnv is the regression guard
+// for keying CDC webhook auth on STRAIT_ENV, not SENTRY_ENVIRONMENT: setting
+// SENTRY_ENVIRONMENT=development must NOT relax the requirement in a production
+// deployment.
+func TestValidate_SequinWebhookSecretGatesOnDeploymentEnv(t *testing.T) {
+	t.Parallel()
+
+	c := validConfig()
+	c.DeploymentEnvironment = "production"
+	c.SentryEnvironment = "development" // observability label must not relax security
+	c.SequinWebhookSecret = ""
+	err := c.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "SEQUIN_WEBHOOK_SECRET")
 }
 
 func TestValidate_RedisURLScheme(t *testing.T) {
@@ -347,6 +364,7 @@ func setRequiredAuditEnv(t *testing.T) {
 	t.Setenv("SEQUIN_BASE_URL", "http://localhost:7376")
 	t.Setenv("SEQUIN_CONSUMER_NAME", "strait-cdc")
 	t.Setenv("SEQUIN_API_TOKEN", "sequin-api-token")
+	t.Setenv("SEQUIN_WEBHOOK_SECRET", "sequin-webhook-secret")
 	t.Setenv("INTERNAL_SECRET", "test-secret-value")
 	t.Setenv("JWT_SIGNING_KEY", "aaaa-test-jwt-signing-key-00000000")
 	t.Setenv("AUDIT_RETENTION_DEFAULT_DAYS", "365")
