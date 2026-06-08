@@ -56,6 +56,24 @@ func TestWorkflowRunHookPayloadEscapesStrings(t *testing.T) {
 	require.Equal(t, "failed\nreason", got["reason"])
 }
 
+func TestWorkflowRunHookPayloadPreservesNanosecondTimestamp(t *testing.T) {
+	t.Parallel()
+
+	timestamp := time.Date(2026, 6, 7, 12, 0, 0, 123456789, time.UTC)
+	run := &domain.WorkflowRun{
+		ID:         "wr-1",
+		WorkflowID: "wf-1",
+		ProjectID:  "proj-1",
+	}
+
+	payload, err := marshalWorkflowRunHookPayload(run, domain.WfStatusRunning, domain.WfStatusCompleted, "done", timestamp)
+	require.NoError(t, err)
+
+	var got map[string]any
+	require.NoError(t, json.Unmarshal(payload, &got))
+	require.Equal(t, timestamp.Format(time.RFC3339Nano), got["timestamp"])
+}
+
 func BenchmarkWorkflowRunHookPayloadAndChannels(b *testing.B) {
 	timestamp := time.Date(2026, 6, 7, 12, 0, 0, 0, time.UTC)
 	run := &domain.WorkflowRun{

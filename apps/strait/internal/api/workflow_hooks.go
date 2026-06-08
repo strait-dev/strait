@@ -117,8 +117,10 @@ func marshalWorkflowRunHookPayload(
 ) ([]byte, error) {
 	fromStatus := string(from)
 	toStatus := string(to)
+	var timestampBuf [len("2006-01-02T15:04:05.999999999Z07:00")]byte
+	timestampBytes := timestamp.AppendFormat(timestampBuf[:0], time.RFC3339Nano)
 	capacity := len(`{"type":"workflow_status_change","workflow_run_id":"","workflow_id":"","project_id":"","from":"","to":"","reason":"","timestamp":""}`) +
-		len(run.ID) + len(run.WorkflowID) + len(run.ProjectID) + len(fromStatus) + len(toStatus) + len(reason) + len(time.RFC3339Nano)
+		len(run.ID) + len(run.WorkflowID) + len(run.ProjectID) + len(fromStatus) + len(toStatus) + len(reason) + len(timestampBytes)
 	out := make([]byte, 0, capacity)
 	out = append(out, `{"type":"workflow_status_change","workflow_run_id":`...)
 	out = strconv.AppendQuote(out, run.ID)
@@ -133,7 +135,7 @@ func marshalWorkflowRunHookPayload(
 	out = append(out, `,"reason":`...)
 	out = strconv.AppendQuote(out, reason)
 	out = append(out, `,"timestamp":"`...)
-	out = timestamp.AppendFormat(out, time.RFC3339Nano)
+	out = append(out, timestampBytes...)
 	out = append(out, `"}`...)
 	return out, nil
 }
