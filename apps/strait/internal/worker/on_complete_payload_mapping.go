@@ -29,34 +29,29 @@ func applyPayloadMapping(result json.RawMessage, mapping json.RawMessage) (json.
 		return applyPayloadMappingViaMaps(result, payloadMappingPathsToMap(paths))
 	}
 
-	outputFields := make([]mappedPayloadField, 0, len(paths))
+	out := make([]byte, 0, len(mapping)+len(paths)*8)
+	out = append(out, '{')
+	fieldCount := 0
 	for i := range paths {
 		val := gjson.GetBytes(result, paths[i].path)
 		if val.Exists() && val.Type != gjson.Null {
-			outputFields = append(outputFields, mappedPayloadField{key: paths[i].key, value: val})
+			if fieldCount > 0 {
+				out = append(out, ',')
+			}
+			out = strconv.AppendQuote(out, paths[i].key)
+			out = append(out, ':')
+			if val.Raw != "" {
+				out = append(out, val.Raw...)
+				fieldCount++
+				continue
+			}
+			raw, err := json.Marshal(val.Value())
+			if err != nil {
+				return nil, fmt.Errorf("marshal mapped payload field: %w", err)
+			}
+			out = append(out, raw...)
+			fieldCount++
 		}
-	}
-	sort.Slice(outputFields, func(i, j int) bool {
-		return outputFields[i].key < outputFields[j].key
-	})
-
-	out := make([]byte, 0, len(mapping)+len(outputFields)*8)
-	out = append(out, '{')
-	for i, field := range outputFields {
-		if i > 0 {
-			out = append(out, ',')
-		}
-		out = strconv.AppendQuote(out, field.key)
-		out = append(out, ':')
-		if field.value.Raw != "" {
-			out = append(out, field.value.Raw...)
-			continue
-		}
-		raw, err := json.Marshal(field.value.Value())
-		if err != nil {
-			return nil, fmt.Errorf("marshal mapped payload field: %w", err)
-		}
-		out = append(out, raw...)
 	}
 	out = append(out, '}')
 	return out, nil
@@ -97,6 +92,9 @@ func parsePayloadMapping(mapping json.RawMessage) ([]payloadMappingPath, bool, e
 	if parseErr != nil {
 		return nil, false, parseErr
 	}
+	sort.Slice(paths, func(i, j int) bool {
+		return paths[i].key < paths[j].key
+	})
 	return paths, hasEmptyPath, nil
 }
 
@@ -128,11 +126,6 @@ func applyPayloadMappingViaMaps(result json.RawMessage, pathMap map[string]strin
 		return nil, fmt.Errorf("marshal mapped payload: %w", err)
 	}
 	return mapped, nil
-}
-
-type mappedPayloadField struct {
-	key   string
-	value gjson.Result
 }
 
 func firstNonSpaceJSONByte(in json.RawMessage) byte {

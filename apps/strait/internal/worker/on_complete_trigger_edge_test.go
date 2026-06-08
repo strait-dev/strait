@@ -93,6 +93,16 @@ func TestApplyPayloadMapping_MixedExistingAndMissing(t *testing.T) {
 		float64(2), out["version"], 1e-9)
 }
 
+func TestApplyPayloadMapping_DirectOutputSortedAndSkipsMissing(t *testing.T) {
+	t.Parallel()
+	result := json.RawMessage(`{"user":{"id":"u1"},"order":{"id":"o1"}}`)
+	mapping := json.RawMessage(`{"z_user":"user.id","a_order":"order.id","m_missing":"missing.path"}`)
+
+	mapped, err := applyPayloadMapping(result, mapping)
+	require.NoError(t, err)
+	assert.Equal(t, `{"a_order":"o1","z_user":"u1"}`, string(mapped))
+}
+
 func TestApplyPayloadMapping_TopLevelKeys(t *testing.T) {
 	t.Parallel()
 	result := json.RawMessage(`{"status": "ok", "count": 42}`)
