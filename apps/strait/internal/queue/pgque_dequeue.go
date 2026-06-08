@@ -82,6 +82,9 @@ func (q *PgQueQueue) scanWorkerRoutes(
 	if n <= 0 || len(routes) == 0 {
 		return nil, nil
 	}
+	if len(routes) == 1 {
+		return scan(routes[0], n)
+	}
 	claimed := make([]domain.JobRun, 0, n)
 	start := q.nextWorkerRouteStart(len(routes))
 	for i := range routes {

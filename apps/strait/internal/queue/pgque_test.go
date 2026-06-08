@@ -29,6 +29,7 @@ var pgQueCandidateRunIDBenchmarkSink string
 var pgQueReadyEmitBatchErrBenchmarkSink error
 var pgQueReadyRunsBenchmarkSink []pgQueReadyRun
 var pgQueSendReadyEventsErrBenchmarkSink error
+var pgQueScanWorkerRoutesBenchmarkSink []domain.JobRun
 var pgQueWorkerRefsBenchmarkSink []domain.WorkerQueueRef
 
 func TestPgQueFinishBatchReservationReopensAfterAckFailure(t *testing.T) {
@@ -260,6 +261,47 @@ func TestPgQueScanWorkerRoutesStopsAtCapacity(t *testing.T) {
 		require.Failf(t, "test failure",
 
 			"scanned routes = %v, want %v", scanned, want)
+	}
+}
+
+func TestPgQueScanWorkerRoutesSingleRouteReturnsBatch(t *testing.T) {
+	q := NewPgQueQueue(&mockDBTX{}, nil, PgQueConfig{})
+	batch := []domain.JobRun{{ID: "run-a"}, {ID: "run-b"}}
+	scans := 0
+
+	claimed, err := q.scanWorkerRoutes([]string{"route-a"}, 2, func(routeKey string, remaining int) ([]domain.JobRun, error) {
+		scans++
+		require.Equal(t, "route-a", routeKey)
+		require.Equal(t, 2, remaining)
+		return batch, nil
+	})
+	require.NoError(t, err)
+	require.Equal(t, 1, scans)
+	require.Equal(t, batch, claimed)
+}
+
+func BenchmarkPgQueScanWorkerRoutesSingleRoute(b *testing.B) {
+	q := NewPgQueQueue(&mockDBTX{}, nil, PgQueConfig{})
+	routes := []string{"route-a"}
+	batch := []domain.JobRun{
+		{ID: "run-a"},
+		{ID: "run-b"},
+		{ID: "run-c"},
+		{ID: "run-d"},
+	}
+
+	b.ReportAllocs()
+	for b.Loop() {
+		claimed, err := q.scanWorkerRoutes(routes, len(batch), func(routeKey string, remaining int) ([]domain.JobRun, error) {
+			if routeKey != "route-a" || remaining != len(batch) {
+				b.Fatalf("scan args = (%q, %d)", routeKey, remaining)
+			}
+			return batch, nil
+		})
+		if err != nil {
+			b.Fatal(err)
+		}
+		pgQueScanWorkerRoutesBenchmarkSink = claimed
 	}
 }
 
