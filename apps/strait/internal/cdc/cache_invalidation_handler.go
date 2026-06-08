@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"log/slog"
 	"strconv"
-	"strings"
 	"time"
 
 	straitcache "strait/internal/cache"
@@ -161,30 +160,23 @@ func permissionCacheKey(projectID, userID string) string {
 }
 
 func jobDependencyCacheKey(jobID string, limit int) string {
-	var builder strings.Builder
-	builder.Grow(len(jobID) + 1 + intDigitCount(limit) + 1)
-	builder.WriteString(jobID)
-	builder.WriteByte(0)
-	var limitBuf [20]byte
-	builder.Write(strconv.AppendInt(limitBuf[:0], int64(limit), 10))
-	builder.WriteByte(0)
-	return builder.String()
-}
-
-func intDigitCount(n int) int {
-	if n == 0 {
-		return 1
+	const maxIntDigits = 20
+	const sepCount = 2
+	size := len(jobID) + sepCount + maxIntDigits
+	if size <= 96 {
+		var buf [96]byte
+		out := append(buf[:0], jobID...)
+		out = append(out, 0)
+		out = strconv.AppendInt(out, int64(limit), 10)
+		out = append(out, 0)
+		return string(out)
 	}
-	digits := 0
-	if n < 0 {
-		digits++
-		n = -n
-	}
-	for n > 0 {
-		digits++
-		n /= 10
-	}
-	return digits
+	out := make([]byte, 0, size)
+	out = append(out, jobID...)
+	out = append(out, 0)
+	out = strconv.AppendInt(out, int64(limit), 10)
+	out = append(out, 0)
+	return string(out)
 }
 
 func cacheVersionFromRecord(record map[string]any) int64 {
