@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgconn"
 )
@@ -19,6 +20,9 @@ func isRetryableDatabaseAdmissionError(err error) bool {
 		return true
 	}
 	if pgconn.Timeout(err) || pgconn.SafeToRetry(err) {
+		return true
+	}
+	if isRetryableDatabaseAdmissionMessage(err) {
 		return true
 	}
 
@@ -39,6 +43,26 @@ func isRetryableDatabaseAdmissionError(err error) bool {
 	default:
 		return len(pgErr.Code) >= 2 && pgErr.Code[:2] == "08"
 	}
+}
+
+func isRetryableDatabaseAdmissionMessage(err error) bool {
+	msg := strings.ToLower(err.Error())
+	for _, needle := range []string{
+		"broken pipe",
+		"conn closed",
+		"connection closed",
+		"connection reset by peer",
+		"failed to connect",
+		"i/o timeout",
+		"server closed the connection",
+		"unexpected eof",
+		"use of closed network connection",
+	} {
+		if strings.Contains(msg, needle) {
+			return true
+		}
+	}
+	return false
 }
 
 func newDatabaseAdmission429() *typedAPIError {

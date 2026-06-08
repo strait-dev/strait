@@ -110,11 +110,53 @@ func TestRLSTxMiddleware_CanceledBeginFailureReturns429(t *testing.T) {
 	require.Equal(t, "1", w.Header().Get("Retry-After"))
 }
 
+func TestRLSTxMiddleware_ClosedConnectionBeginFailureReturns429(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
+	srv.txPool = fakeTxBeginner{
+		beginErr: errors.New("begin transaction: conn closed"),
+	}
+	handler := srv.rlsTxMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+	}))
+	req := httptest.NewRequest(http.MethodPost, "/", nil)
+	ctx := context.WithValue(req.Context(), ctxProjectIDKey, "proj-1")
+	req = req.WithContext(ctx)
+
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	require.Equal(t, http.StatusTooManyRequests, w.Code)
+	require.Equal(t, "1", w.Header().Get("Retry-After"))
+}
+
 func TestRLSTxMiddleware_RetryableSetConfigFailureReturns429(t *testing.T) {
 	t.Parallel()
 
 	tx := &fakeRLSTx{
 		execErr: fmt.Errorf("set project context: %w", retryableAdmissionErr{}),
+	}
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
+	srv.txPool = fakeTxBeginner{tx: tx}
+	handler := srv.rlsTxMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+	}))
+	req := httptest.NewRequest(http.MethodPost, "/", nil)
+	ctx := context.WithValue(req.Context(), ctxProjectIDKey, "proj-1")
+	req = req.WithContext(ctx)
+
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	require.Equal(t, http.StatusTooManyRequests, w.Code)
+	require.Equal(t, "1", w.Header().Get("Retry-After"))
+	require.True(t, tx.rollbackCalled)
+}
+
+func TestRLSTxMiddleware_ClosedConnectionSetConfigFailureReturns429(t *testing.T) {
+	t.Parallel()
+
+	tx := &fakeRLSTx{
+		execErr: errors.New("set project context: use of closed network connection"),
 	}
 	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 	srv.txPool = fakeTxBeginner{tx: tx}
