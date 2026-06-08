@@ -70,6 +70,11 @@ func (s *Server) handleCreateEventSource(ctx context.Context, input *CreateEvent
 	if err := requireProjectMatch(ctx, req.ProjectID); err != nil {
 		return nil, huma.Error403Forbidden("project_id does not match authenticated project")
 	}
+	// A signature header or secret without an algorithm would be silently
+	// unverified at dispatch time; reject the misconfiguration up front.
+	if (req.SignatureHeader != "" || req.SignatureSecret != "") && req.SignatureAlgorithm == "" {
+		return nil, huma.Error400BadRequest("signature_algorithm is required when signature_header or signature_secret is set")
+	}
 	enabled := true
 	if req.Enabled != nil {
 		enabled = *req.Enabled
@@ -434,6 +439,15 @@ func (s *Server) loadDispatchEventSource(ctx context.Context, req DispatchEventR
 // step fails.
 func (s *Server) verifyEventSourceSignature(ctx context.Context, source *domain.EventSource, payload json.RawMessage) (string, error) {
 	if source.SignatureAlgorithm == "" {
+		// Fail closed if a header or secret is configured but the algorithm is
+		// not: the operator clearly intended signature protection, so silently
+		// accepting unverified payloads (the prior behavior) would defeat the
+		// origin authentication the signature provides.
+		if source.SignatureHeader != "" || len(source.SignatureSecretEnc) > 0 {
+			slog.Error("event source has a signature header/secret but no algorithm; refusing unverified payload",
+				"source_id", source.ID)
+			return "", huma.Error500InternalServerError("signature verification is misconfigured")
+		}
 		return "", nil
 	}
 	if source.SignatureHeader == "" || len(source.SignatureSecretEnc) == 0 || s.encryptor == nil {
@@ -473,7 +487,13 @@ func (s *Server) verifyEventSourceSignature(ctx context.Context, source *domain.
 // signature and returns it (empty for non-replayable algorithms).
 func (s *Server) claimEventSourceSignatureReplay(ctx context.Context, source *domain.EventSource, sigHeader string) (string, error) {
 	switch source.SignatureAlgorithm {
-	case "hmac-sha256", "github-sha256":
+	// stripe-v1 carries a timestamp and is accepted within a +/-300s window, so a
+	// captured request is replayable until the TTL covers that window; claim a
+	// nonce for it too. hmac-sha256/github-sha256 embed no timestamp, so the nonce
+	// is the only replay control (it bounds rapid replay within the TTL; a fully
+	// expired nonce can still be replayed — a limitation inherent to timestampless
+	// signatures).
+	case "hmac-sha256", "github-sha256", "stripe-v1":
 	default:
 		return "", nil
 	}
