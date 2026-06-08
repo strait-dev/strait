@@ -74,6 +74,34 @@ func signWebhookBody(secret string, body []byte) string {
 	return "sha256=" + hex.EncodeToString(mac.Sum(nil))
 }
 
+func BenchmarkWebhookReceiverVerifySignature(b *testing.B) {
+	secret := "cdc-webhook-secret"
+	body := []byte(`{"ack_id":"ack-1","record":{"id":"run-1","project_id":"project-1","status":"completed"},"action":"update","metadata":{"table_name":"job_runs","idempotency_key":"idem-1"}}`)
+	signature := signWebhookBody(secret, body)
+	wr := NewWebhookReceiver(nil, nil, WithWebhookSecret(secret))
+	req := httptest.NewRequest(http.MethodPost, "/internal/cdc/webhook", nil)
+	req.Header.Set("X-Sequin-Signature", signature)
+
+	b.ReportAllocs()
+	for b.Loop() {
+		if !wr.verifySignature(req, body) {
+			b.Fatal("signature rejected")
+		}
+	}
+}
+
+func TestWebhookReceiverVerifySignatureAcceptsUppercaseHex(t *testing.T) {
+	t.Parallel()
+
+	secret := "cdc-webhook-secret"
+	body := []byte(`{"ack_id":"ack-1","action":"update","metadata":{"table_name":"job_runs"}}`)
+	wr := NewWebhookReceiver(nil, nil, WithWebhookSecret(secret))
+	req := httptest.NewRequest(http.MethodPost, "/internal/cdc/webhook", nil)
+	req.Header.Set("X-Sequin-Signature", "sha256="+strings.ToUpper(strings.TrimPrefix(signWebhookBody(secret, body), "sha256=")))
+
+	require.True(t, wr.verifySignature(req, body))
+}
+
 func TestWebhookReceiver_DispatchesByTable(t *testing.T) {
 	t.Parallel()
 	h := &webhookMockHandler{table: "job_runs"}
