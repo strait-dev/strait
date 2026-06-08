@@ -451,11 +451,8 @@ func payloadsMatch(a, b json.RawMessage) bool {
 		return true
 	}
 	if payloadHasJSONWhitespace(a) || payloadHasJSONWhitespace(b) {
-		var compactA, compactB bytes.Buffer
-		if err := json.Compact(&compactA, a); err == nil {
-			if err := json.Compact(&compactB, b); err == nil && bytes.Equal(compactA.Bytes(), compactB.Bytes()) {
-				return true
-			}
+		if payloadsEqualIgnoringJSONWhitespace(a, b) && json.Valid(a) {
+			return true
 		}
 	}
 	var va, vb any
@@ -511,11 +508,55 @@ func jsonValuesEqual(a, b any) bool {
 
 func payloadHasJSONWhitespace(payload []byte) bool {
 	for _, c := range payload {
-		if c == ' ' || c == '\n' || c == '\r' || c == '\t' {
+		if isJSONWhitespace(c) {
 			return true
 		}
 	}
 	return false
+}
+
+func payloadsEqualIgnoringJSONWhitespace(a, b []byte) bool {
+	var ai, bi int
+	var aInString, bInString bool
+	var aEscaped, bEscaped bool
+	for {
+		ab, aok := nextJSONPayloadByte(a, &ai, &aInString, &aEscaped)
+		bb, bok := nextJSONPayloadByte(b, &bi, &bInString, &bEscaped)
+		if !aok || !bok {
+			return aok == bok
+		}
+		if ab != bb {
+			return false
+		}
+	}
+}
+
+func nextJSONPayloadByte(payload []byte, index *int, inString *bool, escaped *bool) (byte, bool) {
+	for *index < len(payload) {
+		c := payload[*index]
+		*index = *index + 1
+		if !*inString && isJSONWhitespace(c) {
+			continue
+		}
+		if *inString {
+			switch {
+			case *escaped:
+				*escaped = false
+			case c == '\\':
+				*escaped = true
+			case c == '"':
+				*inString = false
+			}
+		} else if c == '"' {
+			*inString = true
+		}
+		return c, true
+	}
+	return 0, false
+}
+
+func isJSONWhitespace(c byte) bool {
+	return c == ' ' || c == '\n' || c == '\r' || c == '\t'
 }
 
 type GetEventTriggerStatsInput struct{}

@@ -702,7 +702,9 @@ func TestPayloadsMatch(t *testing.T) {
 		{"number equivalent", json.RawMessage(`{"n":1}`), json.RawMessage(`{"n":1.0}`), true},
 		{"invalid json", json.RawMessage(`{"a":`), json.RawMessage(`{"a":`), true},
 		{"invalid json different bytes", json.RawMessage(`{"a":`), json.RawMessage(`{"a":1}`), false},
+		{"invalid json whitespace diff", json.RawMessage(`{ "a" :`), json.RawMessage(`{"a":`), false},
 		{"array whitespace diff", json.RawMessage(`[1, 2, {"a": true}]`), json.RawMessage(`[1,2,{"a":true}]`), true},
+		{"string whitespace remains significant", json.RawMessage(`{"k":"a b"}`), json.RawMessage(`{"k":"ab"}`), false},
 	}
 
 	for _, tt := range tests {
