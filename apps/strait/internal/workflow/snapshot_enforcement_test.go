@@ -44,7 +44,7 @@ func TestLoadStepDefinitions_WithSnapshot(t *testing.T) {
 	// We need a custom mock — extend the callback store.
 	snapshotStore := &snapshotMockCallbackStore{
 		mockCallbackStore: ms,
-		getWorkflowSnapshotFn: func(_ context.Context, id string) (*domain.WorkflowSnapshot, error) {
+		getWorkflowSnapshotFn: func(_ context.Context, _, id string) (*domain.WorkflowSnapshot, error) {
 			require.Equal(t, "snap-123",
 				id)
 
@@ -119,7 +119,7 @@ func TestLoadStepDefinitions_SnapshotNotFound_FallsBackToLiveTable(t *testing.T)
 				return liveSteps, nil
 			},
 		},
-		getWorkflowSnapshotFn: func(_ context.Context, _ string) (*domain.WorkflowSnapshot, error) {
+		getWorkflowSnapshotFn: func(_ context.Context, _, _ string) (*domain.WorkflowSnapshot, error) {
 			return nil, nil // Not found.
 		},
 	}
@@ -174,7 +174,7 @@ func TestLoadStepDefinitions_SnapshotPreservesAllFields(t *testing.T) {
 
 	snapshotStore := &snapshotMockCallbackStore{
 		mockCallbackStore: &mockCallbackStore{},
-		getWorkflowSnapshotFn: func(_ context.Context, _ string) (*domain.WorkflowSnapshot, error) {
+		getWorkflowSnapshotFn: func(_ context.Context, _, _ string) (*domain.WorkflowSnapshot, error) {
 			return &domain.WorkflowSnapshot{ID: "snap-1", Definition: defJSON}, nil
 		},
 	}
@@ -241,7 +241,7 @@ func TestLoadWfCtx_UsesSnapshotSteps(t *testing.T) {
 				return nil, nil
 			},
 		},
-		getWorkflowSnapshotFn: func(_ context.Context, _ string) (*domain.WorkflowSnapshot, error) {
+		getWorkflowSnapshotFn: func(_ context.Context, _, _ string) (*domain.WorkflowSnapshot, error) {
 			return &domain.WorkflowSnapshot{ID: "snap-1", Definition: defJSON}, nil
 		},
 	}
@@ -264,12 +264,12 @@ func TestLoadWfCtx_UsesSnapshotSteps(t *testing.T) {
 // snapshotMockCallbackStore wraps mockCallbackStore and overrides GetWorkflowSnapshot.
 type snapshotMockCallbackStore struct {
 	*mockCallbackStore
-	getWorkflowSnapshotFn func(ctx context.Context, id string) (*domain.WorkflowSnapshot, error)
+	getWorkflowSnapshotFn func(ctx context.Context, projectID, id string) (*domain.WorkflowSnapshot, error)
 }
 
-func (m *snapshotMockCallbackStore) GetWorkflowSnapshot(ctx context.Context, id string) (*domain.WorkflowSnapshot, error) {
+func (m *snapshotMockCallbackStore) GetWorkflowSnapshot(ctx context.Context, projectID, id string) (*domain.WorkflowSnapshot, error) {
 	if m.getWorkflowSnapshotFn != nil {
-		return m.getWorkflowSnapshotFn(ctx, id)
+		return m.getWorkflowSnapshotFn(ctx, projectID, id)
 	}
 	return nil, nil
 }

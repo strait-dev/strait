@@ -41,9 +41,10 @@ func MountPprofRoutes(r chi.Router) {
 }
 
 func cappedProfile(w http.ResponseWriter, r *http.Request) {
-	if rejectDebugOutput(w, r) {
-		return
-	}
+	// pprof.Profile ignores the ?debug query parameter entirely (it always writes
+	// the binary protobuf CPU profile), so a rejectDebugOutput guard here would be
+	// dead code. The guard is only meaningful for the text-capable handlers in
+	// binaryProfile.
 	pprof.Profile(w, capSeconds(r, MaxPprofProfileSeconds))
 }
 

@@ -33,7 +33,7 @@ func TestSetJobEndpoint_SecretBearingJobRequiresSecretsWrite(t *testing.T) {
 
 			return []domain.JobSecret{{ID: "sec-1", ProjectID: projectID, JobID: jobID, Environment: environment}}, nil
 		},
-		UpdateJobEndpointFunc: func(context.Context, string, string, string, string) error {
+		UpdateJobEndpointFunc: func(context.Context, string, string, string, string, string) error {
 			updateCalled = true
 			return nil
 		},
@@ -75,7 +75,7 @@ func TestSetJobEndpoint_SecretBearingJobAllowsSecretsWrite(t *testing.T) {
 				"ListJobSecrets should not be called when caller has secrets:write")
 			return nil, nil
 		},
-		UpdateJobEndpointFunc: func(context.Context, string, string, string, string) error {
+		UpdateJobEndpointFunc: func(context.Context, string, string, string, string, string) error {
 			updateCalled = true
 			return nil
 		},

@@ -457,3 +457,30 @@ func TestCleanupExpiredDeviceCodes(t *testing.T) {
 	require.EqualValues(t, 1, deleted)
 
 }
+
+// TestExchangeDeviceCode_ExpiredReturnsExpiredError guards the race-window
+// classification: an approved code that expires before the atomic exchange must
+// surface ErrDeviceCodeExpired (not ErrDeviceCodeNotFound), so the API can
+// report expired_token rather than the misleading token_already_exchanged.
+func TestExchangeDeviceCode_ExpiredReturnsExpiredError(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	q.SetSecretEncryptionKey("test-device-flow-key")
+	mustClean(t, ctx)
+
+	deviceCode := newID()
+	require.NoError(t, q.CreateDeviceCode(ctx, deviceCode, "USER-EXP-EXCH",
+		"project-exchange", []string{"write"}, time.Now().UTC().Add(10*time.Minute)))
+	require.NoError(t, q.ApproveDeviceCode(ctx, deviceCode, newID(),
+		"raw-key", "project-exchange", []string{"write"}))
+
+	// Force the approved code to be expired, simulating expiry racing past the
+	// handler's pre-check.
+	_, err := testDB.Pool.Exec(ctx,
+		`UPDATE cli_device_codes SET expires_at = NOW() - interval '1 minute' WHERE user_code = $1`,
+		"USER-EXP-EXCH")
+	require.NoError(t, err)
+
+	_, err = q.ExchangeDeviceCode(ctx, deviceCode)
+	require.ErrorIs(t, err, store.ErrDeviceCodeExpired)
+}

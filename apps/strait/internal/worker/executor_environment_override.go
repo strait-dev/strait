@@ -12,7 +12,7 @@ func (e *Executor) applyEnvironmentEndpointOverride(ctx context.Context, run *do
 	if job.EnvironmentID == "" {
 		return
 	}
-	envVars, err := e.store.GetResolvedEnvironmentVariables(ctx, job.EnvironmentID)
+	envVars, err := e.store.GetResolvedEnvironmentVariables(ctx, job.ProjectID, job.EnvironmentID)
 	if err != nil {
 		e.logger.Warn("failed to resolve environment variables", "run_id", run.ID, "environment_id", job.EnvironmentID, "error", err)
 		return

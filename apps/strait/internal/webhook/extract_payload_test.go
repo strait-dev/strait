@@ -69,3 +69,33 @@ func TestExtractPayload_PrefersPayloadEvenOverInvalidLastError(t *testing.T) {
 
 		string(got))
 }
+
+// TestWebhookDeliveryPayload_ClearsLastErrorAfterLift is the regression guard
+// for the individual delivery path: when the payload is lifted out of a legacy
+// row's LastError, LastError must be cleared so a subsequent failed attempt's
+// error message is not mistaken for the payload on retry (matching
+// extractPayload on the batch path).
+func TestWebhookDeliveryPayload_ClearsLastErrorAfterLift(t *testing.T) {
+	t.Parallel()
+
+	d := &domain.WebhookDelivery{
+		ID:        "del-1",
+		LastError: `{"k":"v"}`,
+	}
+	got := webhookDeliveryPayload(d)
+	require.JSONEq(t, `{"k":"v"}`, string(got))
+	require.Empty(t, d.LastError, "LastError must be cleared once used as the payload")
+}
+
+func TestWebhookDeliveryPayload_PrefersPayloadOverLastError(t *testing.T) {
+	t.Parallel()
+
+	d := &domain.WebhookDelivery{
+		ID:        "del-1",
+		Payload:   []byte(`{"event_key":"x"}`),
+		LastError: `{"trigger_id":"shadow"}`,
+	}
+	got := webhookDeliveryPayload(d)
+	require.JSONEq(t, `{"event_key":"x"}`, string(got))
+	require.JSONEq(t, `{"trigger_id":"shadow"}`, d.LastError)
+}

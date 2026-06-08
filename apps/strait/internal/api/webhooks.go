@@ -86,6 +86,14 @@ func (s *Server) handleTestWebhook(ctx context.Context, input *TestWebhookInput)
 	resp, err := client.Do(httpReq)
 	latencyMs := time.Since(start).Milliseconds()
 	if err != nil {
+		// Audit failed attempts too. SSRF-guard blocks and connection errors land
+		// here; without this, an operator probing internal hosts (all rejected by
+		// the guard) would leave no trace in the audit trail.
+		s.emitAuditEvent(ctx, domain.AuditActionWebhookTested, "webhook", "", map[string]any{
+			"url_host": urlHost(req.URL),
+			"success":  false,
+			"error":    "connection_failed",
+		})
 		return &TestWebhookOutput{Body: map[string]any{
 			"success":    false,
 			"error":      "connection to webhook URL failed",
@@ -132,7 +140,7 @@ type ReplayWebhookDeliveryOutput struct {
 }
 
 func (s *Server) handleReplayWebhookDelivery(ctx context.Context, input *ReplayWebhookDeliveryInput) (*ReplayWebhookDeliveryOutput, error) {
-	original, err := s.store.GetWebhookDelivery(ctx, input.ID)
+	original, err := s.store.GetWebhookDelivery(ctx, projectIDFromContext(ctx), input.ID)
 	if err != nil {
 		return nil, huma.Error404NotFound("webhook delivery not found")
 	}
@@ -152,7 +160,7 @@ func (s *Server) handleReplayWebhookDelivery(ctx context.Context, input *ReplayW
 			return nil, huma.Error404NotFound("webhook delivery not found")
 		}
 	}
-	replay, err := s.store.ReplayWebhookDelivery(ctx, input.ID)
+	replay, err := s.store.ReplayWebhookDelivery(ctx, projectIDFromContext(ctx), input.ID)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to create replay delivery")
 	}

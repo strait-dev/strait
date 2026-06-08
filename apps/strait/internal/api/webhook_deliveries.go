@@ -102,7 +102,7 @@ func (s *Server) handleGetWebhookDelivery(ctx context.Context, input *GetWebhook
 	if deliveryID == "" {
 		return nil, huma.Error400BadRequest("delivery ID is required")
 	}
-	delivery, err := s.store.GetWebhookDelivery(ctx, deliveryID)
+	delivery, err := s.store.GetWebhookDelivery(ctx, projectIDFromContext(ctx), deliveryID)
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") {
 			return nil, huma.Error404NotFound("delivery not found")
@@ -135,7 +135,7 @@ func (s *Server) handleRetryWebhookDelivery(ctx context.Context, input *RetryWeb
 	if deliveryID == "" {
 		return nil, huma.Error400BadRequest("delivery ID is required")
 	}
-	d, err := s.store.GetWebhookDelivery(ctx, deliveryID)
+	d, err := s.store.GetWebhookDelivery(ctx, projectIDFromContext(ctx), deliveryID)
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") {
 			return nil, huma.Error404NotFound("delivery not found")

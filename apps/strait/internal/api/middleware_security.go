@@ -13,7 +13,7 @@ const (
 	securityHeaderCrossDomainPolicies = "X-Permitted-Cross-Domain-Policies"
 )
 
-func securityHeaders(next http.Handler) http.Handler {
+func (s *Server) securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set(securityHeaderXContentTypeOptions, "nosniff")
 		w.Header().Set(securityHeaderXFrameOptions, "DENY")
@@ -26,7 +26,7 @@ func securityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("Pragma", "no-cache")
 
-		if requestIsHTTPS(r) {
+		if s.requestIsHTTPS(r) {
 			w.Header().Set(securityHeaderHSTS, "max-age=63072000; includeSubDomains")
 		}
 
@@ -66,13 +66,21 @@ func (s *serverHeaderStripper) Unwrap() http.ResponseWriter {
 	return s.ResponseWriter
 }
 
-func requestIsHTTPS(r *http.Request) bool {
+func (s *Server) requestIsHTTPS(r *http.Request) bool {
 	if r == nil {
 		return false
 	}
 
 	if r.TLS != nil {
 		return true
+	}
+
+	// Only honor X-Forwarded-Proto from a trusted reverse proxy. With no trusted
+	// proxies configured, or when the direct peer is not one, any client could
+	// spoof X-Forwarded-Proto: https on a plaintext connection and induce an HSTS
+	// header. Mirrors realIP's trusted-proxy handling of X-Forwarded-For.
+	if len(s.trustedProxies) == 0 || !ipInNets(remoteAddrIP(r), s.trustedProxies) {
+		return false
 	}
 
 	return r.Header.Get("X-Forwarded-Proto") == "https"

@@ -779,7 +779,7 @@ func TestWorkflowSnapshot_GetWorkflowSnapshot_HappyPath(t *testing.T) {
 	}, nil)
 	require.NoError(t, err)
 
-	got, err := q.GetWorkflowSnapshot(ctx, snapshot.ID)
+	got, err := q.GetWorkflowSnapshot(ctx, projectID, snapshot.ID)
 	require.NoError(t, err)
 	require.NotNil(t, got)
 	require.Equal(t, wf.ID,
@@ -800,10 +800,71 @@ func TestWorkflowSnapshot_GetWorkflowSnapshot_NotFound(t *testing.T) {
 	q := mustStore(t)
 	mustClean(t, ctx)
 
-	got, err := q.GetWorkflowSnapshot(ctx, newID())
+	got, err := q.GetWorkflowSnapshot(ctx, newID(), newID())
 	require.NoError(t, err)
 	require.Nil(t, got)
 
+}
+
+// TestWorkflowSnapshot_GetWorkflowSnapshot_CrossTenant guards the tenant
+// scoping added to workflow_snapshots: a snapshot id from one project must not
+// resolve under another project's scope.
+func TestWorkflowSnapshot_GetWorkflowSnapshot_CrossTenant(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	ownerProject := "project-wf-snap-owner-" + newID()
+	wf := testutil.MustCreateWorkflow(t, ctx, q, &testutil.WorkflowOpts{
+		ProjectID: new(ownerProject),
+	})
+	snapshot, err := q.GetOrCreateWorkflowSnapshot(ctx, &domain.Workflow{
+		ID:        wf.ID,
+		ProjectID: ownerProject,
+		Name:      wf.Name,
+		Slug:      wf.Slug,
+		Version:   1,
+	}, nil)
+	require.NoError(t, err)
+
+	owned, err := q.GetWorkflowSnapshot(ctx, ownerProject, snapshot.ID)
+	require.NoError(t, err)
+	require.NotNil(t, owned)
+
+	other, err := q.GetWorkflowSnapshot(ctx, "project-wf-snap-attacker-"+newID(), snapshot.ID)
+	require.NoError(t, err)
+	require.Nil(t, other, "snapshot must not resolve under a different project")
+}
+
+// TestWorkflowSnapshot_VersionlessDedup is the regression guard for unbounded
+// duplicate snapshots: a versionless workflow (no version_id) re-creating the
+// same definition must reuse the existing snapshot rather than insert a new row
+// each time (the ON CONFLICT partial index only covers version_id != '').
+func TestWorkflowSnapshot_VersionlessDedup(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "proj-wf-snap-versionless-" + newID()
+	wf := testutil.MustCreateWorkflow(t, ctx, q, &testutil.WorkflowOpts{
+		ProjectID: new(projectID),
+	})
+	create := func() (*domain.WorkflowSnapshot, error) {
+		return q.GetOrCreateWorkflowSnapshot(ctx, &domain.Workflow{
+			ID:        wf.ID,
+			ProjectID: projectID,
+			Name:      wf.Name,
+			Slug:      wf.Slug,
+			Version:   1,
+			// No VersionID: exercises the versionless path.
+		}, nil)
+	}
+
+	first, err := create()
+	require.NoError(t, err)
+	second, err := create()
+	require.NoError(t, err)
+	require.Equal(t, first.ID, second.ID, "identical versionless definition must dedupe to one snapshot")
 }
 
 func TestWorkflowSnapshot_GetWorkflowSnapshot_Dedup(t *testing.T) {
@@ -881,7 +942,7 @@ func TestWorkflowSnapshot_DedupIncludesStepOverrides(t *testing.T) {
 		ID, overrideAgain.
 		ID)
 
-	got, err := q.GetWorkflowSnapshot(ctx, override.ID)
+	got, err := q.GetWorkflowSnapshot(ctx, projectID, override.ID)
 	require.NoError(t, err)
 
 	def, err := store.ParseSnapshotDefinition(got.Definition)
@@ -907,7 +968,7 @@ func TestWebhookDelivery_ReplayWebhookDelivery_HappyPath(t *testing.T) {
 	original, err := q.EnqueueRunWebhook(ctx, job, run, 3)
 	require.NoError(t, err)
 
-	replayed, err := q.ReplayWebhookDelivery(ctx, original.ID)
+	replayed, err := q.ReplayWebhookDelivery(ctx, job.ProjectID, original.ID)
 	require.NoError(t, err)
 	require.NotEqual(t, original.
 		ID,
@@ -929,7 +990,7 @@ func TestWebhookDelivery_ReplayWebhookDelivery_NotFound(t *testing.T) {
 	q := mustStore(t)
 	mustClean(t, ctx)
 
-	_, err := q.ReplayWebhookDelivery(ctx, newID())
+	_, err := q.ReplayWebhookDelivery(ctx, "missing-project", newID())
 	require.Error(t, err)
 
 }
@@ -945,7 +1006,7 @@ func TestWebhookDelivery_ReplayWebhookDelivery_PreservesJobID(t *testing.T) {
 	original, err := q.EnqueueRunWebhook(ctx, job, run, 3)
 	require.NoError(t, err)
 
-	replayed, err := q.ReplayWebhookDelivery(ctx, original.ID)
+	replayed, err := q.ReplayWebhookDelivery(ctx, job.ProjectID, original.ID)
 	require.NoError(t, err)
 	require.Equal(t, original.
 		JobID,

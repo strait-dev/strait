@@ -45,6 +45,19 @@ func (c *auditCapture) findByAction(action string) []*domain.AuditEvent {
 	return out
 }
 
+// eventuallyByAction waits for exactly n events of the given action. Bypass
+// audits are now emitted asynchronously (durable: retries + dead-letter), so
+// tests poll rather than read synchronously.
+func (c *auditCapture) eventuallyByAction(t *testing.T, action string, n int) []*domain.AuditEvent {
+	t.Helper()
+	var out []*domain.AuditEvent
+	require.Eventually(t, func() bool {
+		out = c.findByAction(action)
+		return len(out) == n
+	}, 2*time.Second, 5*time.Millisecond)
+	return out
+}
+
 func detailString(t *testing.T, ev *domain.AuditEvent, key string) string {
 	t.Helper()
 	var details map[string]any
@@ -57,7 +70,7 @@ func detailString(t *testing.T, ev *domain.AuditEvent, key string) string {
 
 func requireBypassAudit(t *testing.T, cap *auditCapture, gate, handler, resourceType, resourceID string) {
 	t.Helper()
-	bypass := cap.findByAction(domain.AuditActionInternalSecretBypass)
+	bypass := cap.eventuallyByAction(t, domain.AuditActionInternalSecretBypass, 1)
 	require.Len(t,
 		bypass, 1)
 
@@ -101,7 +114,7 @@ func TestBatchEnableJobs_InternalSecretBypass_EmitsAudit(t *testing.T) {
 	require.Equal(t, http.StatusOK,
 		w.Code)
 
-	bypass := cap.findByAction(domain.AuditActionInternalSecretBypass)
+	bypass := cap.eventuallyByAction(t, domain.AuditActionInternalSecretBypass, 1)
 	require.Len(t,
 		bypass, 1)
 
@@ -137,7 +150,7 @@ func TestBatchDisableJobs_InternalSecretBypass_EmitsAudit(t *testing.T) {
 	require.Equal(t, http.StatusOK,
 		w.Code)
 
-	bypass := cap.findByAction(domain.AuditActionInternalSecretBypass)
+	bypass := cap.eventuallyByAction(t, domain.AuditActionInternalSecretBypass, 1)
 	require.Len(t,
 		bypass, 1)
 	assert.Equal(
@@ -209,7 +222,7 @@ func TestSendEvent_InternalSecretBypass_EmitsAudit(t *testing.T) {
 	// The handler may return 200 or 500 depending on resume path, but the
 	// bypass audit must fire BEFORE the body of the handler runs the resume
 	// logic. So regardless of exit code, the bypass row must be present.
-	bypass := cap.findByAction(domain.AuditActionInternalSecretBypass)
+	bypass := cap.eventuallyByAction(t, domain.AuditActionInternalSecretBypass, 1)
 	require.Len(t,
 		bypass, 1)
 	assert.Equal(
@@ -243,7 +256,7 @@ func TestGetEventTrigger_InternalSecretBypass_EmitsAudit(t *testing.T) {
 	require.Equal(t, http.StatusOK,
 		w.Code)
 
-	bypass := cap.findByAction(domain.AuditActionInternalSecretBypass)
+	bypass := cap.eventuallyByAction(t, domain.AuditActionInternalSecretBypass, 1)
 	require.Len(t,
 		bypass, 1)
 	assert.Equal(
@@ -275,7 +288,7 @@ func TestCancelEventTrigger_InternalSecretBypass_EmitsAudit(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/events/evt-cancel", ""))
 
-	bypass := cap.findByAction(domain.AuditActionInternalSecretBypass)
+	bypass := cap.eventuallyByAction(t, domain.AuditActionInternalSecretBypass, 1)
 	require.Len(t,
 		bypass, 1)
 	assert.Equal(
@@ -319,7 +332,7 @@ func TestSetJobEndpoint_InternalSecretBypass_EmitsAudit(t *testing.T) {
 		GetJobFunc: func(_ context.Context, _ string) (*domain.Job, error) {
 			return job, nil
 		},
-		UpdateJobEndpointFunc: func(context.Context, string, string, string, string) error {
+		UpdateJobEndpointFunc: func(context.Context, string, string, string, string, string) error {
 			return nil
 		},
 		CreateAuditEventFunc: cap.record,
@@ -491,14 +504,14 @@ func TestRotateWebhookSecret_InternalSecretBypass_EmitsAudit(t *testing.T) {
 	requireBypassAudit(t, cap, "rotate_webhook_secret.project_match", "handleRotateWebhookSecret", "webhook_subscription", "sub-rotate")
 }
 
-// TestBypassCallerLabel_NoPrincipal pins the leaked-internal-secret
-// adversarial path: when the audit emit is called with no auth principal
-// in context, the helper records caller="unknown" rather than crashing
-// or leaving the field empty.
+// TestBypassCallerLabel_NoPrincipal pins the no-actor path: with no auth
+// principal in context the helper records caller="internal_secret" (the only
+// non-actor outcome), never an empty field. The former "unknown" branch was
+// unreachable dead code and was removed.
 func TestBypassCallerLabel_NoPrincipal(t *testing.T) {
 	t.Parallel()
 	got := bypassCallerLabel(context.Background())
-	require.Equal(t, "unknown", got)
+	require.Equal(t, "internal_secret", got)
 }
 
 // TestBypassCallerLabel_InternalOnly pins the normal internal-secret call:
@@ -525,10 +538,10 @@ func TestBypassCallerLabel_PrefersActorID(t *testing.T) {
 }
 
 // TestEmitInternalSecretBypassAudit_LeakedSecret_NoPrincipal walks the
-// adversarial scenario from the plan: an attacker has captured the
-// internal secret and is replaying it without any auth principal. The
-// emit path must still record the audit row, with caller="unknown" so
-// the SOC review can flag the orphaned bypass for investigation.
+// adversarial scenario from the plan: an attacker has captured the internal
+// secret and is replaying it without any auth principal. The emit path must
+// still record the audit row, with caller="internal_secret" so the SOC review
+// can flag the orphaned bypass for investigation.
 func TestEmitInternalSecretBypassAudit_LeakedSecret_NoPrincipal(t *testing.T) {
 	t.Parallel()
 
@@ -543,11 +556,11 @@ func TestEmitInternalSecretBypassAudit_LeakedSecret_NoPrincipal(t *testing.T) {
 	srv.emitInternalSecretBypassAudit(context.Background(),
 		"hypothetical_gate", "hypothetical_handler", "thing", "thing-1")
 
-	bypass := cap.findByAction(domain.AuditActionInternalSecretBypass)
+	bypass := cap.eventuallyByAction(t, domain.AuditActionInternalSecretBypass, 1)
 	require.Len(t,
 		bypass, 1)
 	assert.Equal(
-		t, "unknown", detailString(t,
+		t, "internal_secret", detailString(t,
 			bypass[0], "caller"),
 	)
 	assert.Equal(
@@ -574,7 +587,7 @@ func TestEmitInternalSecretBypassAudit_DetailKeysMatchSchema(t *testing.T) {
 	ctx := context.WithValue(context.Background(), ctxInternalCallerKey, true)
 	srv.emitInternalSecretBypassAudit(ctx, "g", "h", "r", "")
 
-	bypass := cap.findByAction(domain.AuditActionInternalSecretBypass)
+	bypass := cap.eventuallyByAction(t, domain.AuditActionInternalSecretBypass, 1)
 	require.Len(t,
 		bypass, 1)
 

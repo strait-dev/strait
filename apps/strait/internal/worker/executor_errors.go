@@ -115,20 +115,14 @@ func errorHashForError(err error) string {
 	return errorHash(err.Error())
 }
 
+// shouldRetryForClass and shouldUseFallbackForClass delegate to the canonical
+// domain.ErrorClassEnum methods so the retry/fallback policy lives in exactly one
+// place. Re-deriving the switch here previously risked silent divergence when a
+// new error class was added on only one side.
 func shouldRetryForClass(errClass string) bool {
-	switch errClass {
-	case domain.ErrorClassClient, domain.ErrorClassAuth, domain.ErrorClassBudget, domain.ErrorClassOOM:
-		return false
-	default:
-		return true
-	}
+	return domain.ErrorClassEnum(errClass).IsRetryable()
 }
 
 func shouldUseFallbackForClass(errClass string) bool {
-	switch errClass {
-	case domain.ErrorClassTransient, domain.ErrorClassRateLimited, domain.ErrorClassConnection, domain.ErrorClassTimeout:
-		return true
-	default:
-		return false
-	}
+	return domain.ErrorClassEnum(errClass).IsTransient()
 }

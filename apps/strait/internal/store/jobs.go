@@ -1414,24 +1414,27 @@ func (q *Queries) ResumeJob(ctx context.Context, id string) error {
 // UpdateJobEndpoint persists a new endpoint URL, optional fallback URL, and
 // signing secret for a job. Callers are responsible for SSRF-validating the
 // URLs and generating a fresh signing secret before calling this method.
-func (q *Queries) UpdateJobEndpoint(ctx context.Context, jobID, endpointURL, fallbackURL, signingSecret string) error {
+func (q *Queries) UpdateJobEndpoint(ctx context.Context, jobID, projectID, endpointURL, fallbackURL, signingSecret string) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.UpdateJobEndpoint")
 	defer span.End()
 
+	// project_id is scoped explicitly (in addition to RLS) per the dual-layer
+	// tenant-isolation standard, so the row updated is the job the caller already
+	// fetched and authorized even if the RLS context is ever absent.
 	query := `
 		UPDATE jobs
-		SET endpoint_url            = $2,
-		    fallback_endpoint_url   = $3,
-		    endpoint_signing_secret = $4,
+		SET endpoint_url            = $3,
+		    fallback_endpoint_url   = $4,
+		    endpoint_signing_secret = $5,
 		    updated_at              = NOW()
-		WHERE id = $1`
+		WHERE id = $1 AND project_id = $2`
 
 	var fallback *string
 	if fallbackURL != "" {
 		fallback = &fallbackURL
 	}
 
-	tag, err := q.db.Exec(ctx, query, jobID, endpointURL, fallback, signingSecret)
+	tag, err := q.db.Exec(ctx, query, jobID, projectID, endpointURL, fallback, signingSecret)
 	if err != nil {
 		return fmt.Errorf("update job endpoint: %w", err)
 	}

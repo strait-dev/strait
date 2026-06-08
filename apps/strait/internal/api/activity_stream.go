@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"log/slog"
@@ -12,6 +13,22 @@ import (
 
 	"strait/internal/domain"
 )
+
+// stripSSENewlines removes CR and LF bytes from an SSE data payload so a crafted
+// message cannot break event framing and inject additional data:/event: lines.
+func stripSSENewlines(msg []byte) []byte {
+	if !bytes.ContainsAny(msg, "\r\n") {
+		return msg
+	}
+	out := make([]byte, 0, len(msg))
+	for _, b := range msg {
+		if b == '\r' || b == '\n' {
+			continue
+		}
+		out = append(out, b)
+	}
+	return out
+}
 
 func (s *Server) requireActivityStreamPermissions(next http.Handler) http.Handler {
 	return s.requirePermission(domain.ScopeRunsRead)(
@@ -129,7 +146,12 @@ loop:
 			if !ok {
 				break loop
 			}
-			fmt.Fprintf(w, "event: activity\ndata: %s\n\n", msg)
+			// Strip CR/LF before writing: a bare newline in the payload would
+			// break SSE event framing and let a crafted CDC message inject a
+			// spurious data:/event: line into the authenticated stream. Valid
+			// JSON encodes newlines as \n (two chars), so this is a no-op for
+			// well-formed messages and a hard guard against malformed ones.
+			fmt.Fprintf(w, "event: activity\ndata: %s\n\n", stripSSENewlines(msg))
 			flusher.Flush()
 		case <-ticker.C:
 			fmt.Fprintf(w, ": keepalive\n\n")

@@ -37,7 +37,7 @@ func TestCreateJob_UnsupportedExecutionMode_Rejected(t *testing.T) {
 
 		w.Code)
 	require.Contains(
-		t, w.Body.String(), "ExecutionMode")
+		t, w.Body.String(), "execution_mode")
 
 	// The oneof validation tag rejects unrecognised execution modes with a validation_error.
 }
@@ -72,7 +72,7 @@ func TestUpdateJob_UnsupportedExecutionMode_Rejected(t *testing.T) {
 
 		w.Code)
 	require.Contains(
-		t, w.Body.String(), "ExecutionMode")
+		t, w.Body.String(), "execution_mode")
 
 	// The oneof validation tag rejects unrecognised execution modes with a validation_error.
 }

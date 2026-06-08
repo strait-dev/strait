@@ -83,6 +83,15 @@ func TestSSRF_AdversarialBypass(t *testing.T) {
 		{"nat64 rfc1918 192.168", "http://[64:ff9b::c0a8:1]/"},
 		{"nat64 public-but-prefix-blocked", "http://[64:ff9b::8.8.8.8]/"},
 
+		// === NAT64 local-use block 64:ff9b:1::/48 (RFC 8215) ===
+		// Operators carve per-network /96 NAT64 prefixes from this block; an
+		// attacker hostname resolving here must be blocked just like the
+		// well-known prefix above.
+		{"nat64 local-use imds", "http://[64:ff9b:1::a9fe:a9fe]/"},
+		{"nat64 local-use loopback", "http://[64:ff9b:1::7f00:1]/"},
+		{"nat64 local-use rfc1918", "http://[64:ff9b:1::a00:1]/"},
+		{"nat64 local-use block elsewhere", "http://[64:ff9b:1:2:3:4:5:6]/"},
+
 		// === 6to4 (RFC 3056) — embedded IPv4 in bytes 2..6 ===
 		{"6to4 loopback", "http://[2002:7f00:1::]/"},
 		{"6to4 rfc1918 10.x", "http://[2002:a00:1::]/"},

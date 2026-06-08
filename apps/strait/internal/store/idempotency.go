@@ -1,7 +1,6 @@
 package store
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
@@ -359,15 +358,18 @@ func (q *Queries) decryptIdempotencyResponseBody(raw []byte) ([]byte, error) {
 	if len(raw) == 0 {
 		return nil, nil
 	}
-	if !bytes.Contains(raw, []byte(`"encrypted"`)) {
-		return raw, nil
-	}
+	// Encrypted bodies are a JSON object emitted by encryptIdempotencyResponseBody
+	// carrying "encrypted":true. Detect by strict decode, not a substring match:
+	// a legacy/plaintext body that is non-JSON, or JSON that merely contains the
+	// word "encrypted", must pass through untouched rather than being misparsed
+	// (which previously corrupted the replay or returned an error).
 	var wrapper encryptedIdempotencyResponseBody
-	if err := json.Unmarshal(raw, &wrapper); err != nil {
-		return nil, fmt.Errorf("decode encrypted body wrapper: %w", err)
-	}
-	if !wrapper.Encrypted {
-		return raw, nil
+	// A non-JSON body, or JSON not flagged encrypted:true, is a legacy/plaintext
+	// response returned verbatim. The unmarshal error is intentionally swallowed:
+	// surfacing it would corrupt the idempotent replay of a valid plaintext body
+	// that merely fails JSON parsing.
+	if err := json.Unmarshal(raw, &wrapper); err != nil || !wrapper.Encrypted {
+		return raw, nil //nolint:nilerr // intentional: malformed/plaintext body passes through as plaintext
 	}
 	if wrapper.Version != 1 {
 		return nil, fmt.Errorf("unsupported encrypted body version %d", wrapper.Version)
@@ -418,7 +420,19 @@ func sanitizeIdempotencyHeaders(h http.Header) http.Header {
 	out := make(http.Header, len(h))
 	for key, values := range h {
 		switch http.CanonicalHeaderKey(key) {
+		// Credentials/cookies: never persist or replay.
 		case "Set-Cookie", "Set-Cookie2", "Authorization", "Proxy-Authorization":
+			continue
+		// Hop-by-hop headers: meaningful only for the original connection. A
+		// replayed Transfer-Encoding/Connection that no longer matches the actual
+		// body framing corrupts the response through a reverse proxy.
+		case "Transfer-Encoding", "Connection", "Keep-Alive", "Te", "Trailer", "Upgrade", "Proxy-Connection":
+			continue
+		// CORS/negotiation headers are request-origin specific; replaying a stored
+		// value to a different origin would emit an incorrect access decision.
+		case "Access-Control-Allow-Origin", "Access-Control-Allow-Credentials",
+			"Access-Control-Allow-Methods", "Access-Control-Allow-Headers",
+			"Access-Control-Expose-Headers", "Access-Control-Max-Age", "Vary":
 			continue
 		default:
 			out[key] = append([]string(nil), values...)

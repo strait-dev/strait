@@ -102,7 +102,7 @@ func TestHandleGetEnvironment_EnvironmentScopedCallerCannotReadOtherEnvironment(
 		GetEnvironmentFunc: func(_ context.Context, id string, _ string) (*domain.Environment, error) {
 			return &domain.Environment{ID: id, ProjectID: "proj-1", Name: "Staging", Slug: "staging"}, nil
 		},
-		GetResolvedEnvironmentVariablesFunc: func(_ context.Context, _ string) (map[string]string, error) {
+		GetResolvedEnvironmentVariablesFunc: func(_ context.Context, _ string, _ string) (map[string]string, error) {
 			require.Fail(t,
 
 				"resolved variables should not be loaded for a mismatched environment")
@@ -374,7 +374,7 @@ func TestHandleGetResolvedVariables_EnvironmentScopedCallerCannotReadOtherEnviro
 		GetEnvironmentFunc: func(_ context.Context, id string, _ string) (*domain.Environment, error) {
 			return &domain.Environment{ID: id, ProjectID: "proj-1", Name: "Staging", Slug: "staging"}, nil
 		},
-		GetResolvedEnvironmentVariablesFunc: func(_ context.Context, _ string) (map[string]string, error) {
+		GetResolvedEnvironmentVariablesFunc: func(_ context.Context, _ string, _ string) (map[string]string, error) {
 			require.Fail(t,
 
 				"resolved variables should not be loaded for a mismatched environment")
@@ -408,7 +408,7 @@ func TestHandleGetResolvedVariables_InheritedVariables(t *testing.T) {
 				UpdatedAt: now,
 			}, nil
 		},
-		GetResolvedEnvironmentVariablesFunc: func(_ context.Context, _ string) (map[string]string, error) {
+		GetResolvedEnvironmentVariablesFunc: func(_ context.Context, _ string, _ string) (map[string]string, error) {
 			return map[string]string{
 				"LOCAL":     "value",
 				"INHERITED": "from-parent",

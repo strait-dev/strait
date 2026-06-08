@@ -2193,7 +2193,7 @@ func TestHandleGetEnvironment_Success(t *testing.T) {
 				Variables: map[string]string{"LOG_LEVEL": "debug"},
 			}, nil
 		},
-		GetResolvedEnvironmentVariablesFunc: func(_ context.Context, id string) (map[string]string, error) {
+		GetResolvedEnvironmentVariablesFunc: func(_ context.Context, _ string, id string) (map[string]string, error) {
 			require.Equal(t, "env-1", id)
 
 			return map[string]string{"LOG_LEVEL": "debug", "REGION": "us-east-1"}, nil
@@ -2251,7 +2251,7 @@ func TestHandleGetResolvedVariables_Success(t *testing.T) {
 		GetEnvironmentFunc: func(_ context.Context, id string, _ string) (*domain.Environment, error) {
 			return &domain.Environment{ID: id, ProjectID: "proj-1", Name: "test", Slug: "test"}, nil
 		},
-		GetResolvedEnvironmentVariablesFunc: func(_ context.Context, id string) (map[string]string, error) {
+		GetResolvedEnvironmentVariablesFunc: func(_ context.Context, _ string, id string) (map[string]string, error) {
 			require.Equal(t, "env-1", id)
 
 			return map[string]string{"API_URL": "https://api.example.com", "LOG_LEVEL": "debug"}, nil

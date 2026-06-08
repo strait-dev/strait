@@ -30,8 +30,9 @@ func newRootCommand() *cobra.Command {
 	cmd.AddCommand(newHealthCommand())
 	cmd.AddCommand(newBackfillHistoryCommand())
 	cmd.AddCommand(newBackfillEntitlementsCommand())
-	cmd.AddCommand(newSeedPentestCommand())
-	cmd.AddCommand(newRevokePentestCommand())
+	// Pentest seeding/cleanup commands are compiled in only under the `pentest`
+	// build tag, so production binaries do not ship them.
+	registerPentestCommands(cmd)
 
 	rawArgs := os.Args[1:]
 	cmd.SetArgs(normalizeLegacyArgs(rawArgs))

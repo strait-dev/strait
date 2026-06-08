@@ -21,7 +21,7 @@ func TestHandleSetJobEndpoint_EnvironmentScopedCallerCannotReplaceOtherEnvironme
 		ListJobSecretsFunc: func(_ context.Context, _, _, _ string, _ int, _ *time.Time) ([]domain.JobSecret, error) {
 			return nil, nil
 		},
-		UpdateJobEndpointFunc: func(_ context.Context, _, _, _, _ string) error {
+		UpdateJobEndpointFunc: func(_ context.Context, _, _, _, _, _ string) error {
 			require.Fail(t,
 
 				"UpdateJobEndpoint should not be called for a mismatched environment")
