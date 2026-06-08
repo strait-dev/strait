@@ -360,6 +360,43 @@ func TestValidateWorkerAPIKey_AllowsWorkersConnectScope(t *testing.T) {
 	require.NoError(t, validateWorkerAPIKey(apiKey))
 }
 
+// TestValidateWorkerAPIKey_EmptyScopesDenied is the regression guard for the
+// empty-scopes bypass: domain.HasScope treats empty scopes as full access, so the
+// worker gate must reject a key with no scopes explicitly.
+func TestValidateWorkerAPIKey_EmptyScopesDenied(t *testing.T) {
+	for _, scopes := range [][]string{nil, {}} {
+		err := validateWorkerAPIKey(&domain.APIKey{ID: "k", ProjectID: "p", Scopes: scopes})
+		require.Error(t, err)
+		s, _ := status.FromError(err)
+		require.Equal(t, codes.PermissionDenied, s.Code())
+	}
+}
+
+// TestValidateWorkerAPIKey_UniformLifecycleError is the regression guard for the
+// auth error-message disclosure: revoked, expired, and grace-ended keys must all
+// return the same generic Unauthenticated message so an attacker cannot
+// distinguish a once-valid key from a never-valid one.
+func TestValidateWorkerAPIKey_UniformLifecycleError(t *testing.T) {
+	past := time.Now().Add(-time.Hour)
+	scopes := []string{domain.ScopeWorkersConnect}
+	cases := []*domain.APIKey{
+		{ID: "k", Scopes: scopes, RevokedAt: &past},
+		{ID: "k", Scopes: scopes, ExpiresAt: &past},
+		{ID: "k", Scopes: scopes, GraceExpiresAt: &past},
+	}
+	var msgs []string
+	for _, k := range cases {
+		err := validateWorkerAPIKey(k)
+		require.Error(t, err)
+		s, _ := status.FromError(err)
+		require.Equal(t, codes.Unauthenticated, s.Code())
+		msgs = append(msgs, s.Message())
+	}
+	require.Equal(t, "invalid api key", msgs[0])
+	require.Equal(t, msgs[0], msgs[1])
+	require.Equal(t, msgs[0], msgs[2])
+}
+
 func TestWorkerAPIKeyExpiresAt_UsesEarliestExpiryBoundary(t *testing.T) {
 	now := time.Now()
 	expiresAt := now.Add(10 * time.Minute)
