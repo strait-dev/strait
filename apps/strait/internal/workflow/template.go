@@ -125,6 +125,11 @@ func renderStringValueWithCache(s string, vars map[string]any, cache *renderTemp
 	if !strings.Contains(s, "{{") {
 		return s
 	}
+	if cache != nil {
+		if rendered, ok := cache.renderedStringValue(s); ok {
+			return rendered
+		}
+	}
 
 	open, end, varName, ok := nextTemplateVar(s, 0)
 	if !ok {
@@ -134,7 +139,13 @@ func renderStringValueWithCache(s string, vars map[string]any, cache *renderTemp
 	// Entire string is a single "{{var_name}}" — preserve the variable's type.
 	if open == 0 && end == len(s) {
 		if val, ok := resolveTemplateVar(vars, cache, varName); ok {
+			if cache != nil {
+				cache.rememberRenderedString(s, val)
+			}
 			return val
+		}
+		if cache != nil {
+			cache.rememberRenderedString(s, s)
 		}
 		return s
 	}
@@ -158,7 +169,11 @@ func renderStringValueWithCache(s string, vars map[string]any, cache *renderTemp
 		}
 	}
 	buf.WriteString(s[prev:])
-	return buf.String()
+	rendered := buf.String()
+	if cache != nil {
+		cache.rememberRenderedString(s, rendered)
+	}
+	return rendered
 }
 
 type renderTemplateVarCache struct {
@@ -167,8 +182,29 @@ type renderTemplateVarCache struct {
 	strings      [8]string
 	stringSet    [8]bool
 	missingNames [8]string
+	renderInputs [8]string
+	renderValues [8]any
 	valueCount   int
 	missingCount int
+	renderCount  int
+}
+
+func (c *renderTemplateVarCache) renderedStringValue(input string) (any, bool) {
+	for i := range c.renderCount {
+		if c.renderInputs[i] == input {
+			return c.renderValues[i], true
+		}
+	}
+	return nil, false
+}
+
+func (c *renderTemplateVarCache) rememberRenderedString(input string, value any) {
+	if c.renderCount >= len(c.renderInputs) {
+		return
+	}
+	c.renderInputs[c.renderCount] = input
+	c.renderValues[c.renderCount] = value
+	c.renderCount++
 }
 
 func resolveTemplateVar(vars map[string]any, cache *renderTemplateVarCache, name string) (any, bool) {
