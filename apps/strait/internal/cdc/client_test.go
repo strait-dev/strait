@@ -55,6 +55,40 @@ func TestClientReceiveSuccess(t *testing.T) {
 			ConsumerName)
 }
 
+func TestClientReceiveSequinWrappedMessage(t *testing.T) {
+	t.Parallel()
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/api/http_pull_consumers/consumer-wrapped/receive",
+			r.URL.Path,
+		)
+		assert.Equal(t, http.MethodPost,
+			r.Method,
+		)
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"ack_id":"ack-wrapped","data":{"record":{"id":"run-1","project_id":"proj-1","status":"completed"},"metadata":{"table_schema":"public","table_name":"job_runs","commit_timestamp":"2026-06-08T05:20:27Z","idempotency_key":"wal-key"},"action":"update","changes":{"status":"completed"}}}]}`))
+	}))
+	defer ts.Close()
+
+	client := NewClient(ts.URL, "consumer-wrapped", "token-wrapped")
+	messages, err := client.Receive(context.Background(), 1, 1000)
+	require.NoError(t, err)
+	require.Len(t,
+		messages, 1)
+	require.Equal(t, "ack-wrapped", messages[0].AckID)
+	require.Equal(t, ActionUpdate, messages[0].Action)
+	require.Equal(t, "job_runs", messages[0].Metadata.TableName)
+	require.Equal(t, "consumer-wrapped", messages[0].Metadata.ConsumerName)
+	require.JSONEq(t,
+		`{"id":"run-1","project_id":"proj-1","status":"completed"}`,
+		string(messages[0].Record),
+	)
+	require.JSONEq(t,
+		`{"status":"completed"}`,
+		string(messages[0].Changes),
+	)
+}
+
 func TestClientReceiveEmptyBatch(t *testing.T) {
 	t.Parallel()
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

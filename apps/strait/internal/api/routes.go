@@ -225,6 +225,7 @@ func (s *Server) routes() chi.Router {
 
 	// Project activity stream (SSE, no timeout -- connections stay open).
 	r.Route("/v1/projects/{projectID}/activity/stream", func(r chi.Router) {
+		r.Use(s.sseTokenAuth)
 		r.Use(s.apiKeyOrSecretAuth)
 		r.Use(s.projectContextMiddleware)
 		r.Use(s.projectRateLimit)

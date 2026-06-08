@@ -25,10 +25,12 @@ $$;
 DO $$
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'sequin_strait_pub') THEN
-        CREATE PUBLICATION sequin_strait_pub FOR ALL TABLES;
+        CREATE PUBLICATION sequin_strait_pub FOR ALL TABLES WITH (publish_via_partition_root = true);
     END IF;
 END
 $$;
+
+ALTER PUBLICATION sequin_strait_pub SET (publish_via_partition_root = true);
 
 -- Set replica identity to full for CDC tables so Sequin includes
 -- the changes field in message payloads (shows which columns changed).

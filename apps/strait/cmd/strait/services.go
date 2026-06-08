@@ -344,6 +344,7 @@ func startCDCConsumer(ctx context.Context, g *pool.ContextPool, cfg *config.Conf
 		BatchSize:    cfg.CDCBatchSize,
 		WaitTimeMs:   cfg.CDCWaitTimeMs,
 	}, slog.Default())
+	cdcConsumer.SetPublisher(pub)
 	sharedDedupe := cdc.NewSharedDedupeStore(rdb, cfg.SharedDedupeTTL)
 	cacheHandlers := cdc.NewCacheReadModelHandlers(rdb, cfg.StatusReadModelTTL, slog.Default())
 	registerCDCDeliveryHandlers(cdcConsumer, pub, queries, chExporter, cacheHandlers, cacheBus, sharedDedupe)

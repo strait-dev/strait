@@ -98,7 +98,7 @@ type receiveRequest struct {
 }
 
 type receiveResponse struct {
-	Data []Message `json:"data"`
+	Data []json.RawMessage `json:"data"`
 }
 
 type ackRequest struct {
@@ -138,11 +138,51 @@ func (c *Client) Receive(ctx context.Context, batchSize, waitForMs int) ([]Messa
 		return nil, fmt.Errorf("decode receive response: %w", err)
 	}
 
-	for i := range result.Data {
-		result.Data[i].Metadata.ConsumerName = c.consumerName
+	messages := make([]Message, 0, len(result.Data))
+	for i, raw := range result.Data {
+		msg, err := decodeReceiveMessage(raw)
+		if err != nil {
+			return nil, fmt.Errorf("decode receive message %d: %w", i, err)
+		}
+		msg.Metadata.ConsumerName = c.consumerName
+		messages = append(messages, msg)
 	}
 
-	return result.Data, nil
+	return messages, nil
+}
+
+func decodeReceiveMessage(raw json.RawMessage) (Message, error) {
+	var msg Message
+	if err := json.Unmarshal(raw, &msg); err != nil {
+		return Message{}, err
+	}
+	if msg.Metadata.TableName != "" || msg.Action != "" || len(msg.Record) > 0 {
+		return msg, nil
+	}
+
+	var wrapped struct {
+		AckID string `json:"ack_id"`
+		Data  struct {
+			Record   json.RawMessage `json:"record"`
+			Changes  json.RawMessage `json:"changes,omitempty"`
+			Action   Action          `json:"action"`
+			Metadata Metadata        `json:"metadata"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(raw, &wrapped); err != nil {
+		return Message{}, err
+	}
+	if wrapped.Data.Metadata.TableName == "" && wrapped.Data.Action == "" && len(wrapped.Data.Record) == 0 {
+		return msg, nil
+	}
+
+	return Message{
+		AckID:    wrapped.AckID,
+		Record:   wrapped.Data.Record,
+		Changes:  wrapped.Data.Changes,
+		Action:   wrapped.Data.Action,
+		Metadata: wrapped.Data.Metadata,
+	}, nil
 }
 
 // Ack acknowledges successfully processed messages.
