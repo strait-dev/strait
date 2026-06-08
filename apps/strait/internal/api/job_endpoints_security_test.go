@@ -19,7 +19,7 @@ func TestSetJobEndpoint_RejectsHostnameResolvingToPrivateIP(t *testing.T) {
 		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
 			return &domain.Job{ID: id, ProjectID: "proj-1"}, nil
 		},
-		UpdateJobEndpointFunc: func(context.Context, string, string, string, string) error {
+		UpdateJobEndpointFunc: func(context.Context, string, string, string, string, string) error {
 			require.Fail(t,
 
 				"UpdateJobEndpoint must not be called for private DNS target")
@@ -41,7 +41,7 @@ func TestSetJobEndpoint_RejectsPrivateFallbackHostname(t *testing.T) {
 		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
 			return &domain.Job{ID: id, ProjectID: "proj-1"}, nil
 		},
-		UpdateJobEndpointFunc: func(context.Context, string, string, string, string) error {
+		UpdateJobEndpointFunc: func(context.Context, string, string, string, string, string) error {
 			require.Fail(t,
 
 				"UpdateJobEndpoint must not be called for private fallback DNS target")
@@ -65,7 +65,7 @@ func TestSetJobEndpoint_StoresEncryptedRotatedSigningSecret(t *testing.T) {
 		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
 			return &domain.Job{ID: id, ProjectID: "proj-1", EndpointSigningSecret: storedSecret}, nil
 		},
-		UpdateJobEndpointFunc: func(_ context.Context, _, _, _, signingSecret string) error {
+		UpdateJobEndpointFunc: func(_ context.Context, _, _, _, _, signingSecret string) error {
 			storedSecret = signingSecret
 			return nil
 		},
@@ -98,7 +98,7 @@ func TestSetJobEndpoint_RejectsSigningSecretWriteWithoutEncryptor(t *testing.T) 
 		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
 			return &domain.Job{ID: id, ProjectID: "proj-1"}, nil
 		},
-		UpdateJobEndpointFunc: func(context.Context, string, string, string, string) error {
+		UpdateJobEndpointFunc: func(context.Context, string, string, string, string, string) error {
 			require.Fail(t,
 
 				"UpdateJobEndpoint must not be called when signing secret encryption is unavailable")

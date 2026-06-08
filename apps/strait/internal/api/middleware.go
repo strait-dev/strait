@@ -1418,13 +1418,10 @@ func (s *Server) planUsageHeaders(next http.Handler) http.Handler {
 		// Only for authenticated API key requests with a resolved project.
 		scopes := scopesFromContext(ctx)
 		projectID := projectIDFromContext(ctx)
+		// Internal-secret callers carry no scopes and are short-circuited here.
+		// (A separate actorType=="internal" guard previously followed this, but no
+		// middleware ever sets that actor type, so it was dead code and removed.)
 		if len(scopes) == 0 || projectID == "" || s.billingEnforcer == nil {
-			next.ServeHTTP(w, r)
-			return
-		}
-
-		// Skip for internal secret requests.
-		if actorType, _ := ctx.Value(ctxActorTypeKey).(string); actorType == "internal" {
 			next.ServeHTTP(w, r)
 			return
 		}

@@ -136,6 +136,13 @@ func (cb *RedisWebhookCircuitBreaker) RecordFailure(ctx context.Context, url str
 	}).Err()
 	_ = cb.client.Expire(ctx, failureKey, cb.failureWindow).Err()
 
+	// Evict entries older than the failure window before counting, mirroring
+	// CanDeliver. Without this, stale failures still present in the sorted set
+	// (the key TTL is reset on every failure) inflate ZCard and can trip the
+	// breaker open even when recent failures are below the threshold.
+	cutoff := strconv.FormatInt(now.Add(-cb.failureWindow).UnixMilli(), 10)
+	_ = cb.client.ZRemRangeByScore(ctx, failureKey, "-inf", cutoff).Err()
+
 	failures, err := cb.client.ZCard(ctx, failureKey).Result()
 	if err == nil && failures >= int64(cb.failureThreshold) {
 		_ = cb.client.Set(ctx, openKey, "1", cb.openDuration).Err()

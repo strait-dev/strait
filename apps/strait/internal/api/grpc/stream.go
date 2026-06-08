@@ -1127,6 +1127,33 @@ func (s *workerService) handleTaskResult(ctx context.Context, workerID, projectI
 // via worker_tasks (the same row written by WorkerDispatch). Without this
 // check, a worker authenticated to project A could publish forged log lines
 // to any run in any project — visible via the SSE log stream.
+// allowedWorkerLogLevels is the set of log levels a worker may report. Anything
+// else is normalized to "info".
+var allowedWorkerLogLevels = map[string]struct{}{
+	"trace": {}, "debug": {}, "info": {}, "warn": {}, "warning": {}, "error": {}, "fatal": {},
+}
+
+func normalizeWorkerLogLevel(level string) string {
+	l := strings.ToLower(strings.TrimSpace(level))
+	if _, ok := allowedWorkerLogLevels[l]; ok {
+		return l
+	}
+	return "info"
+}
+
+// sanitizeWorkerLogTimestamp returns the worker-provided millisecond timestamp
+// when it is within a plausible window of now, otherwise the server's current
+// time. Bounds reject non-positive, far-future, and stale/replayed timestamps.
+func sanitizeWorkerLogTimestamp(tsMillis int64, now time.Time) int64 {
+	const maxFutureSkewMs = int64(24 * 60 * 60 * 1000)   // 1 day
+	const maxPastAgeMs = int64(30 * 24 * 60 * 60 * 1000) // 30 days
+	nowMs := now.UnixMilli()
+	if tsMillis <= 0 || tsMillis > nowMs+maxFutureSkewMs || tsMillis < nowMs-maxPastAgeMs {
+		return nowMs
+	}
+	return tsMillis
+}
+
 func (s *workerService) handleLogLine(ctx context.Context, workerID, projectID string, ll *workerv1.LogLine) error {
 	if ll == nil || ll.RunId == "" {
 		return nil
@@ -1155,6 +1182,10 @@ func (s *workerService) handleLogLine(ctx context.Context, workerID, projectID s
 	if len(level) > maxLogLevelBytes {
 		level = level[:maxLogLevelBytes]
 	}
+	// Worker-supplied level is free-form over the wire; normalize it to a known
+	// allowlist so a hostile worker cannot inject arbitrary level strings that
+	// downstream SSE consumers might mis-render or use to spoof severity.
+	level = normalizeWorkerLogLevel(level)
 	type logLineEvent struct {
 		RunID     string `json:"run_id"`
 		Level     string `json:"level"`
@@ -1162,10 +1193,13 @@ func (s *workerService) handleLogLine(ctx context.Context, workerID, projectID s
 		Timestamp int64  `json:"timestamp_unix_ms"`
 	}
 	payload, _ := json.Marshal(logLineEvent{
-		RunID:     ll.RunId,
-		Level:     level,
-		Message:   msg,
-		Timestamp: ll.TimestampUnixMs,
+		RunID:   ll.RunId,
+		Level:   level,
+		Message: msg,
+		// timestamp_unix_ms is fully worker-controlled; clamp implausible values
+		// (non-positive, far-future, or stale/replayed) to server time so they
+		// cannot corrupt downstream ordering.
+		Timestamp: sanitizeWorkerLogTimestamp(ll.TimestampUnixMs, time.Now()),
 	})
 	channel := grpcWorkerLogChannel(ll.RunId)
 	if err := s.pub.Publish(ctx, channel, payload); err != nil {

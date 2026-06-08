@@ -123,6 +123,12 @@ func (s *Server) handleDeviceToken(ctx context.Context, input *DeviceTokenInput)
 		projectID := row.ProjectID
 		_, exchangeErr := s.store.ExchangeDeviceCode(ctx, req.DeviceCode)
 		if exchangeErr != nil {
+			// A code that expired in the window between the check above and the
+			// atomic exchange must report expired_token, not the misleading
+			// token_already_exchanged.
+			if errors.Is(exchangeErr, store.ErrDeviceCodeExpired) {
+				return nil, &rawStatusError{status: http.StatusBadRequest, body: map[string]string{"error": "expired_token"}}
+			}
 			if errors.Is(exchangeErr, store.ErrDeviceCodeNotFound) {
 				return nil, &rawStatusError{status: http.StatusBadRequest, body: map[string]string{"error": "token_already_exchanged"}}
 			}

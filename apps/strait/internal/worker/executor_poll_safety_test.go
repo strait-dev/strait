@@ -346,6 +346,211 @@ func TestAdaptiveDequeue_CapsAtMaxBatch(t *testing.T) {
 	require.EqualValues(t, 10, got)
 }
 
+func TestExecutorRun_DrainsBacklogAfterFullBatchCompletes(t *testing.T) {
+	t.Parallel()
+
+	const batchSize = 2
+	var dequeueCalls atomic.Int32
+	var badRequest atomic.Int32
+	var completed atomic.Int32
+	var remaining atomic.Int32
+	remaining.Store(6)
+
+	q := &mockExecQueue{
+		dequeueNFn: func(_ context.Context, n int) ([]domain.JobRun, error) {
+			if n <= 0 || n > batchSize {
+				badRequest.Store(int32(n))
+			}
+			call := dequeueCalls.Add(1)
+			left := int(remaining.Load())
+			if left <= 0 {
+				return nil, nil
+			}
+			claim := min(n, left)
+			remaining.Add(int32(-claim))
+			runs := make([]domain.JobRun, 0, claim)
+			for i := range claim {
+				runs = append(runs, domain.JobRun{
+					ID:        fmt.Sprintf("run-%d-%d", call, i),
+					JobID:     "job-drain",
+					ProjectID: "project-drain",
+				})
+			}
+			return runs, nil
+		},
+	}
+
+	pool := NewPool(batchSize)
+	t.Cleanup(func() { _ = pool.Shutdown(context.Background()) })
+
+	wake := make(chan struct{}, 1)
+	exec := NewExecutor(ExecutorConfig{
+		Pool:                pool,
+		Queue:               q,
+		Wake:                wake,
+		Store:               &mockExecutorStore{},
+		PollInterval:        time.Hour,
+		HeartbeatInterval:   time.Hour,
+		MaxDequeueBatchSize: batchSize,
+	})
+	exec.Use(func(_ ExecutionHandler) ExecutionHandler {
+		return func(_ context.Context, _ *ExecutionContext) {
+			completed.Add(1)
+		}
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		exec.Run(ctx)
+	}()
+
+	wake <- struct{}{}
+
+	require.Eventually(t, func() bool {
+		return completed.Load() == 6 && remaining.Load() == 0 && dequeueCalls.Load() >= 4
+	}, 2*time.Second, 10*time.Millisecond)
+	require.EqualValues(t, 0, badRequest.Load())
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		require.Fail(t, "executor did not stop")
+	}
+}
+
+func TestExecutorRun_DoesNotDrainAfterPartialBatchCompletes(t *testing.T) {
+	t.Parallel()
+
+	var dequeueCalls atomic.Int32
+	var completed atomic.Int32
+
+	q := &mockExecQueue{
+		dequeueNFn: func(_ context.Context, _ int) ([]domain.JobRun, error) {
+			if dequeueCalls.Add(1) > 1 {
+				return nil, nil
+			}
+			return []domain.JobRun{{
+				ID:        "run-partial",
+				JobID:     "job-partial",
+				ProjectID: "project-partial",
+			}}, nil
+		},
+	}
+
+	pool := NewPool(2)
+	t.Cleanup(func() { _ = pool.Shutdown(context.Background()) })
+
+	wake := make(chan struct{}, 1)
+	exec := NewExecutor(ExecutorConfig{
+		Pool:                pool,
+		Queue:               q,
+		Wake:                wake,
+		Store:               &mockExecutorStore{},
+		PollInterval:        time.Hour,
+		HeartbeatInterval:   time.Hour,
+		MaxDequeueBatchSize: 2,
+	})
+	exec.Use(func(_ ExecutionHandler) ExecutionHandler {
+		return func(_ context.Context, _ *ExecutionContext) {
+			completed.Add(1)
+		}
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		exec.Run(ctx)
+	}()
+
+	wake <- struct{}{}
+
+	require.Eventually(t, func() bool {
+		return completed.Load() == 1
+	}, 2*time.Second, 10*time.Millisecond)
+	time.Sleep(150 * time.Millisecond)
+	require.EqualValues(t, 1, dequeueCalls.Load())
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		require.Fail(t, "executor did not stop")
+	}
+}
+
+func TestExecutorRun_EmptyDrainClearsBacklogHint(t *testing.T) {
+	t.Parallel()
+
+	var dequeueCalls atomic.Int32
+	var completed atomic.Int32
+
+	q := &mockExecQueue{
+		dequeueNFn: func(_ context.Context, _ int) ([]domain.JobRun, error) {
+			if dequeueCalls.Add(1) > 1 {
+				return nil, nil
+			}
+			return []domain.JobRun{
+				{
+					ID:        "run-full-a",
+					JobID:     "job-full",
+					ProjectID: "project-full",
+				},
+				{
+					ID:        "run-full-b",
+					JobID:     "job-full",
+					ProjectID: "project-full",
+				},
+			}, nil
+		},
+	}
+
+	pool := NewPool(2)
+	t.Cleanup(func() { _ = pool.Shutdown(context.Background()) })
+
+	wake := make(chan struct{}, 1)
+	exec := NewExecutor(ExecutorConfig{
+		Pool:                pool,
+		Queue:               q,
+		Wake:                wake,
+		Store:               &mockExecutorStore{},
+		PollInterval:        time.Hour,
+		HeartbeatInterval:   time.Hour,
+		MaxDequeueBatchSize: 2,
+	})
+	exec.Use(func(_ ExecutionHandler) ExecutionHandler {
+		return func(_ context.Context, _ *ExecutionContext) {
+			completed.Add(1)
+		}
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		exec.Run(ctx)
+	}()
+
+	wake <- struct{}{}
+
+	require.Eventually(t, func() bool {
+		return completed.Load() == 2 && dequeueCalls.Load() >= 2 && !exec.drain.hasBacklogHint()
+	}, 2*time.Second, 10*time.Millisecond)
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		require.Fail(t, "executor did not stop")
+	}
+}
+
 func TestAdaptiveDequeue_SingleIdleWorker(t *testing.T) {
 	t.Parallel()
 

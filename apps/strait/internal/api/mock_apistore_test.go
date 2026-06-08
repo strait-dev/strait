@@ -1279,7 +1279,7 @@ type APIStoreMock struct {
 	GetProjectRoleFunc func(ctx context.Context, id string) (*domain.ProjectRole, error)
 
 	// GetResolvedEnvironmentVariablesFunc mocks the GetResolvedEnvironmentVariables method.
-	GetResolvedEnvironmentVariablesFunc func(ctx context.Context, id string) (map[string]string, error)
+	GetResolvedEnvironmentVariablesFunc func(ctx context.Context, projectID string, id string) (map[string]string, error)
 
 	// GetResourcePoliciesFunc mocks the GetResourcePolicies method.
 	GetResourcePoliciesFunc func(ctx context.Context, projectID string, resourceType string, resourceID string, userID string) ([]string, error)
@@ -1312,7 +1312,7 @@ type APIStoreMock struct {
 	GetUserPermissionsFunc func(ctx context.Context, projectID string, userID string) ([]string, error)
 
 	// GetWebhookDeliveryFunc mocks the GetWebhookDelivery method.
-	GetWebhookDeliveryFunc func(ctx context.Context, id string) (*domain.WebhookDelivery, error)
+	GetWebhookDeliveryFunc func(ctx context.Context, projectID string, id string) (*domain.WebhookDelivery, error)
 
 	// GetWebhookSubscriptionFunc mocks the GetWebhookSubscription method.
 	GetWebhookSubscriptionFunc func(ctx context.Context, id string) (*domain.WebhookSubscription, error)
@@ -1561,7 +1561,7 @@ type APIStoreMock struct {
 	ReplayDeadLetterRunWithAuditFunc func(ctx context.Context, runID string, audit *domain.AuditEvent) (*domain.JobRun, error)
 
 	// ReplayWebhookDeliveryFunc mocks the ReplayWebhookDelivery method.
-	ReplayWebhookDeliveryFunc func(ctx context.Context, id string) (*domain.WebhookDelivery, error)
+	ReplayWebhookDeliveryFunc func(ctx context.Context, projectID string, id string) (*domain.WebhookDelivery, error)
 
 	// RequeuePausedJobRunsFunc mocks the RequeuePausedJobRuns method.
 	RequeuePausedJobRunsFunc func(ctx context.Context, workflowRunID string) (int64, error)
@@ -1657,7 +1657,7 @@ type APIStoreMock struct {
 	UpdateJobFunc func(ctx context.Context, job *domain.Job) error
 
 	// UpdateJobEndpointFunc mocks the UpdateJobEndpoint method.
-	UpdateJobEndpointFunc func(ctx context.Context, jobID string, endpointURL string, fallbackURL string, signingSecret string) error
+	UpdateJobEndpointFunc func(ctx context.Context, jobID string, projectID string, endpointURL string, fallbackURL string, signingSecret string) error
 
 	// UpdateJobGroupFunc mocks the UpdateJobGroup method.
 	UpdateJobGroupFunc func(ctx context.Context, group *domain.JobGroup) error
@@ -2847,6 +2847,8 @@ type APIStoreMock struct {
 		GetResolvedEnvironmentVariables []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// ProjectID is the projectID argument value.
+			ProjectID string
 			// ID is the id argument value.
 			ID string
 		}
@@ -2950,6 +2952,8 @@ type APIStoreMock struct {
 		GetWebhookDelivery []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// ProjectID is the projectID argument value.
+			ProjectID string
 			// ID is the id argument value.
 			ID string
 		}
@@ -3831,6 +3835,8 @@ type APIStoreMock struct {
 		ReplayWebhookDelivery []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// ProjectID is the projectID argument value.
+			ProjectID string
 			// ID is the id argument value.
 			ID string
 		}
@@ -4129,6 +4135,8 @@ type APIStoreMock struct {
 			Ctx context.Context
 			// JobID is the jobID argument value.
 			JobID string
+			// ProjectID is the projectID argument value.
+			ProjectID string
 			// EndpointURL is the endpointURL argument value.
 			EndpointURL string
 			// FallbackURL is the fallbackURL argument value.
@@ -10267,13 +10275,15 @@ func (mock *APIStoreMock) GetProjectRoleCalls() []struct {
 }
 
 // GetResolvedEnvironmentVariables calls GetResolvedEnvironmentVariablesFunc.
-func (mock *APIStoreMock) GetResolvedEnvironmentVariables(ctx context.Context, id string) (map[string]string, error) {
+func (mock *APIStoreMock) GetResolvedEnvironmentVariables(ctx context.Context, projectID string, id string) (map[string]string, error) {
 	callInfo := struct {
-		Ctx context.Context
-		ID  string
+		Ctx       context.Context
+		ProjectID string
+		ID        string
 	}{
-		Ctx: ctx,
-		ID:  id,
+		Ctx:       ctx,
+		ProjectID: projectID,
+		ID:        id,
 	}
 	mock.lockGetResolvedEnvironmentVariables.Lock()
 	mock.calls.GetResolvedEnvironmentVariables = append(mock.calls.GetResolvedEnvironmentVariables, callInfo)
@@ -10285,7 +10295,7 @@ func (mock *APIStoreMock) GetResolvedEnvironmentVariables(ctx context.Context, i
 		)
 		return stringToStringOut, errOut
 	}
-	return mock.GetResolvedEnvironmentVariablesFunc(ctx, id)
+	return mock.GetResolvedEnvironmentVariablesFunc(ctx, projectID, id)
 }
 
 // GetResolvedEnvironmentVariablesCalls gets all the calls that were made to GetResolvedEnvironmentVariables.
@@ -10293,12 +10303,14 @@ func (mock *APIStoreMock) GetResolvedEnvironmentVariables(ctx context.Context, i
 //
 //	len(mockedAPIStore.GetResolvedEnvironmentVariablesCalls())
 func (mock *APIStoreMock) GetResolvedEnvironmentVariablesCalls() []struct {
-	Ctx context.Context
-	ID  string
+	Ctx       context.Context
+	ProjectID string
+	ID        string
 } {
 	var calls []struct {
-		Ctx context.Context
-		ID  string
+		Ctx       context.Context
+		ProjectID string
+		ID        string
 	}
 	mock.lockGetResolvedEnvironmentVariables.RLock()
 	calls = mock.calls.GetResolvedEnvironmentVariables
@@ -10759,13 +10771,15 @@ func (mock *APIStoreMock) GetUserPermissionsCalls() []struct {
 }
 
 // GetWebhookDelivery calls GetWebhookDeliveryFunc.
-func (mock *APIStoreMock) GetWebhookDelivery(ctx context.Context, id string) (*domain.WebhookDelivery, error) {
+func (mock *APIStoreMock) GetWebhookDelivery(ctx context.Context, projectID string, id string) (*domain.WebhookDelivery, error) {
 	callInfo := struct {
-		Ctx context.Context
-		ID  string
+		Ctx       context.Context
+		ProjectID string
+		ID        string
 	}{
-		Ctx: ctx,
-		ID:  id,
+		Ctx:       ctx,
+		ProjectID: projectID,
+		ID:        id,
 	}
 	mock.lockGetWebhookDelivery.Lock()
 	mock.calls.GetWebhookDelivery = append(mock.calls.GetWebhookDelivery, callInfo)
@@ -10777,7 +10791,7 @@ func (mock *APIStoreMock) GetWebhookDelivery(ctx context.Context, id string) (*d
 		)
 		return webhookDeliveryOut, errOut
 	}
-	return mock.GetWebhookDeliveryFunc(ctx, id)
+	return mock.GetWebhookDeliveryFunc(ctx, projectID, id)
 }
 
 // GetWebhookDeliveryCalls gets all the calls that were made to GetWebhookDelivery.
@@ -10785,12 +10799,14 @@ func (mock *APIStoreMock) GetWebhookDelivery(ctx context.Context, id string) (*d
 //
 //	len(mockedAPIStore.GetWebhookDeliveryCalls())
 func (mock *APIStoreMock) GetWebhookDeliveryCalls() []struct {
-	Ctx context.Context
-	ID  string
+	Ctx       context.Context
+	ProjectID string
+	ID        string
 } {
 	var calls []struct {
-		Ctx context.Context
-		ID  string
+		Ctx       context.Context
+		ProjectID string
+		ID        string
 	}
 	mock.lockGetWebhookDelivery.RLock()
 	calls = mock.calls.GetWebhookDelivery
@@ -14673,13 +14689,15 @@ func (mock *APIStoreMock) ReplayDeadLetterRunWithAuditCalls() []struct {
 }
 
 // ReplayWebhookDelivery calls ReplayWebhookDeliveryFunc.
-func (mock *APIStoreMock) ReplayWebhookDelivery(ctx context.Context, id string) (*domain.WebhookDelivery, error) {
+func (mock *APIStoreMock) ReplayWebhookDelivery(ctx context.Context, projectID string, id string) (*domain.WebhookDelivery, error) {
 	callInfo := struct {
-		Ctx context.Context
-		ID  string
+		Ctx       context.Context
+		ProjectID string
+		ID        string
 	}{
-		Ctx: ctx,
-		ID:  id,
+		Ctx:       ctx,
+		ProjectID: projectID,
+		ID:        id,
 	}
 	mock.lockReplayWebhookDelivery.Lock()
 	mock.calls.ReplayWebhookDelivery = append(mock.calls.ReplayWebhookDelivery, callInfo)
@@ -14691,7 +14709,7 @@ func (mock *APIStoreMock) ReplayWebhookDelivery(ctx context.Context, id string) 
 		)
 		return webhookDeliveryOut, errOut
 	}
-	return mock.ReplayWebhookDeliveryFunc(ctx, id)
+	return mock.ReplayWebhookDeliveryFunc(ctx, projectID, id)
 }
 
 // ReplayWebhookDeliveryCalls gets all the calls that were made to ReplayWebhookDelivery.
@@ -14699,12 +14717,14 @@ func (mock *APIStoreMock) ReplayWebhookDelivery(ctx context.Context, id string) 
 //
 //	len(mockedAPIStore.ReplayWebhookDeliveryCalls())
 func (mock *APIStoreMock) ReplayWebhookDeliveryCalls() []struct {
-	Ctx context.Context
-	ID  string
+	Ctx       context.Context
+	ProjectID string
+	ID        string
 } {
 	var calls []struct {
-		Ctx context.Context
-		ID  string
+		Ctx       context.Context
+		ProjectID string
+		ID        string
 	}
 	mock.lockReplayWebhookDelivery.RLock()
 	calls = mock.calls.ReplayWebhookDelivery
@@ -16077,16 +16097,18 @@ func (mock *APIStoreMock) UpdateJobCalls() []struct {
 }
 
 // UpdateJobEndpoint calls UpdateJobEndpointFunc.
-func (mock *APIStoreMock) UpdateJobEndpoint(ctx context.Context, jobID string, endpointURL string, fallbackURL string, signingSecret string) error {
+func (mock *APIStoreMock) UpdateJobEndpoint(ctx context.Context, jobID string, projectID string, endpointURL string, fallbackURL string, signingSecret string) error {
 	callInfo := struct {
 		Ctx           context.Context
 		JobID         string
+		ProjectID     string
 		EndpointURL   string
 		FallbackURL   string
 		SigningSecret string
 	}{
 		Ctx:           ctx,
 		JobID:         jobID,
+		ProjectID:     projectID,
 		EndpointURL:   endpointURL,
 		FallbackURL:   fallbackURL,
 		SigningSecret: signingSecret,
@@ -16100,7 +16122,7 @@ func (mock *APIStoreMock) UpdateJobEndpoint(ctx context.Context, jobID string, e
 		)
 		return errOut
 	}
-	return mock.UpdateJobEndpointFunc(ctx, jobID, endpointURL, fallbackURL, signingSecret)
+	return mock.UpdateJobEndpointFunc(ctx, jobID, projectID, endpointURL, fallbackURL, signingSecret)
 }
 
 // UpdateJobEndpointCalls gets all the calls that were made to UpdateJobEndpoint.
@@ -16110,6 +16132,7 @@ func (mock *APIStoreMock) UpdateJobEndpoint(ctx context.Context, jobID string, e
 func (mock *APIStoreMock) UpdateJobEndpointCalls() []struct {
 	Ctx           context.Context
 	JobID         string
+	ProjectID     string
 	EndpointURL   string
 	FallbackURL   string
 	SigningSecret string
@@ -16117,6 +16140,7 @@ func (mock *APIStoreMock) UpdateJobEndpointCalls() []struct {
 	var calls []struct {
 		Ctx           context.Context
 		JobID         string
+		ProjectID     string
 		EndpointURL   string
 		FallbackURL   string
 		SigningSecret string

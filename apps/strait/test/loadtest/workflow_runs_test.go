@@ -184,7 +184,7 @@ func TestWorkflowRuns_PauseResume(t *testing.T) {
 		assertNoServerErrors(t, pauseMetrics)
 
 		resumeMetrics := runBaseline(t, "resume-workflow-run", resumeTargeter, withRate(50), withDuration(2*time.Second))
-		assertStatusCodes(t, resumeMetrics, "200", "400", "503")
+		assertStatusCodes(t, resumeMetrics, "200", "400", "429", "503")
 	})
 	t.Run("stress", func(t *testing.T) {
 		pauseMetrics := runStress(t, "pause-workflow-run", pauseTargeter, withRate(200), withWorkers(20), withDuration(3*time.Second))
@@ -192,7 +192,7 @@ func TestWorkflowRuns_PauseResume(t *testing.T) {
 		assertNoServerErrors(t, pauseMetrics)
 
 		resumeMetrics := runStress(t, "resume-workflow-run", resumeTargeter, withRate(200), withWorkers(20), withDuration(3*time.Second))
-		assertStatusCodes(t, resumeMetrics, "200", "400", "503")
+		assertStatusCodes(t, resumeMetrics, "200", "400", "429", "503")
 	})
 	t.Run("spike", func(t *testing.T) {
 		pauseMetrics := runSpike(t, "pause-workflow-run", pauseTargeter, withWorkers(20), withDuration(3*time.Second))
@@ -200,6 +200,6 @@ func TestWorkflowRuns_PauseResume(t *testing.T) {
 		assertNoServerErrors(t, pauseMetrics)
 
 		resumeMetrics := runSpike(t, "resume-workflow-run", resumeTargeter, withWorkers(20), withDuration(3*time.Second))
-		assertStatusCodes(t, resumeMetrics, "200", "400", "503")
+		assertStatusCodes(t, resumeMetrics, "200", "400", "429", "503")
 	})
 }

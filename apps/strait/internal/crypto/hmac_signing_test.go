@@ -24,19 +24,24 @@ func TestSignWebhookRequest_GoldenHeaders(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "https://example.com/hook", nil)
 	SignWebhookRequest(req, secret, body, deliveryID, timestamp)
 
+	// X-Strait-Signature is v1=<hex> over timestamp + "." + body, matching every
+	// other Strait signing path (delivery id is a header, not part of the HMAC).
 	mac := hmac.New(sha256.New, secret)
 	mac.Write([]byte(timestamp))
-	mac.Write([]byte("."))
-	mac.Write([]byte(deliveryID))
 	mac.Write([]byte("."))
 	mac.Write(body)
 	wantSig := hex.EncodeToString(mac.Sum(nil))
 
+	// The sha256= header is a body-only HMAC (GitHub convention).
+	bodyMac := hmac.New(sha256.New, secret)
+	bodyMac.Write(body)
+	wantBodySig := hex.EncodeToString(bodyMac.Sum(nil))
+
 	assert.Equal(t, timestamp, req.Header.Get("X-Strait-Timestamp"))
 	assert.Equal(t, deliveryID, req.Header.Get("X-Strait-Delivery-ID"))
-	wantStructured := "t=" + timestamp + ",d=" + deliveryID + ",v1=" + wantSig
-	assert.Equal(t, wantStructured, req.Header.Get("X-Strait-Signature"))
-	assert.Equal(t, "sha256="+wantSig, req.Header.Get("X-Strait-Signature-256"))
+	assert.Equal(t, "v1="+wantSig, req.Header.Get("X-Strait-Signature"))
+	assert.Equal(t, "sha256="+wantBodySig, req.Header.Get("X-Strait-Signature-256"))
+	assert.NotEqual(t, wantSig, wantBodySig, "timestamped and body-only signatures must differ")
 }
 
 func TestSignWebhookRequest_NoSecretIsNoop(t *testing.T) {
@@ -56,18 +61,19 @@ func TestSignWebhookRequest_NilRequestIsNoop(t *testing.T) {
 	SignWebhookRequest(nil, []byte("s"), []byte("b"), "id", "ts")
 }
 
-func TestSignWebhookRequest_StructuredHeaderFormat(t *testing.T) {
+func TestSignWebhookRequest_SignatureHeaderFormat(t *testing.T) {
 	t.Parallel()
 
 	req := httptest.NewRequest(http.MethodPost, "https://example.com/hook", nil)
 	SignWebhookRequest(req, []byte("s"), []byte("b"), "deliv", "2026-01-01T00:00:00Z")
 
+	// Regression guard for signing consistency: X-Strait-Signature is the same
+	// v1=<hex> single-token format used by every other Strait signing path, not a
+	// compound t=,d=,v1= value.
 	sig := req.Header.Get("X-Strait-Signature")
-	parts := strings.Split(sig, ",")
-	require.Len(t, parts, 3)
-	require.True(t, strings.HasPrefix(parts[0], "t="))
-	require.True(t, strings.HasPrefix(parts[1], "d="))
-	require.True(t, strings.HasPrefix(parts[2], "v1="))
+	require.True(t, strings.HasPrefix(sig, "v1="))
+	require.NotContains(t, sig, ",", "signature must be a single v1= token")
+	require.NotContains(t, sig, "t=")
 }
 
 func TestSignWebhookRequest_ReplacesExistingHeaderValues(t *testing.T) {

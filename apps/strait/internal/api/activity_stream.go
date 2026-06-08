@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"log/slog"
@@ -18,6 +19,22 @@ var (
 	activityStreamFrameSuffix    = []byte("\n\n")
 	activityStreamKeepaliveFrame = []byte(": keepalive\n\n")
 )
+
+// stripSSENewlines removes CR and LF bytes from an SSE data payload so a crafted
+// message cannot break event framing and inject additional data:/event: lines.
+func stripSSENewlines(msg []byte) []byte {
+	if !bytes.ContainsAny(msg, "\r\n") {
+		return msg
+	}
+	out := make([]byte, 0, len(msg))
+	for _, b := range msg {
+		if b == '\r' || b == '\n' {
+			continue
+		}
+		out = append(out, b)
+	}
+	return out
+}
 
 func (s *Server) requireActivityStreamPermissions(next http.Handler) http.Handler {
 	return s.requirePermission(domain.ScopeRunsRead)(
@@ -167,7 +184,7 @@ loop:
 			if !ok {
 				break loop
 			}
-			if err := writeActivityStreamEvent(w, msg); err != nil {
+			if err := writeActivityStreamEvent(w, stripSSENewlines(msg)); err != nil {
 				slog.Warn("activity stream: write failed", "project_id", projectID, "error", err)
 				break loop
 			}

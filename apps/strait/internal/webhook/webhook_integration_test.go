@@ -80,11 +80,24 @@ func createPendingWebhookDelivery(t *testing.T, ctx context.Context, st *store.Q
 	}
 	require.NoError(t, st.CreateWebhookDelivery(ctx,
 		d))
+	stampDeliveryProject(t, ctx, d)
 
 	return d
 }
 
-func runWebhookWorkerUntilDelivered(t *testing.T, ctx context.Context, worker *webhook.DeliveryWorker, st *store.Queries, deliveryID string) {
+// stampDeliveryProject sets a project on a bare test delivery. These deliveries
+// have no run/job/subscription, so project_id would derive to NULL and the now
+// project-scoped GetWebhookDelivery could not fetch them. project_id is a plain
+// TEXT column (no FK), so any value works.
+func stampDeliveryProject(t *testing.T, ctx context.Context, d *domain.WebhookDelivery) {
+	t.Helper()
+	d.ProjectID = "webhook-itest-proj"
+	_, err := testDB.Pool.Exec(ctx,
+		`UPDATE webhook_deliveries SET project_id = $1 WHERE id = $2`, d.ProjectID, d.ID)
+	require.NoError(t, err)
+}
+
+func runWebhookWorkerUntilDelivered(t *testing.T, ctx context.Context, worker *webhook.DeliveryWorker, st *store.Queries, projectID, deliveryID string) {
 	var concWG conc.WaitGroup
 	defer concWG.Wait()
 	t.Helper()
@@ -100,7 +113,7 @@ func runWebhookWorkerUntilDelivered(t *testing.T, ctx context.Context, worker *w
 
 	deadline := time.After(5 * time.Second)
 	for {
-		got, err := st.GetWebhookDelivery(ctx, deliveryID)
+		got, err := st.GetWebhookDelivery(ctx, projectID, deliveryID)
 		require.NoError(t, err)
 
 		if got.Status == domain.WebhookStatusDelivered {
@@ -132,7 +145,7 @@ func TestDeliveryWorker_AllowPrivateEndpointsWorksWithoutHTTPTransportOption(t *
 		webhook.WithAllowPrivateEndpoints(true),
 		webhook.WithConcurrency(1),
 	)
-	runWebhookWorkerUntilDelivered(t, ctx, worker, st, d.ID)
+	runWebhookWorkerUntilDelivered(t, ctx, worker, st, d.ProjectID, d.ID)
 	require.EqualValues(t, 1, received.
 		Load(),
 	)
@@ -177,7 +190,7 @@ func TestDeliveryWorker_AllowPrivateEndpointsOrderInsensitiveWithHTTPTransport(t
 
 			d := createPendingWebhookDelivery(t, ctx, st, srv.URL)
 			worker := webhook.NewDeliveryWorker(st, slog.Default(), tt.opts...)
-			runWebhookWorkerUntilDelivered(t, ctx, worker, st, d.ID)
+			runWebhookWorkerUntilDelivered(t, ctx, worker, st, d.ProjectID, d.ID)
 			require.EqualValues(t, 1, received.
 				Load(),
 			)
@@ -224,6 +237,7 @@ func TestEndToEndWebhookDelivery(t *testing.T) {
 	}
 	require.NoError(t, st.CreateWebhookDelivery(ctx,
 		d))
+	stampDeliveryProject(t, ctx, d)
 	require.NotEqual(t, "", d.
 		ID)
 
@@ -270,7 +284,7 @@ func TestEndToEndWebhookDelivery(t *testing.T) {
 	// but the DB update happens asynchronously after the response.
 	dbDeadline := time.After(5 * time.Second)
 	for {
-		got, err := st.GetWebhookDelivery(ctx, d.ID)
+		got, err := st.GetWebhookDelivery(ctx, d.ProjectID, d.ID)
 		require.NoError(t, err)
 
 		if got.Status == domain.WebhookStatusDelivered {
@@ -287,7 +301,7 @@ func TestEndToEndWebhookDelivery(t *testing.T) {
 	cancel()
 	_ = worker.Shutdown(context.Background())
 
-	got, err := st.GetWebhookDelivery(ctx, d.ID)
+	got, err := st.GetWebhookDelivery(ctx, d.ProjectID, d.ID)
 	require.NoError(t, err)
 	require.Equal(t, domain.WebhookStatusDelivered,
 
@@ -331,6 +345,7 @@ func TestRetryFlowWithRealPersistence(t *testing.T) {
 	}
 	require.NoError(t, st.CreateWebhookDelivery(ctx,
 		d))
+	stampDeliveryProject(t, ctx, d)
 
 	worker := webhook.NewDeliveryWorker(st, slog.Default(),
 		webhook.WithConcurrency(1),
@@ -348,7 +363,7 @@ func TestRetryFlowWithRealPersistence(t *testing.T) {
 		cancel()
 		_ = worker.Shutdown(context.Background())
 
-		got, err := st.GetWebhookDelivery(ctx, d.ID)
+		got, err := st.GetWebhookDelivery(ctx, d.ProjectID, d.ID)
 		require.NoError(t, err)
 
 		if got.Status == domain.WebhookStatusDelivered {
@@ -371,7 +386,7 @@ func TestRetryFlowWithRealPersistence(t *testing.T) {
 		)
 	}
 
-	got, err := st.GetWebhookDelivery(ctx, d.ID)
+	got, err := st.GetWebhookDelivery(ctx, d.ProjectID, d.ID)
 	require.NoError(t, err)
 	require.Equal(t, domain.WebhookStatusDelivered,
 
@@ -415,6 +430,7 @@ func TestDeadLetterAfterMaxRetries(t *testing.T) {
 	}
 	require.NoError(t, st.CreateWebhookDelivery(ctx,
 		d))
+	stampDeliveryProject(t, ctx, d)
 
 	// Run the worker repeatedly, resetting next_retry_at each time.
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
@@ -428,7 +444,7 @@ func TestDeadLetterAfterMaxRetries(t *testing.T) {
 			_ = worker.RunWorker(workerCtx, 10*time.Millisecond)
 		})
 
-		got := waitForWebhookAttempt(t, ctx, st, d.ID, attempt)
+		got := waitForWebhookAttempt(t, ctx, st, d.ProjectID, d.ID, attempt)
 		cancel()
 		_ = worker.Shutdown(context.Background())
 		if got.Status == domain.WebhookStatusDead {
@@ -443,7 +459,7 @@ func TestDeadLetterAfterMaxRetries(t *testing.T) {
 
 	}
 
-	got, err := st.GetWebhookDelivery(ctx, d.ID)
+	got, err := st.GetWebhookDelivery(ctx, d.ProjectID, d.ID)
 	require.NoError(t, err)
 	require.Equal(t, domain.WebhookStatusDead,
 
@@ -459,7 +475,7 @@ func TestDeadLetterAfterMaxRetries(t *testing.T) {
 
 }
 
-func waitForWebhookAttempt(t *testing.T, ctx context.Context, st *store.Queries, deliveryID string, attempts int) *domain.WebhookDelivery {
+func waitForWebhookAttempt(t *testing.T, ctx context.Context, st *store.Queries, projectID, deliveryID string, attempts int) *domain.WebhookDelivery {
 	t.Helper()
 
 	deadline := time.After(5 * time.Second)
@@ -467,7 +483,7 @@ func waitForWebhookAttempt(t *testing.T, ctx context.Context, st *store.Queries,
 	defer ticker.Stop()
 
 	for {
-		got, err := st.GetWebhookDelivery(ctx, deliveryID)
+		got, err := st.GetWebhookDelivery(ctx, projectID, deliveryID)
 		require.NoError(t, err)
 
 		if got.Attempts >= attempts || got.Status == domain.WebhookStatusDead {
@@ -519,6 +535,7 @@ func TestConcurrentWebhookDeliveries(t *testing.T) {
 		}
 		require.NoError(t, st.CreateWebhookDelivery(ctx,
 			d))
+		stampDeliveryProject(t, ctx, d)
 
 		ids[i] = d.ID
 	}
@@ -551,7 +568,7 @@ func TestConcurrentWebhookDeliveries(t *testing.T) {
 	for {
 		allDelivered := true
 		for _, id := range ids {
-			got, err := st.GetWebhookDelivery(ctx, id)
+			got, err := st.GetWebhookDelivery(ctx, "webhook-itest-proj", id)
 			require.NoError(t, err)
 
 			if got.Status != domain.WebhookStatusDelivered {
@@ -575,7 +592,7 @@ func TestConcurrentWebhookDeliveries(t *testing.T) {
 
 	// Final verification: all are marked delivered in the DB.
 	for _, id := range ids {
-		got, err := st.GetWebhookDelivery(ctx, id)
+		got, err := st.GetWebhookDelivery(ctx, "webhook-itest-proj", id)
 		require.NoError(t, err)
 		require.Equal(t, domain.WebhookStatusDelivered,
 
@@ -686,8 +703,9 @@ func TestDeliveryStatusTracking(t *testing.T) {
 	}
 	require.NoError(t, st.CreateWebhookDelivery(ctx,
 		d))
+	stampDeliveryProject(t, ctx, d)
 
-	got, err := st.GetWebhookDelivery(ctx, d.ID)
+	got, err := st.GetWebhookDelivery(ctx, d.ProjectID, d.ID)
 	require.NoError(t, err)
 	require.Equal(t, domain.WebhookStatusPending,
 
@@ -719,7 +737,7 @@ func TestDeliveryStatusTracking(t *testing.T) {
 
 	deadline := time.After(5 * time.Second)
 	for {
-		got, err = st.GetWebhookDelivery(ctx, d.ID)
+		got, err = st.GetWebhookDelivery(ctx, d.ProjectID, d.ID)
 		require.NoError(t, err)
 
 		if got.Status == domain.WebhookStatusDelivered {
@@ -785,6 +803,7 @@ func TestTimeoutHandlingWithSlowServer(t *testing.T) {
 	}
 	require.NoError(t, st.CreateWebhookDelivery(ctx,
 		d))
+	stampDeliveryProject(t, ctx, d)
 
 	// Use a short HTTP timeout to avoid waiting the full 10 seconds.
 	worker := webhook.NewDeliveryWorker(st, slog.Default(),
@@ -800,7 +819,7 @@ func TestTimeoutHandlingWithSlowServer(t *testing.T) {
 	// Wait for the first attempt (which will timeout).
 	deadline := time.After(30 * time.Second)
 	for {
-		got, err := st.GetWebhookDelivery(ctx, d.ID)
+		got, err := st.GetWebhookDelivery(ctx, d.ProjectID, d.ID)
 		require.NoError(t, err)
 
 		if got.Attempts >= 1 {
@@ -816,7 +835,7 @@ func TestTimeoutHandlingWithSlowServer(t *testing.T) {
 	cancel()
 	_ = worker.Shutdown(context.Background())
 
-	got, err := st.GetWebhookDelivery(ctx, d.ID)
+	got, err := st.GetWebhookDelivery(ctx, d.ProjectID, d.ID)
 	require.NoError(t, err)
 	require.False(t, got.Status !=
 		domain.
@@ -867,6 +886,7 @@ func TestClientErrorDeadLetters(t *testing.T) {
 	}
 	require.NoError(t, st.CreateWebhookDelivery(ctx,
 		d))
+	stampDeliveryProject(t, ctx, d)
 
 	worker := webhook.NewDeliveryWorker(st, slog.Default(), webhook.WithConcurrency(1))
 	workerCtx, cancel := context.WithCancel(ctx)
@@ -876,7 +896,7 @@ func TestClientErrorDeadLetters(t *testing.T) {
 
 	deadline := time.After(5 * time.Second)
 	for {
-		got, err := st.GetWebhookDelivery(ctx, d.ID)
+		got, err := st.GetWebhookDelivery(ctx, d.ProjectID, d.ID)
 		require.NoError(t, err)
 
 		if got.Status == domain.WebhookStatusDead {
@@ -892,7 +912,7 @@ func TestClientErrorDeadLetters(t *testing.T) {
 	cancel()
 	_ = worker.Shutdown(context.Background())
 
-	got, err := st.GetWebhookDelivery(ctx, d.ID)
+	got, err := st.GetWebhookDelivery(ctx, d.ProjectID, d.ID)
 	require.NoError(t, err)
 	require.Equal(t, domain.WebhookStatusDead,
 

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -138,14 +139,16 @@ func TestAuditHandler_DeleteAction(t *testing.T) {
 func TestEnsureConsumer_AlreadyExists(t *testing.T) {
 	t.Parallel()
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Respond OK to the probe receive call.
-		var body map[string]any
-		assert.NoError(t, json.NewDecoder(r.
-			Body).Decode(&body))
-		assert.InDelta(t, float64(1), body["batch_size"], 1e-9)
+		// The existence probe and readiness poll are read-only GETs against the
+		// management API; a Receive (message lease) must never happen. Use assert
+		// (not require) inside the handler goroutine — require's FailNow must only
+		// run on the test goroutine.
+		assert.NotContains(t, r.URL.Path, "/receive")
+		assert.Equal(t, http.MethodGet, r.Method)
+		assert.Equal(t, "/api/sinks/test-consumer", r.URL.Path)
 
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"data":[]}`))
+		_, _ = w.Write([]byte(`{"name":"test-consumer","status":"active","health":{"status":"healthy"}}`))
 	}))
 	defer ts.Close()
 
@@ -156,61 +159,55 @@ func TestEnsureConsumer_AlreadyExists(t *testing.T) {
 
 func TestEnsureConsumer_CreatesOnFailedProbe(t *testing.T) {
 	t.Parallel()
-	var callCount int
-	var receiveCount int
+	var created atomic.Bool
+	var receiveHits atomic.Int32
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		callCount++
 		if strings.Contains(r.URL.Path, "/receive") {
-			receiveCount++
-			if receiveCount == 1 {
-				// Fail the probe with a 404.
+			receiveHits.Add(1)
+		}
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/sinks/test-consumer":
+			if !created.Load() {
 				w.WriteHeader(http.StatusNotFound)
 				_, _ = w.Write([]byte("not found"))
 				return
 			}
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"data":[]}`))
-			return
-		}
-		if strings.Contains(r.URL.Path, "/api/sinks") {
+			_, _ = w.Write([]byte(`{"name":"test-consumer","status":"active","health":{"status":"healthy"}}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/api/sinks":
 			var body map[string]any
-			assert.NoError(t, json.NewDecoder(r.
-				Body).Decode(&body))
-			assert.Equal(t, "test-consumer",
-				body["name"])
-			assert.Equal(t, "strait-db",
-				body["database"])
-			assert.Equal(t, "Bearer token",
-				r.Header.
-					Get("Authorization"))
-
+			assert.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+			assert.Equal(t, "test-consumer", body["name"])
+			assert.Equal(t, "strait-db", body["database"])
+			assert.Equal(t, "Bearer token", r.Header.Get("Authorization"))
+			created.Store(true)
 			w.WriteHeader(http.StatusCreated)
 			_, _ = w.Write([]byte(`{"id":"sink-1"}`))
-			return
+		default:
+			w.WriteHeader(http.StatusNotFound)
 		}
-		w.WriteHeader(http.StatusNotFound)
 	}))
 	defer ts.Close()
 
 	client := NewClient(ts.URL, "test-consumer", "token", WithRetryPolicy(nil), WithCircuitBreaker(nil))
 	err := client.EnsureConsumer(context.Background(), []string{"job_runs"})
 	require.NoError(t, err)
+	require.Zero(t, receiveHits.Load(), "EnsureConsumer must never lease a message via /receive")
 }
 
 func TestEnsureConsumer_CreateFails(t *testing.T) {
 	t.Parallel()
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.Contains(r.URL.Path, "/receive") {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/sinks/test-consumer":
 			w.WriteHeader(http.StatusNotFound)
 			_, _ = w.Write([]byte("not found"))
-			return
-		}
-		if strings.Contains(r.URL.Path, "/api/sinks") {
+		case r.Method == http.MethodPost && r.URL.Path == "/api/sinks":
 			w.WriteHeader(http.StatusBadRequest)
 			_, _ = w.Write([]byte("invalid sink config"))
-			return
+		default:
+			w.WriteHeader(http.StatusNotFound)
 		}
-		w.WriteHeader(http.StatusNotFound)
 	}))
 	defer ts.Close()
 
@@ -250,25 +247,25 @@ func TestDoRequest_NoPolicies(t *testing.T) {
 
 func TestEnsureConsumer_DuplicateNameWaitsForConsumer(t *testing.T) {
 	t.Parallel()
-	var receiveCount int
+	var posted atomic.Bool
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.Contains(r.URL.Path, "/receive") {
-			receiveCount++
-			if receiveCount == 1 {
+		assert.NotContains(t, r.URL.Path, "/receive")
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/sinks/test-consumer":
+			if !posted.Load() {
 				w.WriteHeader(http.StatusNotFound)
 				_, _ = w.Write([]byte("not found"))
 				return
 			}
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"data":[]}`))
-			return
-		}
-		if strings.Contains(r.URL.Path, "/api/sinks") {
+			_, _ = w.Write([]byte(`{"name":"test-consumer","status":"active","health":{"status":"healthy"}}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/api/sinks":
+			posted.Store(true)
 			w.WriteHeader(http.StatusUnprocessableEntity)
 			_, _ = w.Write([]byte(`{"validation_errors":{"name":["has already been taken"]}}`))
-			return
+		default:
+			w.WriteHeader(http.StatusNotFound)
 		}
-		w.WriteHeader(http.StatusNotFound)
 	}))
 	defer ts.Close()
 
@@ -295,24 +292,24 @@ func TestDoRequest_NoAuthToken(t *testing.T) {
 
 func TestEnsureConsumer_NoAuthToken(t *testing.T) {
 	t.Parallel()
-	var receiveCount int
+	var created atomic.Bool
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.Contains(r.URL.Path, "/receive") {
-			receiveCount++
-			if receiveCount == 1 {
+		assert.Empty(t, r.Header.Get("Authorization"))
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/sinks/consumer":
+			if !created.Load() {
 				w.WriteHeader(http.StatusNotFound)
-				_, _ = w.Write([]byte("not found"))
 				return
 			}
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"data":[]}`))
-			return
+			_, _ = w.Write([]byte(`{"name":"consumer","status":"active","health":{"status":"healthy"}}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/api/sinks":
+			created.Store(true)
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(`{}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
 		}
-		assert.Empty(t, r.Header.
-			Get("Authorization"))
-
-		w.WriteHeader(http.StatusCreated)
-		_, _ = w.Write([]byte(`{}`))
 	}))
 	defer ts.Close()
 
@@ -323,21 +320,52 @@ func TestEnsureConsumer_NoAuthToken(t *testing.T) {
 
 func TestEnsureConsumer_NetworkError(t *testing.T) {
 	t.Parallel()
-	// Use a server that immediately closes.
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.Contains(r.URL.Path, "/receive") {
-			w.WriteHeader(http.StatusNotFound)
-			_, _ = w.Write([]byte("not found"))
-			return
-		}
-	}))
-	// Close immediately so the create request fails with a network error.
+	ts := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {}))
+	// Close immediately so both the probe and the create request fail with a
+	// network error; EnsureConsumer must surface it rather than hang.
 	serverURL := ts.URL
 	ts.Close()
 
 	client := NewClient(serverURL, "consumer", "token", WithRetryPolicy(nil), WithCircuitBreaker(nil))
 	err := client.EnsureConsumer(context.Background(), []string{"job_runs"})
 	require.Error(t, err)
+}
+
+// TestEnsureConsumer_RetriesCreateOn503 is the regression guard for sink
+// creation bypassing the retry/circuit-breaker policy: a transient 5xx during
+// startup must be retried, not crash the process.
+func TestEnsureConsumer_RetriesCreateOn503(t *testing.T) {
+	t.Parallel()
+	var postHits atomic.Int32
+	var created atomic.Bool
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/sinks/consumer-1":
+			if !created.Load() {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"name":"consumer-1","status":"active","health":{"status":"healthy"}}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/api/sinks":
+			if postHits.Add(1) == 1 {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				_, _ = w.Write([]byte("unavailable"))
+				return
+			}
+			created.Store(true)
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(`{"id":"sink-1"}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+
+	client := NewClient(ts.URL, "consumer-1", "token-1", WithRetryPolicy(newTestRetryPolicy()), WithCircuitBreaker(nil))
+	err := client.EnsureConsumer(context.Background(), []string{"job_runs"})
+	require.NoError(t, err)
+	require.EqualValues(t, 2, postHits.Load(), "sink creation must be retried on 5xx")
 }
 
 func TestNewClient_InvalidBaseURL(t *testing.T) {

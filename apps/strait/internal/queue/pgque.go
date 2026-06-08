@@ -26,7 +26,8 @@ const (
 	pgQueConsumerName               = "strait"
 	pgQueReceiveAll                 = 2147483647
 	pgQueMaxAttempts                = 3
-	pgQueMaxCatchUpBatches          = 1024
+	pgQueMaxDequeueFillBatches      = 32
+	pgQueMaxCatchUpBatches          = 64
 	pgQueDefaultMaintenanceInterval = 30 * time.Second
 	pgQueDefaultRotationPeriod      = 5 * time.Minute
 )

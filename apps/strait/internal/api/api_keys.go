@@ -3,14 +3,13 @@ package api
 import (
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"log/slog"
 	"net/url"
 	"time"
-	"unsafe"
 
+	"strait/internal/crypto"
 	"strait/internal/domain"
 	"strait/internal/httputil"
 
@@ -55,12 +54,8 @@ func generateAPIKey() (string, error) {
 	}
 	return "strait_" + hex.EncodeToString(b), nil
 }
-func hashAPIKey(key string) string {
-	sum := sha256.Sum256(unsafe.Slice(unsafe.StringData(key), len(key)))
-	var out [sha256.Size * 2]byte
-	hex.Encode(out[:], sum[:])
-	return string(out[:])
-}
+
+func hashAPIKey(key string) string { return crypto.HashAPIKey(key) }
 
 type CreateAPIKeyInput struct{ Body CreateAPIKeyRequest }
 type CreateAPIKeyOutput struct{ Body CreateAPIKeyResponse }
@@ -390,22 +385,12 @@ func (s *Server) handleRotateAPIKey(ctx context.Context, input *RotateAPIKeyInpu
 		nr := time.Now().Add(time.Duration(*oldKey.RotationIntervalDays) * 24 * time.Hour)
 		newKey.NextRotationAt = &nr
 	}
-	if err := s.store.CreateAPIKey(ctx, newKey); err != nil {
-		return nil, huma.Error500InternalServerError("failed to create rotated api key")
-	}
 	graceExpiresAt := time.Now().Add(time.Duration(req.GracePeriodMinutes) * time.Minute)
-	if err := s.store.MarkAPIKeyRotated(ctx, oldKey.ID, newKey.ID, graceExpiresAt); err != nil {
-		if newKey.ID != "" {
-			if revokeErr := s.store.RevokeAPIKey(ctx, newKey.ID); revokeErr != nil {
-				slog.Error("api key rotation cleanup failed",
-					"old_key_id", oldKey.ID,
-					"new_key_id", newKey.ID,
-					"error", revokeErr,
-				)
-			}
-		}
-		s.apiKeyCache.Invalidate(ctx, newKey.KeyHash)
-		return nil, huma.Error500InternalServerError("failed to mark old key as rotated")
+	// Create the replacement key and mark the old key rotated atomically. A
+	// single transaction means a failure rolls back the new key instead of
+	// leaving an orphaned, active, non-revoked key row behind.
+	if err := s.store.CreateRotatedAPIKey(ctx, oldKey.ID, newKey, graceExpiresAt); err != nil {
+		return nil, huma.Error500InternalServerError("failed to rotate api key")
 	}
 	s.apiKeyCache.Set(ctx, newKey)
 	oldKeyVersion := oldKey.CacheVersion + 1

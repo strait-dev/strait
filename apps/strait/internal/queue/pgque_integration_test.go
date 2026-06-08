@@ -1071,6 +1071,42 @@ func TestPgQue_DequeueWindowDoesNotLoseUnseenBatchMessages(t *testing.T) {
 
 }
 
+func TestPgQue_DequeueNFillsCapacityAcrossReceiveWindows(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	mustClean(t, ctx)
+	st := mustStore(t)
+	job := mustCreateJob(t, ctx, st, "project-pgque-fill-window")
+	q := queue.NewPgQueQueue(testDB.Pool, queue.NewPostgresRunWriter(testDB.Pool), queue.PgQueConfig{
+		TickInterval:  10 * time.Millisecond,
+		ConsumerName:  "test-" + newID(),
+		NackDelay:     10 * time.Millisecond,
+		ReceiveWindow: 5,
+	})
+
+	const want = 12
+	runs := make([]*domain.JobRun, 0, want)
+	for range want {
+		runs = append(runs, &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID})
+	}
+	inserted, err := q.EnqueueBatch(ctx, runs)
+	require.NoError(t, err)
+	require.EqualValues(t, want,
+		inserted)
+	require.NoError(t, q.ForceTick(ctx,
+		"http"))
+
+	claimed, err := q.DequeueN(ctx, want)
+	require.NoError(t, err)
+	require.Len(t, claimed, want)
+
+	seen := make(map[string]struct{}, want)
+	for _, run := range claimed {
+		seen[run.ID] = struct{}{}
+	}
+	require.Len(t, seen, want)
+}
+
 func TestPgQue_DequeueCatchesUpAcrossEmptyTickLag(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

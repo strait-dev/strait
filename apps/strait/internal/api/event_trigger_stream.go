@@ -156,7 +156,7 @@ func (s *Server) handleEventTriggerStream(w http.ResponseWriter, r *http.Request
 			if !ok {
 				continue
 			}
-			if err := writeEventTriggerStatusFrame(w, msg); err != nil {
+			if err := writeEventTriggerStatusFrame(w, stripSSENewlines(msg)); err != nil {
 				return
 			}
 			flusher.Flush()

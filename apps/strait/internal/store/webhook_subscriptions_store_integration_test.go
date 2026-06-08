@@ -264,7 +264,7 @@ func TestWebhookDeliverySubscriptionPayloadRoundTrip(t *testing.T) {
 	require.NoError(t, q.CreateWebhookDelivery(ctx,
 		delivery))
 
-	got, err := q.GetWebhookDelivery(ctx, delivery.ID)
+	got, err := q.GetWebhookDelivery(ctx, sub.ProjectID, delivery.ID)
 	require.NoError(t, err)
 	require.Equal(t, sub.ID,
 
@@ -279,7 +279,7 @@ func TestWebhookDeliverySubscriptionPayloadRoundTrip(t *testing.T) {
 		got.Payload,
 		payload))
 
-	replay, err := q.ReplayWebhookDelivery(ctx, delivery.ID)
+	replay, err := q.ReplayWebhookDelivery(ctx, sub.ProjectID, delivery.ID)
 	require.NoError(t, err)
 	require.Equal(t, sub.ID,
 
@@ -452,7 +452,7 @@ func TestDeleteWebhookSubscription_WithDeliveriesDetachesHistory(t *testing.T) {
 
 			"GetWebhookSubscription(deleted) error = %v, want ErrWebhookSubscriptionNotFound", err)
 	}
-	gotDelivery, err := q.GetWebhookDelivery(ctx, delivery.ID)
+	gotDelivery, err := q.GetWebhookDelivery(ctx, sub.ProjectID, delivery.ID)
 	require.NoError(t, err)
 	require.Equal(t, "", gotDelivery.
 		SubscriptionID,

@@ -1436,7 +1436,7 @@ func (m *mockCallbackStore) AreJobDependenciesSatisfied(ctx context.Context, run
 	return true, nil
 }
 
-func (m *mockCallbackStore) GetWorkflowSnapshot(_ context.Context, _ string) (*domain.WorkflowSnapshot, error) {
+func (m *mockCallbackStore) GetWorkflowSnapshot(_ context.Context, _, _ string) (*domain.WorkflowSnapshot, error) {
 	return nil, nil // Fallback to live table by default in tests.
 }
 

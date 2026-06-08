@@ -151,7 +151,7 @@ func TestEnvironment_DeepParentChain(t *testing.T) {
 				CreatedAt: time.Now(), UpdatedAt: time.Now(),
 			}, nil
 		},
-		GetResolvedEnvironmentVariablesFunc: func(_ context.Context, id string) (map[string]string, error) {
+		GetResolvedEnvironmentVariablesFunc: func(_ context.Context, _ string, id string) (map[string]string, error) {
 			return map[string]string{"KEY": id, "ROOT": "env-99"}, nil
 		},
 	}
@@ -178,7 +178,7 @@ func TestEnvironment_VariableOverrideResolution(t *testing.T) {
 				CreatedAt: time.Now(), UpdatedAt: time.Now(),
 			}, nil
 		},
-		GetResolvedEnvironmentVariablesFunc: func(_ context.Context, _ string) (map[string]string, error) {
+		GetResolvedEnvironmentVariablesFunc: func(_ context.Context, _ string, _ string) (map[string]string, error) {
 			return map[string]string{
 				"DB_HOST": "child-db.example.com",
 				"API_KEY": "inherited-from-parent",
@@ -228,7 +228,7 @@ func TestEnvironment_MetadataResponsesDoNotLeakVariableValues(t *testing.T) {
 				UpdatedAt: time.Now(),
 			}, nil
 		},
-		GetResolvedEnvironmentVariablesFunc: func(_ context.Context, _ string) (map[string]string, error) {
+		GetResolvedEnvironmentVariablesFunc: func(_ context.Context, _ string, _ string) (map[string]string, error) {
 			return map[string]string{"API_TOKEN": "secret-token-value", "DATABASE_URL": "postgres://user:pass@example/db"}, nil
 		},
 	}

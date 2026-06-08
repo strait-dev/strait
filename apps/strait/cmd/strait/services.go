@@ -487,6 +487,45 @@ type apiServerDeps struct {
 	cdcWebhookReceiver *cdc.WebhookReceiver
 }
 
+type pgxPoolStatter struct {
+	pool *pgxpool.Pool
+}
+
+var _ api.PoolBackpressureSnapshotter = pgxPoolStatter{}
+
+func poolStatterFromPgxPool(pool *pgxpool.Pool) api.PoolStatter {
+	if pool == nil {
+		return nil
+	}
+	return pgxPoolStatter{pool: pool}
+}
+
+func (s pgxPoolStatter) AcquiredConns() int32 {
+	return s.BackpressureStats().AcquiredConns
+}
+
+func (s pgxPoolStatter) MaxConns() int32 {
+	return s.BackpressureStats().MaxConns
+}
+
+func (s pgxPoolStatter) EmptyAcquireCount() int64 {
+	return s.BackpressureStats().EmptyAcquireCount
+}
+
+func (s pgxPoolStatter) EmptyAcquireWaitTime() time.Duration {
+	return s.BackpressureStats().EmptyAcquireWaitTime
+}
+
+func (s pgxPoolStatter) BackpressureStats() api.PoolBackpressureStats {
+	stat := s.pool.Stat()
+	return api.PoolBackpressureStats{
+		AcquiredConns:        stat.AcquiredConns(),
+		MaxConns:             stat.MaxConns(),
+		EmptyAcquireCount:    stat.EmptyAcquireCount(),
+		EmptyAcquireWaitTime: stat.EmptyAcquireWaitTime(),
+	}
+}
+
 // startAPIServer starts the HTTP API server and its graceful shutdown goroutine.
 func startAPIServer(deps apiServerDeps) {
 	g := deps.group
@@ -516,6 +555,7 @@ func startAPIServer(deps apiServerDeps) {
 		WorkflowCallback:   deps.stepCallback,
 		WorkflowEngine:     deps.workflowEngine,
 		TxPool:             deps.txPool,
+		PoolStatter:        poolStatterFromPgxPool(deps.dbPool),
 		RedisClient:        deps.redisClient,
 		CacheBus:           deps.cacheBus,
 		CacheRegistry:      deps.cacheRegistry,

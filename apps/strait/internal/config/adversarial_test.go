@@ -19,6 +19,7 @@ func setAdversarialRuntimeEnv(t *testing.T) {
 	t.Setenv("SEQUIN_BASE_URL", "http://localhost:7376")
 	t.Setenv("SEQUIN_CONSUMER_NAME", "strait-cdc")
 	t.Setenv("SEQUIN_API_TOKEN", "sequin-api-token")
+	t.Setenv("SEQUIN_WEBHOOK_SECRET", "sequin-webhook-secret")
 }
 
 // TestConfig_IntOverflowPort verifies that an overflowing port value does not
@@ -26,7 +27,7 @@ func setAdversarialRuntimeEnv(t *testing.T) {
 // Note: t.Setenv is incompatible with t.Parallel.
 func TestConfig_IntOverflowPort(t *testing.T) {
 	t.Setenv("PORT", "99999999999")
-	t.Setenv("DATABASE_URL", "postgres://localhost/test")
+	t.Setenv("DATABASE_URL", "postgres://localhost/test?sslmode=require")
 	t.Setenv("INTERNAL_SECRET", "test-secret-value")
 	t.Setenv("JWT_SIGNING_KEY", "this-is-a-very-long-key-for-jwt-signing-1234")
 	setAdversarialRuntimeEnv(t)
@@ -47,7 +48,7 @@ func TestConfig_IntOverflowPort(t *testing.T) {
 // loader without panic. The config layer does not validate port ranges.
 func TestConfig_NegativePort(t *testing.T) {
 	t.Setenv("PORT", "-1")
-	t.Setenv("DATABASE_URL", "postgres://localhost/test")
+	t.Setenv("DATABASE_URL", "postgres://localhost/test?sslmode=require")
 	t.Setenv("INTERNAL_SECRET", "test-secret-value")
 	t.Setenv("JWT_SIGNING_KEY", "this-is-a-very-long-key-for-jwt-signing-1234")
 	setAdversarialRuntimeEnv(t)
@@ -108,7 +109,7 @@ func TestConfig_MalformedDatabaseURL(t *testing.T) {
 // value does not cause a panic.
 func TestConfig_ExtremeWorkerConcurrency(t *testing.T) {
 	t.Setenv("WORKER_CONCURRENCY", strconv.Itoa(math.MaxInt32))
-	t.Setenv("DATABASE_URL", "postgres://localhost/test")
+	t.Setenv("DATABASE_URL", "postgres://localhost/test?sslmode=require")
 	t.Setenv("INTERNAL_SECRET", "test-secret-value")
 	t.Setenv("JWT_SIGNING_KEY", "this-is-a-very-long-key-for-jwt-signing-1234")
 	setAdversarialRuntimeEnv(t)

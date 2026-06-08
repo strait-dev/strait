@@ -115,7 +115,7 @@ type JobStore interface {
 	ListEnvironments(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.Environment, error)
 	UpdateEnvironment(ctx context.Context, env *domain.Environment) error
 	DeleteEnvironment(ctx context.Context, id, projectID string) error
-	GetResolvedEnvironmentVariables(ctx context.Context, id string) (map[string]string, error)
+	GetResolvedEnvironmentVariables(ctx context.Context, projectID, id string) (map[string]string, error)
 	CreateJobSecret(ctx context.Context, secret *domain.JobSecret) error
 	ListJobSecrets(ctx context.Context, projectID, jobID, environment string, limit int, cursor *time.Time) ([]domain.JobSecret, error)
 	GetJobSecret(ctx context.Context, id, projectID string) (*domain.JobSecret, error)
@@ -131,7 +131,7 @@ type JobStore interface {
 	ListAPIKeysExpiringSoon(ctx context.Context, projectID string, withinDays int) ([]domain.APIKey, error)
 	PauseJob(ctx context.Context, id, reason string) error
 	ResumeJob(ctx context.Context, id string) error
-	UpdateJobEndpoint(ctx context.Context, jobID, endpointURL, fallbackURL, signingSecret string) error
+	UpdateJobEndpoint(ctx context.Context, jobID, projectID, endpointURL, fallbackURL, signingSecret string) error
 }
 
 // RunStore keeps the existing API store contract while grouping run-related
@@ -207,11 +207,11 @@ type RunEventStore interface {
 // RunWebhookStore handles webhook subscriptions and delivery retries.
 type RunWebhookStore interface {
 	ListWebhookDeliveries(ctx context.Context, projectID, status string, limit int, cursor *time.Time) ([]domain.WebhookDelivery, error)
-	GetWebhookDelivery(ctx context.Context, id string) (*domain.WebhookDelivery, error)
+	GetWebhookDelivery(ctx context.Context, projectID, id string) (*domain.WebhookDelivery, error)
 	RetryWebhookDelivery(ctx context.Context, id string) (*domain.WebhookDelivery, error)
 	UpdateWebhookDelivery(ctx context.Context, d *domain.WebhookDelivery) error
 	CreateWebhookDelivery(ctx context.Context, d *domain.WebhookDelivery) error
-	ReplayWebhookDelivery(ctx context.Context, id string) (*domain.WebhookDelivery, error)
+	ReplayWebhookDelivery(ctx context.Context, projectID, id string) (*domain.WebhookDelivery, error)
 	CreateWebhookSubscription(ctx context.Context, sub *domain.WebhookSubscription) error
 	ListWebhookSubscriptions(ctx context.Context, projectID string) ([]domain.WebhookSubscription, error)
 	GetWebhookSubscription(ctx context.Context, id string) (*domain.WebhookSubscription, error)
@@ -409,6 +409,7 @@ type AuthStore interface {
 	GetAPIKeyByHash(ctx context.Context, keyHash string) (*domain.APIKey, error)
 	GetAPIKeyByID(ctx context.Context, id string) (*domain.APIKey, error)
 	MarkAPIKeyRotated(ctx context.Context, oldKeyID, newKeyID string, graceExpiresAt time.Time) error
+	CreateRotatedAPIKey(ctx context.Context, oldKeyID string, newKey *domain.APIKey, graceExpiresAt time.Time) error
 	TouchAPIKeyLastUsed(ctx context.Context, id string) error
 	ListRunsByOrg(ctx context.Context, orgID string, limit int, cursor *time.Time) ([]domain.JobRun, error)
 	ListJobsByOrg(ctx context.Context, orgID string, limit int, cursor *time.Time) ([]domain.Job, error)
@@ -845,6 +846,22 @@ type PoolStatter interface {
 	EmptyAcquireWaitTime() time.Duration
 }
 
+// PoolBackpressureStats is a single consistent pool-stat snapshot used by the
+// admission-control hot path.
+type PoolBackpressureStats struct {
+	AcquiredConns        int32
+	MaxConns             int32
+	EmptyAcquireCount    int64
+	EmptyAcquireWaitTime time.Duration
+}
+
+// PoolBackpressureSnapshotter lets real pool adapters expose all backpressure
+// fields from one Stat() call. PoolStatter remains for lightweight tests and
+// adapters that do not have a native snapshot API.
+type PoolBackpressureSnapshotter interface {
+	BackpressureStats() PoolBackpressureStats
+}
+
 // NewServer creates a new HTTP API server with the given dependencies.
 func NewServer(deps ServerDeps) *Server {
 	maxBody := deps.Config.MaxRequestBodySize
@@ -879,7 +896,7 @@ func NewServer(deps ServerDeps) *Server {
 		workflowEngine:     deps.WorkflowEngine,
 		txPool:             deps.TxPool,
 		actorSyncer:        deps.ActorSyncer,
-		validate:           validator.New(validator.WithRequiredStructEnabled()),
+		validate:           newRequestValidator(),
 		maxRequestBodySize: maxBody,
 		poolStatter:        deps.PoolStatter,
 		permCache:          newPermissionCache(permCacheTTL(deps.Config), cacheDeps),
@@ -972,14 +989,20 @@ func (s *Server) dbBackpressure(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if s.shouldApplyDBBackpressure() {
 			w.Header().Set("Retry-After", "1")
-			http.Error(w, "service temporarily unavailable", http.StatusServiceUnavailable)
+			respondError(w, r, http.StatusTooManyRequests, APIError{
+				Code:    ErrorCodeRateLimited,
+				Message: "database admission control throttled",
+				Details: []string{
+					"retry_after_seconds=1",
+				},
+			})
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
 }
 
-// shouldApplyDBBackpressure decides whether to 503 an incoming request because
+// shouldApplyDBBackpressure decides whether to 429 an incoming request because
 // the connection pool can't currently serve it. Two independent signals:
 //
 //  1. Snapshot pool occupancy: if >90% of max connections are checked out
@@ -991,15 +1014,29 @@ func (s *Server) dbBackpressure(next http.Handler) http.Handler {
 //     request would see a near-zero delta against the just-updated baseline
 //     and admit).
 func (s *Server) shouldApplyDBBackpressure() bool {
-	acquired := s.poolStatter.AcquiredConns()
-	maxConns := s.poolStatter.MaxConns()
-	if maxConns > 0 && acquired > int32(float64(maxConns)*0.9) {
+	stats := poolBackpressureStats(s.poolStatter)
+	if stats.MaxConns > 0 && stats.AcquiredConns > int32(float64(stats.MaxConns)*0.9) {
 		return true
 	}
 	if s.poolBackpressure != nil && s.poolBackpressure.Shedding() {
 		return true
 	}
 	return false
+}
+
+func poolBackpressureStats(ps PoolStatter) PoolBackpressureStats {
+	if ps == nil {
+		return PoolBackpressureStats{}
+	}
+	if snapshotter, ok := ps.(PoolBackpressureSnapshotter); ok {
+		return snapshotter.BackpressureStats()
+	}
+	return PoolBackpressureStats{
+		AcquiredConns:        ps.AcquiredConns(),
+		MaxConns:             ps.MaxConns(),
+		EmptyAcquireCount:    ps.EmptyAcquireCount(),
+		EmptyAcquireWaitTime: ps.EmptyAcquireWaitTime(),
+	}
 }
 
 func permCacheTTL(cfg *config.Config) time.Duration {

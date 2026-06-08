@@ -546,9 +546,14 @@ func (d *WorkerDispatcher) buildAssignment(run *domain.JobRun, job *domain.Job, 
 			},
 		}
 		tok := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-		if signed, err := tok.SignedString([]byte(d.jwtSigningKey)); err == nil {
-			a.RunTokenJwt = signed
+		signed, err := tok.SignedString([]byte(d.jwtSigningKey))
+		if err != nil {
+			// Do not dispatch a worker task with an empty run token: every SDK
+			// callback would 401 and the run would hang in executing. Fail the
+			// assignment so dispatch surfaces the error instead of swallowing it.
+			return nil, fmt.Errorf("sign run token: %w", err)
 		}
+		a.RunTokenJwt = signed
 	}
 
 	// HMAC-SHA256 body+timestamp signing (same algorithm as worker.SignHTTPDispatch

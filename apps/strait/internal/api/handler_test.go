@@ -2193,7 +2193,7 @@ func TestHandleGetEnvironment_Success(t *testing.T) {
 				Variables: map[string]string{"LOG_LEVEL": "debug"},
 			}, nil
 		},
-		GetResolvedEnvironmentVariablesFunc: func(_ context.Context, id string) (map[string]string, error) {
+		GetResolvedEnvironmentVariablesFunc: func(_ context.Context, _ string, id string) (map[string]string, error) {
 			require.Equal(t, "env-1", id)
 
 			return map[string]string{"LOG_LEVEL": "debug", "REGION": "us-east-1"}, nil
@@ -2251,7 +2251,7 @@ func TestHandleGetResolvedVariables_Success(t *testing.T) {
 		GetEnvironmentFunc: func(_ context.Context, id string, _ string) (*domain.Environment, error) {
 			return &domain.Environment{ID: id, ProjectID: "proj-1", Name: "test", Slug: "test"}, nil
 		},
-		GetResolvedEnvironmentVariablesFunc: func(_ context.Context, id string) (map[string]string, error) {
+		GetResolvedEnvironmentVariablesFunc: func(_ context.Context, _ string, id string) (map[string]string, error) {
 			require.Equal(t, "env-1", id)
 
 			return map[string]string{"API_URL": "https://api.example.com", "LOG_LEVEL": "debug"}, nil
@@ -2538,7 +2538,7 @@ func newMockPoolStatter(acquired, max int32) *mockPoolStatter {
 	return m
 }
 
-func TestDBBackpressure_Returns503WhenPoolExhausted(t *testing.T) {
+func TestDBBackpressure_Returns429WhenPoolExhausted(t *testing.T) {
 	t.Parallel()
 
 	cfg := &config.Config{
@@ -2556,11 +2556,50 @@ func TestDBBackpressure_Returns503WhenPoolExhausted(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/health", ""))
-	require.Equal(t, http.StatusServiceUnavailable,
+	require.Equal(t, http.StatusTooManyRequests,
 
 		w.Code,
 	)
 	require.Equal(t, "1", w.Header().Get("Retry-After"))
+	var body ErrorResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	require.Equal(t, ErrorCodeRateLimited, body.Error.Code)
+}
+
+func TestDBBackpressure_TriggerRouteShortCircuitsBeforeAuthAndStore(t *testing.T) {
+	t.Parallel()
+
+	var authLookups atomic.Int32
+	cfg := &config.Config{
+		InternalSecret:      "test-secret-value",
+		MaxBulkTriggerItems: 500,
+		JWTSigningKey:       testJWTSigningKey,
+	}
+	srv := NewServer(ServerDeps{
+		Config: cfg,
+		Store: &APIStoreMock{
+			GetAPIKeyByHashFunc: func(context.Context, string) (*domain.APIKey, error) {
+				authLookups.Add(1)
+				return nil, errors.New("auth should not run when db admission is closed")
+			},
+		},
+		Queue:       &mockQueue{},
+		PoolStatter: newMockPoolStatter(24, 25), // 96% > 90%
+	})
+	t.Cleanup(srv.Close)
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/v1/jobs/job-1/trigger", strings.NewReader(`{}`))
+	r.Header.Set("Authorization", "Bearer strait_test")
+	r.Header.Set("Content-Type", "application/json")
+	srv.ServeHTTP(w, r)
+
+	require.Equal(t, http.StatusTooManyRequests, w.Code)
+	require.EqualValues(t, 0, authLookups.Load())
+	require.Equal(t, "1", w.Header().Get("Retry-After"))
+	var body ErrorResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	require.Equal(t, ErrorCodeRateLimited, body.Error.Code)
 }
 
 func TestDBBackpressure_AllowsRequestsWhenPoolHealthy(t *testing.T) {
@@ -2581,13 +2620,13 @@ func TestDBBackpressure_AllowsRequestsWhenPoolHealthy(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/health", nil))
-	require.NotEqual(t, http.StatusServiceUnavailable,
+	require.NotEqual(t, http.StatusTooManyRequests,
 
 		w.
 			Code)
 }
 
-func TestDBBackpressure_Returns503WhenAcquireWaitSpikes(t *testing.T) {
+func TestDBBackpressure_Returns429WhenAcquireWaitSpikes(t *testing.T) {
 	t.Parallel()
 
 	cfg := &config.Config{
@@ -2614,11 +2653,14 @@ func TestDBBackpressure_Returns503WhenAcquireWaitSpikes(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/health", ""))
-	require.Equal(t, http.StatusServiceUnavailable,
+	require.Equal(t, http.StatusTooManyRequests,
 
 		w.Code,
 	)
 	require.Equal(t, "1", w.Header().Get("Retry-After"))
+	var body ErrorResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	require.Equal(t, ErrorCodeRateLimited, body.Error.Code)
 }
 
 func TestDBBackpressure_AllowsSmallAcquireWait(t *testing.T) {
@@ -2645,7 +2687,7 @@ func TestDBBackpressure_AllowsSmallAcquireWait(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/health", nil))
-	require.NotEqual(t, http.StatusServiceUnavailable,
+	require.NotEqual(t, http.StatusTooManyRequests,
 
 		w.
 			Code)

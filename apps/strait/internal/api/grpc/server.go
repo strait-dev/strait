@@ -136,6 +136,12 @@ func NewServer(cfg *config.Config, queries *store.Queries, pub pubsub.Publisher,
 			opt(s)
 		}
 	}
+	if s.authLimiter == nil {
+		// No brute-force protection on the gRPC worker-auth path. The production
+		// wiring always passes WithAuthLimiter; warn loudly so a manual/community
+		// deployment that omits it does not silently run without throttling.
+		slog.Warn("grpc server: no auth limiter configured; gRPC worker authentication is NOT rate limited")
+	}
 	gs, err := s.buildServer()
 	if err != nil {
 		return nil, err

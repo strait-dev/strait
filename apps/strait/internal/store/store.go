@@ -98,7 +98,7 @@ type EnvironmentStore interface {
 	ListEnvironments(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.Environment, error)
 	UpdateEnvironment(ctx context.Context, env *domain.Environment) error
 	DeleteEnvironment(ctx context.Context, id, projectID string) error
-	GetResolvedEnvironmentVariables(ctx context.Context, id string) (map[string]string, error)
+	GetResolvedEnvironmentVariables(ctx context.Context, projectID, id string) (map[string]string, error)
 	CreateStandardEnvironments(ctx context.Context, projectID string) error
 }
 
@@ -212,7 +212,7 @@ type WebhookDeliveryStore interface {
 	ClaimPendingWebhookRetries(ctx context.Context, limit int, leaseDuration time.Duration) ([]domain.WebhookDelivery, error)
 	UpdateClaimedWebhookDelivery(ctx context.Context, d *domain.WebhookDelivery) (bool, error)
 	ListWebhookDeliveries(ctx context.Context, projectID, status string, limit int, cursor *time.Time) ([]domain.WebhookDelivery, error)
-	GetWebhookDelivery(ctx context.Context, id string) (*domain.WebhookDelivery, error)
+	GetWebhookDelivery(ctx context.Context, projectID, id string) (*domain.WebhookDelivery, error)
 	RetryWebhookDelivery(ctx context.Context, id string) (*domain.WebhookDelivery, error)
 	ListPendingWebhookRetries(ctx context.Context) ([]domain.WebhookDelivery, error)
 	ListPendingRunWebhookDeliveries(ctx context.Context) ([]domain.WebhookDelivery, error)

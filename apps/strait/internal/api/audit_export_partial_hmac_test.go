@@ -13,14 +13,13 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// TestAuditExport_StreamError_OmitsHMACTrailer verifies that when the DB
-// stream errors mid-export, the X-Audit-Signature trailer is NOT set. Before
-// the fix, a partial export still carried a valid HMAC over truncated output,
-// misleading consumers into trusting an incomplete payload.
-func TestAuditExport_StreamError_OmitsHMACTrailer(t *testing.T) {
+// TestAuditExport_StreamError_OmitsSignatureAndBody verifies that when the DB
+// stream errors mid-export, no signature is emitted and no partial export body
+// is leaked. Because signed exports are now buffered before sending, a mid-stream
+// failure surfaces as a real 500 instead of a truncated, wrongly-signed payload.
+func TestAuditExport_StreamError_OmitsSignatureAndBody(t *testing.T) {
 	t.Parallel()
 
-	callCount := 0
 	ms := &APIStoreMock{
 		StreamAuditEventsFunc: func(_ context.Context, _, _, _ string, _, _ time.Time, fn func(*domain.AuditEvent) error) error {
 			// Emit one event successfully, then return an error to simulate
@@ -33,7 +32,6 @@ func TestAuditExport_StreamError_OmitsHMACTrailer(t *testing.T) {
 			if err := fn(ev); err != nil {
 				return err
 			}
-			callCount++
 			return errors.New("connection lost mid-stream")
 		},
 	}
@@ -45,15 +43,16 @@ func TestAuditExport_StreamError_OmitsHMACTrailer(t *testing.T) {
 		"", "proj-1")
 	srv.ServeHTTP(w, r)
 
-	sig := w.Header().Get("X-Audit-Signature")
-	assert.Empty(
-		t, sig,
-	)
+	assert.Empty(t, w.Header().Get("X-Audit-Signature"))
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	assert.NotContains(t, w.Body.String(), "job.created",
+		"a failed signed export must not leak a partial body")
 }
 
-// TestAuditExport_CleanStream_IncludesHMACTrailer is the positive control:
-// a clean stream should produce the HMAC trailer.
-func TestAuditExport_CleanStream_IncludesHMACTrailer(t *testing.T) {
+// TestAuditExport_CleanStream_DeliversSignatureHeader is the positive control:
+// a clean signed export delivers the HMAC as a normal response header (resilient
+// to buffering proxies that strip trailers) alongside the full body.
+func TestAuditExport_CleanStream_DeliversSignatureHeader(t *testing.T) {
 	t.Parallel()
 
 	ms := &APIStoreMock{
@@ -73,6 +72,10 @@ func TestAuditExport_CleanStream_IncludesHMACTrailer(t *testing.T) {
 		"", "proj-1")
 	srv.ServeHTTP(w, r)
 
+	assert.Equal(t, http.StatusOK, w.Code)
 	sig := w.Header().Get("X-Audit-Signature")
-	assert.NotEmpty(t, sig)
+	assert.Contains(t, sig, "sha256=")
+	// The Trailer announcement is gone; the signature is a real header now.
+	assert.Empty(t, w.Header().Get("Trailer"))
+	assert.Contains(t, w.Body.String(), "job.created", "the full body must still be delivered")
 }

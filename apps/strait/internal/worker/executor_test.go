@@ -226,7 +226,7 @@ func (m *mockExecutorStore) GetJobHealthStats(ctx context.Context, jobID string,
 	return m.getJobHealthStatsFn(ctx, jobID, since)
 }
 
-func (m *mockExecutorStore) GetResolvedEnvironmentVariables(ctx context.Context, id string) (map[string]string, error) {
+func (m *mockExecutorStore) GetResolvedEnvironmentVariables(ctx context.Context, _ string, id string) (map[string]string, error) {
 	if m.getResolvedEnvVarsFn == nil {
 		return nil, nil
 	}

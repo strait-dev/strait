@@ -4572,6 +4572,39 @@ func TestBreakerKey_PerTenantScoping(t *testing.T) {
 	)
 }
 
+// Regression (I3): when OrgID is empty (e.g. orphaned deliveries), the breaker
+// key must fall back to the project scope so two different tenants pointing at
+// the same URL still get distinct breaker buckets, on both the batch and the
+// individual delivery paths.
+func TestBreakerKey_EmptyOrgFallsBackToProject(t *testing.T) {
+	t.Parallel()
+
+	url := "https://hooks.example.com/in"
+	a := domain.WebhookDelivery{ProjectID: "proj-a", WebhookURL: url}
+	b := domain.WebhookDelivery{ProjectID: "proj-b", WebhookURL: url}
+
+	// Individual path.
+	require.NotEqual(t,
+		breakerKey(deliveryTenantScope(a), a.WebhookURL),
+		breakerKey(deliveryTenantScope(b), b.WebhookURL),
+		"empty-OrgID deliveries from different projects must not share a breaker key",
+	)
+
+	// Batch path: a batch is homogeneous per groupByURL, so each batch's scope
+	// reflects its project.
+	require.NotEqual(t,
+		breakerKey(batchTenantScope([]domain.WebhookDelivery{a}), url),
+		breakerKey(batchTenantScope([]domain.WebhookDelivery{b}), url),
+	)
+
+	// The batch and individual paths must agree for the same tenant so the
+	// breaker state is shared, not split.
+	require.Equal(t,
+		breakerKey(deliveryTenantScope(a), url),
+		breakerKey(batchTenantScope([]domain.WebhookDelivery{a}), url),
+	)
+}
+
 func TestAttemptDelivery_WithSubscriptionID_SecretRotation_GracePeriodActive(t *testing.T) {
 	t.Parallel()
 

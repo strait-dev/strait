@@ -2,6 +2,7 @@ package api
 
 import (
 	"crypto/tls"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,7 +12,7 @@ import (
 )
 
 func TestSecurityHeaders(t *testing.T) {
-	handler := securityHeaders(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := (&Server{}).securityHeaders(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -57,19 +58,34 @@ func TestSecurityHeaders(t *testing.T) {
 			want, rec.Header().Get("Strict-Transport-Security"))
 	})
 
-	t.Run("HSTS set via X-Forwarded-Proto", func(t *testing.T) {
+	t.Run("no HSTS via X-Forwarded-Proto from untrusted peer", func(t *testing.T) {
+		// Regression guard: a spoofed X-Forwarded-Proto from an untrusted direct
+		// peer (no trusted proxies configured) must NOT induce HSTS.
 		req := httptest.NewRequest(http.MethodGet, "/", nil)
 		req.Header.Set("X-Forwarded-Proto", "https")
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)
-		assert.NotEmpty(
-			t, rec.Header().Get("Strict-Transport-Security"))
+		assert.Empty(t, rec.Header().Get("Strict-Transport-Security"))
+	})
+
+	t.Run("HSTS via X-Forwarded-Proto from trusted proxy", func(t *testing.T) {
+		_, cidr, err := net.ParseCIDR("192.0.2.0/24") // httptest RemoteAddr is 192.0.2.1
+		require.NoError(t, err)
+		srv := &Server{trustedProxies: []net.IPNet{*cidr}}
+		trustedHandler := srv.securityHeaders(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}))
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		req.Header.Set("X-Forwarded-Proto", "https")
+		rec := httptest.NewRecorder()
+		trustedHandler.ServeHTTP(rec, req)
+		assert.NotEmpty(t, rec.Header().Get("Strict-Transport-Security"))
 	})
 }
 
 func TestSecurityHeaders_StripsServerHeader(t *testing.T) {
 	// Simulate a reverse proxy that sets a Server header.
-	handler := securityHeaders(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := (&Server{}).securityHeaders(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Server", "Fly/58128dbb4 (2026-03-25)")
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -82,7 +98,7 @@ func TestSecurityHeaders_StripsServerHeader(t *testing.T) {
 }
 
 func TestSecurityHeaders_StripsServerHeaderOnImplicitWrite(t *testing.T) {
-	handler := securityHeaders(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := (&Server{}).securityHeaders(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Server", "Fly/58128dbb4 (2026-03-25)")
 		_, _ = w.Write([]byte("ok"))
 	}))
@@ -95,7 +111,7 @@ func TestSecurityHeaders_StripsServerHeaderOnImplicitWrite(t *testing.T) {
 }
 
 func TestSecurityHeaders_StripsServerHeaderOnFlush(t *testing.T) {
-	handler := securityHeaders(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := (&Server{}).securityHeaders(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Server", "Fly/58128dbb4 (2026-03-25)")
 		flusher, ok := w.(http.Flusher)
 		assert.True(t,
@@ -114,24 +130,35 @@ func TestSecurityHeaders_StripsServerHeaderOnFlush(t *testing.T) {
 }
 
 func TestRequestIsHTTPS(t *testing.T) {
+	_, trustedCIDR, err := net.ParseCIDR("192.0.2.0/24") // httptest RemoteAddr is 192.0.2.1
+	require.NoError(t, err)
+	noProxy := &Server{}
+	withProxy := &Server{trustedProxies: []net.IPNet{*trustedCIDR}}
+
 	tests := []struct {
 		name string
+		srv  *Server
 		req  *http.Request
 		want bool
 	}{
-		{"nil request", nil, false},
-		{"plain HTTP", httptest.NewRequest(http.MethodGet, "/", nil), false},
-		{"TLS connection", func() *http.Request {
+		{"nil request", noProxy, nil, false},
+		{"plain HTTP", noProxy, httptest.NewRequest(http.MethodGet, "/", nil), false},
+		{"TLS connection", noProxy, func() *http.Request {
 			r := httptest.NewRequest(http.MethodGet, "/", nil)
 			r.TLS = &tls.ConnectionState{}
 			return r
 		}(), true},
-		{"X-Forwarded-Proto https", func() *http.Request {
+		{"X-Forwarded-Proto https from untrusted peer", noProxy, func() *http.Request {
+			r := httptest.NewRequest(http.MethodGet, "/", nil)
+			r.Header.Set("X-Forwarded-Proto", "https")
+			return r
+		}(), false},
+		{"X-Forwarded-Proto https from trusted proxy", withProxy, func() *http.Request {
 			r := httptest.NewRequest(http.MethodGet, "/", nil)
 			r.Header.Set("X-Forwarded-Proto", "https")
 			return r
 		}(), true},
-		{"X-Forwarded-Proto http", func() *http.Request {
+		{"X-Forwarded-Proto http from trusted proxy", withProxy, func() *http.Request {
 			r := httptest.NewRequest(http.MethodGet, "/", nil)
 			r.Header.Set("X-Forwarded-Proto", "http")
 			return r
@@ -141,7 +168,7 @@ func TestRequestIsHTTPS(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			assert.Equal(t,
-				tt.want, requestIsHTTPS(tt.req))
+				tt.want, tt.srv.requestIsHTTPS(tt.req))
 		})
 	}
 }

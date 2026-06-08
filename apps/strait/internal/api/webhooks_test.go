@@ -101,7 +101,7 @@ func TestHandleTestWebhook_MissingURL(t *testing.T) {
 func TestHandleReplayWebhookDelivery_Success(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
-		GetWebhookDeliveryFunc: func(_ context.Context, id string) (*domain.WebhookDelivery, error) {
+		GetWebhookDeliveryFunc: func(_ context.Context, _ string, id string) (*domain.WebhookDelivery, error) {
 			return &domain.WebhookDelivery{
 				ID:       id,
 				JobID:    "job-1",
@@ -113,7 +113,7 @@ func TestHandleReplayWebhookDelivery_Success(t *testing.T) {
 		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
 			return &domain.Job{ID: id, ProjectID: "proj-1"}, nil
 		},
-		ReplayWebhookDeliveryFunc: func(_ context.Context, _ string) (*domain.WebhookDelivery, error) {
+		ReplayWebhookDeliveryFunc: func(_ context.Context, _, _ string) (*domain.WebhookDelivery, error) {
 			return &domain.WebhookDelivery{
 				ID:         "new-replay-id",
 				WebhookURL: "https://user:pass@hooks.example.com/private/path?token=secret#frag",
@@ -146,7 +146,7 @@ func TestHandleReplayWebhookDelivery_Success(t *testing.T) {
 func TestHandleReplayWebhookDelivery_WrongProject(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
-		GetWebhookDeliveryFunc: func(_ context.Context, _ string) (*domain.WebhookDelivery, error) {
+		GetWebhookDeliveryFunc: func(_ context.Context, _, _ string) (*domain.WebhookDelivery, error) {
 			return &domain.WebhookDelivery{ID: "del-1", JobID: "job-1"}, nil
 		},
 		GetJobFunc: func(_ context.Context, _ string) (*domain.Job, error) {
@@ -171,13 +171,13 @@ func TestHandleReplayWebhookDelivery_WrongProject(t *testing.T) {
 func TestHandleReplayWebhookDelivery_EnvironmentScopedCallerCannotReplayOtherEnvironment(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
-		GetWebhookDeliveryFunc: func(_ context.Context, _ string) (*domain.WebhookDelivery, error) {
+		GetWebhookDeliveryFunc: func(_ context.Context, _, _ string) (*domain.WebhookDelivery, error) {
 			return &domain.WebhookDelivery{ID: "del-1", JobID: "job-1", ProjectID: "proj-1"}, nil
 		},
 		GetJobFunc: func(_ context.Context, _ string) (*domain.Job, error) {
 			return &domain.Job{ID: "job-1", ProjectID: "proj-1", EnvironmentID: "env-staging"}, nil
 		},
-		ReplayWebhookDeliveryFunc: func(_ context.Context, _ string) (*domain.WebhookDelivery, error) {
+		ReplayWebhookDeliveryFunc: func(_ context.Context, _, _ string) (*domain.WebhookDelivery, error) {
 			require.Fail(t,
 
 				"ReplayWebhookDelivery should not be called for a mismatched environment")
@@ -197,10 +197,10 @@ func TestHandleReplayWebhookDelivery_EnvironmentScopedCallerCannotReplayOtherEnv
 func TestHandleReplayWebhookDelivery_EnvironmentScopedCallerCannotReplayUnscopedSubscriptionDelivery(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
-		GetWebhookDeliveryFunc: func(_ context.Context, _ string) (*domain.WebhookDelivery, error) {
+		GetWebhookDeliveryFunc: func(_ context.Context, _, _ string) (*domain.WebhookDelivery, error) {
 			return &domain.WebhookDelivery{ID: "del-1", ProjectID: "proj-1", SubscriptionID: "sub-1"}, nil
 		},
-		ReplayWebhookDeliveryFunc: func(_ context.Context, _ string) (*domain.WebhookDelivery, error) {
+		ReplayWebhookDeliveryFunc: func(_ context.Context, _, _ string) (*domain.WebhookDelivery, error) {
 			require.Fail(t,
 
 				"ReplayWebhookDelivery should not be called for an env-scoped caller without job environment")
@@ -220,7 +220,7 @@ func TestHandleReplayWebhookDelivery_EnvironmentScopedCallerCannotReplayUnscoped
 func TestHandleReplayWebhookDelivery_NotFound(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
-		GetWebhookDeliveryFunc: func(context.Context, string) (*domain.WebhookDelivery, error) {
+		GetWebhookDeliveryFunc: func(context.Context, string, string) (*domain.WebhookDelivery, error) {
 			return nil, fmt.Errorf("webhook delivery not found")
 		},
 	}

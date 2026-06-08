@@ -263,6 +263,46 @@ func TestHandleDeviceToken_Approved(t *testing.T) {
 	)
 }
 
+// TestHandleDeviceToken_ApprovedButExpiredDuringExchange is the regression guard
+// for the misleading-error race: when an approved code expires between the
+// expiry check and the atomic exchange, the store returns ErrDeviceCodeExpired
+// and the handler must report expired_token, not token_already_exchanged.
+func TestHandleDeviceToken_ApprovedButExpiredDuringExchange(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		GetDeviceCodeByDeviceCodeFunc: func(_ context.Context, _ string) (*store.DeviceCodeRow, error) {
+			return &store.DeviceCodeRow{
+				ID:         "dc-1",
+				DeviceCode: "test-device-code",
+				UserCode:   "ABCD1234",
+				ProjectID:  "proj-1",
+				APIKeyID:   "key-1",
+				RawAPIKey:  "strait_testapikey1234567890abcdef",
+				Status:     "approved",
+				Scopes:     []string{},
+				ExpiresAt:  time.Now().Add(10 * time.Minute), // passes the pre-check
+			}, nil
+		},
+		ExchangeDeviceCodeFunc: func(_ context.Context, _ string) (string, error) {
+			return "", store.ErrDeviceCodeExpired
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	body := `{"device_code":"test-device-code","grant_type":"device_code"}`
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/v1/cli/auth/token", strings.NewReader(body))
+	r.Header.Set("Content-Type", "application/json")
+
+	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusBadRequest, w.Code)
+
+	var resp map[string]string
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.Equal(t, "expired_token", resp["error"])
+}
+
 func TestHandleDeviceToken_Expired(t *testing.T) {
 	t.Parallel()
 

@@ -106,6 +106,12 @@ func TestShutdownReason(t *testing.T) {
 		shutdownReason(errors.New("forced")))
 }
 
+func TestPoolStatterFromPgxPool_NilDisablesBackpressure(t *testing.T) {
+	t.Helper()
+
+	require.Nil(t, poolStatterFromPgxPool(nil))
+}
+
 func TestRegisterCDCDeliveryHandlers_WiresLaunchCDCTables(t *testing.T) {
 	t.Helper()
 

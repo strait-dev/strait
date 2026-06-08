@@ -140,7 +140,7 @@ func (s *Server) handleGetEnvironment(ctx context.Context, input *GetEnvironment
 		return nil, huma.Error404NotFound("environment not found")
 	}
 
-	resolvedVariables, err := s.store.GetResolvedEnvironmentVariables(ctx, input.EnvID)
+	resolvedVariables, err := s.store.GetResolvedEnvironmentVariables(ctx, projectID, input.EnvID)
 	if err != nil {
 		if errors.Is(err, store.ErrEnvironmentNotFound) {
 			return nil, huma.Error404NotFound("environment not found")
@@ -379,7 +379,7 @@ func (s *Server) handleGetResolvedVariables(ctx context.Context, input *GetResol
 		return nil, huma.Error404NotFound("environment not found")
 	}
 
-	resolvedVariables, err := s.store.GetResolvedEnvironmentVariables(ctx, input.EnvID)
+	resolvedVariables, err := s.store.GetResolvedEnvironmentVariables(ctx, projectID, input.EnvID)
 	if err != nil {
 		if errors.Is(err, store.ErrEnvironmentNotFound) {
 			return nil, huma.Error404NotFound("environment not found")

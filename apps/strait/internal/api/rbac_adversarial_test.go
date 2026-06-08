@@ -194,7 +194,7 @@ func FuzzOIDCJWTParsing(f *testing.F) {
 		w := httptest.NewRecorder()
 
 		// The securityHeaders middleware should never panic regardless of input.
-		handler := securityHeaders(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		handler := (&Server{}).securityHeaders(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusOK)
 		}))
 		handler.ServeHTTP(w, r)
@@ -254,7 +254,7 @@ func TestRequirePermission_APIKeyScopeEdgeCases(t *testing.T) {
 func TestSecurityHeaders_AlwaysSet(t *testing.T) {
 	t.Parallel()
 
-	handler := securityHeaders(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	handler := (&Server{}).securityHeaders(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -285,7 +285,7 @@ func TestSecurityHeaders_AlwaysSet(t *testing.T) {
 // TestSecurityHeaders_NilRequest verifies requestIsHTTPS handles nil safely.
 func TestSecurityHeaders_NilRequest(t *testing.T) {
 	t.Parallel()
-	require.False(t, requestIsHTTPS(nil))
+	require.False(t, (&Server{}).requestIsHTTPS(nil))
 }
 
 // TestSecureCookie_SecurityFlags verifies secure cookie security attributes.

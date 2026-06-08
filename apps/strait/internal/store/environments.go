@@ -255,7 +255,7 @@ func (q *Queries) CreateStandardEnvironments(ctx context.Context, projectID stri
 	return nil
 }
 
-func (q *Queries) GetResolvedEnvironmentVariables(ctx context.Context, id string) (map[string]string, error) {
+func (q *Queries) GetResolvedEnvironmentVariables(ctx context.Context, projectID, id string) (map[string]string, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetResolvedEnvironmentVariables")
 	defer span.End()
 
@@ -263,11 +263,14 @@ func (q *Queries) GetResolvedEnvironmentVariables(ctx context.Context, id string
 
 	// Use a recursive CTE to fetch the entire parent chain in a single query.
 	// The chain is returned root-first so we can overlay child variables on top.
+	// The seed row is scoped by project_id (in addition to RLS) so a snapshot
+	// lookup by id from one tenant cannot resolve and decrypt another tenant's
+	// secret values; the recursive step already stays within the same project.
 	query := `
 		WITH RECURSIVE chain AS (
 			SELECT id, project_id, parent_id, variables, variables_encrypted, 1 AS depth
 			FROM environments
-			WHERE id = $1
+			WHERE id = $1 AND project_id = $3
 			UNION ALL
 			SELECT e.id, e.project_id, e.parent_id, e.variables, e.variables_encrypted, c.depth + 1
 			FROM environments e
@@ -278,7 +281,7 @@ func (q *Queries) GetResolvedEnvironmentVariables(ctx context.Context, id string
 			SELECT id, project_id, parent_id, variables, variables_encrypted, depth FROM chain
 			ORDER BY depth DESC`
 
-	rows, err := q.db.Query(ctx, query, id, maxDepth)
+	rows, err := q.db.Query(ctx, query, id, maxDepth, projectID)
 	if err != nil {
 		return nil, fmt.Errorf("resolve environment variables: %w", err)
 	}
