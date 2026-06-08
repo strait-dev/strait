@@ -3,13 +3,13 @@ package api
 import (
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"log/slog"
 	"net/url"
 	"time"
 
+	"strait/internal/crypto"
 	"strait/internal/domain"
 	"strait/internal/httputil"
 
@@ -54,7 +54,7 @@ func generateAPIKey() (string, error) {
 	}
 	return "strait_" + hex.EncodeToString(b), nil
 }
-func hashAPIKey(key string) string { h := sha256.Sum256([]byte(key)); return hex.EncodeToString(h[:]) }
+func hashAPIKey(key string) string { return crypto.HashAPIKey(key) }
 
 type CreateAPIKeyInput struct{ Body CreateAPIKeyRequest }
 type CreateAPIKeyOutput struct{ Body CreateAPIKeyResponse }

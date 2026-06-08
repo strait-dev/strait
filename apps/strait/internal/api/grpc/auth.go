@@ -2,8 +2,6 @@ package grpc
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"log/slog"
 	"net"
@@ -11,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"strait/internal/crypto"
 	"strait/internal/domain"
 	"strait/internal/ratelimit"
 	"strait/internal/store"
@@ -187,11 +186,11 @@ func validateWorkerAPIKey(apiKey *domain.APIKey) error {
 	return nil
 }
 
-// hashGRPCAPIKey returns the SHA-256 hex digest of the raw API key string.
-// This must match the hashing used by the HTTP API layer (api.hashAPIKey).
+// hashGRPCAPIKey returns the SHA-256 hex digest of the raw API key string via
+// the shared crypto.HashAPIKey, so worker-plane hashing cannot diverge from the
+// HTTP API layer.
 func hashGRPCAPIKey(key string) string {
-	h := sha256.Sum256([]byte(key))
-	return hex.EncodeToString(h[:])
+	return crypto.HashAPIKey(key)
 }
 
 // withAPIKeyContext enriches ctx with the resolved API key's project and org IDs.
