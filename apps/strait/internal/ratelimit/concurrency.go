@@ -77,7 +77,15 @@ func (r *RedisConcurrencyLimiter) Release(ctx context.Context, key string, token
 }
 
 func redisConcurrencySlotKey(key string, slot int) string {
-	return fmt.Sprintf("concurrency:%s:%d", key, slot)
+	var slotBuf [20]byte
+	slotBytes := strconv.AppendInt(slotBuf[:0], int64(slot), 10)
+	var b strings.Builder
+	b.Grow(len("concurrency::") + len(key) + len(slotBytes))
+	b.WriteString("concurrency:")
+	b.WriteString(key)
+	b.WriteByte(':')
+	b.Write(slotBytes)
+	return b.String()
 }
 
 func parseRedisConcurrencyToken(token string) (int, string, error) {
