@@ -1248,9 +1248,9 @@ func (s *Server) rlsTxMiddleware(next http.Handler) http.Handler {
 			return
 		}
 		if err := tx.Commit(ctx); err != nil && !errors.Is(err, context.Canceled) {
-			slog.Warn("failed to commit RLS tx", "project_id", projectID, "error", err)
 			hooks.runRollback(context.Background())
 			if isRetryableDatabaseAdmissionError(err) {
+				slog.Info("retryable RLS tx commit failure", "project_id", projectID, "error", err)
 				apiErr := newDatabaseAdmission429()
 				for key, value := range apiErr.headers {
 					w.Header().Set(key, value)
@@ -1258,6 +1258,7 @@ func (s *Server) rlsTxMiddleware(next http.Handler) http.Handler {
 				respondError(w, r, apiErr.status, apiErr.apiError)
 				return
 			}
+			slog.Warn("failed to commit RLS tx", "project_id", projectID, "error", err)
 			respondError(w, r, http.StatusInternalServerError, "security context commit failed")
 			return
 		}
