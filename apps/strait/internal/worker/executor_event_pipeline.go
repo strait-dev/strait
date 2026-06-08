@@ -120,8 +120,10 @@ func marshalRunStatusChangePayload(runID, jobID, projectID string, data map[stri
 }
 
 func marshalRunStatusTransitionPayload(runID, jobID, projectID, from, to string, timestamp time.Time) ([]byte, error) {
+	var timestampBuf [len("2006-01-02T15:04:05.999999999Z07:00")]byte
+	timestampBytes := timestamp.AppendFormat(timestampBuf[:0], time.RFC3339Nano)
 	capacity := len(`{"type":"status_change","run_id":"","job_id":"","project_id":"","from":"","to":"","timestamp":""}`) +
-		len(runID) + len(jobID) + len(projectID) + len(from) + len(to) + len(time.RFC3339Nano)
+		len(runID) + len(jobID) + len(projectID) + len(from) + len(to) + len(timestampBytes)
 	out := make([]byte, 0, capacity)
 	out = append(out, `{"type":"status_change","run_id":`...)
 	out = strconv.AppendQuote(out, runID)
@@ -134,7 +136,7 @@ func marshalRunStatusTransitionPayload(runID, jobID, projectID, from, to string,
 	out = append(out, `,"to":`...)
 	out = strconv.AppendQuote(out, to)
 	out = append(out, `,"timestamp":"`...)
-	out = timestamp.AppendFormat(out, time.RFC3339Nano)
+	out = append(out, timestampBytes...)
 	out = append(out, `"}`...)
 	return out, nil
 }

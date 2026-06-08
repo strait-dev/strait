@@ -170,6 +170,24 @@ func TestRunStatusChangePayloadEscapesTransitionStrings(t *testing.T) {
 	}
 }
 
+func TestRunStatusChangePayloadPreservesNanosecondTimestamp(t *testing.T) {
+	t.Parallel()
+
+	timestamp := time.Date(2026, 6, 7, 12, 0, 0, 123456789, time.UTC)
+	payload, err := marshalRunStatusChangePayload(
+		"run-1",
+		"job-1",
+		"proj-1",
+		map[string]any{"from": "queued", "to": "executing"},
+		timestamp,
+	)
+	require.NoError(t, err)
+
+	var got map[string]any
+	require.NoError(t, json.Unmarshal(payload, &got))
+	require.Equal(t, timestamp.Format(time.RFC3339Nano), got["timestamp"])
+}
+
 func BenchmarkRunStatusChangePayloadAndChannel(b *testing.B) {
 	timestamp := time.Date(2026, 6, 7, 12, 0, 0, 0, time.UTC)
 	data := map[string]any{"from": "queued", "to": "executing"}
