@@ -168,7 +168,7 @@ func appendCanonicalJSON(dst []byte, value gjson.Result) ([]byte, error) {
 }
 
 func appendCanonicalJSONObject(dst []byte, object gjson.Result) ([]byte, error) {
-	members := make([]canonicalJSONMember, 0)
+	members := make([]canonicalJSONMember, 0, 2)
 	object.ForEach(func(key, value gjson.Result) bool {
 		members = append(members, canonicalJSONMember{key: key.Str, value: value})
 		return true
