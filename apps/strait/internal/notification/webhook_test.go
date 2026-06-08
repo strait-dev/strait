@@ -190,28 +190,29 @@ func TestWebhookSender_HMACSignature(t *testing.T) {
 	require.Equal(t, expected,
 		capturedSig,
 	)
-	require.False(t, capturedStraitSig ==
-		"" || !strings.Contains(capturedStraitSig,
-		"t="+capturedTimestamp,
-	) ||
-		!strings.Contains(capturedStraitSig,
-			"d="+del.
-				ID))
+	// X-Strait-Signature is v1=<hex> over timestamp + "." + body, the shared
+	// scheme across all Strait signing paths (delivery id is a separate header).
+	sigMac := hmac.New(sha256.New, []byte(secret))
+	sigMac.Write([]byte(capturedTimestamp))
+	sigMac.Write([]byte("."))
+	sigMac.Write(payload)
+	require.Equal(t, "v1="+hex.EncodeToString(sigMac.Sum(nil)), capturedStraitSig)
 }
 
-func TestWebhookSender_HMACSignatureChangesWithDeliveryID(t *testing.T) {
+// TestWebhookSender_DeliveryIDHeaderIsPerDelivery verifies per-delivery identity
+// is carried in the X-Strait-Delivery-ID header. The X-Strait-Signature is now
+// the shared v1=<hex> scheme over timestamp + "." + body (consistent with all
+// other signing paths) and intentionally does not bind the delivery ID.
+func TestWebhookSender_DeliveryIDHeaderIsPerDelivery(t *testing.T) {
 	t.Parallel()
 	client, transport := newMockClient(t)
 
 	secret := "my-webhook-secret"
 	payload := json.RawMessage(`{"run_id":"r-1","status":"completed"}`)
-	var signatures []string
+	var deliveryIDs []string
 	transport.RegisterResponder("POST", "https://example.com/hook",
 		func(req *http.Request) (*http.Response, error) {
-			// Per-delivery replay resistance lives in the structured signature
-			// (it binds the delivery ID); X-Strait-Signature-256 is body-only and
-			// is identical for identical payloads regardless of delivery ID.
-			signatures = append(signatures, req.Header.Get("X-Strait-Signature"))
+			deliveryIDs = append(deliveryIDs, req.Header.Get("X-Strait-Delivery-ID"))
 			return httpmock.NewStringResponse(200, "ok"), nil
 		})
 
@@ -232,9 +233,7 @@ func TestWebhookSender_HMACSignatureChangesWithDeliveryID(t *testing.T) {
 
 				Payload: payload,
 			}))
-	require.Len(t, signatures,
-		2)
-	require.NotEqual(t, signatures[1], signatures[0])
+	require.Equal(t, []string{"del-1", "del-2"}, deliveryIDs)
 }
 
 func TestWebhookSender_HMACSignature_NoSecret(t *testing.T) {

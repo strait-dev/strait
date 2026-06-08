@@ -80,25 +80,20 @@ func TestNotifyRotationWebhook_SignsWithHMACWhenSecretPresent(t *testing.T) {
 	require.NotEmpty(
 		t, gotSig,
 	)
-	require.True(t, strings.HasPrefix(gotSig, "t="+
-		gotTS+",d="+gotDelivery+
-		",v1=",
-	))
+	require.True(t, strings.HasPrefix(gotSig, "v1="))
 
+	// X-Strait-Signature is v1=<hex> over timestamp + "." + body, the shared
+	// scheme across all signing paths (delivery id is a header, not in the HMAC).
 	mac := hmac.New(sha256.New, signingSecret)
 	mac.Write([]byte(gotTS))
 	mac.Write([]byte("."))
-	mac.Write([]byte(gotDelivery))
-	mac.Write([]byte("."))
 	mac.Write(gotBody)
-	wantSig := hex.EncodeToString(mac.Sum(nil))
-	wantStructured := "t=" + gotTS + ",d=" + gotDelivery + ",v1=" + wantSig
+	wantSig := "v1=" + hex.EncodeToString(mac.Sum(nil))
 	require.Equal(t,
-		wantStructured,
+		wantSig,
 		gotSig)
 
-	// X-Strait-Signature-256 is the GitHub-style body-only HMAC, distinct from
-	// the compound structured signature.
+	// X-Strait-Signature-256 is the GitHub-style body-only HMAC.
 	bodyMac := hmac.New(sha256.New, signingSecret)
 	bodyMac.Write(gotBody)
 	require.Equal(t,
