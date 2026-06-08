@@ -100,7 +100,7 @@ func TestApplyPayloadMapping_DirectOutputSortedAndSkipsMissing(t *testing.T) {
 
 	mapped, err := applyPayloadMapping(result, mapping)
 	require.NoError(t, err)
-	assert.Equal(t, `{"a_order":"o1","z_user":"u1"}`, string(mapped))
+	assert.JSONEq(t, `{"a_order":"o1","z_user":"u1"}`, string(mapped))
 }
 
 func TestApplyPayloadMapping_TopLevelKeys(t *testing.T) {

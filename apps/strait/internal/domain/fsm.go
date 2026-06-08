@@ -36,6 +36,7 @@ func ValidateTransition(from, to RunStatus) error {
 		switch to {
 		case StatusCompleted, StatusFailed, StatusTimedOut, StatusCrashed, StatusCanceled, StatusWaiting, StatusQueued, StatusSystemFailed, StatusDeadLetter, StatusPaused:
 			return nil
+		default:
 		}
 	case StatusWaiting:
 		if to == StatusExecuting || to == StatusCompleted || to == StatusFailed || to == StatusCanceled || to == StatusTimedOut {

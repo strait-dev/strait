@@ -31,13 +31,6 @@ func marshalTerminalRunPayload(eventType, runID, jobID, projectID, status string
 	return out
 }
 
-func appendJSONTime(out []byte, timestamp time.Time) []byte {
-	out = append(out, '"')
-	out = timestamp.AppendFormat(out, time.RFC3339Nano)
-	out = append(out, '"')
-	return out
-}
-
 func appendJSONTimeBytes(out []byte, timestamp []byte) []byte {
 	out = append(out, '"')
 	out = append(out, timestamp...)

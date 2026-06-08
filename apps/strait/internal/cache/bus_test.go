@@ -193,6 +193,24 @@ func TestMarshalBusMessageOmitEmptyPayloadAndVersion(t *testing.T) {
 	require.NotContains(t, string(data), "version")
 }
 
+func TestMarshalBusMessageEscapesControlCharacterKeys(t *testing.T) {
+	t.Parallel()
+
+	key := "job-1\x001000\x00"
+	data, err := marshalBusMessage(BusMessage{
+		Action:    BusActionInvalidate,
+		Namespace: "api_job_dependencies",
+		Key:       key,
+		Origin:    "node-a",
+		SentAt:    time.Date(2026, 6, 8, 12, 34, 56, 0, time.UTC),
+	})
+	require.NoError(t, err)
+
+	var got BusMessage
+	require.NoError(t, json.Unmarshal(data, &got))
+	require.Equal(t, key, got.Key)
+}
+
 func TestMarshalBusMessageRejectsInvalidPayload(t *testing.T) {
 	t.Parallel()
 
