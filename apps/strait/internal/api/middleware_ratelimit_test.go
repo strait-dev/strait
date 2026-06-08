@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"strait/internal/billing"
 	"strait/internal/config"
@@ -116,6 +117,56 @@ func TestProjectRateLimit_NoRedis_FailsOpen(t *testing.T) {
 	require.Equal(t, http.StatusOK,
 		rr.
 			Code)
+}
+
+func TestGlobalRateLimit_DoesNotThrottleHealthProbes(t *testing.T) {
+	t.Parallel()
+
+	srv := NewServer(ServerDeps{
+		Config: &config.Config{
+			InternalSecret:      "test-secret-value",
+			JWTSigningKey:       testJWTSigningKey,
+			MaxBulkTriggerItems: 500,
+			RateLimitRequests:   1,
+			RateLimitWindow:     time.Minute,
+		},
+		Store: &APIStoreMock{},
+		Queue: &mockQueue{},
+	})
+	t.Cleanup(srv.Close)
+
+	for _, path := range []string{"/health", "/health/ready"} {
+		for range 3 {
+			rr := httptest.NewRecorder()
+			srv.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, path, nil))
+			require.NotEqual(t, http.StatusTooManyRequests, rr.Code)
+		}
+	}
+}
+
+func TestGlobalRateLimit_StillThrottlesAPIRoutes(t *testing.T) {
+	t.Parallel()
+
+	srv := NewServer(ServerDeps{
+		Config: &config.Config{
+			InternalSecret:      "test-secret-value",
+			JWTSigningKey:       testJWTSigningKey,
+			MaxBulkTriggerItems: 500,
+			RateLimitRequests:   1,
+			RateLimitWindow:     time.Minute,
+		},
+		Store: &APIStoreMock{},
+		Queue: &mockQueue{},
+	})
+	t.Cleanup(srv.Close)
+
+	rr := httptest.NewRecorder()
+	srv.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/v1/jobs", nil))
+	require.NotEqual(t, http.StatusTooManyRequests, rr.Code)
+
+	rr = httptest.NewRecorder()
+	srv.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/v1/jobs", nil))
+	require.Equal(t, http.StatusTooManyRequests, rr.Code)
 }
 
 func TestProjectRateLimit_APIKeyOverride(t *testing.T) {
