@@ -910,9 +910,15 @@ func TestPgQue_ActivateDueRunsPromotesReadyRetries(t *testing.T) {
 		ID, past,
 		2))
 
+	listener := listenQueueWake(t, ctx)
+	defer listener.Close(context.Background())
+
 	promoted, err = q.ActivateDueRuns(ctx, 10)
 	require.NoError(t, err)
 	require.EqualValues(t, 1, promoted)
+	require.EqualValues(t, 1, countQueueWakeNotifications(t, ctx,
+		listener,
+	))
 
 	var stateStatus, readStatus domain.RunStatus
 	var stateAttempt, readAttempt int

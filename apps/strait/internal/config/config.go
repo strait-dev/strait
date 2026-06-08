@@ -43,7 +43,7 @@ type Config struct {
 	HeartbeatInterval         time.Duration `env:"HEARTBEAT_INTERVAL" default:"10s"`
 	ReaperInterval            time.Duration `env:"REAPER_INTERVAL" default:"30s"`
 	StaleThreshold            time.Duration `env:"STALE_THRESHOLD" default:"1m"`
-	PollerInterval            time.Duration `env:"POLLER_INTERVAL" default:"5s"`
+	PollerInterval            time.Duration `env:"POLLER_INTERVAL" default:"1s"`
 	RunRetentionShort         time.Duration `env:"RUN_RETENTION_SHORT" default:"720h"`
 	RunRetentionLong          time.Duration `env:"RUN_RETENTION_LONG" default:"2160h"`
 	OTELEndpoint              string        `env:"OTEL_EXPORTER_OTLP_ENDPOINT"`

@@ -334,6 +334,9 @@ func (q *PgQueQueue) ActivateDueRuns(ctx context.Context, limit int) (int64, err
 	if err := q.sendReadyEvents(ctx, tx, runs); err != nil {
 		return 0, err
 	}
+	if err := notifyExecutorQueueWake(ctx, tx, "pgque_activate_due_runs", len(runs)); err != nil {
+		return 0, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return 0, fmt.Errorf("pgque activate due runs: commit: %w", err)
 	}
@@ -742,6 +745,16 @@ func (q *PgQueQueue) recordReadyEmitBatch(ctx context.Context, db store.DBTX, ru
 		FROM unnest($1::text[], $2::bigint[]) AS input(run_id, ready_generation)
 		ON CONFLICT (run_id, ready_generation) DO NOTHING`, runIDs, readyGenerations); err != nil {
 		return fmt.Errorf("pgque record ready emits: %w", err)
+	}
+	return nil
+}
+
+func notifyExecutorQueueWake(ctx context.Context, db store.DBTX, reason string, count int) error {
+	if count <= 0 {
+		return nil
+	}
+	if _, err := db.Exec(ctx, `SELECT pg_notify($1, $2)`, QueueWakeChannel, fmt.Sprintf("%s:%d", reason, count)); err != nil {
+		return fmt.Errorf("pgque notify executor wake: %w", err)
 	}
 	return nil
 }

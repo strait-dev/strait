@@ -52,7 +52,7 @@ func TestLoad_Defaults(t *testing.T) {
 		{"HeartbeatInterval", cfg.HeartbeatInterval, 10 * time.Second},
 		{"ReaperInterval", cfg.ReaperInterval, 30 * time.Second},
 		{"StaleThreshold", cfg.StaleThreshold, 60 * time.Second},
-		{"PollerInterval", cfg.PollerInterval, 5 * time.Second},
+		{"PollerInterval", cfg.PollerInterval, time.Second},
 		{"RunRetentionShort", cfg.RunRetentionShort, 720 * time.Hour},
 		{"RunRetentionLong", cfg.RunRetentionLong, 2160 * time.Hour},
 		{"WorkflowRunRetentionDays", cfg.WorkflowRunRetentionDays, 30},
