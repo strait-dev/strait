@@ -1855,7 +1855,7 @@ func TestHandleGetWebhookDelivery_Success(t *testing.T) {
 	t.Parallel()
 
 	ms := &APIStoreMock{
-		GetWebhookDeliveryFunc: func(ctx context.Context, id string) (*domain.WebhookDelivery, error) {
+		GetWebhookDeliveryFunc: func(ctx context.Context, _ string, id string) (*domain.WebhookDelivery, error) {
 			require.Equal(t, "del-1", id)
 
 			return &domain.WebhookDelivery{ID: id, Status: domain.WebhookStatusPending}, nil
@@ -1875,7 +1875,7 @@ func TestHandleGetWebhookDelivery_RedactsWebhookURLSecrets(t *testing.T) {
 
 	rawURL := "https://user:pass@hooks.example.com/services/T00/B00/token?secret=value#frag"
 	ms := &APIStoreMock{
-		GetWebhookDeliveryFunc: func(context.Context, string) (*domain.WebhookDelivery, error) {
+		GetWebhookDeliveryFunc: func(context.Context, string, string) (*domain.WebhookDelivery, error) {
 			return &domain.WebhookDelivery{ID: "del-1", WebhookURL: rawURL, Status: domain.WebhookStatusFailed}, nil
 		},
 	}
@@ -1907,7 +1907,7 @@ func TestHandleGetWebhookDelivery_NotFound(t *testing.T) {
 	t.Parallel()
 
 	ms := &APIStoreMock{
-		GetWebhookDeliveryFunc: func(context.Context, string) (*domain.WebhookDelivery, error) {
+		GetWebhookDeliveryFunc: func(context.Context, string, string) (*domain.WebhookDelivery, error) {
 			return nil, fmt.Errorf("webhook delivery not found")
 		},
 	}
@@ -1925,7 +1925,7 @@ func TestHandleRetryWebhookDelivery_Success(t *testing.T) {
 	t.Parallel()
 
 	ms := &APIStoreMock{
-		GetWebhookDeliveryFunc: func(ctx context.Context, id string) (*domain.WebhookDelivery, error) {
+		GetWebhookDeliveryFunc: func(ctx context.Context, _ string, id string) (*domain.WebhookDelivery, error) {
 			return &domain.WebhookDelivery{ID: id, Status: domain.WebhookStatusDead}, nil
 		},
 		RetryWebhookDeliveryFunc: func(ctx context.Context, id string) (*domain.WebhookDelivery, error) {
@@ -1945,7 +1945,7 @@ func TestHandleRetryWebhookDelivery_Conflict(t *testing.T) {
 	t.Parallel()
 
 	ms := &APIStoreMock{
-		GetWebhookDeliveryFunc: func(ctx context.Context, id string) (*domain.WebhookDelivery, error) {
+		GetWebhookDeliveryFunc: func(ctx context.Context, _ string, id string) (*domain.WebhookDelivery, error) {
 			return &domain.WebhookDelivery{ID: id, Status: domain.WebhookStatusDelivered}, nil
 		},
 		RetryWebhookDeliveryFunc: func(context.Context, string) (*domain.WebhookDelivery, error) {
@@ -1969,7 +1969,7 @@ func TestHandleRetryWebhookDelivery_GetNotFoundErrorReturns404(t *testing.T) {
 	t.Parallel()
 
 	ms := &APIStoreMock{
-		GetWebhookDeliveryFunc: func(context.Context, string) (*domain.WebhookDelivery, error) {
+		GetWebhookDeliveryFunc: func(context.Context, string, string) (*domain.WebhookDelivery, error) {
 			return nil, fmt.Errorf("webhook delivery not found")
 		},
 		RetryWebhookDeliveryFunc: func(context.Context, string) (*domain.WebhookDelivery, error) {
@@ -1993,7 +1993,7 @@ func TestHandleRetryWebhookDelivery_NoLongerRetriableReturns409(t *testing.T) {
 	t.Parallel()
 
 	ms := &APIStoreMock{
-		GetWebhookDeliveryFunc: func(context.Context, string) (*domain.WebhookDelivery, error) {
+		GetWebhookDeliveryFunc: func(context.Context, string, string) (*domain.WebhookDelivery, error) {
 			return &domain.WebhookDelivery{ID: "del-1", Status: domain.WebhookStatusFailed}, nil
 		},
 		RetryWebhookDeliveryFunc: func(context.Context, string) (*domain.WebhookDelivery, error) {
@@ -2017,7 +2017,7 @@ func TestHandleRetryWebhookDelivery(t *testing.T) {
 		t.Parallel()
 		retryCalled := false
 		ms := &APIStoreMock{
-			GetWebhookDeliveryFunc: func(_ context.Context, id string) (*domain.WebhookDelivery, error) {
+			GetWebhookDeliveryFunc: func(_ context.Context, _ string, id string) (*domain.WebhookDelivery, error) {
 				require.Equal(t, "del-1", id)
 
 				return &domain.WebhookDelivery{
@@ -2057,7 +2057,7 @@ func TestHandleRetryWebhookDelivery(t *testing.T) {
 	t.Run("not found", func(t *testing.T) {
 		t.Parallel()
 		ms := &APIStoreMock{
-			GetWebhookDeliveryFunc: func(_ context.Context, _ string) (*domain.WebhookDelivery, error) {
+			GetWebhookDeliveryFunc: func(_ context.Context, _, _ string) (*domain.WebhookDelivery, error) {
 				return nil, nil
 			},
 		}
@@ -2073,7 +2073,7 @@ func TestHandleRetryWebhookDelivery(t *testing.T) {
 	t.Run("conflict when status is not failed", func(t *testing.T) {
 		t.Parallel()
 		ms := &APIStoreMock{
-			GetWebhookDeliveryFunc: func(_ context.Context, _ string) (*domain.WebhookDelivery, error) {
+			GetWebhookDeliveryFunc: func(_ context.Context, _, _ string) (*domain.WebhookDelivery, error) {
 				return &domain.WebhookDelivery{ID: "del-1", Status: "delivered"}, nil
 			},
 		}
@@ -2089,7 +2089,7 @@ func TestHandleRetryWebhookDelivery(t *testing.T) {
 	t.Run("get delivery store error", func(t *testing.T) {
 		t.Parallel()
 		ms := &APIStoreMock{
-			GetWebhookDeliveryFunc: func(_ context.Context, _ string) (*domain.WebhookDelivery, error) {
+			GetWebhookDeliveryFunc: func(_ context.Context, _, _ string) (*domain.WebhookDelivery, error) {
 				return nil, fmt.Errorf("db down")
 			},
 		}
@@ -2105,7 +2105,7 @@ func TestHandleRetryWebhookDelivery(t *testing.T) {
 	t.Run("retry delivery store error", func(t *testing.T) {
 		t.Parallel()
 		ms := &APIStoreMock{
-			GetWebhookDeliveryFunc: func(_ context.Context, _ string) (*domain.WebhookDelivery, error) {
+			GetWebhookDeliveryFunc: func(_ context.Context, _, _ string) (*domain.WebhookDelivery, error) {
 				return &domain.WebhookDelivery{ID: "del-1", Status: "failed"}, nil
 			},
 			RetryWebhookDeliveryFunc: func(_ context.Context, _ string) (*domain.WebhookDelivery, error) {
@@ -2166,7 +2166,7 @@ func TestHandleRetryWebhookDelivery_RedactsWebhookURLSecrets(t *testing.T) {
 
 	rawURL := "https://user:pass@hooks.example.com/services/T00/B00/token?secret=value#frag"
 	ms := &APIStoreMock{
-		GetWebhookDeliveryFunc: func(context.Context, string) (*domain.WebhookDelivery, error) {
+		GetWebhookDeliveryFunc: func(context.Context, string, string) (*domain.WebhookDelivery, error) {
 			return &domain.WebhookDelivery{ID: "del-1", WebhookURL: rawURL, Status: domain.WebhookStatusFailed}, nil
 		},
 		RetryWebhookDeliveryFunc: func(context.Context, string) (*domain.WebhookDelivery, error) {

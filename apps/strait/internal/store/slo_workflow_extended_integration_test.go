@@ -968,7 +968,7 @@ func TestWebhookDelivery_ReplayWebhookDelivery_HappyPath(t *testing.T) {
 	original, err := q.EnqueueRunWebhook(ctx, job, run, 3)
 	require.NoError(t, err)
 
-	replayed, err := q.ReplayWebhookDelivery(ctx, original.ID)
+	replayed, err := q.ReplayWebhookDelivery(ctx, job.ProjectID, original.ID)
 	require.NoError(t, err)
 	require.NotEqual(t, original.
 		ID,
@@ -990,7 +990,7 @@ func TestWebhookDelivery_ReplayWebhookDelivery_NotFound(t *testing.T) {
 	q := mustStore(t)
 	mustClean(t, ctx)
 
-	_, err := q.ReplayWebhookDelivery(ctx, newID())
+	_, err := q.ReplayWebhookDelivery(ctx, "missing-project", newID())
 	require.Error(t, err)
 
 }
@@ -1006,7 +1006,7 @@ func TestWebhookDelivery_ReplayWebhookDelivery_PreservesJobID(t *testing.T) {
 	original, err := q.EnqueueRunWebhook(ctx, job, run, 3)
 	require.NoError(t, err)
 
-	replayed, err := q.ReplayWebhookDelivery(ctx, original.ID)
+	replayed, err := q.ReplayWebhookDelivery(ctx, job.ProjectID, original.ID)
 	require.NoError(t, err)
 	require.Equal(t, original.
 		JobID,

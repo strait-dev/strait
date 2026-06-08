@@ -1139,7 +1139,7 @@ func TestTenantIsolation_GetWebhookDelivery_CrossProject(t *testing.T) {
 
 	now := time.Now()
 	ms := newIsolationStore()
-	ms.GetWebhookDeliveryFunc = func(_ context.Context, id string) (*domain.WebhookDelivery, error) {
+	ms.GetWebhookDeliveryFunc = func(_ context.Context, _ string, id string) (*domain.WebhookDelivery, error) {
 		switch id {
 		case "del-a":
 			return &domain.WebhookDelivery{ID: "del-a", JobID: "job-a", WebhookURL: "https://a.example.com", Status: domain.WebhookStatusDelivered, CreatedAt: now, UpdatedAt: now}, nil
@@ -1179,7 +1179,7 @@ func TestTenantIsolation_RetryWebhookDelivery_CrossProject(t *testing.T) {
 
 	now := time.Now()
 	ms := newIsolationStore()
-	ms.GetWebhookDeliveryFunc = func(_ context.Context, id string) (*domain.WebhookDelivery, error) {
+	ms.GetWebhookDeliveryFunc = func(_ context.Context, _ string, id string) (*domain.WebhookDelivery, error) {
 		switch id {
 		case "del-a":
 			return &domain.WebhookDelivery{ID: "del-a", JobID: "job-a", WebhookURL: "https://a.example.com", Status: domain.WebhookStatusFailed, CreatedAt: now, UpdatedAt: now}, nil

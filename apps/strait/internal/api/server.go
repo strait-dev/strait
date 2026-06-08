@@ -207,11 +207,11 @@ type RunEventStore interface {
 // RunWebhookStore handles webhook subscriptions and delivery retries.
 type RunWebhookStore interface {
 	ListWebhookDeliveries(ctx context.Context, projectID, status string, limit int, cursor *time.Time) ([]domain.WebhookDelivery, error)
-	GetWebhookDelivery(ctx context.Context, id string) (*domain.WebhookDelivery, error)
+	GetWebhookDelivery(ctx context.Context, projectID, id string) (*domain.WebhookDelivery, error)
 	RetryWebhookDelivery(ctx context.Context, id string) (*domain.WebhookDelivery, error)
 	UpdateWebhookDelivery(ctx context.Context, d *domain.WebhookDelivery) error
 	CreateWebhookDelivery(ctx context.Context, d *domain.WebhookDelivery) error
-	ReplayWebhookDelivery(ctx context.Context, id string) (*domain.WebhookDelivery, error)
+	ReplayWebhookDelivery(ctx context.Context, projectID, id string) (*domain.WebhookDelivery, error)
 	CreateWebhookSubscription(ctx context.Context, sub *domain.WebhookSubscription) error
 	ListWebhookSubscriptions(ctx context.Context, projectID string) ([]domain.WebhookSubscription, error)
 	GetWebhookSubscription(ctx context.Context, id string) (*domain.WebhookSubscription, error)

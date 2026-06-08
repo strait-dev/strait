@@ -1312,7 +1312,7 @@ type APIStoreMock struct {
 	GetUserPermissionsFunc func(ctx context.Context, projectID string, userID string) ([]string, error)
 
 	// GetWebhookDeliveryFunc mocks the GetWebhookDelivery method.
-	GetWebhookDeliveryFunc func(ctx context.Context, id string) (*domain.WebhookDelivery, error)
+	GetWebhookDeliveryFunc func(ctx context.Context, projectID string, id string) (*domain.WebhookDelivery, error)
 
 	// GetWebhookSubscriptionFunc mocks the GetWebhookSubscription method.
 	GetWebhookSubscriptionFunc func(ctx context.Context, id string) (*domain.WebhookSubscription, error)
@@ -1561,7 +1561,7 @@ type APIStoreMock struct {
 	ReplayDeadLetterRunWithAuditFunc func(ctx context.Context, runID string, audit *domain.AuditEvent) (*domain.JobRun, error)
 
 	// ReplayWebhookDeliveryFunc mocks the ReplayWebhookDelivery method.
-	ReplayWebhookDeliveryFunc func(ctx context.Context, id string) (*domain.WebhookDelivery, error)
+	ReplayWebhookDeliveryFunc func(ctx context.Context, projectID string, id string) (*domain.WebhookDelivery, error)
 
 	// RequeuePausedJobRunsFunc mocks the RequeuePausedJobRuns method.
 	RequeuePausedJobRunsFunc func(ctx context.Context, workflowRunID string) (int64, error)
@@ -2952,6 +2952,8 @@ type APIStoreMock struct {
 		GetWebhookDelivery []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// ProjectID is the projectID argument value.
+			ProjectID string
 			// ID is the id argument value.
 			ID string
 		}
@@ -3833,6 +3835,8 @@ type APIStoreMock struct {
 		ReplayWebhookDelivery []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// ProjectID is the projectID argument value.
+			ProjectID string
 			// ID is the id argument value.
 			ID string
 		}
@@ -10767,13 +10771,15 @@ func (mock *APIStoreMock) GetUserPermissionsCalls() []struct {
 }
 
 // GetWebhookDelivery calls GetWebhookDeliveryFunc.
-func (mock *APIStoreMock) GetWebhookDelivery(ctx context.Context, id string) (*domain.WebhookDelivery, error) {
+func (mock *APIStoreMock) GetWebhookDelivery(ctx context.Context, projectID string, id string) (*domain.WebhookDelivery, error) {
 	callInfo := struct {
-		Ctx context.Context
-		ID  string
+		Ctx       context.Context
+		ProjectID string
+		ID        string
 	}{
-		Ctx: ctx,
-		ID:  id,
+		Ctx:       ctx,
+		ProjectID: projectID,
+		ID:        id,
 	}
 	mock.lockGetWebhookDelivery.Lock()
 	mock.calls.GetWebhookDelivery = append(mock.calls.GetWebhookDelivery, callInfo)
@@ -10785,7 +10791,7 @@ func (mock *APIStoreMock) GetWebhookDelivery(ctx context.Context, id string) (*d
 		)
 		return webhookDeliveryOut, errOut
 	}
-	return mock.GetWebhookDeliveryFunc(ctx, id)
+	return mock.GetWebhookDeliveryFunc(ctx, projectID, id)
 }
 
 // GetWebhookDeliveryCalls gets all the calls that were made to GetWebhookDelivery.
@@ -10793,12 +10799,14 @@ func (mock *APIStoreMock) GetWebhookDelivery(ctx context.Context, id string) (*d
 //
 //	len(mockedAPIStore.GetWebhookDeliveryCalls())
 func (mock *APIStoreMock) GetWebhookDeliveryCalls() []struct {
-	Ctx context.Context
-	ID  string
+	Ctx       context.Context
+	ProjectID string
+	ID        string
 } {
 	var calls []struct {
-		Ctx context.Context
-		ID  string
+		Ctx       context.Context
+		ProjectID string
+		ID        string
 	}
 	mock.lockGetWebhookDelivery.RLock()
 	calls = mock.calls.GetWebhookDelivery
@@ -14681,13 +14689,15 @@ func (mock *APIStoreMock) ReplayDeadLetterRunWithAuditCalls() []struct {
 }
 
 // ReplayWebhookDelivery calls ReplayWebhookDeliveryFunc.
-func (mock *APIStoreMock) ReplayWebhookDelivery(ctx context.Context, id string) (*domain.WebhookDelivery, error) {
+func (mock *APIStoreMock) ReplayWebhookDelivery(ctx context.Context, projectID string, id string) (*domain.WebhookDelivery, error) {
 	callInfo := struct {
-		Ctx context.Context
-		ID  string
+		Ctx       context.Context
+		ProjectID string
+		ID        string
 	}{
-		Ctx: ctx,
-		ID:  id,
+		Ctx:       ctx,
+		ProjectID: projectID,
+		ID:        id,
 	}
 	mock.lockReplayWebhookDelivery.Lock()
 	mock.calls.ReplayWebhookDelivery = append(mock.calls.ReplayWebhookDelivery, callInfo)
@@ -14699,7 +14709,7 @@ func (mock *APIStoreMock) ReplayWebhookDelivery(ctx context.Context, id string) 
 		)
 		return webhookDeliveryOut, errOut
 	}
-	return mock.ReplayWebhookDeliveryFunc(ctx, id)
+	return mock.ReplayWebhookDeliveryFunc(ctx, projectID, id)
 }
 
 // ReplayWebhookDeliveryCalls gets all the calls that were made to ReplayWebhookDelivery.
@@ -14707,12 +14717,14 @@ func (mock *APIStoreMock) ReplayWebhookDelivery(ctx context.Context, id string) 
 //
 //	len(mockedAPIStore.ReplayWebhookDeliveryCalls())
 func (mock *APIStoreMock) ReplayWebhookDeliveryCalls() []struct {
-	Ctx context.Context
-	ID  string
+	Ctx       context.Context
+	ProjectID string
+	ID        string
 } {
 	var calls []struct {
-		Ctx context.Context
-		ID  string
+		Ctx       context.Context
+		ProjectID string
+		ID        string
 	}
 	mock.lockReplayWebhookDelivery.RLock()
 	calls = mock.calls.ReplayWebhookDelivery

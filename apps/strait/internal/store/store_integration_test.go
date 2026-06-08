@@ -3416,7 +3416,7 @@ func TestWebhookDelivery_CRUD(t *testing.T) {
 	require.Error(t, q.CreateWebhookDelivery(ctx,
 		dupID))
 
-	got, err := q.GetWebhookDelivery(ctx, delivery1.ID)
+	got, err := q.GetWebhookDelivery(ctx, job.ProjectID, delivery1.ID)
 	require.NoError(t, err)
 	require.False(t, got.ID !=
 		delivery1.
@@ -3429,7 +3429,7 @@ func TestWebhookDelivery_CRUD(t *testing.T) {
 			Status !=
 			"pending")
 
-	_, err = q.GetWebhookDelivery(ctx, newID())
+	_, err = q.GetWebhookDelivery(ctx, job.ProjectID, newID())
 	require.Error(t, err)
 
 	deliveredAt := time.Now().UTC()
@@ -3445,7 +3445,7 @@ func TestWebhookDelivery_CRUD(t *testing.T) {
 		UpdatedAt.
 		IsZero())
 
-	got, err = q.GetWebhookDelivery(ctx, delivery1.ID)
+	got, err = q.GetWebhookDelivery(ctx, job.ProjectID, delivery1.ID)
 	require.NoError(t, err)
 	require.False(t, got.Status !=
 		"delivered" ||
@@ -10316,7 +10316,7 @@ func TestClaimPendingWebhookRetries_LeaseAndTokenBoundUpdate(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, updated)
 
-	got, err := q.GetWebhookDelivery(ctx, due.ID)
+	got, err := q.GetWebhookDelivery(ctx, projectID, due.ID)
 	require.NoError(t, err)
 	require.False(t, got.Status !=
 		domain.
@@ -10381,22 +10381,22 @@ func TestDeleteOldWebhookDeliveries(t *testing.T) {
 	require.NoError(t, err)
 	require.EqualValues(t, 2, deleted)
 
-	if _, err := q.GetWebhookDelivery(ctx, deliveredOld.ID); err == nil {
+	if _, err := q.GetWebhookDelivery(ctx, projectID, deliveredOld.ID); err == nil {
 		require.Fail(t,
 
 			"GetWebhookDelivery(deliveredOld) error = nil, want error")
 	}
-	if _, err := q.GetWebhookDelivery(ctx, deadOld.ID); err == nil {
+	if _, err := q.GetWebhookDelivery(ctx, projectID, deadOld.ID); err == nil {
 		require.Fail(t,
 
 			"GetWebhookDelivery(deadOld) error = nil, want error")
 	}
-	if _, err := q.GetWebhookDelivery(ctx, deliveredRecent.ID); err != nil {
+	if _, err := q.GetWebhookDelivery(ctx, projectID, deliveredRecent.ID); err != nil {
 		require.Failf(t, "test failure",
 
 			"GetWebhookDelivery(deliveredRecent) error = %v", err)
 	}
-	if _, err := q.GetWebhookDelivery(ctx, pendingOld.ID); err != nil {
+	if _, err := q.GetWebhookDelivery(ctx, projectID, pendingOld.ID); err != nil {
 		require.Failf(t, "test failure",
 
 			"GetWebhookDelivery(pendingOld) error = %v", err)
