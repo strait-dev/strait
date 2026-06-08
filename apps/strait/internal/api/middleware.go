@@ -171,7 +171,7 @@ func realIP(r *http.Request, trustedProxies []net.IPNet) string {
 // from the trusted-proxy-aware client IP, instead of httprate's default which
 // can be spoofed by clients in deployments where the server sees X-Forwarded-For.
 func (s *Server) rateLimitKeyByIP(r *http.Request) (string, error) {
-	return realIP(r, s.trustedProxies), nil
+	return clientIPFromRequest(r, s.trustedProxies), nil
 }
 
 // remoteAddrIP returns the IP portion of r.RemoteAddr, stripping the port if
@@ -182,6 +182,13 @@ func remoteAddrIP(r *http.Request) string {
 		return host
 	}
 	return r.RemoteAddr
+}
+
+func clientIPFromRequest(r *http.Request, trustedProxies []net.IPNet) string {
+	if ip := remoteIPFromContext(r.Context()); ip != "" {
+		return ip
+	}
+	return realIP(r, trustedProxies)
 }
 
 // ipInNets reports whether the IP literal ip belongs to any of the given
@@ -466,7 +473,7 @@ func orgIDFromContext(ctx context.Context) string {
 
 func (s *Server) apiKeyAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		clientIP := realIP(r, s.trustedProxies)
+		clientIP := clientIPFromRequest(r, s.trustedProxies)
 
 		// Check if this IP is locked out from too many failed attempts.
 		if blocked, retryAfter := s.authLimiter.IsBlockedScoped(r.Context(), clientIP, ratelimit.AuthScopeAPIKey); blocked {
@@ -595,7 +602,7 @@ func (s *Server) apiKeyOrSecretAuth(next http.Handler) http.Handler {
 
 func (s *Server) oidcAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		clientIP := realIP(r, s.trustedProxies)
+		clientIP := clientIPFromRequest(r, s.trustedProxies)
 
 		if blocked, retryAfter := s.authLimiter.IsBlockedScoped(r.Context(), clientIP, ratelimit.AuthScopeOIDC); blocked {
 			recordAuthDecision(r.Context(), "oidc", "throttled")
@@ -677,7 +684,7 @@ func (s *Server) oidcAuth(next http.Handler) http.Handler {
 
 func (s *Server) internalSecretAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		clientIP := realIP(r, s.trustedProxies)
+		clientIP := clientIPFromRequest(r, s.trustedProxies)
 
 		// Check if this IP is locked out from too many failed attempts.
 		if blocked, retryAfter := s.authLimiter.IsBlockedScoped(r.Context(), clientIP, ratelimit.AuthScopeInternalSecret); blocked {
@@ -1519,7 +1526,7 @@ func (s *Server) resolveRateLimit(ctx context.Context, r *http.Request, projectI
 
 	// 6. Fall back to per-IP rate limit when no key/project limits matched.
 	if s.config.RateLimitRequests > 0 {
-		ip := realIP(r, s.trustedProxies)
+		ip := clientIPFromRequest(r, s.trustedProxies)
 		return resolvedRateLimit{limit: s.config.RateLimitRequests, windowSecs: int(time.Minute.Seconds()), key: "rl:ip:" + ip}
 	}
 
