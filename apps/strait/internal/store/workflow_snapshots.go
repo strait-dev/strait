@@ -48,15 +48,15 @@ func (q *Queries) GetOrCreateWorkflowSnapshot(
 	}
 	hash := workflowSnapshotDefinitionHash(defJSON)
 
-	// If the workflow has a versionID, dedupe only exact definition matches.
-	// Trigger-time step overrides can change the serialized step set while
-	// keeping the workflow version stable, so version_id alone is insufficient.
-	if wf.VersionID != "" {
-		existing, err := q.getWorkflowSnapshotByVersionAndHash(ctx, wf.ProjectID, wf.ID, wf.VersionID, hash)
-		if err == nil && existing != nil {
-			return existing, nil
-		}
-		// Not found — create a new definition variant.
+	// Dedupe exact definition matches by (project_id, workflow_id, version_id,
+	// definition_hash). Trigger-time step overrides change the serialized step set
+	// (and thus the hash) while keeping the version stable, so version_id alone is
+	// insufficient. This runs for versionless snapshots too (version_id == ""):
+	// the ON CONFLICT below uses a partial unique index that only covers
+	// version_id != '', so without this lookup every re-trigger of a versionless
+	// workflow would insert a duplicate row, growing the table unbounded.
+	if existing, err := q.getWorkflowSnapshotByVersionAndHash(ctx, wf.ProjectID, wf.ID, wf.VersionID, hash); err == nil && existing != nil {
+		return existing, nil
 	}
 
 	snapshot := &domain.WorkflowSnapshot{

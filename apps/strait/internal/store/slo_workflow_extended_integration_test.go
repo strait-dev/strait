@@ -836,6 +836,37 @@ func TestWorkflowSnapshot_GetWorkflowSnapshot_CrossTenant(t *testing.T) {
 	require.Nil(t, other, "snapshot must not resolve under a different project")
 }
 
+// TestWorkflowSnapshot_VersionlessDedup is the regression guard for unbounded
+// duplicate snapshots: a versionless workflow (no version_id) re-creating the
+// same definition must reuse the existing snapshot rather than insert a new row
+// each time (the ON CONFLICT partial index only covers version_id != '').
+func TestWorkflowSnapshot_VersionlessDedup(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "proj-wf-snap-versionless-" + newID()
+	wf := testutil.MustCreateWorkflow(t, ctx, q, &testutil.WorkflowOpts{
+		ProjectID: new(projectID),
+	})
+	create := func() (*domain.WorkflowSnapshot, error) {
+		return q.GetOrCreateWorkflowSnapshot(ctx, &domain.Workflow{
+			ID:        wf.ID,
+			ProjectID: projectID,
+			Name:      wf.Name,
+			Slug:      wf.Slug,
+			Version:   1,
+			// No VersionID: exercises the versionless path.
+		}, nil)
+	}
+
+	first, err := create()
+	require.NoError(t, err)
+	second, err := create()
+	require.NoError(t, err)
+	require.Equal(t, first.ID, second.ID, "identical versionless definition must dedupe to one snapshot")
+}
+
 func TestWorkflowSnapshot_GetWorkflowSnapshot_Dedup(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
