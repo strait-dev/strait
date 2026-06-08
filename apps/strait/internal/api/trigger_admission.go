@@ -31,7 +31,9 @@ type triggerQueueRoutePreparer interface {
 }
 
 const triggerAdmissionLockTimeout = "2500ms"
+const triggerAdmissionStatementTimeout = "250ms"
 const setTriggerAdmissionLockTimeoutSQL = "SET LOCAL lock_timeout = '" + triggerAdmissionLockTimeout + "'"
+const setTriggerAdmissionStatementTimeoutSQL = "SET LOCAL statement_timeout = '" + triggerAdmissionStatementTimeout + "'"
 
 func (s *Server) withTriggerLimitGuard(ctx context.Context, job *domain.Job, quota *store.ProjectQuota, fn func(context.Context, store.DBTX) error) error {
 	if err := s.prepareTriggerQueueRoute(ctx, job); err != nil {
@@ -39,6 +41,9 @@ func (s *Server) withTriggerLimitGuard(ctx context.Context, job *domain.Job, quo
 	}
 	if txer, ok := s.store.(triggerLimitTransactioner); ok {
 		return txer.WithTx(ctx, func(txCtx context.Context, tx store.DBTX) error {
+			if err := setTriggerAdmissionStatementTimeout(txCtx, tx); err != nil {
+				return err
+			}
 			if err := acquireTriggerAdmissionLocks(txCtx, tx, job, quota); err != nil {
 				return err
 			}
@@ -52,6 +57,16 @@ func (s *Server) withTriggerLimitGuard(ctx context.Context, job *domain.Job, quo
 		return err
 	}
 	return fn(ctx, nil)
+}
+
+func setTriggerAdmissionStatementTimeout(ctx context.Context, tx store.DBTX) error {
+	if tx == nil {
+		return nil
+	}
+	if _, err := tx.Exec(ctx, setTriggerAdmissionStatementTimeoutSQL); err != nil {
+		return fmt.Errorf("set trigger admission statement timeout: %w", err)
+	}
+	return nil
 }
 
 func (s *Server) prepareTriggerQueueRoute(ctx context.Context, job *domain.Job) error {

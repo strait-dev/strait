@@ -56,6 +56,28 @@ func TestAcquireTriggerAdmissionLocks_NoLimitsSkipsDatabaseWork(t *testing.T) {
 	)
 }
 
+func TestWithTriggerLimitGuard_SetsStatementTimeout(t *testing.T) {
+	t.Parallel()
+
+	tx := &triggerAdmissionTx{}
+	srv := &Server{store: &triggerAdmissionStoreMock{
+		APIStoreMock: &APIStoreMock{},
+		tx:           tx,
+	}}
+	job := &domain.Job{ID: "job-1", ProjectID: "project-1"}
+	called := false
+
+	err := srv.withTriggerLimitGuard(context.Background(), job, nil, func(_ context.Context, gotTx store.DBTX) error {
+		called = true
+		require.Same(t, tx, gotTx)
+		return nil
+	})
+
+	require.NoError(t, err)
+	require.True(t, called)
+	require.Contains(t, strings.Join(tx.execSQL, "\n"), "SET LOCAL statement_timeout")
+}
+
 func TestCheckTriggerLimitsInTx_UsesTransactionalCounts(t *testing.T) {
 	t.Parallel()
 
@@ -284,6 +306,15 @@ type triggerPriorityAdmissionEnforcer struct {
 
 func (e *triggerPriorityAdmissionEnforcer) CheckMaxDispatchPriority(ctx context.Context, projectID string, priority int) error {
 	return e.checkFunc(ctx, projectID, priority)
+}
+
+type triggerAdmissionStoreMock struct {
+	*APIStoreMock
+	tx store.DBTX
+}
+
+func (m *triggerAdmissionStoreMock) WithTx(ctx context.Context, fn func(context.Context, store.DBTX) error) error {
+	return fn(ctx, m.tx)
 }
 
 type triggerAdmissionTx struct {
