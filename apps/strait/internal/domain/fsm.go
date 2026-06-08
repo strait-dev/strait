@@ -1,9 +1,5 @@
 package domain
 
-import (
-	"slices"
-)
-
 var validTransitions = map[RunStatus][]RunStatus{
 	StatusDelayed:      {StatusQueued, StatusCanceled, StatusExpired},
 	StatusQueued:       {StatusDequeued, StatusExecuting, StatusCanceled, StatusExpired},
@@ -23,15 +19,44 @@ var validTransitions = map[RunStatus][]RunStatus{
 }
 
 func ValidateTransition(from, to RunStatus) error {
-	transitions, ok := validTransitions[from]
-	if !ok {
+	switch from {
+	case StatusDelayed:
+		if to == StatusQueued || to == StatusCanceled || to == StatusExpired {
+			return nil
+		}
+	case StatusQueued:
+		if to == StatusDequeued || to == StatusExecuting || to == StatusCanceled || to == StatusExpired {
+			return nil
+		}
+	case StatusDequeued:
+		if to == StatusExecuting || to == StatusQueued || to == StatusCanceled || to == StatusSystemFailed {
+			return nil
+		}
+	case StatusExecuting:
+		switch to {
+		case StatusCompleted, StatusFailed, StatusTimedOut, StatusCrashed, StatusCanceled, StatusWaiting, StatusQueued, StatusSystemFailed, StatusDeadLetter, StatusPaused:
+			return nil
+		}
+	case StatusWaiting:
+		if to == StatusExecuting || to == StatusCompleted || to == StatusFailed || to == StatusCanceled || to == StatusTimedOut {
+			return nil
+		}
+	case StatusCompleted, StatusFailed, StatusTimedOut, StatusCrashed, StatusSystemFailed, StatusCanceled, StatusExpired:
+	case StatusDeadLetter:
+		if to == StatusQueued || to == StatusReplayStaged {
+			return nil
+		}
+	case StatusReplayStaged:
+		if to == StatusQueued || to == StatusCanceled {
+			return nil
+		}
+	case StatusPaused:
+		if to == StatusQueued || to == StatusCanceled {
+			return nil
+		}
+	default:
 		return &UnknownStatusError{Status: from}
 	}
-
-	if slices.Contains(transitions, to) {
-		return nil
-	}
-
 	return &TransitionError{From: from, To: to}
 }
 
