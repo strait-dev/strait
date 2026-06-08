@@ -264,7 +264,7 @@ func evaluateAllOfCondition(cond json.RawMessage, stepStatuses map[string]domain
 	allMet := true
 	conditions.ForEach(func(_, subCondition gjson.Result) bool {
 		var ok bool
-		ok, evalErr = EvaluateCondition(json.RawMessage(subCondition.Raw), stepStatuses)
+		ok, evalErr = evaluateConditionResult(subCondition, stepStatuses)
 		if evalErr != nil {
 			return false
 		}
@@ -290,7 +290,7 @@ func evaluateAnyOfCondition(cond json.RawMessage, stepStatuses map[string]domain
 	var anyMet bool
 	conditions.ForEach(func(_, subCondition gjson.Result) bool {
 		var ok bool
-		ok, evalErr = EvaluateCondition(json.RawMessage(subCondition.Raw), stepStatuses)
+		ok, evalErr = evaluateConditionResult(subCondition, stepStatuses)
 		if evalErr != nil {
 			return false
 		}
@@ -365,7 +365,7 @@ func evaluateAllOfConditionResult(cond gjson.Result, stepStatuses map[string]dom
 	allMet := true
 	conditions.ForEach(func(_, subCondition gjson.Result) bool {
 		var ok bool
-		ok, evalErr = EvaluateCondition(json.RawMessage(subCondition.Raw), stepStatuses)
+		ok, evalErr = evaluateConditionResult(subCondition, stepStatuses)
 		if evalErr != nil {
 			return false
 		}
@@ -391,7 +391,7 @@ func evaluateAnyOfConditionResult(cond gjson.Result, stepStatuses map[string]dom
 	var anyMet bool
 	conditions.ForEach(func(_, subCondition gjson.Result) bool {
 		var ok bool
-		ok, evalErr = EvaluateCondition(json.RawMessage(subCondition.Raw), stepStatuses)
+		ok, evalErr = evaluateConditionResult(subCondition, stepStatuses)
 		if evalErr != nil {
 			return false
 		}
