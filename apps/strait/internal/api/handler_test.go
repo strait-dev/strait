@@ -2538,7 +2538,7 @@ func newMockPoolStatter(acquired, max int32) *mockPoolStatter {
 	return m
 }
 
-func TestDBBackpressure_Returns429WhenPoolExhausted(t *testing.T) {
+func TestDBBackpressure_DoesNotThrottleHealthWhenPoolExhausted(t *testing.T) {
 	t.Parallel()
 
 	cfg := &config.Config{
@@ -2554,16 +2554,11 @@ func TestDBBackpressure_Returns429WhenPoolExhausted(t *testing.T) {
 	})
 	t.Cleanup(srv.Close)
 
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/health", ""))
-	require.Equal(t, http.StatusTooManyRequests,
-
-		w.Code,
-	)
-	require.Equal(t, "1", w.Header().Get("Retry-After"))
-	var body ErrorResponse
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-	require.Equal(t, ErrorCodeRateLimited, body.Error.Code)
+	for _, path := range []string{"/health", "/health/ready"} {
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, httptest.NewRequest(http.MethodGet, path, nil))
+		require.NotEqual(t, http.StatusTooManyRequests, w.Code)
+	}
 }
 
 func TestDBBackpressure_TriggerRouteShortCircuitsBeforeAuthAndStore(t *testing.T) {
@@ -2626,7 +2621,7 @@ func TestDBBackpressure_AllowsRequestsWhenPoolHealthy(t *testing.T) {
 			Code)
 }
 
-func TestDBBackpressure_Returns429WhenAcquireWaitSpikes(t *testing.T) {
+func TestDBBackpressure_DoesNotThrottleHealthWhenAcquireWaitSpikes(t *testing.T) {
 	t.Parallel()
 
 	cfg := &config.Config{
@@ -2651,16 +2646,11 @@ func TestDBBackpressure_Returns429WhenAcquireWaitSpikes(t *testing.T) {
 	statter.emptyAcquireWait.Store(int64(time.Second)) // avg = 100ms (above 50ms threshold)
 	srv.poolBackpressure.sampleOnce()
 
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/health", ""))
-	require.Equal(t, http.StatusTooManyRequests,
-
-		w.Code,
-	)
-	require.Equal(t, "1", w.Header().Get("Retry-After"))
-	var body ErrorResponse
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-	require.Equal(t, ErrorCodeRateLimited, body.Error.Code)
+	for _, path := range []string{"/health", "/health/ready"} {
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, httptest.NewRequest(http.MethodGet, path, nil))
+		require.NotEqual(t, http.StatusTooManyRequests, w.Code)
+	}
 }
 
 func TestDBBackpressure_AllowsSmallAcquireWait(t *testing.T) {

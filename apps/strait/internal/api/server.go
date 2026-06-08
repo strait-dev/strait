@@ -986,6 +986,10 @@ func NewServer(deps ServerDeps) *Server {
 
 func (s *Server) dbBackpressure(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if isOperationalHealthPath(r.URL.Path) {
+			next.ServeHTTP(w, r)
+			return
+		}
 		if s.shouldApplyDBBackpressure() {
 			w.Header().Set("Retry-After", "1")
 			respondError(w, r, http.StatusTooManyRequests, APIError{
