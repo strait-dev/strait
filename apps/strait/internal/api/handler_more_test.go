@@ -2214,7 +2214,7 @@ func TestHandleTriggerJob_PriorityTooHigh(t *testing.T) {
 		w.Code)
 	assert.False(
 		t, !strings.Contains(w.Body.
-			String(), "Priority",
+			String(), "priority",
 		) || !strings.Contains(w.Body.
 			String(), "max",
 		))
@@ -2440,7 +2440,7 @@ func TestHandleCreateJob_InvalidRetryStrategy(t *testing.T) {
 
 		w.Code)
 	require.False(t, !strings.Contains(w.Body.
-		String(), "RetryStrategy",
+		String(), "retry_strategy",
 	) || !strings.Contains(w.
 		Body.String(), "oneof",
 	))
