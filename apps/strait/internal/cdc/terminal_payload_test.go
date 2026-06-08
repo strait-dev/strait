@@ -43,3 +43,24 @@ func TestMarshalTerminalRunPayloadMatchesJSONSemantics(t *testing.T) {
 	require.Equal(t, "error \"quoted\"", got.Error)
 	require.Equal(t, timestamp, got.Timestamp)
 }
+
+func BenchmarkMarshalTerminalRunPayload(b *testing.B) {
+	timestamp := time.Date(2026, 6, 7, 18, 30, 45, 0, time.UTC)
+
+	b.ReportAllocs()
+	for b.Loop() {
+		payload := marshalTerminalRunPayload(
+			"run.completed",
+			"run-1",
+			"job-1",
+			"p1",
+			"completed",
+			1,
+			"",
+			timestamp,
+		)
+		if len(payload) == 0 {
+			b.Fatal("marshalTerminalRunPayload returned empty payload")
+		}
+	}
+}
