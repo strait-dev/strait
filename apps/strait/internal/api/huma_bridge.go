@@ -81,7 +81,11 @@ func TypedHandler[I any, O any](s *Server, status int, handler func(ctx context.
 		// Store w and r in context for streaming/export handlers that need raw access.
 		ctx := context.WithValue(r.Context(), ctxKeyResponseWriter, w)
 		ctx = context.WithValue(ctx, ctxKeyRequest, r)
-		if strings.HasPrefix(r.URL.Path, "/sdk/") {
+		// Revalidate live run-token state whenever the request was authenticated
+		// with a run token (ctxRunIDKey is set by runTokenAuth), rather than
+		// gating on the URL path prefix — a path-topology check silently skips
+		// revalidation if an SDK route is ever mounted under a different prefix.
+		if runID, ok := ctx.Value(ctxRunIDKey).(string); ok && runID != "" {
 			if err := s.revalidateRunTokenState(ctx); err != nil {
 				writeTypedError(w, r, err)
 				return
@@ -394,6 +398,22 @@ func (e *rawStatusError) Error() string {
 
 func (e *rawStatusError) GetStatus() int {
 	return e.status
+}
+
+// newRequestValidator builds the request validator and registers a tag-name
+// function so validation error messages reference the public JSON field name
+// (e.g. "project_id") rather than the internal Go struct field name
+// (e.g. "ProjectID"), avoiding disclosure of internal type details in 422s.
+func newRequestValidator() *validator.Validate {
+	v := validator.New(validator.WithRequiredStructEnabled())
+	v.RegisterTagNameFunc(func(fld reflect.StructField) string {
+		name := strings.SplitN(fld.Tag.Get("json"), ",", 2)[0]
+		if name == "" || name == "-" {
+			return fld.Name
+		}
+		return name
+	})
+	return v
 }
 
 // newValidationError creates a typedAPIError for struct validation failures.

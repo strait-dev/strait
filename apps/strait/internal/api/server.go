@@ -896,7 +896,7 @@ func NewServer(deps ServerDeps) *Server {
 		workflowEngine:     deps.WorkflowEngine,
 		txPool:             deps.TxPool,
 		actorSyncer:        deps.ActorSyncer,
-		validate:           validator.New(validator.WithRequiredStructEnabled()),
+		validate:           newRequestValidator(),
 		maxRequestBodySize: maxBody,
 		poolStatter:        deps.PoolStatter,
 		permCache:          newPermissionCache(permCacheTTL(deps.Config), cacheDeps),
