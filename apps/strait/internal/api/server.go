@@ -1405,6 +1405,11 @@ func acceptsGzip(acceptEncoding string) bool {
 	if acceptEncoding == "" {
 		return false
 	}
+	if acceptEncoding[0] == 'g' {
+		if acceptEncoding == "gzip" || strings.HasPrefix(acceptEncoding, "gzip;") {
+			return true
+		}
+	}
 	for part := range strings.SplitSeq(acceptEncoding, ",") {
 		mt, _, _ := strings.Cut(part, ";")
 		if strings.EqualFold(strings.TrimSpace(mt), "gzip") {

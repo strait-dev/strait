@@ -109,6 +109,7 @@ func BenchmarkRequireJSONAccept(b *testing.B) {
 		accept string
 	}{
 		{name: "empty", accept: ""},
+		{name: "json", accept: "application/json"},
 		{name: "json_quality", accept: "application/json;q=0.9"},
 		{name: "multi_value_late_match", accept: "text/html;q=0.8, application/xml;q=0.7, application/json;q=0.6"},
 		{name: "csv_quality", accept: "text/csv;q=0.9"},

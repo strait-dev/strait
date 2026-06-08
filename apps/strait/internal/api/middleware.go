@@ -86,6 +86,9 @@ func acceptsJSONResponse(accept string) bool {
 	if accept == "" || accept == "*/*" {
 		return true
 	}
+	if accept == "application/json" {
+		return true
+	}
 	for len(accept) > 0 {
 		part := accept
 		if comma := strings.IndexByte(accept, ','); comma >= 0 {
@@ -110,13 +113,19 @@ func acceptsJSONResponse(accept string) bool {
 func requireJSONContentType(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost || r.Method == http.MethodPut || r.Method == http.MethodPatch {
-			if r.ContentLength > 0 || r.Header.Get("Content-Type") != "" {
-				ct := r.Header.Get("Content-Type")
-				mt, _, _ := strings.Cut(ct, ";")
-				mt = strings.TrimSpace(mt)
-				if mt != "application/json" {
+			ct := r.Header.Get("Content-Type")
+			if r.ContentLength > 0 || ct != "" {
+				if ct == "" {
 					respondError(w, r, http.StatusUnsupportedMediaType, "Content-Type must be application/json")
 					return
+				}
+				if ct != "application/json" {
+					mt, _, _ := strings.Cut(ct, ";")
+					mt = strings.TrimSpace(mt)
+					if mt != "application/json" {
+						respondError(w, r, http.StatusUnsupportedMediaType, "Content-Type must be application/json")
+						return
+					}
 				}
 			}
 		}
