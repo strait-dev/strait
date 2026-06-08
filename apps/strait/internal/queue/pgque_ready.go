@@ -216,6 +216,37 @@ func (q *PgQueQueue) readyRunsForEvents(ctx context.Context, db store.DBTX, runs
 		}
 		return readyRuns, runIDs, nil
 	}
+	if len(workerJobIDs) == 1 {
+		route, ok, err := q.workerJobRoute(ctx, db, workerJobIDs[0])
+		if err != nil {
+			return nil, nil, err
+		}
+		if !ok {
+			return nil, nil, fmt.Errorf("pgque worker route lookup: missing job %s", workerJobIDs[0])
+		}
+		var lastProjectID, lastQueueName, lastRouteKey string
+		for i := range readyRuns {
+			run := readyRuns[i].run
+			if run.ExecutionMode != domain.ExecutionModeWorker {
+				readyRuns[i].routeKey = pgQueHTTPRouteKey
+				continue
+			}
+			queueName := runQueueName(run.QueueName)
+			if run.QueueName == "" {
+				queueName = route.queueName
+			}
+			if run.ProjectID == lastProjectID && queueName == lastQueueName {
+				readyRuns[i].routeKey = lastRouteKey
+				continue
+			}
+			routeKey := pgQueWorkerRouteKey(run.ProjectID, queueName, route.environmentID)
+			readyRuns[i].routeKey = routeKey
+			lastProjectID = run.ProjectID
+			lastQueueName = queueName
+			lastRouteKey = routeKey
+		}
+		return readyRuns, runIDs, nil
+	}
 	workerRoutes, err := q.workerJobRoutes(ctx, db, workerJobIDs)
 	if err != nil {
 		return nil, nil, err

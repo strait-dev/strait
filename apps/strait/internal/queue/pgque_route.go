@@ -274,6 +274,36 @@ type pgQueWorkerJobRoute struct {
 	environmentID string
 }
 
+func (q *PgQueQueue) workerJobRoute(ctx context.Context, db store.DBTX, jobID string) (pgQueWorkerJobRoute, bool, error) {
+	rows, err := db.Query(ctx, `
+		SELECT id,
+		       COALESCE(NULLIF(queue_name, ''), 'default'),
+		       COALESCE(environment_id, '')
+		FROM jobs
+		WHERE id = $1`, jobID)
+	if err != nil {
+		return pgQueWorkerJobRoute{}, false, fmt.Errorf("pgque worker route lookup: %w", err)
+	}
+	defer rows.Close()
+
+	if !rows.Next() {
+		if err := rows.Err(); err != nil {
+			return pgQueWorkerJobRoute{}, false, fmt.Errorf("pgque worker route rows: %w", err)
+		}
+		return pgQueWorkerJobRoute{}, false, nil
+	}
+
+	var gotJobID string
+	var route pgQueWorkerJobRoute
+	if err := rows.Scan(&gotJobID, &route.queueName, &route.environmentID); err != nil {
+		return pgQueWorkerJobRoute{}, false, fmt.Errorf("pgque worker route scan: %w", err)
+	}
+	if err := rows.Err(); err != nil {
+		return pgQueWorkerJobRoute{}, false, fmt.Errorf("pgque worker route rows: %w", err)
+	}
+	return route, true, nil
+}
+
 func (q *PgQueQueue) workerJobRoutes(ctx context.Context, db store.DBTX, jobIDs []string) (map[string]pgQueWorkerJobRoute, error) {
 	routes := make(map[string]pgQueWorkerJobRoute, len(jobIDs))
 	if len(jobIDs) == 0 {
