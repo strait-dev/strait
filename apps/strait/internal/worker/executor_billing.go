@@ -14,6 +14,9 @@ func (e *Executor) enforceDispatchBilling(
 ) (func(), bool) {
 	if e.billingEnforcer == nil {
 		if e.edition.RequiresHTTPModeGating() {
+			if e.allowsUngatedCloudDevelopment() {
+				return nil, true
+			}
 			e.logger.Warn("billing enforcer unavailable for gated dispatch", "run_id", run.ID, "project_id", job.ProjectID)
 			e.handleSystemFailureWithJob(ctx, run, job, "billing enforcement unavailable")
 			return nil, false
@@ -77,6 +80,13 @@ func (e *Executor) checkDispatchBillingLimits(
 		return false
 	}
 	return e.checkDispatchHTTPModeAllowed(ctx, run, job, orgID, countedMonthlyRun)
+}
+
+func (e *Executor) allowsUngatedCloudDevelopment() bool {
+	if e.billingEnforcement || e.stripeWebhookSecret != "" {
+		return false
+	}
+	return e.sentryEnvironment == "development" || e.sentryEnvironment == "test"
 }
 
 func shouldCountMonthlyRun(run *domain.JobRun) bool {

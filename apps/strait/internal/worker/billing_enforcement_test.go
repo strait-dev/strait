@@ -275,6 +275,78 @@ func TestBillingEnforcement_CloudNilEnforcerFailsClosed(t *testing.T) {
 		execStore.statusCalls[0].to)
 }
 
+func TestBillingEnforcement_CloudDevelopmentNilEnforcerAllowsWhenBillingDisabled(t *testing.T) {
+	t.Parallel()
+
+	execStore := &mockExecutorStore{}
+	pool := NewPool(1)
+	t.Cleanup(func() { _ = pool.Shutdown(context.Background()) })
+	exec := NewExecutor(ExecutorConfig{
+		Pool:              pool,
+		Store:             execStore,
+		PollInterval:      time.Millisecond,
+		Edition:           domain.EditionCloud,
+		SentryEnvironment: "development",
+	})
+	run := &domain.JobRun{
+		ID:        "run-cloud-dev-nil-billing",
+		JobID:     "job-cloud-dev-nil-billing",
+		ProjectID: "proj-cloud-dev-nil-billing",
+		Status:    domain.StatusDequeued,
+		Attempt:   1,
+	}
+	job := &domain.Job{
+		ID:            run.JobID,
+		ProjectID:     run.ProjectID,
+		ExecutionMode: domain.ExecutionModeHTTP,
+	}
+
+	release, ok := exec.enforceDispatchBilling(context.Background(), run, job)
+	require.True(t, ok)
+	require.Nil(t, release)
+
+	execStore.mu.Lock()
+	defer execStore.mu.Unlock()
+	require.Empty(t, execStore.statusCalls)
+}
+
+func TestBillingEnforcement_CloudDevelopmentNilEnforcerFailsWhenBillingEnabled(t *testing.T) {
+	t.Parallel()
+
+	execStore := &mockExecutorStore{}
+	pool := NewPool(1)
+	t.Cleanup(func() { _ = pool.Shutdown(context.Background()) })
+	exec := NewExecutor(ExecutorConfig{
+		Pool:                      pool,
+		Store:                     execStore,
+		PollInterval:              time.Millisecond,
+		Edition:                   domain.EditionCloud,
+		SentryEnvironment:         "development",
+		BillingEnforcementEnabled: true,
+	})
+	run := &domain.JobRun{
+		ID:        "run-cloud-dev-billing-enabled",
+		JobID:     "job-cloud-dev-billing-enabled",
+		ProjectID: "proj-cloud-dev-billing-enabled",
+		Status:    domain.StatusDequeued,
+		Attempt:   1,
+	}
+	job := &domain.Job{
+		ID:            run.JobID,
+		ProjectID:     run.ProjectID,
+		ExecutionMode: domain.ExecutionModeHTTP,
+	}
+
+	release, ok := exec.enforceDispatchBilling(context.Background(), run, job)
+	require.False(t, ok)
+	require.Nil(t, release)
+
+	execStore.mu.Lock()
+	defer execStore.mu.Unlock()
+	require.Len(t, execStore.statusCalls, 1)
+	require.Equal(t, domain.StatusSystemFailed, execStore.statusCalls[0].to)
+}
+
 func TestBillingEnforcement_CommunityNilEnforcerAllows(t *testing.T) {
 	t.Parallel()
 

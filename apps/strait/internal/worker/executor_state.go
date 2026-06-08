@@ -60,6 +60,9 @@ type Executor struct {
 	mode                     string
 	version                  string
 	edition                  domain.Edition
+	sentryEnvironment        string
+	billingEnforcement       bool
+	stripeWebhookSecret      string
 	billingEnforcer          *billing.Enforcer
 	stripeUsageReporter      *billing.StripeUsageReporter
 	stripeUsageWG            conc.WaitGroup // tracks in-flight Stripe usage event goroutines

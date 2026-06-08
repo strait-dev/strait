@@ -54,6 +54,9 @@ type ExecutorConfig struct {
 	Mode                       string
 	Version                    string
 	Edition                    domain.Edition
+	SentryEnvironment          string
+	BillingEnforcementEnabled  bool
+	StripeWebhookSecret        string
 	WorkflowLookup             WorkflowLookup
 	WorkflowTriggerer          WorkflowTriggerer
 	JobLookup                  JobLookup
@@ -161,6 +164,9 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		mode:                     cfg.Mode,
 		version:                  cfg.Version,
 		edition:                  cfg.Edition,
+		sentryEnvironment:        cfg.SentryEnvironment,
+		billingEnforcement:       cfg.BillingEnforcementEnabled,
+		stripeWebhookSecret:      cfg.StripeWebhookSecret,
 		billingEnforcer:          cfg.BillingEnforcer,
 		stripeUsageReporter:      cfg.StripeUsageReporter,
 		runCostRecorder:          cfg.RunCostRecorder,

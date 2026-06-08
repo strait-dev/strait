@@ -122,6 +122,9 @@ func (s *Server) getOrgPlanLimits(ctx context.Context, projectID string) (*billi
 		return nil, nil
 	}
 	if s.billingEnforcer == nil {
+		if s.allowsUngatedCloudDevelopment() {
+			return nil, nil
+		}
 		return nil, planGateUnavailable("plan_gate_enforcer", errors.New("billing enforcer not configured"))
 	}
 
@@ -136,6 +139,16 @@ func (s *Server) getOrgPlanLimits(ctx context.Context, projectID string) (*billi
 	}
 
 	return &limits, nil
+}
+
+func (s *Server) allowsUngatedCloudDevelopment() bool {
+	if s.config == nil {
+		return false
+	}
+	if s.config.BillingEnforcementEnabled || s.config.StripeWebhookSecret != "" {
+		return false
+	}
+	return s.config.SentryEnvironment == "development" || s.config.SentryEnvironment == "test"
 }
 
 // checkFeatureAllowed checks whether a plan-gated feature is available for
