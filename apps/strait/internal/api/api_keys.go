@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/url"
 	"time"
+	"unsafe"
 
 	"strait/internal/domain"
 	"strait/internal/httputil"
@@ -55,7 +56,7 @@ func generateAPIKey() (string, error) {
 	return "strait_" + hex.EncodeToString(b), nil
 }
 func hashAPIKey(key string) string {
-	sum := sha256.Sum256([]byte(key))
+	sum := sha256.Sum256(unsafe.Slice(unsafe.StringData(key), len(key)))
 	var out [sha256.Size * 2]byte
 	hex.Encode(out[:], sum[:])
 	return string(out[:])
