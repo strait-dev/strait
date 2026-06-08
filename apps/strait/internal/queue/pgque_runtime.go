@@ -60,6 +60,18 @@ func (q *PgQueQueue) ensureRunRouteCached(ctx context.Context, run *domain.JobRu
 	return q.ensureRouteCached(ctx, state, routeKey, queueName)
 }
 
+func (q *PgQueQueue) PrepareRouteForJob(ctx context.Context, job *domain.Job) error {
+	if job == nil {
+		return nil
+	}
+	return q.ensureRunRouteCached(ctx, &domain.JobRun{
+		JobID:         job.ID,
+		ProjectID:     job.ProjectID,
+		ExecutionMode: job.ExecutionMode,
+		QueueName:     job.Queue,
+	})
+}
+
 func (q *PgQueQueue) ensureRunRoutesCached(ctx context.Context, runs []*domain.JobRun) error {
 	routeSet := pgQueRouteEnsureSet{}
 

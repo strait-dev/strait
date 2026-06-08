@@ -26,10 +26,17 @@ type triggerLimitTransactioner interface {
 	WithTx(ctx context.Context, fn func(context.Context, store.DBTX) error) error
 }
 
+type triggerQueueRoutePreparer interface {
+	PrepareRouteForJob(ctx context.Context, job *domain.Job) error
+}
+
 const triggerAdmissionLockTimeout = "2500ms"
 const setTriggerAdmissionLockTimeoutSQL = "SET LOCAL lock_timeout = '" + triggerAdmissionLockTimeout + "'"
 
 func (s *Server) withTriggerLimitGuard(ctx context.Context, job *domain.Job, quota *store.ProjectQuota, fn func(context.Context, store.DBTX) error) error {
+	if err := s.prepareTriggerQueueRoute(ctx, job); err != nil {
+		return err
+	}
 	if txer, ok := s.store.(triggerLimitTransactioner); ok {
 		return txer.WithTx(ctx, func(txCtx context.Context, tx store.DBTX) error {
 			if err := acquireTriggerAdmissionLocks(txCtx, tx, job, quota); err != nil {
@@ -45,6 +52,17 @@ func (s *Server) withTriggerLimitGuard(ctx context.Context, job *domain.Job, quo
 		return err
 	}
 	return fn(ctx, nil)
+}
+
+func (s *Server) prepareTriggerQueueRoute(ctx context.Context, job *domain.Job) error {
+	preparer, ok := s.queue.(triggerQueueRoutePreparer)
+	if !ok {
+		return nil
+	}
+	if err := preparer.PrepareRouteForJob(ctx, job); err != nil {
+		return fmt.Errorf("prepare trigger queue route: %w", err)
+	}
+	return nil
 }
 
 func (s *Server) checkTriggerDispatchPriority(ctx context.Context, projectID string, priority int) error {

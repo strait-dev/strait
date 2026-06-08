@@ -117,6 +117,43 @@ func TestPgQueMaintainRunsRotationPhases(t *testing.T) {
 			sql, "pgque.maint_rotate_tables_step2()")
 }
 
+func TestPgQuePrepareRouteForJobWarmsFreshWorkerRoute(t *testing.T) {
+	ctx := context.Background()
+	var calls []string
+	db := &mockDBTX{
+		execFn: func(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
+			calls = append(calls, sql)
+			return pgconn.CommandTag{}, nil
+		},
+		queryRowFn: func(_ context.Context, sql string, _ ...any) pgx.Row {
+			require.Contains(t, sql, "FROM jobs")
+			return &mockRow{scanFn: func(dest ...any) error {
+				require.Len(t, dest, 2)
+				*dest[0].(*string) = "tx-worker"
+				*dest[1].(*string) = "env-1"
+				return nil
+			}}
+		},
+	}
+
+	q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
+	job := &domain.Job{
+		ID:            "job-1",
+		ProjectID:     "project-1",
+		ExecutionMode: domain.ExecutionModeWorker,
+		Queue:         "tx-worker",
+		EnvironmentID: "env-1",
+	}
+	routeKey := pgQueWorkerRouteKey(job.ProjectID, job.Queue, job.EnvironmentID)
+
+	require.NoError(t, q.PrepareRouteForJob(ctx, job))
+	require.Len(t, calls, 5)
+	joined := strings.Join(calls, "\n")
+	require.Contains(t, joined, "INSERT INTO strait_pgque_routes")
+	require.Contains(t, joined, "pgque.create_queue")
+	require.True(t, q.routeConfigured(routeKey))
+}
+
 func TestPgQueMaintainWrapsPhaseErrors(t *testing.T) {
 	ctx := context.Background()
 	operationsErr := errors.New("operations failed")
