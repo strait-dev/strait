@@ -24,7 +24,7 @@ func (q *Queries) QueueStats(ctx context.Context) (*QueueStats, error) {
 			COALESCE(SUM(CASE WHEN status = '%s' THEN 1 ELSE 0 END), 0) AS queued,
 			COALESCE(SUM(CASE WHEN status = '%s' THEN 1 ELSE 0 END), 0) AS executing,
 			COALESCE(SUM(CASE WHEN status = '%s' THEN 1 ELSE 0 END), 0) AS delayed
-		FROM job_runs
+		FROM job_run_read_state
 		WHERE status IN ('%s', '%s', '%s')`,
 		domain.StatusQueued, domain.StatusExecuting, domain.StatusDelayed,
 		domain.StatusQueued, domain.StatusExecuting, domain.StatusDelayed)

@@ -366,7 +366,9 @@ func TestUpdateRunStatus_NormalTransition(t *testing.T) {
 func TestQueueStats_Success(t *testing.T) {
 	t.Parallel()
 	db := &mockDBTX{
-		queryRowFn: func(_ context.Context, _ string, _ ...any) pgx.Row {
+		queryRowFn: func(_ context.Context, query string, _ ...any) pgx.Row {
+			assert.Contains(t, query, "FROM job_run_read_state")
+			assert.NotContains(t, query, "FROM job_runs")
 			return &mockRow{
 				scanFn: func(dest ...any) error {
 					*dest[0].(*int) = 5

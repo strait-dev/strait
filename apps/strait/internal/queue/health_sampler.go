@@ -135,7 +135,7 @@ WHERE relname = 'job_runs_history'
 
 func (h *HealthSampler) sampleQueueDepthByStatus(ctx context.Context) {
 	const q = `
-SELECT status, COUNT(*) FROM job_runs
+SELECT status, COUNT(*) FROM job_run_read_state
 WHERE status IN ('queued', 'delayed', 'dequeued', 'executing', 'waiting', 'dead_letter')
 GROUP BY status
 `
