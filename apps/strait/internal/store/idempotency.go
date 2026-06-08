@@ -416,7 +416,19 @@ func sanitizeIdempotencyHeaders(h http.Header) http.Header {
 	out := make(http.Header, len(h))
 	for key, values := range h {
 		switch http.CanonicalHeaderKey(key) {
+		// Credentials/cookies: never persist or replay.
 		case "Set-Cookie", "Set-Cookie2", "Authorization", "Proxy-Authorization":
+			continue
+		// Hop-by-hop headers: meaningful only for the original connection. A
+		// replayed Transfer-Encoding/Connection that no longer matches the actual
+		// body framing corrupts the response through a reverse proxy.
+		case "Transfer-Encoding", "Connection", "Keep-Alive", "Te", "Trailer", "Upgrade", "Proxy-Connection":
+			continue
+		// CORS/negotiation headers are request-origin specific; replaying a stored
+		// value to a different origin would emit an incorrect access decision.
+		case "Access-Control-Allow-Origin", "Access-Control-Allow-Credentials",
+			"Access-Control-Allow-Methods", "Access-Control-Allow-Headers",
+			"Access-Control-Expose-Headers", "Access-Control-Max-Age", "Vary":
 			continue
 		default:
 			out[key] = append([]string(nil), values...)
