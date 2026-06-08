@@ -57,6 +57,15 @@ func TestSDKProgressDataOmitsEmptyOptionalFields(t *testing.T) {
 	require.JSONEq(t, `{"percent":42.5}`, string(payload))
 }
 
+func TestSDKStatusChangePayloadPreservesNanosecondTimestamp(t *testing.T) {
+	t.Parallel()
+
+	ts := time.Date(2026, 6, 7, 12, 0, 0, 123456789, time.UTC)
+	payload, err := marshalSDKStatusChangePayload("run-1", "executing", "completed", ts)
+	require.NoError(t, err)
+	require.JSONEq(t, `{"type":"status_change","run_id":"run-1","from":"executing","to":"completed","timestamp":"2026-06-07T12:00:00.123456789Z"}`, string(payload))
+}
+
 func TestSDKPayloadMarshalersEscapeEventFields(t *testing.T) {
 	t.Parallel()
 

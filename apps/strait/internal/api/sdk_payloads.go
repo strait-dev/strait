@@ -111,7 +111,9 @@ func marshalSDKOOMRiskData(memoryMB, memoryLimitMB float64) ([]byte, error) {
 }
 
 func marshalSDKStatusChangePayload(runID string, from, to string, timestamp time.Time) ([]byte, error) {
-	out := make([]byte, 0, 104+len(runID)+len(from)+len(to))
+	var timestampBuf [len("2006-01-02T15:04:05.999999999Z07:00")]byte
+	timestampBytes := timestamp.AppendFormat(timestampBuf[:0], time.RFC3339Nano)
+	out := make([]byte, 0, len(`{"type":"status_change","run_id":"","from":"","to":"","timestamp":""}`)+len(runID)+len(from)+len(to)+len(timestampBytes))
 	out = append(out, `{"type":"status_change","run_id":`...)
 	out = strconv.AppendQuote(out, runID)
 	out = append(out, `,"from":`...)
@@ -119,13 +121,15 @@ func marshalSDKStatusChangePayload(runID string, from, to string, timestamp time
 	out = append(out, `,"to":`...)
 	out = strconv.AppendQuote(out, to)
 	out = append(out, `,"timestamp":`...)
-	out = appendSDKJSONTime(out, timestamp)
+	out = appendSDKJSONTimeBytes(out, timestampBytes)
 	out = append(out, '}')
 	return out, nil
 }
 
 func marshalSDKFailedStatusChangePayload(runID string, from, to, errMessage string, timestamp time.Time) ([]byte, error) {
-	out := make([]byte, 0, 112+len(runID)+len(from)+len(to)+len(errMessage))
+	var timestampBuf [len("2006-01-02T15:04:05.999999999Z07:00")]byte
+	timestampBytes := timestamp.AppendFormat(timestampBuf[:0], time.RFC3339Nano)
+	out := make([]byte, 0, len(`{"type":"status_change","run_id":"","from":"","to":"","error":"","timestamp":""}`)+len(runID)+len(from)+len(to)+len(errMessage)+len(timestampBytes))
 	out = append(out, `{"type":"status_change","run_id":`...)
 	out = strconv.AppendQuote(out, runID)
 	out = append(out, `,"from":`...)
@@ -135,7 +139,7 @@ func marshalSDKFailedStatusChangePayload(runID string, from, to, errMessage stri
 	out = append(out, `,"error":`...)
 	out = strconv.AppendQuote(out, errMessage)
 	out = append(out, `,"timestamp":`...)
-	out = appendSDKJSONTime(out, timestamp)
+	out = appendSDKJSONTimeBytes(out, timestampBytes)
 	out = append(out, '}')
 	return out, nil
 }
@@ -212,6 +216,13 @@ func isFiniteJSONFloat(value float64) bool {
 func appendSDKJSONTime(out []byte, timestamp time.Time) []byte {
 	out = append(out, '"')
 	out = timestamp.AppendFormat(out, time.RFC3339Nano)
+	out = append(out, '"')
+	return out
+}
+
+func appendSDKJSONTimeBytes(out []byte, timestamp []byte) []byte {
+	out = append(out, '"')
+	out = append(out, timestamp...)
 	out = append(out, '"')
 	return out
 }
