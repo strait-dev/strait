@@ -23,6 +23,7 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
+	"github.com/jackc/pgx/v5/pgconn"
 	"go.opentelemetry.io/otel/attribute"
 	otelmetric "go.opentelemetry.io/otel/metric"
 	oteltrace "go.opentelemetry.io/otel/trace"
@@ -1242,12 +1243,51 @@ func (s *Server) rlsTxMiddleware(next http.Handler) http.Handler {
 		if err := tx.Commit(ctx); err != nil && !errors.Is(err, context.Canceled) {
 			slog.Warn("failed to commit RLS tx", "project_id", projectID, "error", err)
 			hooks.runRollback(context.Background())
+			if isRetryableRLSTxCommitError(err) {
+				w.Header().Set("Retry-After", "1")
+				respondError(w, r, http.StatusTooManyRequests, APIError{
+					Code:    ErrorCodeRateLimited,
+					Message: "database admission control throttled",
+					Details: []string{
+						"retry_after_seconds=1",
+					},
+				})
+				return
+			}
 			respondError(w, r, http.StatusInternalServerError, "security context commit failed")
 			return
 		}
 		hooks.runCommit(context.Background())
 		bw.FlushTo(w)
 	})
+}
+
+func isRetryableRLSTxCommitError(err error) bool {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) {
+		return false
+	}
+
+	switch pgErr.Code {
+	case "08000", // connection_exception
+		"08001", // sqlclient_unable_to_establish_sqlconnection
+		"08003", // connection_does_not_exist
+		"08006", // connection_failure
+		"25P02", // in_failed_sql_transaction
+		"40P01", // deadlock_detected
+		"53300", // too_many_connections
+		"53400", // configuration_limit_exceeded
+		"55P03", // lock_not_available
+		"57014", // query_canceled
+		"57P03": // cannot_connect_now
+		return true
+	default:
+		return false
+	}
 }
 
 type txCompletionHooks struct {

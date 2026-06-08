@@ -45,6 +45,49 @@ func TestRLSTxMiddleware_CommitFailureDoesNotLeakSuccessResponse(t *testing.T) {
 	)
 }
 
+func TestRLSTxMiddleware_TimeoutCommitFailureReturnsRetryable429(t *testing.T) {
+	t.Parallel()
+
+	tx := &fakeRLSTx{commitErr: context.DeadlineExceeded}
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
+	srv.txPool = fakeTxBeginner{tx: tx}
+	handler := srv.rlsTxMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("X-Test-Header", "success")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte("success body"))
+	}))
+	req := httptest.NewRequest(http.MethodPost, "/", nil)
+	ctx := context.WithValue(req.Context(), ctxProjectIDKey, "proj-1")
+	req = req.WithContext(ctx)
+
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	require.Equal(t, http.StatusTooManyRequests, w.Code)
+	require.Equal(t, "1", w.Header().Get("Retry-After"))
+	require.Empty(t, w.Header().Get("X-Test-Header"))
+	require.NotEqual(t, "success body", w.Body.String())
+	require.True(t, tx.setProjectContext)
+}
+
+func TestRLSTxMiddleware_PostgresTimeoutCommitFailureReturnsRetryable429(t *testing.T) {
+	t.Parallel()
+
+	tx := &fakeRLSTx{commitErr: &pgconn.PgError{Code: "57014", Message: "canceling statement due to statement timeout"}}
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
+	srv.txPool = fakeTxBeginner{tx: tx}
+	handler := srv.rlsTxMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+	}))
+	req := httptest.NewRequest(http.MethodPost, "/", nil)
+	ctx := context.WithValue(req.Context(), ctxProjectIDKey, "proj-1")
+	req = req.WithContext(ctx)
+
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	require.Equal(t, http.StatusTooManyRequests, w.Code)
+	require.Equal(t, "1", w.Header().Get("Retry-After"))
+}
+
 func TestRLSTxMiddleware_ResponseBufferLimitRollsBack(t *testing.T) {
 	t.Parallel()
 
