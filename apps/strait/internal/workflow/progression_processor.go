@@ -196,7 +196,23 @@ func progressionEventIDs(events []store.WorkflowProgressionEvent) []int64 {
 }
 
 func groupProgressionEventsByWorkflow(events []store.WorkflowProgressionEvent) map[string][]store.WorkflowProgressionEvent {
-	out := make(map[string][]store.WorkflowProgressionEvent)
+	if len(events) == 0 {
+		return make(map[string][]store.WorkflowProgressionEvent)
+	}
+
+	firstWorkflowID := events[0].WorkflowRunID
+	allSameWorkflow := true
+	for i := 1; i < len(events); i++ {
+		if events[i].WorkflowRunID != firstWorkflowID {
+			allSameWorkflow = false
+			break
+		}
+	}
+	if allSameWorkflow {
+		return map[string][]store.WorkflowProgressionEvent{firstWorkflowID: events}
+	}
+
+	out := make(map[string][]store.WorkflowProgressionEvent, len(events))
 	for _, ev := range events {
 		out[ev.WorkflowRunID] = append(out[ev.WorkflowRunID], ev)
 	}

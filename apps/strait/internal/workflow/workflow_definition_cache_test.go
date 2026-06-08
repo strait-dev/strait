@@ -15,6 +15,27 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestWorkflowStepsVersionKeyString(t *testing.T) {
+	t.Parallel()
+
+	got := workflowStepsVersionKeyString(workflowStepsVersionKey{WorkflowID: "wf-1", Version: 42})
+	require.Equal(t, "wf-1\x0042", got)
+}
+
+func BenchmarkWorkflowStepsVersionKeyString(b *testing.B) {
+	key := workflowStepsVersionKey{WorkflowID: "wf-definition-cache-key", Version: 1_234_567}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for range b.N {
+		out := workflowStepsVersionKeyString(key)
+		if out == "" {
+			b.Fatal("workflowStepsVersionKeyString() returned empty key")
+		}
+	}
+}
+
 func TestWorkflowDefinitionCache_EngineCachesAndClonesSteps(t *testing.T) {
 	t.Parallel()
 

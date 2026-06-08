@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unsafe"
 
 	"strait/internal/domain"
 	"strait/internal/store"
@@ -21,7 +22,9 @@ const (
 )
 
 func pgQueQueueName(routeKey string) string {
-	sum := sha256.Sum256([]byte(routeKey))
+	// Sum256 consumes the route key synchronously and never retains it, so this
+	// avoids copying long worker route keys before hashing them.
+	sum := sha256.Sum256(unsafe.Slice(unsafe.StringData(routeKey), len(routeKey)))
 	var queueName [len(pgQueQueuePrefix) + 32]byte
 	copy(queueName[:], pgQueQueuePrefix)
 	hex.Encode(queueName[len(pgQueQueuePrefix):], sum[:16])
@@ -36,12 +39,16 @@ func pgQueRouteKeyForRun(run *domain.JobRun) string {
 }
 
 func pgQueWorkerRouteKey(projectID, queueName, environmentID string) string {
-	return strings.Join([]string{
-		"worker",
-		projectID,
-		runQueueName(queueName),
-		environmentID,
-	}, ":")
+	queueName = runQueueName(queueName)
+	var b strings.Builder
+	b.Grow(len("worker::") + len(projectID) + len(queueName) + len(environmentID))
+	b.WriteString("worker:")
+	b.WriteString(projectID)
+	b.WriteByte(':')
+	b.WriteString(queueName)
+	b.WriteByte(':')
+	b.WriteString(environmentID)
+	return b.String()
 }
 
 func pgQueWorkerRoutePrefix(routeKey string) string {

@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strconv"
 	"time"
+	"unicode/utf8"
 
 	"strait/internal/domain"
 	storepkg "strait/internal/store"
@@ -488,26 +489,52 @@ func aggregateChildStepOutputs(childStepRuns []domain.WorkflowStepRun) json.RawM
 	if len(childStepRuns) == 0 {
 		return nil
 	}
-	var outputPayload []byte
+	outputCount := 0
+	size := 2
 	for i := range childStepRuns {
 		if len(childStepRuns[i].Output) == 0 {
 			continue
 		}
-		if outputPayload == nil {
-			outputPayload = make([]byte, 0, len(childStepRuns[i].StepRef)+len(childStepRuns[i].Output)+4)
-			outputPayload = append(outputPayload, '{')
-		} else {
+		if outputCount > 0 {
+			size++
+		}
+		size += len(childStepRuns[i].StepRef) + len(childStepRuns[i].Output) + 3
+		outputCount++
+	}
+	if outputCount == 0 {
+		return nil
+	}
+
+	outputPayload := make([]byte, 0, size)
+	outputPayload = append(outputPayload, '{')
+	wroteOutput := false
+	for i := range childStepRuns {
+		if len(childStepRuns[i].Output) == 0 {
+			continue
+		}
+		if wroteOutput {
 			outputPayload = append(outputPayload, ',')
 		}
-		outputPayload = strconv.AppendQuote(outputPayload, childStepRuns[i].StepRef)
+		outputPayload = appendJSONKey(outputPayload, childStepRuns[i].StepRef)
 		outputPayload = append(outputPayload, ':')
 		outputPayload = append(outputPayload, childStepRuns[i].Output...)
-	}
-	if outputPayload == nil {
-		return nil
+		wroteOutput = true
 	}
 	outputPayload = append(outputPayload, '}')
 	return outputPayload
+}
+
+func appendJSONKey(dst []byte, key string) []byte {
+	for i := 0; i < len(key); i++ {
+		c := key[i]
+		if c < 0x20 || c == '\\' || c == '"' || c >= utf8.RuneSelf {
+			return strconv.AppendQuote(dst, key)
+		}
+	}
+	dst = append(dst, '"')
+	dst = append(dst, key...)
+	dst = append(dst, '"')
+	return dst
 }
 
 func (s *StepCallback) ApproveStep(ctx context.Context, workflowRunID, stepRef, approver string) error {

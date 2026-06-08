@@ -3,6 +3,7 @@ package health
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/sourcegraph/conc"
@@ -35,25 +36,29 @@ type Checker interface {
 }
 
 type Registry struct {
-	mu       sync.RWMutex
-	checkers []Checker
+	mu       sync.Mutex
+	checkers atomic.Pointer[[]Checker]
 }
 
 func NewRegistry() *Registry {
-	return &Registry{}
+	r := &Registry{}
+	r.storeCheckers(nil)
+	return r
 }
 
 func (r *Registry) Register(c Checker) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.checkers = append(r.checkers, c)
+
+	current := r.loadCheckers()
+	next := make([]Checker, len(current)+1)
+	copy(next, current)
+	next[len(current)] = c
+	r.storeCheckers(next)
 }
 
 func (r *Registry) CheckAll(ctx context.Context) CheckResult {
-	r.mu.RLock()
-	checkers := make([]Checker, len(r.checkers))
-	copy(checkers, r.checkers)
-	r.mu.RUnlock()
+	checkers := r.loadCheckers()
 
 	results := make([]ComponentResult, len(checkers))
 	var wg conc.WaitGroup
@@ -99,6 +104,18 @@ func (r *Registry) CheckAll(ctx context.Context) CheckResult {
 		Status:     overall,
 		Components: results,
 	}
+}
+
+func (r *Registry) loadCheckers() []Checker {
+	checkers := r.checkers.Load()
+	if checkers == nil {
+		return nil
+	}
+	return *checkers
+}
+
+func (r *Registry) storeCheckers(checkers []Checker) {
+	r.checkers.Store(&checkers)
 }
 
 type CheckerFunc struct {

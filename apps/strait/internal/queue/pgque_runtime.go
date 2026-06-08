@@ -22,7 +22,7 @@ func (q *PgQueQueue) nextWorkerRouteStart(routeCount int) int {
 }
 
 func (q *PgQueQueue) ForceTick(ctx context.Context, routeKey string) error {
-	queueName := pgQueQueueName(routeKey)
+	queueName := q.routeState(routeKey).queueName
 	return q.forceTickQueue(ctx, queueName)
 }
 
@@ -39,15 +39,10 @@ func (q *PgQueQueue) routeState(routeKey string) *pgQueRouteState {
 	defer q.routeMu.Unlock()
 	state := q.routeStates[routeKey]
 	if state == nil {
-		state = &pgQueRouteState{}
+		state = &pgQueRouteState{queueName: pgQueQueueName(routeKey)}
 		q.routeStates[routeKey] = state
 	}
 	return state
-}
-
-func (q *PgQueQueue) routeConfigured(routeKey string) bool {
-	state := q.routeState(routeKey)
-	return state.configured.Load()
 }
 
 func (q *PgQueQueue) ensureRunRouteCached(ctx context.Context, run *domain.JobRun) error {
@@ -55,9 +50,8 @@ func (q *PgQueQueue) ensureRunRouteCached(ctx context.Context, run *domain.JobRu
 	if err != nil {
 		return err
 	}
-	queueName := pgQueQueueName(routeKey)
 	state := q.routeState(routeKey)
-	return q.ensureRouteCached(ctx, state, routeKey, queueName)
+	return q.ensureRouteCached(ctx, state, routeKey, state.queueName)
 }
 
 func (q *PgQueQueue) ensureRunRoutesCached(ctx context.Context, runs []*domain.JobRun) error {
@@ -137,9 +131,8 @@ func (q *PgQueQueue) ensureCachedRouteKeyOnce(
 		}
 		routeSet.seen[routeKey] = struct{}{}
 	}
-	queueName := pgQueQueueName(routeKey)
 	state := q.routeState(routeKey)
-	if err := q.ensureRouteCached(ctx, state, routeKey, queueName); err != nil {
+	if err := q.ensureRouteCached(ctx, state, routeKey, state.queueName); err != nil {
 		return err
 	}
 	return nil

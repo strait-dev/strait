@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 
 	"strait/internal/domain"
 	"strait/internal/httputil"
@@ -83,7 +84,7 @@ func newDispatchRequest(ctx context.Context, endpointURL string, run *domain.Job
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Run-ID", run.ID)
 	req.Header.Set("X-Job-ID", run.JobID)
-	req.Header.Set("X-Attempt", fmt.Sprintf("%d", run.Attempt))
+	req.Header.Set("X-Attempt", strconv.Itoa(run.Attempt))
 	addRunTraceHeaders(req.Header, run.Metadata)
 
 	for key, value := range extraHeaders {

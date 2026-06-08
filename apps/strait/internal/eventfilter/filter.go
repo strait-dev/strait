@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -54,7 +55,7 @@ func Eval(filterExpr json.RawMessage, payload json.RawMessage) (bool, error) {
 	// Evaluate eq conditions.
 	for _, cond := range expr.Eq {
 		val := getField(data, cond[0])
-		if fmt.Sprintf("%v", val) != cond[1] {
+		if filterValueString(val) != cond[1] {
 			return false, nil
 		}
 	}
@@ -62,7 +63,7 @@ func Eval(filterExpr json.RawMessage, payload json.RawMessage) (bool, error) {
 	// Evaluate ne conditions.
 	for _, cond := range expr.Ne {
 		val := getField(data, cond[0])
-		if fmt.Sprintf("%v", val) == cond[1] {
+		if filterValueString(val) == cond[1] {
 			return false, nil
 		}
 	}
@@ -75,6 +76,21 @@ func Eval(filterExpr json.RawMessage, payload json.RawMessage) (bool, error) {
 	}
 
 	return true, nil
+}
+
+func filterValueString(val any) string {
+	switch v := val.(type) {
+	case nil:
+		return "<nil>"
+	case string:
+		return v
+	case bool:
+		return strconv.FormatBool(v)
+	case float64:
+		return strconv.FormatFloat(v, 'g', -1, 64)
+	default:
+		return fmt.Sprint(v)
+	}
 }
 
 func validateFilterExpr(expr FilterExpr) error {
@@ -106,17 +122,27 @@ func validatePath(path string) error {
 	if len(path) > maxFilterPathLength {
 		return fmt.Errorf("filter path exceeds %d bytes", maxFilterPathLength)
 	}
-	if len(strings.Split(path, ".")) > maxFilterPathDepth {
+	if pathSegmentCount(path) > maxFilterPathDepth {
 		return fmt.Errorf("filter path exceeds %d segments", maxFilterPathDepth)
 	}
 	return nil
 }
 
+func pathSegmentCount(path string) int {
+	segments := 1
+	for i := range path {
+		if path[i] == '.' {
+			segments++
+		}
+	}
+	return segments
+}
+
 // getField traverses a nested map by dot-separated path.
 func getField(data map[string]any, path string) any {
-	parts := strings.Split(path, ".")
 	var current any = data
-	for _, part := range parts {
+	for {
+		part, rest, found := strings.Cut(path, ".")
 		m, ok := current.(map[string]any)
 		if !ok {
 			return nil
@@ -125,6 +151,9 @@ func getField(data map[string]any, path string) any {
 		if !ok {
 			return nil
 		}
+		if !found {
+			return current
+		}
+		path = rest
 	}
-	return current
 }

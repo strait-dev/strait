@@ -66,6 +66,73 @@ func TestPrepareTriggerRequestBuildsState(t *testing.T) {
 			quota.Timezone)
 }
 
+func BenchmarkCanonicalizePayload(b *testing.B) {
+	payload := json.RawMessage(`{"z":3,"a":1,"nested":{"b":2,"a":1},"items":[{"id":"run-1","ok":true},{"id":"run-2","ok":false}]}`)
+
+	b.ReportAllocs()
+	for b.Loop() {
+		canonical, hash, err := canonicalizePayload(payload)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if len(canonical) == 0 || len(hash) != 64 {
+			b.Fatalf("canonicalizePayload() returned len(canonical)=%d len(hash)=%d", len(canonical), len(hash))
+		}
+	}
+}
+
+func TestCanonicalizePayloadEmptyUsesDefaultObject(t *testing.T) {
+	t.Parallel()
+
+	canonical, hash, err := canonicalizePayload(nil)
+	require.NoError(t, err)
+	require.JSONEq(t, `{}`, string(canonical))
+	require.Len(t, hash, 64)
+}
+
+func TestCanonicalizePayloadSortsNestedObjectKeys(t *testing.T) {
+	t.Parallel()
+
+	canonical, _, err := canonicalizePayload(json.RawMessage(
+		`{"z":3,"a":1,"nested":{"b":2,"a":1},"items":[{"z":2,"a":1}]}`,
+	))
+	require.NoError(t, err)
+	require.JSONEq(t,
+		`{"a":1,"items":[{"a":1,"z":2}],"nested":{"a":1,"b":2},"z":3}`,
+		string(canonical))
+}
+
+func TestCanonicalizePayloadPreservesJSONMarshalStringEscaping(t *testing.T) {
+	t.Parallel()
+
+	canonical, _, err := canonicalizePayload(json.RawMessage(`{"html":"<>&","quote":"\""}`))
+	require.NoError(t, err)
+	require.JSONEq(t,
+		`{"html":"\u003c\u003e\u0026","quote":"\""}`,
+		string(canonical))
+}
+
+func TestCanonicalizePayloadDuplicateKeysFallbackToJSONDecoderSemantics(t *testing.T) {
+	t.Parallel()
+
+	canonical, _, err := canonicalizePayload(json.RawMessage(`{"a":1,"a":2}`))
+	require.NoError(t, err)
+	require.JSONEq(t, `{"a":2}`, string(canonical))
+}
+
+func BenchmarkCanonicalizePayloadEmpty(b *testing.B) {
+	b.ReportAllocs()
+	for b.Loop() {
+		canonical, hash, err := canonicalizePayload(nil)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if string(canonical) != "{}" || len(hash) != 64 {
+			b.Fatalf("canonicalizePayload() returned canonical=%q len(hash)=%d", string(canonical), len(hash))
+		}
+	}
+}
+
 func TestPrepareTriggerRequestReturnsIdempotencyHitBeforeQuota(t *testing.T) {
 	t.Parallel()
 

@@ -2,7 +2,6 @@ package cdc
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -45,15 +44,8 @@ func (h *WebhookTriggerHandler) Handle(ctx context.Context, msg Message) error {
 		return nil
 	}
 
-	var record struct {
-		ID        string `json:"id"`
-		JobID     string `json:"job_id"`
-		ProjectID string `json:"project_id"`
-		Status    string `json:"status"`
-		Attempt   int    `json:"attempt"`
-		Error     string `json:"error"`
-	}
-	if err := json.Unmarshal(msg.Record, &record); err != nil {
+	record, err := parseTerminalRunRecord(msg.Record)
+	if err != nil {
 		return fmt.Errorf("webhook trigger: unmarshal record: %w", err)
 	}
 
@@ -78,6 +70,8 @@ func (h *WebhookTriggerHandler) Handle(ctx context.Context, msg Message) error {
 		return fmt.Errorf("webhook trigger: list subscriptions: %w", err)
 	}
 
+	var payload []byte
+	var nextRetryAt time.Time
 	var createErrs []error
 	for _, sub := range subs {
 		if !sub.Active {
@@ -87,18 +81,24 @@ func (h *WebhookTriggerHandler) Handle(ctx context.Context, msg Message) error {
 			continue
 		}
 
-		payload, _ := json.Marshal(map[string]any{
-			"event_type": eventType,
-			"run_id":     record.ID,
-			"job_id":     record.JobID,
-			"project_id": record.ProjectID,
-			"status":     record.Status,
-			"attempt":    record.Attempt,
-			"error":      record.Error,
-			"timestamp":  time.Now().UTC(),
-		})
+		if payload == nil {
+			var marshalErr error
+			payload, marshalErr = marshalWebhookTriggerPayload(
+				eventType,
+				record.ID,
+				record.JobID,
+				record.ProjectID,
+				record.Status,
+				record.Attempt,
+				record.Error,
+				time.Now().UTC(),
+			)
+			if marshalErr != nil {
+				return fmt.Errorf("webhook trigger: marshal payload: %w", marshalErr)
+			}
+			nextRetryAt = time.Now()
+		}
 
-		now := time.Now()
 		if createErr := h.store.CreateWebhookDelivery(ctx, &domain.WebhookDelivery{
 			RunID:          record.ID,
 			JobID:          record.JobID,
@@ -109,7 +109,7 @@ func (h *WebhookTriggerHandler) Handle(ctx context.Context, msg Message) error {
 			Payload:        payload,
 			Status:         "pending",
 			MaxAttempts:    5,
-			NextRetryAt:    &now,
+			NextRetryAt:    &nextRetryAt,
 			DedupeKey:      webhookTriggerDedupeKey(record.ID, eventType, sub.ID),
 		}); createErr != nil {
 			h.logger.Warn("cdc webhook trigger: failed to create delivery",
@@ -125,7 +125,11 @@ func (h *WebhookTriggerHandler) Handle(ctx context.Context, msg Message) error {
 }
 
 func webhookTriggerDedupeKey(runID, eventType, subscriptionID string) string {
-	return fmt.Sprintf("cdc:job_runs:%s:%s:%s", runID, eventType, subscriptionID)
+	return cdcJobRunEventDedupeKey(runID, eventType, subscriptionID)
+}
+
+func marshalWebhookTriggerPayload(eventType, runID, jobID, projectID, status string, attempt int, errMessage string, timestamp time.Time) ([]byte, error) {
+	return marshalTerminalRunPayload(eventType, runID, jobID, projectID, status, attempt, errMessage, timestamp), nil
 }
 
 func mapStatusToWebhookEvent(s domain.RunStatus) string {

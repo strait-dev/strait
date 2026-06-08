@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"encoding/json"
 	"log/slog"
 	"time"
 
@@ -31,7 +30,7 @@ func (s *Server) handleSDKStreamChunk(ctx context.Context, input *SDKStreamChunk
 	if streamID == "" {
 		streamID = "default"
 	}
-	payload, err := json.Marshal(map[string]any{"type": "stream_chunk", "chunk": input.Body.Chunk, "stream_id": streamID, "done": input.Body.Done, "timestamp": time.Now().UTC()})
+	payload, err := marshalSDKStreamChunkPayload(input.Body.Chunk, streamID, input.Body.Done, time.Now().UTC())
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to marshal chunk")
 	}

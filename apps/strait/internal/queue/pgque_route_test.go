@@ -16,6 +16,7 @@ import (
 var pgQueQueueNameBenchmarkSink string
 var pgQueWorkerRouteRefBenchmarkSink domain.WorkerQueueRef
 var pgQueWorkerRouteRefOKBenchmarkSink bool
+var pgQueWorkerRouteKeyBenchmarkSink string
 var pgQueRouteBenchmarkSink []string
 
 func TestPgQueQueueNameDeterministicAndNotifySafe(t *testing.T) {
@@ -66,6 +67,17 @@ func BenchmarkPgQueWorkerRouteRef(b *testing.B) {
 	b.ReportAllocs()
 	for b.Loop() {
 		pgQueWorkerRouteRefBenchmarkSink, pgQueWorkerRouteRefOKBenchmarkSink = pgQueWorkerRouteRef(routeKey)
+	}
+}
+
+func BenchmarkPgQueWorkerRouteKey(b *testing.B) {
+	projectID := strings.Repeat("project", 20)
+	queueName := strings.Repeat("queue", 20)
+	environmentID := strings.Repeat("env", 20)
+
+	b.ReportAllocs()
+	for b.Loop() {
+		pgQueWorkerRouteKeyBenchmarkSink = pgQueWorkerRouteKey(projectID, queueName, environmentID)
 	}
 }
 

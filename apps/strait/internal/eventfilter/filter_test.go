@@ -184,3 +184,21 @@ func TestEval(t *testing.T) {
 		})
 	}
 }
+
+func BenchmarkEvalNestedConditions(b *testing.B) {
+	filter := json.RawMessage(`{"eq":[["type","deploy"],["user.name","alice"],["user.org.plan","pro"]],"ne":[["env","staging"],["user.role","viewer"]],"has":["region","user.org.id","metadata.trace.id"]}`)
+	payload := json.RawMessage(`{"type":"deploy","env":"prod","region":"iad","user":{"name":"alice","role":"admin","org":{"id":"org-1","plan":"pro"}},"metadata":{"trace":{"id":"trace-1"}}}`)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for b.Loop() {
+		ok, err := Eval(filter, payload)
+		if err != nil {
+			b.Fatalf("Eval() error = %v", err)
+		}
+		if !ok {
+			b.Fatal("Eval() = false, want true")
+		}
+	}
+}

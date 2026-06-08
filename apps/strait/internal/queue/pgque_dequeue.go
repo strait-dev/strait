@@ -105,8 +105,8 @@ func (q *PgQueQueue) dequeueFromRoute(ctx context.Context, n int, routeKey strin
 	if n <= 0 {
 		return nil, nil
 	}
-	queueName := pgQueQueueName(routeKey)
 	state := q.routeState(routeKey)
+	queueName := state.queueName
 
 	if err := q.ensureRouteCached(ctx, state, routeKey, queueName); err != nil {
 		return nil, err

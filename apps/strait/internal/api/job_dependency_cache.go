@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -172,19 +171,41 @@ func jobDependencyCacheableLimit(limit int) bool {
 }
 
 func jobDepsCacheKeyString(key jobDepsCacheKey) string {
-	return fmt.Sprintf("%s\x00%d\x00%s", key.JobID, key.Limit, key.Cursor)
+	const maxIntDigits = 20
+	const sepCount = 2
+	size := len(key.JobID) + sepCount + maxIntDigits + len(key.Cursor)
+	if size <= 96 {
+		var buf [96]byte
+		out := append(buf[:0], key.JobID...)
+		out = append(out, 0)
+		out = strconv.AppendInt(out, int64(key.Limit), 10)
+		out = append(out, 0)
+		out = append(out, key.Cursor...)
+		return string(out)
+	}
+	out := make([]byte, 0, size)
+	out = append(out, key.JobID...)
+	out = append(out, 0)
+	out = strconv.AppendInt(out, int64(key.Limit), 10)
+	out = append(out, 0)
+	out = append(out, key.Cursor...)
+	return string(out)
 }
 
 func parseJobDepsCacheKey(raw string) (jobDepsCacheKey, bool) {
-	parts := strings.Split(raw, "\x00")
-	if len(parts) != 3 {
+	jobID, rest, ok := strings.Cut(raw, "\x00")
+	if !ok {
 		return jobDepsCacheKey{}, false
 	}
-	limit, err := strconv.Atoi(parts[1])
+	limitRaw, cursor, ok := strings.Cut(rest, "\x00")
+	if !ok || strings.Contains(cursor, "\x00") {
+		return jobDepsCacheKey{}, false
+	}
+	limit, err := strconv.Atoi(limitRaw)
 	if err != nil {
 		return jobDepsCacheKey{}, false
 	}
-	return jobDepsCacheKey{JobID: parts[0], Limit: limit, Cursor: parts[2]}, true
+	return jobDepsCacheKey{JobID: jobID, Limit: limit, Cursor: cursor}, true
 }
 
 func jobDependenciesCacheVersion(deps []domain.JobDependency) int64 {

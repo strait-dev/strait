@@ -3,9 +3,9 @@ package cdc
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"log/slog"
 	"strconv"
+	"strings"
 	"time"
 
 	straitcache "strait/internal/cache"
@@ -161,7 +161,30 @@ func permissionCacheKey(projectID, userID string) string {
 }
 
 func jobDependencyCacheKey(jobID string, limit int) string {
-	return fmt.Sprintf("%s\x00%d\x00", jobID, limit)
+	var builder strings.Builder
+	builder.Grow(len(jobID) + 1 + intDigitCount(limit) + 1)
+	builder.WriteString(jobID)
+	builder.WriteByte(0)
+	var limitBuf [20]byte
+	builder.Write(strconv.AppendInt(limitBuf[:0], int64(limit), 10))
+	builder.WriteByte(0)
+	return builder.String()
+}
+
+func intDigitCount(n int) int {
+	if n == 0 {
+		return 1
+	}
+	digits := 0
+	if n < 0 {
+		digits++
+		n = -n
+	}
+	for n > 0 {
+		digits++
+		n /= 10
+	}
+	return digits
 }
 
 func cacheVersionFromRecord(record map[string]any) int64 {

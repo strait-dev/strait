@@ -3,13 +3,18 @@ package webhook
 import (
 	"crypto/hmac"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"fmt"
+	"hash"
 	"math"
 	"strconv"
 	"strings"
 	"time"
+	"unsafe"
 )
+
+var timestampedHMACSeparator = []byte{'.'}
 
 // ValidateSignature verifies the HMAC signature of a webhook body.
 // Supported algorithms: "hmac-sha256", "stripe-v1", "github-sha256".
@@ -33,14 +38,37 @@ func validateHMACSHA256(secret string, body []byte, headerValue string) error {
 		return fmt.Errorf("invalid hmac-sha256 header format: missing sha256= prefix")
 	}
 
-	mac := hmac.New(sha256.New, []byte(secret))
+	mac := hmac.New(sha256.New, readOnlyStringBytes(secret))
 	mac.Write(body)
-	computed := hex.EncodeToString(mac.Sum(nil))
 
-	if !hmac.Equal([]byte(expected), []byte(computed)) {
+	if !equalHMACHexString(expected, mac.Sum(nil)) {
 		return fmt.Errorf("hmac-sha256 signature mismatch")
 	}
 	return nil
+}
+
+func equalHMACHexString(expected string, digest []byte) bool {
+	const encodedSHA256Len = sha256.Size * 2
+	if len(expected) != encodedSHA256Len || len(digest) != sha256.Size {
+		return false
+	}
+
+	var encoded [encodedSHA256Len]byte
+	hex.Encode(encoded[:], digest)
+
+	var result byte
+	for i := range encoded {
+		result |= encoded[i] ^ expected[i]
+	}
+	return subtle.ConstantTimeByteEq(result, 0) == 1
+}
+
+func hmacHexString(mac hash.Hash) string {
+	var digest [sha256.Size]byte
+	sum := mac.Sum(digest[:0])
+	var out [sha256.Size * 2]byte
+	hex.Encode(out[:], sum)
+	return string(out[:])
 }
 
 // validateStripeV1 verifies a Stripe webhook signature header.
@@ -49,22 +77,27 @@ func validateHMACSHA256(secret string, body []byte, headerValue string) error {
 // Rejects signatures older than 5 minutes.
 func validateStripeV1(secret string, body []byte, headerValue string) error {
 	var ts string
-	var signatures []string
+	var firstSignature string
+	var extraSignatures []string
 
 	for part := range strings.SplitSeq(headerValue, ",") {
-		kv := strings.SplitN(part, "=", 2)
-		if len(kv) != 2 {
+		key, value, ok := strings.Cut(part, "=")
+		if !ok {
 			continue
 		}
-		switch kv[0] {
+		switch key {
 		case "t":
-			ts = kv[1]
+			ts = value
 		case "v1":
-			signatures = append(signatures, kv[1])
+			if firstSignature == "" {
+				firstSignature = value
+			} else {
+				extraSignatures = append(extraSignatures, value)
+			}
 		}
 	}
 
-	if ts == "" || len(signatures) == 0 {
+	if ts == "" || firstSignature == "" {
 		return fmt.Errorf("invalid stripe-v1 header: missing t or v1 components")
 	}
 
@@ -78,14 +111,17 @@ func validateStripeV1(secret string, body []byte, headerValue string) error {
 		return fmt.Errorf("stripe-v1 timestamp too old: %ds", int(age))
 	}
 
-	// Compute expected signature: HMAC-SHA256(secret, timestamp.body)
-	payload := append([]byte(ts+"."), body...)
 	mac := hmac.New(sha256.New, []byte(secret))
-	mac.Write(payload)
-	computed := hex.EncodeToString(mac.Sum(nil))
+	_, _ = mac.Write([]byte(ts))
+	_, _ = mac.Write(timestampedHMACSeparator)
+	_, _ = mac.Write(body)
+	digest := mac.Sum(nil)
 
-	for _, sig := range signatures {
-		if hmac.Equal([]byte(sig), []byte(computed)) {
+	if equalHMACHexString(firstSignature, digest) {
+		return nil
+	}
+	for _, sig := range extraSignatures {
+		if equalHMACHexString(sig, digest) {
 			return nil
 		}
 	}
@@ -99,16 +135,23 @@ func validateGitHubSHA256(secret string, body []byte, headerValue string) error 
 
 // ComputeHMACSHA256 computes a HMAC-SHA256 signature and returns the hex digest.
 func ComputeHMACSHA256(secret string, body []byte) string {
-	mac := hmac.New(sha256.New, []byte(secret))
+	mac := hmac.New(sha256.New, readOnlyStringBytes(secret))
 	mac.Write(body)
-	return hex.EncodeToString(mac.Sum(nil))
+	return hmacHexString(mac)
 }
 
 // ComputeTimestampedHMACSHA256 signs "timestamp.body" so receivers can reject
 // stale replay attempts while still validating the exact delivered bytes.
 func ComputeTimestampedHMACSHA256(secret, timestamp string, body []byte) string {
 	mac := hmac.New(sha256.New, []byte(secret))
-	_, _ = mac.Write([]byte(timestamp + "."))
+	_, _ = mac.Write([]byte(timestamp))
+	_, _ = mac.Write(timestampedHMACSeparator)
 	_, _ = mac.Write(body)
-	return hex.EncodeToString(mac.Sum(nil))
+	return hmacHexString(mac)
+}
+
+func readOnlyStringBytes(s string) []byte {
+	// hmac.New consumes the key synchronously into its own pads; this avoids a
+	// temporary []byte(secret) allocation in webhook signing and verification.
+	return unsafe.Slice(unsafe.StringData(s), len(s))
 }

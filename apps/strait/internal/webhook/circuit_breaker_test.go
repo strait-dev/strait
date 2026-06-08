@@ -30,6 +30,17 @@ func TestHashURL_UsesSHA256Hex(t *testing.T) {
 		64)
 }
 
+func BenchmarkHashURL(b *testing.B) {
+	raw := "org-1\x00https://hooks.example.com/webhook"
+
+	b.ReportAllocs()
+	for b.Loop() {
+		if hashURL(raw) == "" {
+			b.Fatal("hashURL returned empty hash")
+		}
+	}
+}
+
 type redisProcessFunc func(ctx context.Context, cmd redis.Cmder) error
 
 type redisMockHook struct {

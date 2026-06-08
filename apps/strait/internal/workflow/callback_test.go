@@ -490,6 +490,20 @@ func TestAggregateChildStepOutputs(t *testing.T) {
 	)
 }
 
+func TestAggregateChildStepOutputs_EscapedStepRefs(t *testing.T) {
+	t.Parallel()
+	output := aggregateChildStepOutputs([]domain.WorkflowStepRun{
+		{StepRef: "line\nbreak", Output: json.RawMessage(`{"line":true}`)},
+		{StepRef: `slash\key`, Output: json.RawMessage(`{"slash":true}`)},
+	})
+	require.NotEmpty(t, output)
+
+	var parsed map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(output, &parsed))
+	require.Equal(t, `{"line":true}`, string(parsed["line\nbreak"]))
+	require.Equal(t, `{"slash":true}`, string(parsed[`slash\key`]))
+}
+
 func TestAggregateChildStepOutputs_NoOutputs(t *testing.T) {
 	t.Parallel()
 	output := aggregateChildStepOutputs([]domain.WorkflowStepRun{

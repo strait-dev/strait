@@ -249,3 +249,82 @@ func TestComputeHMACSHA256_ValidatesCorrectly(t *testing.T) {
 	err := ValidateSignature("hmac-sha256", secret, body, "sha256="+sig)
 	require.NoError(t, err)
 }
+
+func TestComputeTimestampedHMACSHA256_KnownVector(t *testing.T) {
+	t.Parallel()
+
+	secret := "whsec_test123"
+	timestamp := "1710000000"
+	body := []byte(`{"id":"evt_1234","type":"payment_intent.succeeded"}`)
+
+	mac := hmac.New(sha256.New, []byte(secret))
+	_, _ = mac.Write([]byte(timestamp))
+	_, _ = mac.Write([]byte("."))
+	_, _ = mac.Write(body)
+
+	require.Equal(t,
+		hex.EncodeToString(mac.Sum(nil)),
+		ComputeTimestampedHMACSHA256(secret, timestamp, body))
+}
+
+func BenchmarkValidateSignatureHMACSHA256(b *testing.B) {
+	secret := "signing-key-42"
+	body := []byte(`{"run_id":"run_abc","status":"completed"}`)
+	header := "sha256=" + computeHMACSHA256(secret, body)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for range b.N {
+		if err := ValidateSignature("hmac-sha256", secret, body, header); err != nil {
+			b.Fatalf("ValidateSignature() error = %v", err)
+		}
+	}
+}
+
+func BenchmarkValidateSignatureStripeV1(b *testing.B) {
+	secret := "whsec_test123"
+	body := []byte(`{"id":"evt_1234","type":"payment_intent.succeeded"}`)
+	ts := strconv.FormatInt(time.Now().Unix(), 10)
+	header := fmt.Sprintf("t=%s,v1=%s", ts, ComputeTimestampedHMACSHA256(secret, ts, body))
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for range b.N {
+		if err := ValidateSignature("stripe-v1", secret, body, header); err != nil {
+			b.Fatalf("ValidateSignature() error = %v", err)
+		}
+	}
+}
+
+func BenchmarkComputeHMACSHA256(b *testing.B) {
+	secret := "signing-key-42"
+	body := []byte(`{"run_id":"run_abc","status":"completed"}`)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for range b.N {
+		sig := ComputeHMACSHA256(secret, body)
+		if len(sig) == 0 {
+			b.Fatal("ComputeHMACSHA256() returned empty signature")
+		}
+	}
+}
+
+func BenchmarkComputeTimestampedHMACSHA256(b *testing.B) {
+	secret := "whsec_test123"
+	body := []byte(`{"id":"evt_1234","type":"payment_intent.succeeded"}`)
+	ts := strconv.FormatInt(time.Now().Unix(), 10)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for range b.N {
+		sig := ComputeTimestampedHMACSHA256(secret, ts, body)
+		if len(sig) == 0 {
+			b.Fatal("ComputeTimestampedHMACSHA256() returned empty signature")
+		}
+	}
+}

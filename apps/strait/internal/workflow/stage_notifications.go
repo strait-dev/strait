@@ -1,13 +1,16 @@
 package workflow
 
 import (
+	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/tidwall/gjson"
 )
 
 // StageNotifier sends notifications on step state transitions.
@@ -54,8 +57,8 @@ func (n *StageNotifier) NotifyStepTransition(
 		return
 	}
 
-	var cfg domain.StageNotificationConfig
-	if err := json.Unmarshal(step.StageNotifications, &cfg); err != nil {
+	cfg, err := parseStageNotificationConfig(step.StageNotifications)
+	if err != nil {
 		n.logger.Warn("invalid stage_notifications config",
 			"step_ref", step.StepRef,
 			"error", err,
@@ -90,14 +93,7 @@ func (n *StageNotifier) NotifyStepTransition(
 		return
 	}
 
-	payload, _ := json.Marshal(map[string]any{
-		"workflow_id":     wfRun.WorkflowID,
-		"workflow_run_id": wfRun.ID,
-		"step_ref":        step.StepRef,
-		"step_run_id":     stepRun.ID,
-		"status":          string(newStatus),
-		"triggered_at":    time.Now().UTC().Format(time.RFC3339),
-	})
+	payload, _ := marshalStageNotificationPayload(wfRun.WorkflowID, wfRun.ID, step.StepRef, stepRun.ID, string(newStatus), time.Now().UTC())
 
 	for _, ch := range channels {
 		delivery := &domain.NotificationDelivery{
@@ -124,4 +120,75 @@ func (n *StageNotifier) NotifyStepTransition(
 		"event_type", eventType,
 		"channels", fmt.Sprintf("%d", len(channels)),
 	)
+}
+
+func parseStageNotificationConfig(raw []byte) (domain.StageNotificationConfig, error) {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 {
+		return domain.StageNotificationConfig{}, fmt.Errorf("empty stage notification config")
+	}
+	if bytes.Equal(trimmed, []byte("null")) {
+		return domain.StageNotificationConfig{}, nil
+	}
+	if trimmed[0] != '{' || !gjson.ValidBytes(trimmed) {
+		return domain.StageNotificationConfig{}, fmt.Errorf("invalid stage notification config")
+	}
+
+	onComplete, err := stageNotificationBool(trimmed, "on_complete")
+	if err != nil {
+		return domain.StageNotificationConfig{}, err
+	}
+	onFailure, err := stageNotificationBool(trimmed, "on_failure")
+	if err != nil {
+		return domain.StageNotificationConfig{}, err
+	}
+	onSkipped, err := stageNotificationBool(trimmed, "on_skipped")
+	if err != nil {
+		return domain.StageNotificationConfig{}, err
+	}
+	return domain.StageNotificationConfig{
+		OnComplete: onComplete,
+		OnFailure:  onFailure,
+		OnSkipped:  onSkipped,
+	}, nil
+}
+
+func stageNotificationBool(raw []byte, field string) (bool, error) {
+	value := gjson.GetBytes(raw, field)
+	if !value.Exists() || value.Type == gjson.Null {
+		return false, nil
+	}
+	switch value.Type {
+	case gjson.True:
+		return true, nil
+	case gjson.False:
+		return false, nil
+	default:
+		return false, fmt.Errorf("stage notification field %s must be a bool", field)
+	}
+}
+
+func marshalStageNotificationPayload(workflowID, workflowRunID, stepRef, stepRunID, status string, triggeredAt time.Time) ([]byte, error) {
+	out := make([]byte, 0, 120+len(workflowID)+len(workflowRunID)+len(stepRef)+len(stepRunID)+len(status))
+	out = append(out, `{"workflow_id":`...)
+	out = strconv.AppendQuote(out, workflowID)
+	out = append(out, `,"workflow_run_id":`...)
+	out = strconv.AppendQuote(out, workflowRunID)
+	out = append(out, `,"step_ref":`...)
+	out = strconv.AppendQuote(out, stepRef)
+	out = append(out, `,"step_run_id":`...)
+	out = strconv.AppendQuote(out, stepRunID)
+	out = append(out, `,"status":`...)
+	out = strconv.AppendQuote(out, status)
+	out = append(out, `,"triggered_at":`...)
+	out = appendStageNotificationJSONTime(out, triggeredAt)
+	out = append(out, '}')
+	return out, nil
+}
+
+func appendStageNotificationJSONTime(out []byte, triggeredAt time.Time) []byte {
+	out = append(out, '"')
+	out = triggeredAt.AppendFormat(out, time.RFC3339)
+	out = append(out, '"')
+	return out
 }

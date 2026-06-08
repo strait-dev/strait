@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"sort"
+	"unsafe"
 )
 
 // hashIdempotencyKey returns a short SHA-256 prefix of the idempotency key,
@@ -12,8 +13,12 @@ func hashIdempotencyKey(key string) string {
 	if key == "" {
 		return ""
 	}
-	sum := sha256.Sum256([]byte(key))
-	return hex.EncodeToString(sum[:])[:16]
+	// sha256.Sum256 only reads the input synchronously, so this avoids copying
+	// the idempotency key before hashing it for the trigger audit hot path.
+	sum := sha256.Sum256(unsafe.Slice(unsafe.StringData(key), len(key)))
+	var out [16]byte
+	hex.Encode(out[:], sum[:8])
+	return string(out[:])
 }
 
 // tagKeys returns the sorted tag keys of a tag map. Values are never included

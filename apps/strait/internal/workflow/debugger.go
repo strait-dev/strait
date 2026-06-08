@@ -83,6 +83,10 @@ func BuildDebugView(
 		return nil, fmt.Errorf("workflow run is nil")
 	}
 
+	if workflowDebugStepsAligned(steps, stepRuns) {
+		return buildAlignedDebugView(wfRun, steps, stepRuns, stepCosts), nil
+	}
+
 	stepMap := make(map[string]*domain.WorkflowStep, len(steps))
 	dataFlowCap := 0
 	for i := range steps {
@@ -170,6 +174,122 @@ func BuildDebugView(
 	}
 
 	return view, nil
+}
+
+func workflowDebugStepsAligned(steps []domain.WorkflowStep, stepRuns []domain.WorkflowStepRun) bool {
+	if len(steps) != len(stepRuns) {
+		return false
+	}
+	for i := range steps {
+		if steps[i].StepRef != stepRuns[i].StepRef {
+			return false
+		}
+	}
+	return true
+}
+
+func buildAlignedDebugView(
+	wfRun *domain.WorkflowRun,
+	steps []domain.WorkflowStep,
+	stepRuns []domain.WorkflowStepRun,
+	stepCosts map[string]int64,
+) *DebugView {
+	dataFlowCap := 0
+	for i := range steps {
+		dataFlowCap += len(steps[i].DependsOn)
+	}
+
+	view := &DebugView{
+		WorkflowRunID: wfRun.ID,
+		WorkflowID:    wfRun.WorkflowID,
+		Status:        string(wfRun.Status),
+		StartedAt:     wfRun.StartedAt,
+		FinishedAt:    wfRun.FinishedAt,
+		Error:         wfRun.Error,
+		Payload:       wfRun.Payload,
+		Steps:         make([]DebugStep, 0, len(stepRuns)),
+		DataFlow:      make([]DataFlowEdge, 0, dataFlowCap),
+	}
+
+	if wfRun.StartedAt != nil && wfRun.FinishedAt != nil {
+		view.TotalDuration = wfRun.FinishedAt.Sub(*wfRun.StartedAt).Milliseconds()
+	}
+
+	linearChain := stepsFormOrderedLinearChainByRef(steps)
+	var outputSizeByRef map[string]int
+	if dataFlowCap > 0 && !linearChain {
+		for i := range stepRuns {
+			if len(stepRuns[i].Output) > 0 {
+				if outputSizeByRef == nil {
+					outputSizeByRef = make(map[string]int, len(stepRuns))
+				}
+				outputSizeByRef[stepRuns[i].StepRef] = len(stepRuns[i].Output)
+			}
+		}
+	}
+
+	for i := range stepRuns {
+		sr := &stepRuns[i]
+		step := &steps[i]
+		stepType := string(step.StepType)
+		if stepType == "" {
+			stepType = "job"
+		}
+
+		ds := DebugStep{
+			StepRef:    sr.StepRef,
+			StepRunID:  sr.ID,
+			StepType:   stepType,
+			Status:     string(sr.Status),
+			JobRunID:   sr.JobRunID,
+			Output:     sr.Output,
+			Error:      sr.Error,
+			StartedAt:  sr.StartedAt,
+			FinishedAt: sr.FinishedAt,
+			Attempt:    sr.Attempt,
+			DependsOn:  step.DependsOn,
+		}
+
+		if sr.StartedAt != nil && sr.FinishedAt != nil {
+			ds.Duration = sr.FinishedAt.Sub(*sr.StartedAt).Milliseconds()
+		}
+
+		if stepCosts != nil {
+			ds.Cost = stepCosts[sr.ID]
+		}
+		view.TotalCost += ds.Cost
+		view.Steps = append(view.Steps, ds)
+
+		if linearChain {
+			for _, dep := range step.DependsOn {
+				edge := DataFlowEdge{
+					FromStepRef: dep,
+					ToStepRef:   step.StepRef,
+				}
+				if i > 0 {
+					edge.DataSize = len(stepRuns[i-1].Output)
+				}
+				view.DataFlow = append(view.DataFlow, edge)
+			}
+		}
+	}
+
+	if linearChain {
+		return view
+	}
+
+	for i := range steps {
+		for _, dep := range steps[i].DependsOn {
+			edge := DataFlowEdge{
+				FromStepRef: dep,
+				ToStepRef:   steps[i].StepRef,
+			}
+			edge.DataSize = outputSizeByRef[dep]
+			view.DataFlow = append(view.DataFlow, edge)
+		}
+	}
+
+	return view
 }
 
 // CompareRuns creates a diff between two workflow runs.

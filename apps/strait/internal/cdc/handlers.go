@@ -80,7 +80,7 @@ func (h *JobRunHandler) Handle(ctx context.Context, msg Message) error {
 		Changes:   msg.Changes,
 		Timestamp: msg.Metadata.CommitTimestamp,
 		Source:    "cdc",
-	}, fmt.Sprintf("cdc:project:%s:job_runs", record.ProjectID))
+	}, cdcProjectJobRunsChannel(record.ProjectID))
 }
 
 func (h *JobRunHandler) Collect(_ context.Context, msg Message) (*pubsub.PubSubMessage, error) {
@@ -97,7 +97,7 @@ func (h *JobRunHandler) Collect(_ context.Context, msg Message) (*pubsub.PubSubM
 		Changes:   msg.Changes,
 		Timestamp: msg.Metadata.CommitTimestamp,
 		Source:    "cdc",
-	}, fmt.Sprintf("cdc:project:%s:job_runs", record.ProjectID))
+	}, cdcProjectJobRunsChannel(record.ProjectID))
 }
 
 type WorkflowRunHandler struct {
@@ -145,7 +145,7 @@ func (h *WorkflowRunHandler) Handle(ctx context.Context, msg Message) error {
 		Changes:   msg.Changes,
 		Timestamp: msg.Metadata.CommitTimestamp,
 		Source:    "cdc",
-	}, fmt.Sprintf("cdc:project:%s:workflow_runs", record.ProjectID))
+	}, cdcProjectWorkflowRunsChannel(record.ProjectID))
 }
 
 func (h *WorkflowRunHandler) Collect(_ context.Context, msg Message) (*pubsub.PubSubMessage, error) {
@@ -162,7 +162,7 @@ func (h *WorkflowRunHandler) Collect(_ context.Context, msg Message) (*pubsub.Pu
 		Changes:   msg.Changes,
 		Timestamp: msg.Metadata.CommitTimestamp,
 		Source:    "cdc",
-	}, fmt.Sprintf("cdc:project:%s:workflow_runs", record.ProjectID))
+	}, cdcProjectWorkflowRunsChannel(record.ProjectID))
 }
 
 type WorkflowStepRunHandler struct {
@@ -210,7 +210,7 @@ func (h *WorkflowStepRunHandler) Handle(ctx context.Context, msg Message) error 
 		Changes:   msg.Changes,
 		Timestamp: msg.Metadata.CommitTimestamp,
 		Source:    "cdc",
-	}, fmt.Sprintf("cdc:workflow_run:%s:steps", record.WorkflowRunID))
+	}, cdcWorkflowRunStepsChannel(record.WorkflowRunID))
 }
 
 func (h *WorkflowStepRunHandler) Collect(_ context.Context, msg Message) (*pubsub.PubSubMessage, error) {
@@ -227,7 +227,7 @@ func (h *WorkflowStepRunHandler) Collect(_ context.Context, msg Message) (*pubsu
 		Changes:   msg.Changes,
 		Timestamp: msg.Metadata.CommitTimestamp,
 		Source:    "cdc",
-	}, fmt.Sprintf("cdc:workflow_run:%s:steps", record.WorkflowRunID))
+	}, cdcWorkflowRunStepsChannel(record.WorkflowRunID))
 }
 
 type EventTriggerHandler struct {
@@ -275,7 +275,7 @@ func (h *EventTriggerHandler) Handle(ctx context.Context, msg Message) error {
 		Changes:   msg.Changes,
 		Timestamp: msg.Metadata.CommitTimestamp,
 		Source:    "cdc",
-	}, fmt.Sprintf("cdc:project:%s:event_triggers", record.ProjectID))
+	}, cdcProjectEventTriggersChannel(record.ProjectID))
 }
 
 func (h *EventTriggerHandler) Collect(_ context.Context, msg Message) (*pubsub.PubSubMessage, error) {
@@ -292,7 +292,7 @@ func (h *EventTriggerHandler) Collect(_ context.Context, msg Message) (*pubsub.P
 		Changes:   msg.Changes,
 		Timestamp: msg.Metadata.CommitTimestamp,
 		Source:    "cdc",
-	}, fmt.Sprintf("cdc:project:%s:event_triggers", record.ProjectID))
+	}, cdcProjectEventTriggersChannel(record.ProjectID))
 }
 
 // CollectableHandler extends Handler with the ability to collect messages

@@ -74,22 +74,35 @@ const apiVersion = "v1"
 func requireJSONAccept(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		accept := r.Header.Get("Accept")
-		if accept != "" && accept != "*/*" {
-			ok := false
-			for part := range strings.SplitSeq(accept, ",") {
-				mt := strings.TrimSpace(strings.SplitN(part, ";", 2)[0])
-				if mt == "application/json" || mt == "application/*" || mt == "application/x-ndjson" || mt == "text/csv" || mt == "*/*" {
-					ok = true
-					break
-				}
-			}
-			if !ok {
-				respondError(w, r, http.StatusNotAcceptable, "this API only serves application/json")
-				return
-			}
+		if !acceptsJSONResponse(accept) {
+			respondError(w, r, http.StatusNotAcceptable, "this API only serves application/json")
+			return
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func acceptsJSONResponse(accept string) bool {
+	if accept == "" || accept == "*/*" {
+		return true
+	}
+	for len(accept) > 0 {
+		part := accept
+		if comma := strings.IndexByte(accept, ','); comma >= 0 {
+			part = accept[:comma]
+			accept = accept[comma+1:]
+		} else {
+			accept = ""
+		}
+		if semi := strings.IndexByte(part, ';'); semi >= 0 {
+			part = part[:semi]
+		}
+		switch strings.TrimSpace(part) {
+		case "application/json", "application/*", "application/x-ndjson", "text/csv", "*/*":
+			return true
+		}
+	}
+	return false
 }
 
 // requireJSONContentType returns 415 Unsupported Media Type if a mutation
@@ -99,7 +112,8 @@ func requireJSONContentType(next http.Handler) http.Handler {
 		if r.Method == http.MethodPost || r.Method == http.MethodPut || r.Method == http.MethodPatch {
 			if r.ContentLength > 0 || r.Header.Get("Content-Type") != "" {
 				ct := r.Header.Get("Content-Type")
-				mt := strings.TrimSpace(strings.SplitN(ct, ";", 2)[0])
+				mt, _, _ := strings.Cut(ct, ";")
+				mt = strings.TrimSpace(mt)
 				if mt != "application/json" {
 					respondError(w, r, http.StatusUnsupportedMediaType, "Content-Type must be application/json")
 					return
@@ -132,8 +146,15 @@ func realIP(r *http.Request, trustedProxies []net.IPNet) string {
 		// The connecting peer is not a trusted proxy; ignore its XFF.
 		return remote
 	}
-	parts := strings.Split(xff, ",")
-	for _, raw := range slices.Backward(parts) {
+	for len(xff) > 0 {
+		idx := strings.LastIndexByte(xff, ',')
+		raw := xff
+		if idx >= 0 {
+			raw = xff[idx+1:]
+			xff = xff[:idx]
+		} else {
+			xff = ""
+		}
 		candidate := strings.TrimSpace(raw)
 		if candidate == "" {
 			continue

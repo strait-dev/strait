@@ -13,6 +13,108 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestJobDepsCacheKeyString(t *testing.T) {
+	t.Parallel()
+
+	got := jobDepsCacheKeyString(jobDepsCacheKey{JobID: "job-1", Limit: 101, Cursor: "cursor-1"})
+	require.Equal(t, "job-1\x00101\x00cursor-1", got)
+}
+
+func TestParseJobDepsCacheKey(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		raw  string
+		want jobDepsCacheKey
+		ok   bool
+	}{
+		{
+			name: "valid empty cursor",
+			raw:  "job-1\x00101\x00",
+			want: jobDepsCacheKey{JobID: "job-1", Limit: 101},
+			ok:   true,
+		},
+		{
+			name: "valid cursor",
+			raw:  "job-1\x00101\x00cursor-1",
+			want: jobDepsCacheKey{JobID: "job-1", Limit: 101, Cursor: "cursor-1"},
+			ok:   true,
+		},
+		{name: "missing separator", raw: "job-1", ok: false},
+		{name: "too many separators", raw: "job-1\x00101\x00cursor\x00extra", ok: false},
+		{name: "invalid limit", raw: "job-1\x00bad\x00cursor", ok: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, ok := parseJobDepsCacheKey(tt.raw)
+			require.Equal(t, tt.ok, ok)
+			if tt.ok {
+				require.Equal(t, tt.want, got)
+			}
+		})
+	}
+}
+
+func BenchmarkJobDepsCacheKeyString(b *testing.B) {
+	b.Run("empty_cursor", func(b *testing.B) {
+		key := jobDepsCacheKey{JobID: "job-dependency-cache-key", Limit: 1001}
+
+		b.ReportAllocs()
+		b.ResetTimer()
+
+		for range b.N {
+			out := jobDepsCacheKeyString(key)
+			if out == "" {
+				b.Fatal("jobDepsCacheKeyString() returned empty key")
+			}
+		}
+	})
+
+	b.Run("with_cursor", func(b *testing.B) {
+		key := jobDepsCacheKey{JobID: "job-dependency-cache-key", Limit: 1001, Cursor: "cursor-page-token"}
+
+		b.ReportAllocs()
+		b.ResetTimer()
+
+		for range b.N {
+			out := jobDepsCacheKeyString(key)
+			if out == "" {
+				b.Fatal("jobDepsCacheKeyString() returned empty key")
+			}
+		}
+	})
+}
+
+func BenchmarkParseJobDepsCacheKey(b *testing.B) {
+	benchmarks := []struct {
+		name string
+		raw  string
+		ok   bool
+	}{
+		{name: "empty_cursor", raw: "job-dependency-cache-key\x001001\x00", ok: true},
+		{name: "with_cursor", raw: "job-dependency-cache-key\x001001\x00cursor-page-token", ok: true},
+		{name: "invalid_limit", raw: "job-dependency-cache-key\x00bad\x00cursor-page-token", ok: false},
+		{name: "too_many_parts", raw: "job-dependency-cache-key\x001001\x00cursor-page-token\x00extra", ok: false},
+	}
+
+	for _, bm := range benchmarks {
+		b.Run(bm.name, func(b *testing.B) {
+			b.ReportAllocs()
+			b.ResetTimer()
+
+			for range b.N {
+				_, ok := parseJobDepsCacheKey(bm.raw)
+				if ok != bm.ok {
+					b.Fatalf("parseJobDepsCacheKey() ok = %v, want %v", ok, bm.ok)
+				}
+			}
+		})
+	}
+}
+
 func TestJobDependencyCache_PreservesMaxDependencyCacheVersionInRedis(t *testing.T) {
 	t.Parallel()
 

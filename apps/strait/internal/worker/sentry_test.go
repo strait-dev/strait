@@ -182,6 +182,31 @@ func TestWorkerSentryCaptureContract(t *testing.T) {
 	}
 }
 
+func TestAddWorkerRunBreadcrumbSkipsWorkWithoutHub(t *testing.T) {
+	t.Parallel()
+
+	data := map[string]any{"phase": "dispatch"}
+	addWorkerRunBreadcrumb(
+		context.Background(),
+		"worker.dispatch",
+		"run dispatch starting",
+		&domain.JobRun{
+			ID:            "run-1",
+			JobID:         "job-1",
+			ProjectID:     "proj-1",
+			Attempt:       2,
+			Status:        domain.StatusExecuting,
+			ExecutionMode: domain.ExecutionModeHTTP,
+		},
+		&domain.Job{Version: 3, EnvironmentID: "env-1"},
+		data,
+	)
+
+	require.Equal(t,
+		map[string]any{"phase": "dispatch"},
+		data)
+}
+
 type capturingSentryTransport struct {
 	mu     sync.Mutex
 	events []*sentry.Event

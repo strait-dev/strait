@@ -33,10 +33,10 @@ func (r *RedisConcurrencyLimiter) Acquire(ctx context.Context, key string, maxCo
 		return "", true, nil
 	}
 	if maxConcurrent <= 0 {
-		return "", false, fmt.Errorf("maxConcurrent must be positive")
+		return "", false, errors.New("maxConcurrent must be positive")
 	}
 	if ttl <= 0 {
-		return "", false, fmt.Errorf("ttl must be positive")
+		return "", false, errors.New("ttl must be positive")
 	}
 
 	for slot := range maxConcurrent {
@@ -81,15 +81,15 @@ func redisConcurrencySlotKey(key string, slot int) string {
 }
 
 func parseRedisConcurrencyToken(token string) (int, string, error) {
-	parts := strings.SplitN(token, ":", 2)
-	if len(parts) != 2 || parts[1] == "" {
-		return 0, "", fmt.Errorf("invalid concurrency token")
+	slotText, id, ok := strings.Cut(token, ":")
+	if !ok || id == "" {
+		return 0, "", errors.New("invalid concurrency token")
 	}
 
-	slot, err := strconv.Atoi(parts[0])
+	slot, err := strconv.Atoi(slotText)
 	if err != nil {
 		return 0, "", fmt.Errorf("parse token slot: %w", err)
 	}
 
-	return slot, parts[1], nil
+	return slot, id, nil
 }

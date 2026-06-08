@@ -115,6 +115,28 @@ func TestResilientPublisher_PublishFailOpenAndDegrade(t *testing.T) {
 		rp.IsHealthy())
 }
 
+func BenchmarkResilientPublisherPublishSuccess(b *testing.B) {
+	rp := NewResilientPublisher(
+		&mockPublisher{},
+		slog.New(slog.DiscardHandler),
+		2,
+	)
+	ctx := context.Background()
+	payload := []byte("payload")
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for b.Loop() {
+		if err := rp.Publish(ctx, "events", payload); err != nil {
+			b.Fatalf("Publish() error = %v", err)
+		}
+		if !rp.IsHealthy() {
+			b.Fatal("publisher marked unhealthy")
+		}
+	}
+}
+
 func TestResilientPublisher_SubscribeFailOpenReturnsClosedChannel(t *testing.T) {
 	t.Parallel()
 

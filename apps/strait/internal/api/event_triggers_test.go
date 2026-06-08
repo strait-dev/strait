@@ -884,6 +884,95 @@ func TestHandleEventTriggerStream_TerminalState(t *testing.T) {
 		t, body, "evt-terminal")
 }
 
+func TestMarshalTriggerStatusChangePayload(t *testing.T) {
+	t.Parallel()
+
+	receivedAt := time.Date(2026, 6, 7, 12, 0, 0, 0, time.UTC)
+	timestamp := receivedAt.Add(time.Second)
+	payload, err := marshalTriggerStatusChangePayload(&domain.EventTrigger{
+		ID:            "trigger-1",
+		EventKey:      "order.shipped",
+		Status:        domain.EventTriggerStatusReceived,
+		ProjectID:     "proj-1",
+		EnvironmentID: "env-1",
+		SourceType:    "workflow",
+		ReceivedAt:    &receivedAt,
+		Error:         "none",
+	}, timestamp)
+	require.NoError(t, err)
+
+	var got map[string]any
+	require.NoError(t, json.Unmarshal(payload, &got))
+	require.Equal(t, "trigger-1", got["id"])
+	require.Equal(t, "order.shipped", got["event_key"])
+	require.Equal(t, string(domain.EventTriggerStatusReceived), got["status"])
+	require.Equal(t, "proj-1", got["project_id"])
+	require.Equal(t, "env-1", got["environment_id"])
+	require.Equal(t, "workflow", got["source_type"])
+	require.Equal(t, "none", got["error"])
+	require.Equal(t, receivedAt.Format(time.RFC3339), got["received_at"])
+	require.Equal(t, timestamp.Format(time.RFC3339), got["timestamp"])
+}
+
+func TestMarshalTriggerStatusChangePayloadEscapesFields(t *testing.T) {
+	t.Parallel()
+
+	timestamp := time.Date(2026, 6, 7, 12, 0, 0, 123456789, time.FixedZone("offset", -3*60*60))
+	payload, err := marshalTriggerStatusChangePayload(&domain.EventTrigger{
+		ID:            "trigger-\"1",
+		EventKey:      "order.\\\n<&>",
+		Status:        domain.EventTriggerStatusTimedOut,
+		ProjectID:     "proj-<&>",
+		EnvironmentID: "env\n1",
+		SourceType:    "workflow",
+		Error:         "boom <&>",
+	}, timestamp)
+	require.NoError(t, err)
+	require.JSONEq(t, `{"id":"trigger-\"1","event_key":"order.\\\n<&>","status":"timed_out","project_id":"proj-<&>","environment_id":"env\n1","source_type":"workflow","received_at":null,"error":"boom <&>","timestamp":"2026-06-07T12:00:00.123456789-03:00"}`, string(payload))
+}
+
+func BenchmarkMarshalTriggerStatusChangePayload(b *testing.B) {
+	receivedAt := time.Date(2026, 6, 7, 12, 0, 0, 0, time.UTC)
+	timestamp := receivedAt.Add(time.Second)
+	trigger := &domain.EventTrigger{
+		ID:            "trigger-1",
+		EventKey:      "order.shipped",
+		Status:        domain.EventTriggerStatusReceived,
+		ProjectID:     "proj-1",
+		EnvironmentID: "env-1",
+		SourceType:    "workflow",
+		ReceivedAt:    &receivedAt,
+		Error:         "none",
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for range b.N {
+		payload, err := marshalTriggerStatusChangePayload(trigger, timestamp)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if len(payload) == 0 {
+			b.Fatal("marshalTriggerStatusChangePayload() returned empty payload")
+		}
+	}
+}
+
+func BenchmarkEventTriggerChannel(b *testing.B) {
+	triggerID := "evt_0123456789abcdef"
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for range b.N {
+		channel := eventTriggerChannel(triggerID)
+		if channel == "" {
+			b.Fatal("eventTriggerChannel() returned empty channel")
+		}
+	}
+}
+
 func TestHandleEventTriggerStream_NotFound(t *testing.T) {
 	t.Parallel()
 

@@ -83,13 +83,26 @@ func (e *Executor) dispatchHeaders(ctx context.Context, job *domain.Job, run *do
 // failover preserves authentication and durable-resume semantics rather than
 // silently dropping them.
 func (e *Executor) buildDispatchHeaders(job *domain.Job, run *domain.JobRun, secrets []domain.JobSecret, cp *domain.RunCheckpoint) (map[string]string, error) {
-	headers := make(map[string]string)
+	headerCount := len(secrets)
+	if e.jwtSigningKey != "" {
+		headerCount++
+	}
+	if job.EndpointSigningSecret != "" {
+		headerCount += 2
+	}
+	if run.Attempt > 1 {
+		headerCount++
+		if cp != nil {
+			headerCount += 2
+		}
+	}
+	headers := make(map[string]string, headerCount)
 	for _, secret := range secrets {
 		value := secret.Value
 		if value == "" {
 			value = secret.EncryptedValue
 		}
-		headers[fmt.Sprintf("X-Secret-%s", secret.SecretKey)] = value
+		headers["X-Secret-"+secret.SecretKey] = value
 	}
 
 	// Generate a JWT run token so the endpoint's SDK can call back to Strait.
