@@ -191,6 +191,10 @@ func (s *Server) routes() chi.Router {
 	r.Route("/v1/events/{eventKey}/stream", func(r chi.Router) {
 		r.Use(s.sseTokenAuth)
 		r.Use(s.apiKeyOrSecretAuth)
+		// Stamp the project context so PostgreSQL RLS is active for the
+		// resolveEventTriggerByKey lookups in the handler, matching the other SSE
+		// routes. Without it the stream relied on application-level filtering only.
+		r.Use(s.projectContextMiddleware)
 		r.Use(s.projectRateLimit)
 		r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", s.handleEventTriggerStream)
 	})

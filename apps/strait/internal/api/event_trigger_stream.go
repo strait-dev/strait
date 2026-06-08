@@ -145,7 +145,9 @@ func (s *Server) handleEventTriggerStream(w http.ResponseWriter, r *http.Request
 			if !ok {
 				continue
 			}
-			fmt.Fprintf(w, "event: status\ndata: %s\n\n", msg)
+			// Strip CR/LF so a crafted pub/sub message cannot inject extra SSE
+			// frames; valid JSON has no literal newlines.
+			fmt.Fprintf(w, "event: status\ndata: %s\n\n", stripSSENewlines(msg))
 			flusher.Flush()
 
 			// Close stream when trigger reaches terminal state.
