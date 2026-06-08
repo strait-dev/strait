@@ -1195,7 +1195,9 @@ func (s *Server) rlsTxMiddleware(next http.Handler) http.Handler {
 		}
 
 		ctx := r.Context()
-		tx, err := s.txPool.Begin(ctx)
+		admissionCtx, admissionCancel := context.WithTimeout(ctx, databaseAdmissionOperationTimeout)
+		tx, err := s.txPool.Begin(admissionCtx)
+		admissionCancel()
 		if err != nil {
 			if isRetryableDatabaseAdmissionError(err) {
 				slog.Info("retryable RLS tx begin failure", "project_id", projectID, "error", err)
@@ -1207,7 +1209,10 @@ func (s *Server) rlsTxMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		if _, err := tx.Exec(ctx, "SELECT set_config('app.current_project_id', $1, true)", projectID); err != nil {
+		admissionCtx, admissionCancel = context.WithTimeout(ctx, databaseAdmissionOperationTimeout)
+		_, err = tx.Exec(admissionCtx, "SELECT set_config('app.current_project_id', $1, true)", projectID)
+		admissionCancel()
+		if err != nil {
 			if rbErr := tx.Rollback(ctx); rbErr != nil && !errors.Is(rbErr, context.Canceled) {
 				slog.Warn("failed to rollback RLS tx after set_config error", "error", rbErr)
 			}
@@ -1257,7 +1262,10 @@ func (s *Server) rlsTxMiddleware(next http.Handler) http.Handler {
 			bw.FlushTo(w)
 			return
 		}
-		if err := tx.Commit(ctx); err != nil && !errors.Is(err, context.Canceled) {
+		admissionCtx, admissionCancel = context.WithTimeout(ctx, databaseAdmissionOperationTimeout)
+		err = tx.Commit(admissionCtx)
+		admissionCancel()
+		if err != nil && !errors.Is(err, context.Canceled) {
 			hooks.runRollback(context.Background())
 			if isRetryableDatabaseAdmissionError(err) {
 				slog.Info("retryable RLS tx commit failure", "project_id", projectID, "error", err)
@@ -1320,6 +1328,7 @@ func (h *txCompletionHooks) runRollback(ctx context.Context) {
 }
 
 const maxRLSBufferedResponseBytes = 16 << 20
+const databaseAdmissionOperationTimeout = time.Second
 
 var errRLSBufferedResponseTooLarge = errors.New("response too large")
 

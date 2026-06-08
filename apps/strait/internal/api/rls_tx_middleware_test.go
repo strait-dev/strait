@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -68,6 +69,36 @@ func TestRLSTxMiddleware_TimeoutCommitFailureReturnsRetryable429(t *testing.T) {
 	require.Empty(t, w.Header().Get("X-Test-Header"))
 	require.NotEqual(t, "success body", w.Body.String())
 	require.True(t, tx.setProjectContext)
+}
+
+func TestRLSTxMiddleware_UsesAdmissionTimeoutForDatabaseBoundaries(t *testing.T) {
+	t.Parallel()
+
+	var beginCtx context.Context
+	var execCtx context.Context
+	var commitCtx context.Context
+	tx := &fakeRLSTx{
+		execCtx:   &execCtx,
+		commitCtx: &commitCtx,
+	}
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
+	srv.txPool = fakeTxBeginner{
+		tx:       tx,
+		beginCtx: &beginCtx,
+	}
+	handler := srv.rlsTxMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+	}))
+	req := httptest.NewRequest(http.MethodPost, "/", nil)
+	ctx := context.WithValue(req.Context(), ctxProjectIDKey, "proj-1")
+	req = req.WithContext(ctx)
+
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	require.Equal(t, http.StatusCreated, w.Code)
+	requireAdmissionDeadline(t, beginCtx)
+	requireAdmissionDeadline(t, execCtx)
+	requireAdmissionDeadline(t, commitCtx)
 }
 
 func TestRLSTxMiddleware_RetryableBeginFailureReturns429(t *testing.T) {
@@ -317,9 +348,13 @@ type fakeTxBeginner struct {
 	tx         *fakeRLSTx
 	beginCount *atomic.Int32
 	beginErr   error
+	beginCtx   *context.Context
 }
 
-func (f fakeTxBeginner) Begin(context.Context) (pgx.Tx, error) {
+func (f fakeTxBeginner) Begin(ctx context.Context) (pgx.Tx, error) {
+	if f.beginCtx != nil {
+		*f.beginCtx = ctx
+	}
 	if f.beginCount != nil {
 		f.beginCount.Add(1)
 	}
@@ -332,13 +367,18 @@ func (f fakeTxBeginner) Begin(context.Context) (pgx.Tx, error) {
 type fakeRLSTx struct {
 	commitErr         error
 	execErr           error
+	execCtx           *context.Context
+	commitCtx         *context.Context
 	setProjectContext bool
 	commitCalled      bool
 	rollbackCalled    bool
 }
 
 func (f *fakeRLSTx) Begin(context.Context) (pgx.Tx, error) { return nil, errors.New("not implemented") }
-func (f *fakeRLSTx) Commit(context.Context) error {
+func (f *fakeRLSTx) Commit(ctx context.Context) error {
+	if f.commitCtx != nil {
+		*f.commitCtx = ctx
+	}
 	f.commitCalled = true
 	return f.commitErr
 }
@@ -354,7 +394,10 @@ func (f *fakeRLSTx) LargeObjects() pgx.LargeObjects                         { re
 func (f *fakeRLSTx) Prepare(context.Context, string, string) (*pgconn.StatementDescription, error) {
 	return nil, errors.New("not implemented")
 }
-func (f *fakeRLSTx) Exec(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
+func (f *fakeRLSTx) Exec(ctx context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
+	if f.execCtx != nil {
+		*f.execCtx = ctx
+	}
 	if sql == "SELECT set_config('app.current_project_id', $1, true)" {
 		f.setProjectContext = true
 	}
@@ -374,4 +417,13 @@ type retryableAdmissionErr struct{}
 func (retryableAdmissionErr) Error() string { return "conn closed" }
 func (retryableAdmissionErr) SafeToRetry() bool {
 	return true
+}
+
+func requireAdmissionDeadline(t *testing.T, ctx context.Context) {
+	t.Helper()
+
+	require.NotNil(t, ctx)
+	deadline, ok := ctx.Deadline()
+	require.True(t, ok, "expected admission context to have a deadline")
+	require.LessOrEqual(t, time.Until(deadline), databaseAdmissionOperationTimeout)
 }
