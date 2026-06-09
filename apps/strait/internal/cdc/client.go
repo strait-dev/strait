@@ -419,13 +419,21 @@ func (c *Client) EnsureConsumer(ctx context.Context, tables []string) error {
 
 	if resp.StatusCode >= 400 {
 		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		if (resp.StatusCode == http.StatusConflict || resp.StatusCode == http.StatusUnprocessableEntity) &&
-			bytes.Contains(respBody, []byte("has already been taken")) {
+		if sequinSinkAlreadyExists(resp.StatusCode, respBody) {
 			return c.waitForConsumerReady(ctx)
 		}
 		return fmt.Errorf("create sequin sink (status %d): %s", resp.StatusCode, respBody)
 	}
 	return c.waitForConsumerReady(ctx)
+}
+
+func sequinSinkAlreadyExists(statusCode int, responseBody []byte) bool {
+	switch statusCode {
+	case http.StatusConflict, http.StatusUnprocessableEntity:
+		return bytes.Contains(responseBody, []byte("has already been taken"))
+	default:
+		return false
+	}
 }
 
 func (c *Client) waitForConsumerReady(ctx context.Context) error {

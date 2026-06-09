@@ -274,6 +274,50 @@ func TestEnsureConsumer_DuplicateNameWaitsForConsumer(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestSequinSinkAlreadyExists(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		statusCode int
+		body       []byte
+		want       bool
+	}{
+		{
+			name:       "conflict duplicate",
+			statusCode: http.StatusConflict,
+			body:       []byte(`{"error":"has already been taken"}`),
+			want:       true,
+		},
+		{
+			name:       "unprocessable duplicate",
+			statusCode: http.StatusUnprocessableEntity,
+			body:       []byte(`{"validation_errors":{"name":["has already been taken"]}}`),
+			want:       true,
+		},
+		{
+			name:       "unprocessable different error",
+			statusCode: http.StatusUnprocessableEntity,
+			body:       []byte(`{"validation_errors":{"name":["is invalid"]}}`),
+			want:       false,
+		},
+		{
+			name:       "bad request duplicate text",
+			statusCode: http.StatusBadRequest,
+			body:       []byte(`{"error":"has already been taken"}`),
+			want:       false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			require.Equal(t, tt.want, sequinSinkAlreadyExists(tt.statusCode, tt.body))
+		})
+	}
+}
+
 func TestDoRequest_NoAuthToken(t *testing.T) {
 	t.Parallel()
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
