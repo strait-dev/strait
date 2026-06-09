@@ -76,8 +76,8 @@ func TestRespondError_NeverBareString(t *testing.T) {
 	require.NoError(t,
 		json.Unmarshal(w.Body.
 			Bytes(), &raw))
-	require.False(t, len(raw.Error) == 0 || raw.
-		Error[0] != '{')
+	require.NotEmpty(t, raw.Error)
+	require.Equal(t, byte('{'), raw.Error[0])
 }
 
 // TestHumaNewError_OverrideShape verifies the Huma override produces the
@@ -113,9 +113,6 @@ func TestHumaNewError_OverrideShape(t *testing.T) {
 
 		resp.
 			Error.Message)
-	assert.False(t, len(resp.Error.
-		Details) !=
-		1 || resp.Error.Details[0] !=
-		"field x is required",
-	)
+	assert.Len(t, resp.Error.Details, 1)
+	assert.Equal(t, "field x is required", resp.Error.Details[0])
 }
