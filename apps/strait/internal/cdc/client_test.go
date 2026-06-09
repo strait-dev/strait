@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -14,6 +15,45 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestSequinEndpointHasBaseURL(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		endpoint url.URL
+		want     bool
+	}{
+		{
+			name:     "scheme and host",
+			endpoint: url.URL{Scheme: "http", Host: "sequin.local"},
+			want:     true,
+		},
+		{
+			name:     "missing scheme",
+			endpoint: url.URL{Host: "sequin.local"},
+			want:     false,
+		},
+		{
+			name:     "missing host",
+			endpoint: url.URL{Scheme: "http"},
+			want:     false,
+		},
+		{
+			name:     "empty endpoint",
+			endpoint: url.URL{},
+			want:     false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, tt.want, sequinEndpointHasBaseURL(tt.endpoint))
+		})
+	}
+}
 
 func TestClientReceiveSuccess(t *testing.T) {
 	t.Parallel()
