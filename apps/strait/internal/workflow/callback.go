@@ -680,7 +680,16 @@ func (s *StepCallback) recordDecision(ctx context.Context, stepRun *domain.Workf
 
 // enqueueStepAnalytics sends a WorkflowStepAnalyticsRecord to ClickHouse.
 func (s *StepCallback) enqueueStepAnalytics(stepRun *domain.WorkflowStepRun, wc *wfCtx) {
-	if s.chExporter == nil || stepRun == nil || wc == nil || wc.run == nil {
+	if s.chExporter == nil {
+		return
+	}
+	if stepRun == nil {
+		return
+	}
+	if wc == nil {
+		return
+	}
+	if wc.run == nil {
 		return
 	}
 	var durationMs uint64
