@@ -24,6 +24,23 @@ func TestRegistryRegisteredNamespacesReturnsSortedCopy(t *testing.T) {
 	require.Equal(t, "authn_keys", registry.RegisteredNamespaces()[0])
 }
 
+func TestRegistryRegisterSkipsInvalidEntries(t *testing.T) {
+	t.Parallel()
+
+	handler := NamespaceHandlerFuncs{Invalidate: func(context.Context, string, int64) {}}
+	registry := NewRegistry(RegistryConfig{})
+
+	var nilRegistry *Registry
+	nilRegistry.Register("jobs", handler)
+
+	registry.Register("", handler)
+	registry.Register("jobs", nil)
+	require.Empty(t, registry.RegisteredNamespaces())
+
+	registry.Register("jobs", handler)
+	require.Equal(t, []string{"jobs"}, registry.RegisteredNamespaces())
+}
+
 func TestRegistryRegisteredNamespacesNilSafe(t *testing.T) {
 	t.Parallel()
 

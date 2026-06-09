@@ -76,12 +76,22 @@ func (r *Registry) Origin() string {
 }
 
 func (r *Registry) Register(namespace string, handler NamespaceHandler) {
-	if r == nil || namespace == "" || handler == nil {
+	if !r.canRegister(namespace, handler) {
 		return
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.handlers[namespace] = handler
+}
+
+func (r *Registry) canRegister(namespace string, handler NamespaceHandler) bool {
+	if r == nil {
+		return false
+	}
+	if namespace == "" {
+		return false
+	}
+	return handler != nil
 }
 
 func (r *Registry) RegisteredNamespaces() []string {
