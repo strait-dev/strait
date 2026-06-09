@@ -22,7 +22,7 @@ func (e *Executor) resolveJobForRun(ctx context.Context, run *domain.JobRun) (*d
 	if e.jobCache != nil {
 		if cached, err := e.jobCache.Get(ctx, run.JobID); err == nil {
 			current = cloneJob(cached)
-			if current.VersionPolicy == domain.VersionPolicyLatest || current.VersionPolicy == domain.VersionPolicyMinor {
+			if versionPolicyRequiresCurrentJob(current.VersionPolicy) {
 				current = nil
 				bypassCache = true
 			}
@@ -101,6 +101,10 @@ func (e *Executor) resolveJobForRun(ctx context.Context, run *domain.JobRun) (*d
 		return e.jobVersionCache.Load(ctx, jobVersionKey{JobID: run.JobID, Version: run.JobVersion}, loadVersion)
 	}
 	return loadVersion(ctx, jobVersionKey{JobID: run.JobID, Version: run.JobVersion})
+}
+
+func versionPolicyRequiresCurrentJob(policy domain.VersionPolicy) bool {
+	return policy == domain.VersionPolicyLatest || policy == domain.VersionPolicyMinor
 }
 
 func (e *Executor) resolveDispatchJobAndPolicy(ctx context.Context, run *domain.JobRun) (*domain.Job, executionPolicy, bool) {
