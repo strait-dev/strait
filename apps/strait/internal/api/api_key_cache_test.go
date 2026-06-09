@@ -41,6 +41,43 @@ func publishTestInvalidate(t *testing.T, registry *straitcache.Registry, namespa
 	registry.Handle(t.Context(), data)
 }
 
+func TestAPIKeyCache_CacheEnabled(t *testing.T) {
+	t.Parallel()
+
+	enabled := newAPIKeyCache(time.Minute)
+	defer enabled.Stop()
+
+	tests := []struct {
+		name  string
+		cache *apiKeyCache
+		want  bool
+	}{
+		{
+			name:  "nil cache",
+			cache: nil,
+			want:  false,
+		},
+		{
+			name:  "missing tier",
+			cache: &apiKeyCache{},
+			want:  false,
+		},
+		{
+			name:  "enabled cache",
+			cache: enabled,
+			want:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			require.Equal(t, tt.want, tt.cache.cacheEnabled())
+		})
+	}
+}
+
 func TestAPIKeyCache_ServesValidKeyAndSanitizesSecrets(t *testing.T) {
 	t.Parallel()
 
