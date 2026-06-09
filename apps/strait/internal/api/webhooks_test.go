@@ -168,6 +168,50 @@ func TestHandleReplayWebhookDelivery_WrongProject(t *testing.T) {
 	)
 }
 
+func TestHandleReplayWebhookDelivery_JobLookupUnavailableDenied(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		jobErr error
+	}{
+		{name: "lookup error", jobErr: fmt.Errorf("job lookup failed")},
+		{name: "missing job"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			ms := &APIStoreMock{
+				GetWebhookDeliveryFunc: func(_ context.Context, _, _ string) (*domain.WebhookDelivery, error) {
+					return &domain.WebhookDelivery{ID: "del-1", JobID: "job-1"}, nil
+				},
+				GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+					require.Equal(t, "job-1", id)
+
+					return nil, tt.jobErr
+				},
+				ReplayWebhookDeliveryFunc: func(_ context.Context, _, _ string) (*domain.WebhookDelivery, error) {
+					require.Fail(t, "ReplayWebhookDelivery must not be called when delivery access is denied")
+					return nil, nil
+				},
+			}
+			srv := newTestServer(t, ms, nil, nil)
+
+			r := httptest.NewRequest(http.MethodPost, "/v1/webhooks/deliveries/del-1/replay", nil)
+			rctx := chi.NewRouteContext()
+			rctx.URLParams.Add("id", "del-1")
+			r = r.WithContext(context.WithValue(r.Context(), chi.RouteCtxKey, rctx))
+			r = r.WithContext(context.WithValue(r.Context(), ctxProjectIDKey, "my-project"))
+			w := httptest.NewRecorder()
+
+			TypedHandler(srv, http.StatusCreated, srv.handleReplayWebhookDelivery)(w, r)
+			require.Equal(t, http.StatusNotFound, w.Code)
+		})
+	}
+}
+
 func TestHandleReplayWebhookDelivery_EnvironmentScopedCallerCannotReplayOtherEnvironment(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
