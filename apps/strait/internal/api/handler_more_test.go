@@ -446,12 +446,18 @@ func TestHandleTriggerJob_IdempotencyHit(t *testing.T) {
 		Bytes(), &resp))
 	require.Equal(t, "run-existing",
 		resp["id"])
+	require.Equal(t, string(domain.StatusQueued),
+		resp["status"])
+	hit, ok := resp["idempotency_hit"].(bool)
+	require.True(t, ok)
+	require.True(t, hit)
 
 	if _, ok := resp["run_token"]; ok {
 		require.Fail(t,
 
 			"did not expect run_token for idempotency hit")
 	}
+	require.NotContains(t, resp, "payload_hash")
 }
 
 func TestHandleTriggerJob_DelayedSchedule(t *testing.T) {
