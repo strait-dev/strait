@@ -3329,6 +3329,23 @@ func TestHandleRetryWorkflowStep_ErrorPaths(t *testing.T) {
 				Code)
 	})
 
+	t.Run("step_lookup_error", func(t *testing.T) {
+		t.Parallel()
+		ms := &APIStoreMock{
+			GetWorkflowRunFunc: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+				return &domain.WorkflowRun{ID: id, WorkflowID: "wf-1", Status: domain.WfStatusPaused}, nil
+			},
+			GetStepRunByWorkflowRunAndRefFunc: func(_ context.Context, _ string, _ string) (*domain.WorkflowStepRun, error) {
+				return nil, errors.New("step lookup failed")
+			},
+		}
+		cb := &mockWorkflowTrigger{}
+		srv := newWorkflowTestServerWithCallback(t, ms, &mockQueue{}, nil, cb, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflow-runs/wr-1/steps/review/retry", ""))
+		require.Equal(t, http.StatusNotFound, w.Code)
+	})
+
 	t.Run("step_not_terminal", func(t *testing.T) {
 		t.Parallel()
 		ms := &APIStoreMock{

@@ -673,7 +673,10 @@ func (s *Server) handleRetryWorkflowStep(ctx context.Context, input *RetryWorkfl
 	}
 
 	stepRun, err := s.store.GetStepRunByWorkflowRunAndRef(ctx, input.WorkflowRunID, input.StepRef)
-	if err != nil || stepRun == nil {
+	if err != nil {
+		return nil, huma.Error404NotFound("workflow step run not found")
+	}
+	if stepRun == nil {
 		return nil, huma.Error404NotFound("workflow step run not found")
 	}
 	if !stepRun.Status.IsTerminal() {
