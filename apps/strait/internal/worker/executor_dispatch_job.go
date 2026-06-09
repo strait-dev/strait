@@ -104,7 +104,12 @@ func (e *Executor) resolveJobForRun(ctx context.Context, run *domain.JobRun) (*d
 }
 
 func versionPolicyRequiresCurrentJob(policy domain.VersionPolicy) bool {
-	return policy == domain.VersionPolicyLatest || policy == domain.VersionPolicyMinor
+	switch policy {
+	case domain.VersionPolicyLatest, domain.VersionPolicyMinor:
+		return true
+	default:
+		return false
+	}
 }
 
 func (e *Executor) resolveDispatchJobAndPolicy(ctx context.Context, run *domain.JobRun) (*domain.Job, executionPolicy, bool) {

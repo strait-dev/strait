@@ -220,6 +220,45 @@ func TestResolveJobForRun_Minor_Compatible(t *testing.T) {
 	require.Equal(t, 3, run.JobVersion)
 }
 
+func TestVersionPolicyRequiresCurrentJob(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		policy domain.VersionPolicy
+		want   bool
+	}{
+		{
+			name:   "latest",
+			policy: domain.VersionPolicyLatest,
+			want:   true,
+		},
+		{
+			name:   "minor",
+			policy: domain.VersionPolicyMinor,
+			want:   true,
+		},
+		{
+			name:   "pin",
+			policy: domain.VersionPolicyPin,
+			want:   false,
+		},
+		{
+			name:   "empty",
+			policy: "",
+			want:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, tt.want, versionPolicyRequiresCurrentJob(tt.policy))
+		})
+	}
+}
+
 func TestResolveJobForRun_Minor_Incompatible(t *testing.T) {
 	t.Parallel()
 	ms := &mockExecutorStore{
