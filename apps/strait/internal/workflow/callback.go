@@ -437,7 +437,12 @@ func (s *StepCallback) OnEventReceived(ctx context.Context, trigger *domain.Even
 	ctx, span := otel.Tracer("strait").Start(ctx, "workflow.OnEventReceived")
 	defer span.End()
 
-	if trigger == nil || trigger.SourceType != domain.EventSourceWorkflowStep || trigger.WorkflowStepRunID == "" {
+	if trigger == nil {
+		return nil
+	}
+	isWorkflowStepEvent := trigger.SourceType == domain.EventSourceWorkflowStep
+	hasStepRunID := trigger.WorkflowStepRunID != ""
+	if !isWorkflowStepEvent || !hasStepRunID {
 		return nil
 	}
 
