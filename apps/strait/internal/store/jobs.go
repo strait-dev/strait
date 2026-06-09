@@ -1182,12 +1182,12 @@ func applyScannedJobNullables(job *domain.Job, n scannedJobNullables) (*domain.J
 	if n.maxConcurrencyPerKey != nil {
 		job.MaxConcurrencyPerKey = *n.maxConcurrencyPerKey
 	}
-	if len(n.rateLimitKeysJSON) > 0 && string(n.rateLimitKeysJSON) != "[]" && string(n.rateLimitKeysJSON) != "null" {
+	if hasNonEmptyJSONArray(n.rateLimitKeysJSON) {
 		if err := json.Unmarshal(n.rateLimitKeysJSON, &job.RateLimitKeys); err != nil {
 			return nil, fmt.Errorf("unmarshal rate_limit_keys: %w", err)
 		}
 	}
-	if len(n.defaultRunMetadataJSON) > 0 && string(n.defaultRunMetadataJSON) != "{}" && string(n.defaultRunMetadataJSON) != "null" {
+	if hasNonEmptyJSONObject(n.defaultRunMetadataJSON) {
 		if err := json.Unmarshal(n.defaultRunMetadataJSON, &job.DefaultRunMetadata); err != nil {
 			return nil, fmt.Errorf("unmarshal default_run_metadata: %w", err)
 		}
@@ -1239,6 +1239,22 @@ func applyScannedJobNullables(job *domain.Job, n scannedJobNullables) (*domain.J
 	}
 
 	return job, nil
+}
+
+func hasNonEmptyJSONArray(raw []byte) bool {
+	if len(raw) == 0 {
+		return false
+	}
+	value := string(raw)
+	return value != "[]" && value != "null"
+}
+
+func hasNonEmptyJSONObject(raw []byte) bool {
+	if len(raw) == 0 {
+		return false
+	}
+	value := string(raw)
+	return value != "{}" && value != "null"
 }
 
 func (q *Queries) ListJobsByTag(ctx context.Context, projectID, tagKey, tagValue string, limit int, cursor *time.Time) ([]domain.Job, error) {

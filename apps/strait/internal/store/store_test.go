@@ -795,6 +795,48 @@ func TestEndpointCircuitCoolingDown(t *testing.T) {
 	}
 }
 
+func TestScannedJobJSONSentinelHelpers(t *testing.T) {
+	t.Parallel()
+
+	arrayTests := []struct {
+		name string
+		raw  []byte
+		want bool
+	}{
+		{name: "nil"},
+		{name: "empty", raw: []byte{}},
+		{name: "empty array", raw: []byte("[]")},
+		{name: "null array", raw: []byte("null")},
+		{name: "non-empty array", raw: []byte(`["tenant"]`), want: true},
+	}
+	for _, tc := range arrayTests {
+		t.Run("array "+tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			require.Equal(t, tc.want, hasNonEmptyJSONArray(tc.raw))
+		})
+	}
+
+	objectTests := []struct {
+		name string
+		raw  []byte
+		want bool
+	}{
+		{name: "nil"},
+		{name: "empty", raw: []byte{}},
+		{name: "empty object", raw: []byte("{}")},
+		{name: "null object", raw: []byte("null")},
+		{name: "non-empty object", raw: []byte(`{"tenant":"acme"}`), want: true},
+	}
+	for _, tc := range objectTests {
+		t.Run("object "+tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			require.Equal(t, tc.want, hasNonEmptyJSONObject(tc.raw))
+		})
+	}
+}
+
 func BenchmarkCanDispatchEndpoint_ClosedFastPath(b *testing.B) {
 	db := &mockDBTX{
 		queryRowFn: func(_ context.Context, _ string, _ ...any) pgx.Row {
