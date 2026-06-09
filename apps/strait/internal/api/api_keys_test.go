@@ -379,6 +379,55 @@ func TestHandleRevokeAPIKey_NotFound(t *testing.T) {
 			Code)
 }
 
+func TestAPIKeyCacheVersionAfterMutation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		currentVersion int64
+		refreshed      *domain.APIKey
+		refreshErr     error
+		want           int64
+	}{
+		{
+			name:           "lookup error uses monotonic fallback",
+			currentVersion: 7,
+			refreshErr:     errors.New("lookup failed"),
+			want:           8,
+		},
+		{
+			name:           "missing refreshed key uses monotonic fallback",
+			currentVersion: 7,
+			want:           8,
+		},
+		{
+			name:           "non-positive refreshed version uses monotonic fallback",
+			currentVersion: 7,
+			refreshed:      &domain.APIKey{CacheVersion: 0},
+			want:           8,
+		},
+		{
+			name:           "positive refreshed version wins",
+			currentVersion: 7,
+			refreshed:      &domain.APIKey{CacheVersion: 12},
+			want:           12,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := apiKeyCacheVersionAfterMutation(
+				tc.currentVersion,
+				tc.refreshed,
+				tc.refreshErr,
+			)
+			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
 func TestGenerateAPIKey_Format(t *testing.T) {
 	t.Parallel()
 	key, err := generateAPIKey()
