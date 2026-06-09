@@ -1055,10 +1055,11 @@ func (r *Reaper) retryStaleRun(ctx context.Context, run *domain.JobRun) bool {
 	}
 
 	job, err := retryStore.GetJob(ctx, run.JobID)
-	if err != nil || job == nil {
-		if err != nil {
-			slog.Warn("failed to load job for stale run retry decision", "run_id", run.ID, "job_id", run.JobID, "error", err)
-		}
+	if err != nil {
+		slog.Warn("failed to load job for stale run retry decision", "run_id", run.ID, "job_id", run.JobID, "error", err)
+		return false
+	}
+	if job == nil {
 		return false
 	}
 

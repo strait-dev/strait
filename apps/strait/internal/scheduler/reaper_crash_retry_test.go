@@ -88,6 +88,24 @@ func TestReaper_RetryStaleRunStopsWhenAttemptsExhausted(t *testing.T) {
 				Background(), run))
 }
 
+func TestReaper_RetryStaleRunStopsWhenJobMissing(t *testing.T) {
+	t.Parallel()
+
+	store := &mockReaperStore{
+		getJobFn: func(context.Context, string) (*domain.Job, error) {
+			return nil, nil
+		},
+		scheduleRetryFn: func(context.Context, string, time.Time, int) error {
+			require.Fail(t, "ScheduleRetry should not be called when the job is missing")
+			return nil
+		},
+	}
+	reaper := NewReaper(store, time.Second, time.Minute, 0, 0, false, nil)
+	run := &domain.JobRun{ID: "run-1", JobID: "job-missing", Status: domain.StatusExecuting, Attempt: 1}
+
+	require.False(t, reaper.retryStaleRun(context.Background(), run))
+}
+
 func FuzzNextStaleRunRetryAt(f *testing.F) {
 	for _, seed := range []int{-10, 0, 1, 2, 8, 64} {
 		f.Add(seed)
