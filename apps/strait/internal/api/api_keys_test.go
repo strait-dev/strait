@@ -51,11 +51,7 @@ func TestHandleCreateAPIKey_Success(t *testing.T) {
 	require.Equal(t, "CLI key", captured.
 		Name,
 	)
-	require.False(t, len(captured.
-		Scopes) !=
-		1 || captured.
-		Scopes[0] != "jobs:read",
-	)
+	require.Equal(t, []string{"jobs:read"}, captured.Scopes)
 	require.NotEmpty(t, captured.
 		KeyHash,
 	)
@@ -80,8 +76,7 @@ func TestHandleCreateAPIKey_Success(t *testing.T) {
 	)
 	require.Equal(t, "CLI key", resp.
 		Name)
-	require.False(t, len(resp.Scopes) != 1 ||
-		resp.Scopes[0] != "jobs:read")
+	require.Equal(t, []string{"jobs:read"}, resp.Scopes)
 	require.False(t, resp.CreatedAt.
 		IsZero(),
 	)
@@ -108,10 +103,8 @@ func TestHandleCreateAPIKey_WithExpiry(t *testing.T) {
 	require.Equal(t, http.StatusCreated,
 		w.Code,
 	)
-	require.False(t, captured == nil ||
-		captured.
-			ExpiresAt ==
-			nil)
+	require.NotNil(t, captured)
+	require.NotNil(t, captured.ExpiresAt)
 
 	earliest := now.Add(29 * 24 * time.Hour)
 	latest := now.Add(31 * 24 * time.Hour)
@@ -552,11 +545,8 @@ func TestAPIKeyAuth_ExpiredKey(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.
 		Bytes(), &resp,
 	))
-	require.False(t, resp.Error ==
-		nil || resp.
-		Error.Message !=
-		"api key has expired",
-	)
+	require.NotNil(t, resp.Error)
+	require.Equal(t, "api key has expired", resp.Error.Message)
 }
 
 func TestAPIKeyAuth_RevokedKey(t *testing.T) {
@@ -584,11 +574,8 @@ func TestAPIKeyAuth_RevokedKey(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.
 		Bytes(), &resp,
 	))
-	require.False(t, resp.Error ==
-		nil || resp.
-		Error.Message !=
-		"api key has been revoked",
-	)
+	require.NotNil(t, resp.Error)
+	require.Equal(t, "api key has been revoked", resp.Error.Message)
 }
 
 func TestAPIKeyAuth_InvalidKey(t *testing.T) {
