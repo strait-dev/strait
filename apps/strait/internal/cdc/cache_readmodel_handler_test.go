@@ -37,6 +37,54 @@ func TestStatusReadModelHandler_PopulatesRedisAndRejectsOutOfOrder(t *testing.T)
 		StatusExecuting)
 }
 
+func TestCacheReadModelConfigUsable(t *testing.T) {
+	t.Parallel()
+
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = rdb.Close() })
+
+	tests := []struct {
+		name   string
+		client redis.Cmdable
+		ttl    time.Duration
+		want   bool
+	}{
+		{
+			name:   "client and ttl",
+			client: rdb,
+			ttl:    time.Minute,
+			want:   true,
+		},
+		{
+			name:   "missing client",
+			client: nil,
+			ttl:    time.Minute,
+			want:   false,
+		},
+		{
+			name:   "zero ttl",
+			client: rdb,
+			ttl:    0,
+			want:   false,
+		},
+		{
+			name:   "negative ttl",
+			client: rdb,
+			ttl:    -time.Second,
+			want:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			require.Equal(t, tt.want, cacheReadModelConfigUsable(tt.client, tt.ttl))
+		})
+	}
+}
+
 func TestStatusReadModelHandler_DeleteEvictsRedis(t *testing.T) {
 	t.Parallel()
 
