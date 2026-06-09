@@ -326,10 +326,19 @@ func (s *Server) verifyRunTokenAssignment(ctx context.Context, runID, projectID,
 	if task.RunID != runID || task.ProjectID != projectID {
 		return errors.New("run token assignment mismatch")
 	}
-	if task.Status != domain.WorkerTaskStatusAssigned && task.Status != domain.WorkerTaskStatusAccepted {
+	if !isActiveWorkerTaskAssignmentStatus(task.Status) {
 		return errors.New("run assignment is no longer active")
 	}
 	return nil
+}
+
+func isActiveWorkerTaskAssignmentStatus(status domain.WorkerTaskStatus) bool {
+	switch status {
+	case domain.WorkerTaskStatusAssigned, domain.WorkerTaskStatusAccepted:
+		return true
+	default:
+		return false
+	}
 }
 
 type SDKRunIDInput struct {

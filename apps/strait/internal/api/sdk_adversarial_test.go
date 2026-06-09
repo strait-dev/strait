@@ -81,6 +81,31 @@ func TestResolveSDKCapabilities_LargeVersion(t *testing.T) {
 		!caps.Checkpoint)
 }
 
+func TestIsActiveWorkerTaskAssignmentStatus(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		status domain.WorkerTaskStatus
+		want   bool
+	}{
+		{name: "assigned", status: domain.WorkerTaskStatusAssigned, want: true},
+		{name: "accepted", status: domain.WorkerTaskStatusAccepted, want: true},
+		{name: "result received", status: domain.WorkerTaskStatusResultReceived, want: false},
+		{name: "finalizing", status: domain.WorkerTaskStatusFinalizing, want: false},
+		{name: "completed", status: domain.WorkerTaskStatusCompleted, want: false},
+		{name: "failed", status: domain.WorkerTaskStatusFailed, want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, tt.want, isActiveWorkerTaskAssignmentStatus(tt.status))
+		})
+	}
+}
+
 func FuzzResolveSDKCapabilities(f *testing.F) {
 	f.Add("1.0")
 	f.Add("2.0")
