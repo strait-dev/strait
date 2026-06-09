@@ -355,6 +355,40 @@ func TestValidGRPCAPIKeyFormat_AllowsExpectedShape(t *testing.T) {
 		validGRPCAPIKeyFormat(rawKey))
 }
 
+func TestGRPCAPIKeyLengthValid(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		rawKey string
+		want   bool
+	}{
+		{
+			name:   "empty key",
+			rawKey: "",
+			want:   false,
+		},
+		{
+			name:   "max length",
+			rawKey: strings.Repeat("a", grpcAPIKeyMaxLength),
+			want:   true,
+		},
+		{
+			name:   "over max length",
+			rawKey: strings.Repeat("a", grpcAPIKeyMaxLength+1),
+			want:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			require.Equal(t, tt.want, grpcAPIKeyLengthValid(tt.rawKey))
+		})
+	}
+}
+
 // TestAPIKey_Expired verifies that an expired key fails lifecycle validation.
 // This tests the pure time comparison logic without a real store.
 func TestAPIKey_Expired(t *testing.T) {

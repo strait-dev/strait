@@ -152,10 +152,14 @@ func resolveAPIKeyFromContextWithResolver(ctx context.Context, resolver apiKeyRe
 }
 
 func validGRPCAPIKeyFormat(rawKey string) bool {
-	if rawKey == "" || len(rawKey) > grpcAPIKeyMaxLength {
+	if !grpcAPIKeyLengthValid(rawKey) {
 		return false
 	}
 	return grpcAPIKeyPattern.MatchString(rawKey)
+}
+
+func grpcAPIKeyLengthValid(rawKey string) bool {
+	return rawKey != "" && len(rawKey) <= grpcAPIKeyMaxLength
 }
 
 func validateWorkerAPIKey(apiKey *domain.APIKey) error {
