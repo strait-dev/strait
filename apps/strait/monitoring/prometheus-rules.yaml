@@ -65,6 +65,75 @@ groups:
       - record: strait:billing_quota_block_rate5m
         expr: sum(rate(strait_billing_quota_block_total[5m]))
 
+      - record: strait:trigger_admission_direct_ratio5m
+        expr: |
+          sum(rate(strait_trigger_admission_guard_total{path="direct"}[5m]))
+          /
+          clamp_min(sum(rate(strait_trigger_admission_guard_total[5m])), 1)
+
+      - record: strait:trigger_admission_fallback_rate5m
+        expr: sum(rate(strait_trigger_admission_guard_total{path="fallback"}[5m]))
+
+      - record: strait:trigger_dependency_evaluated_ratio5m
+        expr: |
+          sum(rate(strait_trigger_dependency_gate_total{result="evaluated"}[5m]))
+          /
+          clamp_min(sum(rate(strait_trigger_dependency_gate_total[5m])), 1)
+
+  - name: strait.trigger
+    interval: 30s
+    rules:
+      - alert: StraitTriggerAdmissionFallback
+        expr: strait:trigger_admission_fallback_rate5m > 0
+        for: 10m
+        labels:
+          app: strait
+          owner: platform
+          severity: warning
+        annotations:
+          summary: Trigger admission is using non-transactional fallback
+          description: |
+            Trigger admission is evaluating project or job limits outside
+            the transaction-aware store path. This usually means the API
+            is not wired to a store that supports trigger admission
+            transactions, so quota and rate-limit checks can race under
+            load.
+
+      - alert: StraitTriggerDirectAdmissionRatioLow
+        expr: |
+          sum(rate(strait_trigger_admission_guard_total[15m])) > 5
+          and strait:trigger_admission_direct_ratio5m < 0.8
+        for: 15m
+        labels:
+          app: strait
+          owner: platform
+          severity: warning
+        annotations:
+          summary: Trigger traffic is mostly taking transactional admission
+          description: |
+            Less than 80% of trigger admission decisions are on the direct
+            fast path while trigger volume is non-trivial. This can be
+            expected for heavy quota or per-job rate-limit use, but during
+            capacity tests it points to slower scenarios that should be
+            separated from the simple-job baseline.
+
+      - alert: StraitTriggerDependencyGateMostlyEvaluated
+        expr: |
+          sum(rate(strait_trigger_dependency_gate_total[15m])) > 5
+          and strait:trigger_dependency_evaluated_ratio5m > 0.5
+        for: 15m
+        labels:
+          app: strait
+          owner: platform
+          severity: warning
+        annotations:
+          summary: Trigger dependency gate is mostly evaluating dependencies
+          description: |
+            More than half of dependency-gated queued triggers are still
+            executing the full dependency satisfaction check. This may be
+            expected for DAG-heavy workloads, but it means the simple-job
+            dependency fast path is not representative of the active load.
+
   - name: strait.cache
     interval: 30s
     rules:
