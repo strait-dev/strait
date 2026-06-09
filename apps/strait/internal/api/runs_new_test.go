@@ -596,6 +596,30 @@ func TestHandleRestartRun_WrongStatus_Rejected(t *testing.T) {
 			Code)
 }
 
+func TestIsRestartableRunStatus(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		status domain.RunStatus
+		want   bool
+	}{
+		{name: "executing", status: domain.StatusExecuting, want: true},
+		{name: "paused", status: domain.StatusPaused, want: true},
+		{name: "completed", status: domain.StatusCompleted, want: false},
+		{name: "failed", status: domain.StatusFailed, want: false},
+		{name: "queued", status: domain.StatusQueued, want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, tt.want, isRestartableRunStatus(tt.status))
+		})
+	}
+}
+
 func TestHandleResumeRun_NotFound(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{

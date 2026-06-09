@@ -949,7 +949,7 @@ func (s *Server) handleRestartRun(ctx context.Context, input *RestartRunInput) (
 		return nil, err
 	}
 
-	if run.Status != domain.StatusExecuting && run.Status != domain.StatusPaused {
+	if !isRestartableRunStatus(run.Status) {
 		return nil, huma.Error400BadRequest("run must be executing or paused to restart")
 	}
 
@@ -971,6 +971,15 @@ func (s *Server) handleRestartRun(ctx context.Context, input *RestartRunInput) (
 	})
 
 	return &RestartRunOutput{Body: updatedRun}, nil
+}
+
+func isRestartableRunStatus(status domain.RunStatus) bool {
+	switch status {
+	case domain.StatusExecuting, domain.StatusPaused:
+		return true
+	default:
+		return false
+	}
 }
 
 // parseBracketParam extracts the key from bracket notation params like "metadata[key]".
