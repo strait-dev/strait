@@ -119,10 +119,14 @@ func invalidateAPIKeyCache(ctx context.Context, bus *straitcache.Bus, record map
 func invalidatePermissionCache(ctx context.Context, bus *straitcache.Bus, record map[string]any, version int64) error {
 	projectID := stringField(record, "project_id")
 	userID := stringField(record, "user_id")
-	if projectID == "" || userID == "" {
+	if !permissionCacheRecordAddressable(projectID, userID) {
 		return nil
 	}
 	return bus.PublishInvalidate(ctx, cacheNamespacePermission, permissionCacheKey(projectID, userID), version)
+}
+
+func permissionCacheRecordAddressable(projectID, userID string) bool {
+	return projectID != "" && userID != ""
 }
 
 func invalidateQuotaCache(ctx context.Context, bus *straitcache.Bus, record map[string]any, version int64) error {

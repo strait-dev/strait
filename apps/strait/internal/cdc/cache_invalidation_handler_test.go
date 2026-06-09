@@ -202,6 +202,50 @@ func TestCacheInvalidationHandlerCanProcess(t *testing.T) {
 	}
 }
 
+func TestPermissionCacheRecordAddressable(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		projectID string
+		userID    string
+		want      bool
+	}{
+		{
+			name:      "project and user",
+			projectID: "proj-1",
+			userID:    "user-1",
+			want:      true,
+		},
+		{
+			name:      "missing project",
+			projectID: "",
+			userID:    "user-1",
+			want:      false,
+		},
+		{
+			name:      "missing user",
+			projectID: "proj-1",
+			userID:    "",
+			want:      false,
+		},
+		{
+			name:      "missing both",
+			projectID: "",
+			userID:    "",
+			want:      false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			require.Equal(t, tt.want, permissionCacheRecordAddressable(tt.projectID, tt.userID))
+		})
+	}
+}
+
 func TestCacheInvalidationHandler_DeletePublishesVersionedBarrier(t *testing.T) {
 	t.Parallel()
 
