@@ -73,8 +73,7 @@ func TestJobDependencyCache_PreservesMaxDependencyCacheVersionInRedis(t *testing
 	}
 	got, err := cache.List(t.Context(), key, loader)
 	require.NoError(t, err)
-	require.Len(t,
-		got, 2)
+	require.Len(t, got, 2)
 
 	redisKey := "strait:cache:" + jobDependencyCacheNamespace + ":" + jobDepsCacheKeyString(key)
 	raw, err := deps.Redis.Get(t.Context(), redisKey).Bytes()
@@ -84,8 +83,7 @@ func TestJobDependencyCache_PreservesMaxDependencyCacheVersionInRedis(t *testing
 		Version int64 `json:"version"`
 	}
 	require.NoError(t, json.Unmarshal(raw, &envelope))
-	require.EqualValues(t, 12, envelope.
-		Version)
+	require.EqualValues(t, 12, envelope.Version)
 	require.EqualValues(t, 1, loads.Load())
 }
 
@@ -133,9 +131,7 @@ func TestJobDependencyCache_InvalidateJobClearsKnownPageShapes(t *testing.T) {
 				"reload limit %d: %v", limit, err)
 		}
 	}
-	require.Equal(t, int64(len(jobDependencyCachedPageLimits)*2),
-		loads.
-			Load())
+	require.Equal(t, int64(len(jobDependencyCachedPageLimits)*2), loads.Load())
 }
 
 func TestJobDependencyCache_RefreshJobWritesEmptyTombstone(t *testing.T) {
@@ -166,10 +162,8 @@ func TestJobDependencyCache_RefreshJobWritesEmptyTombstone(t *testing.T) {
 	}
 	got, err := cache.List(t.Context(), key, loader)
 	require.NoError(t, err)
-	require.Empty(t,
-		got)
-	require.EqualValues(t, 0, staleLoads.
-		Load())
+	require.Empty(t, got)
+	require.EqualValues(t, 0, staleLoads.Load())
 }
 
 func TestJobDependencyCache_StrongBarrierRejectsStaleListFill(t *testing.T) {
@@ -212,8 +206,7 @@ func TestJobDependencyCache_StrongBarrierAllowsEqualVersionEmptyList(t *testing.
 	}
 	got, err := cache.List(t.Context(), key, loader)
 	require.NoError(t, err)
-	require.Empty(t,
-		got)
+	require.Empty(t, got)
 }
 
 func TestJobDependenciesCacheVersion(t *testing.T) {
@@ -237,8 +230,7 @@ func TestJobDependenciesCacheVersion(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			require.Equal(t, tt.want, jobDependenciesCacheVersion(tt.
-				deps))
+			require.Equal(t, tt.want, jobDependenciesCacheVersion(tt.deps))
 		})
 	}
 }
