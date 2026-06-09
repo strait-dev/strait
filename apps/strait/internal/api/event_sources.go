@@ -588,8 +588,16 @@ func (s *Server) dispatchEventToJob(
 	}
 
 	job, err := s.store.GetJob(ctx, sub.TargetID)
-	if err != nil || job == nil || !job.Enabled {
-		slog.Error("event dispatch: target job not found or disabled", "target_id", sub.TargetID, "subscription_id", sub.ID, "project_id", source.ProjectID)
+	if err != nil {
+		slog.Error("event dispatch: target job lookup failed", "target_id", sub.TargetID, "subscription_id", sub.ID, "project_id", source.ProjectID, "error", err)
+		return false
+	}
+	if job == nil {
+		slog.Error("event dispatch: target job not found", "target_id", sub.TargetID, "subscription_id", sub.ID, "project_id", source.ProjectID)
+		return false
+	}
+	if !job.Enabled {
+		slog.Error("event dispatch: target job disabled", "target_id", sub.TargetID, "subscription_id", sub.ID, "project_id", source.ProjectID)
 		return false
 	}
 	if job.ProjectID != source.ProjectID {

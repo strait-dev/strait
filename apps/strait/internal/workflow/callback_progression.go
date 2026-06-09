@@ -50,7 +50,7 @@ func (s *StepCallback) fanInAndStartReadyChildren(ctx context.Context, stepRun *
 	if freshErr != nil {
 		return fmt.Errorf("re-read workflow run status: %w", freshErr)
 	}
-	if freshRun.Status == domain.WfStatusPaused || freshRun.Status.IsTerminal() {
+	if workflowProgressionShouldStop(freshRun.Status) {
 		return nil
 	}
 
@@ -97,7 +97,7 @@ func (s *StepCallback) fanInBatchAndStartReadyChildren(ctx context.Context, work
 	if freshErr != nil {
 		return fmt.Errorf("re-read workflow run status: %w", freshErr)
 	}
-	if freshRun.Status == domain.WfStatusPaused || freshRun.Status.IsTerminal() {
+	if workflowProgressionShouldStop(freshRun.Status) {
 		return nil
 	}
 
@@ -115,6 +115,10 @@ func (s *StepCallback) fanInBatchAndStartReadyChildren(ctx context.Context, work
 	}
 
 	return s.scheduleRunnableSteps(ctx, freshRun, wc.steps, stepStatuses, runningStepRuns, runnableStepRuns)
+}
+
+func workflowProgressionShouldStop(status domain.WorkflowRunStatus) bool {
+	return status == domain.WfStatusPaused || status.IsTerminal()
 }
 
 func (s *StepCallback) scheduleRunnableSteps(
@@ -580,7 +584,9 @@ func (s *StepCallback) ApproveStep(ctx context.Context, workflowRunID, stepRef, 
 	recordWorkflowDurableWait(ctx, stepRun.StartedAt, now)
 
 	// Sync parallel event trigger (if exists) — non-fatal.
-	if trigger, getErr := s.store.GetEventTriggerByStepRunID(ctx, stepRun.ID); getErr == nil && trigger != nil && trigger.Status == domain.EventTriggerStatusWaiting {
+	trigger, getErr := s.store.GetEventTriggerByStepRunID(ctx, stepRun.ID)
+	triggerWaiting := getErr == nil && trigger != nil && trigger.Status == domain.EventTriggerStatusWaiting
+	if triggerWaiting {
 		if syncErr := s.store.UpdateEventTriggerStatus(ctx, trigger.ID, domain.EventTriggerStatusReceived, nil, &now, ""); syncErr != nil {
 			s.logger.Warn("failed to sync event trigger for approval (non-fatal)", "step_run_id", stepRun.ID, "error", syncErr)
 		}
@@ -623,7 +629,7 @@ func (s *StepCallback) SkipStep(ctx context.Context, workflowRunID, stepRef, rea
 	if stepRun == nil {
 		return fmt.Errorf("step run not found for %s", stepRef)
 	}
-	if stepRun.Status != domain.StepPending && stepRun.Status != domain.StepWaiting {
+	if !isPendingOrWaitingStepStatus(stepRun.Status) {
 		return fmt.Errorf("cannot skip step in %s status", stepRun.Status)
 	}
 
@@ -690,7 +696,7 @@ func (s *StepCallback) ForceCompleteStep(ctx context.Context, workflowRunID, ste
 	if stepRun == nil {
 		return fmt.Errorf("step run not found for %s", stepRef)
 	}
-	if stepRun.Status != domain.StepPending && stepRun.Status != domain.StepWaiting {
+	if !isPendingOrWaitingStepStatus(stepRun.Status) {
 		return fmt.Errorf("cannot force-complete step in %s status", stepRun.Status)
 	}
 
@@ -714,6 +720,15 @@ func (s *StepCallback) ForceCompleteStep(ctx context.Context, workflowRunID, ste
 		return fmt.Errorf("fan-in after force-complete: %w", err)
 	}
 	return s.checkWorkflowCompletion(ctx, workflowRunID, wc)
+}
+
+func isPendingOrWaitingStepStatus(status domain.StepRunStatus) bool {
+	switch status {
+	case domain.StepPending, domain.StepWaiting:
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *StepCallback) ResumeWorkflowRun(ctx context.Context, workflowRunID string) error {

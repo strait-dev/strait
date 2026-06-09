@@ -19,7 +19,7 @@ type CacheReadModelHandlers struct {
 }
 
 func NewCacheReadModelHandlers(client redis.Cmdable, ttl time.Duration, logger *slog.Logger) CacheReadModelHandlers {
-	if client == nil || ttl <= 0 {
+	if !cacheReadModelConfigUsable(client, ttl) {
 		return CacheReadModelHandlers{}
 	}
 	if logger == nil {
@@ -57,6 +57,10 @@ func NewCacheReadModelHandlers(client redis.Cmdable, ttl time.Duration, logger *
 			logger: logger,
 		},
 	}
+}
+
+func cacheReadModelConfigUsable(client redis.Cmdable, ttl time.Duration) bool {
+	return client != nil && ttl > 0
 }
 
 type cacheReadModelHandler[V any] struct {

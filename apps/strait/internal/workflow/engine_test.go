@@ -6917,65 +6917,84 @@ func TestApproveStep_SyncsEventTrigger(t *testing.T) {
 	)
 }
 
-func TestApproveStep_NoEventTrigger_StillSucceeds(t *testing.T) {
+func TestApproveStep_EventTriggerLookupMissStillSucceeds(t *testing.T) {
 	t.Parallel()
 
-	ms := &mockCallbackStore{
-		getStepRunByRunAndRefFn: func(_ context.Context, _ string, _ string) (*domain.WorkflowStepRun, error) {
-			return &domain.WorkflowStepRun{
-				ID:            "sr-1",
-				WorkflowRunID: "wr-1",
-				StepRef:       "approval_step",
-				Status:        domain.StepWaiting,
-			}, nil
-		},
-		getWorkflowStepApprovalFn: func(_ context.Context, _ string) (*domain.WorkflowStepApproval, error) {
-			return &domain.WorkflowStepApproval{
-				ID:            "approval:sr-1",
-				WorkflowRunID: "wr-1",
-				Approvers:     []string{"admin@example.com"},
-				Status:        domain.ApprovalStatusPending,
-			}, nil
-		},
-		updateWorkflowStepApprovalFn: func(_ context.Context, _ string, _ string, _ string, _ *time.Time, _ string) error {
-			return nil
-		},
-		updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
-			return nil
-		},
-		getEventTriggerByStepRunIDFn: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
-			return nil, nil // No event trigger
-		},
-		incrementStepDepsFn: func(_ context.Context, _ string, _ string) ([]store.StepDepResult, error) {
-			return nil, nil
-		},
-		getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
-			return &domain.WorkflowRun{
-				ID:              "wr-1",
-				Status:          domain.WfStatusRunning,
-				WorkflowID:      "wf-1",
-				WorkflowVersion: 1,
-			}, nil
-		},
-		listStepRunsByWorkflowRun: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
-			return []domain.WorkflowStepRun{
-				{ID: "sr-1", StepRef: "approval_step", Status: domain.StepCompleted},
-			}, nil
-		},
-		listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
-			return []domain.WorkflowStep{
-				{StepRef: "approval_step", StepType: domain.WorkflowStepTypeApproval},
-			}, nil
-		},
-		updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
-			return nil
-		},
+	tests := []struct {
+		name      string
+		lookupErr error
+	}{
+		{name: "no event trigger"},
+		{name: "lookup error", lookupErr: errors.New("event trigger lookup failed")},
 	}
 
-	cb := NewStepCallback(ms, nil, slog.Default())
-	err := cb.ApproveStep(context.Background(), "wr-1", "approval_step", "admin@example.com")
-	require.NoError(
-		t, err)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			triggerUpdated := false
+			ms := &mockCallbackStore{
+				getStepRunByRunAndRefFn: func(_ context.Context, _ string, _ string) (*domain.WorkflowStepRun, error) {
+					return &domain.WorkflowStepRun{
+						ID:            "sr-1",
+						WorkflowRunID: "wr-1",
+						StepRef:       "approval_step",
+						Status:        domain.StepWaiting,
+					}, nil
+				},
+				getWorkflowStepApprovalFn: func(_ context.Context, _ string) (*domain.WorkflowStepApproval, error) {
+					return &domain.WorkflowStepApproval{
+						ID:            "approval:sr-1",
+						WorkflowRunID: "wr-1",
+						Approvers:     []string{"admin@example.com"},
+						Status:        domain.ApprovalStatusPending,
+					}, nil
+				},
+				updateWorkflowStepApprovalFn: func(_ context.Context, _ string, _ string, _ string, _ *time.Time, _ string) error {
+					return nil
+				},
+				updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+					return nil
+				},
+				getEventTriggerByStepRunIDFn: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
+					return nil, tc.lookupErr
+				},
+				updateEventTriggerStatusFn: func(_ context.Context, _ string, _ string, _ json.RawMessage, _ *time.Time, _ string) error {
+					triggerUpdated = true
+					return nil
+				},
+				incrementStepDepsFn: func(_ context.Context, _ string, _ string) ([]store.StepDepResult, error) {
+					return nil, nil
+				},
+				getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
+					return &domain.WorkflowRun{
+						ID:              "wr-1",
+						Status:          domain.WfStatusRunning,
+						WorkflowID:      "wf-1",
+						WorkflowVersion: 1,
+					}, nil
+				},
+				listStepRunsByWorkflowRun: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
+					return []domain.WorkflowStepRun{
+						{ID: "sr-1", StepRef: "approval_step", Status: domain.StepCompleted},
+					}, nil
+				},
+				listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+					return []domain.WorkflowStep{
+						{StepRef: "approval_step", StepType: domain.WorkflowStepTypeApproval},
+					}, nil
+				},
+				updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
+					return nil
+				},
+			}
+
+			cb := NewStepCallback(ms, nil, slog.Default())
+			err := cb.ApproveStep(context.Background(), "wr-1", "approval_step", "admin@example.com")
+			require.NoError(t, err)
+			require.False(t, triggerUpdated)
+		})
+	}
 }
 
 func TestStartStep_Sleep_CreatesTrigger(t *testing.T) {

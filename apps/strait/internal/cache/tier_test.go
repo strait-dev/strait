@@ -106,6 +106,31 @@ func TestTier_CloseIsNilSafeAndIdempotent(t *testing.T) {
 	tier.Close()
 }
 
+func TestTier_L1Available(t *testing.T) {
+	t.Parallel()
+
+	var nilTier *Tier[string, string]
+	require.False(t, nilTier.l1Available())
+
+	disabledL1 := NewTier[string, string](TierConfig[string, string]{
+		Name:      "test_l1_available_disabled",
+		DisableL1: true,
+	})
+	require.False(t, disabledL1.l1Available())
+
+	missingL1 := &Tier[string, string]{}
+	require.False(t, missingL1.l1Available())
+
+	tier := NewTier[string, string](TierConfig[string, string]{
+		Name:        "test_l1_available",
+		MaximumSize: 10,
+		TTL:         time.Minute,
+	})
+	defer tier.Close()
+
+	require.True(t, tier.l1Available())
+}
+
 func TestNewCacheCore_L1HitAvoidsL2AndLoader(t *testing.T) {
 	t.Parallel()
 

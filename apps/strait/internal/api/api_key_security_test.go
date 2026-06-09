@@ -275,6 +275,40 @@ func TestAPIKey_BruteForceResistance(t *testing.T) {
 	}
 }
 
+func TestAPIKey_InvalidLookupOutcomesRejected(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		keyErr error
+	}{
+		{name: "lookup error", keyErr: errors.New("not found")},
+		{name: "nil key"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			ms := &APIStoreMock{
+				GetAPIKeyByHashFunc: func(_ context.Context, _ string) (*domain.APIKey, error) {
+					return nil, tt.keyErr
+				},
+			}
+			srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+			req := httptest.NewRequest(http.MethodGet, "/v1/jobs", nil)
+			req.Header.Set("Authorization", "Bearer strait_invalid_key_for_testing")
+			req.Header.Set("Content-Type", "application/json")
+
+			w := httptest.NewRecorder()
+			srv.ServeHTTP(w, req)
+			require.Equal(t, http.StatusUnauthorized, w.Code)
+			require.Contains(t, w.Body.String(), "invalid api key")
+		})
+	}
+}
+
 // TestAPIKey_NullByteInKey verifies that a null byte in the auth header is
 // handled without panic.
 func TestAPIKey_NullByteInKey(t *testing.T) {

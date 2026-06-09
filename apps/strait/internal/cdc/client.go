@@ -193,7 +193,7 @@ func (c *Client) Nack(ctx context.Context, ackIDs []string) error {
 func (c *Client) Health(ctx context.Context) error {
 	endpoint := *c.baseURL
 	endpoint.Path = stdpath.Join(endpoint.Path, "/health")
-	if endpoint.Scheme == "" || endpoint.Host == "" {
+	if !sequinEndpointHasBaseURL(endpoint) {
 		return fmt.Errorf("invalid base url")
 	}
 
@@ -217,7 +217,7 @@ func (c *Client) Health(ctx context.Context) error {
 func (c *Client) SinkConsumerHealth(ctx context.Context) error {
 	endpoint := *c.baseURL
 	endpoint.Path = stdpath.Join(endpoint.Path, "/api/sinks", c.consumerName)
-	if endpoint.Scheme == "" || endpoint.Host == "" {
+	if !sequinEndpointHasBaseURL(endpoint) {
 		return fmt.Errorf("invalid base url")
 	}
 
@@ -270,7 +270,7 @@ func (c *Client) doRequest(ctx context.Context, method, endpointPath string, bod
 
 	endpoint := *c.baseURL
 	endpoint.Path = stdpath.Join(endpoint.Path, "/api/http_pull_consumers", c.consumerName, endpointPath)
-	if endpoint.Scheme == "" || endpoint.Host == "" {
+	if !sequinEndpointHasBaseURL(endpoint) {
 		return nil, fmt.Errorf("invalid base url")
 	}
 
@@ -327,6 +327,10 @@ func (c *Client) executeWithPolicies(ctx context.Context, build func() (*http.Re
 	})
 }
 
+func sequinEndpointHasBaseURL(endpoint url.URL) bool {
+	return endpoint.Scheme != "" && endpoint.Host != ""
+}
+
 // readError reads the error body from a non-200 response.
 func (c *Client) readError(resp *http.Response) error {
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
@@ -340,7 +344,7 @@ func (c *Client) readError(resp *http.Response) error {
 func (c *Client) consumerExists(ctx context.Context) (bool, error) {
 	endpoint := *c.baseURL
 	endpoint.Path = stdpath.Join(endpoint.Path, "/api/sinks", c.consumerName)
-	if endpoint.Scheme == "" || endpoint.Host == "" {
+	if !sequinEndpointHasBaseURL(endpoint) {
 		return false, fmt.Errorf("invalid base url")
 	}
 
@@ -379,7 +383,7 @@ func (c *Client) EnsureConsumer(ctx context.Context, tables []string) error {
 	// Create sink via Sequin management API.
 	endpoint := *c.baseURL
 	endpoint.Path = stdpath.Join(endpoint.Path, "/api/sinks")
-	if endpoint.Scheme == "" || endpoint.Host == "" {
+	if !sequinEndpointHasBaseURL(endpoint) {
 		return fmt.Errorf("invalid base url")
 	}
 
@@ -415,13 +419,21 @@ func (c *Client) EnsureConsumer(ctx context.Context, tables []string) error {
 
 	if resp.StatusCode >= 400 {
 		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		if (resp.StatusCode == http.StatusConflict || resp.StatusCode == http.StatusUnprocessableEntity) &&
-			bytes.Contains(respBody, []byte("has already been taken")) {
+		if sequinSinkAlreadyExists(resp.StatusCode, respBody) {
 			return c.waitForConsumerReady(ctx)
 		}
 		return fmt.Errorf("create sequin sink (status %d): %s", resp.StatusCode, respBody)
 	}
 	return c.waitForConsumerReady(ctx)
+}
+
+func sequinSinkAlreadyExists(statusCode int, responseBody []byte) bool {
+	switch statusCode {
+	case http.StatusConflict, http.StatusUnprocessableEntity:
+		return bytes.Contains(responseBody, []byte("has already been taken"))
+	default:
+		return false
+	}
 }
 
 func (c *Client) waitForConsumerReady(ctx context.Context) error {

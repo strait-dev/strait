@@ -12,7 +12,10 @@ import (
 // re-enqueued for retry. No-op if queue metrics were never initialised.
 func recordRetryAttempt(ctx context.Context, attempt int) {
 	qm, err := queue.Metrics()
-	if err != nil || qm == nil || qm.RetryAttempts == nil {
+	if err != nil {
+		return
+	}
+	if qm == nil || qm.RetryAttempts == nil {
 		return
 	}
 	qm.RetryAttempts.Record(ctx, float64(attempt))

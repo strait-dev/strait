@@ -656,14 +656,9 @@ func TestSendWebhookWithClient_NetworkError(t *testing.T) {
 func TestDispatchToEndpoint_Success(t *testing.T) {
 	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t,
-			"run-1", r.Header.
-				Get("X-Run-ID"))
-		assert.Equal(t,
-			"job-1", r.Header.
-				Get("X-Job-ID"))
-		assert.Equal(t,
-			"1", r.Header.Get("X-Attempt"))
+		assert.Equal(t, "run-1", r.Header.Get("X-Run-ID"))
+		assert.Equal(t, "job-1", r.Header.Get("X-Job-ID"))
+		assert.Equal(t, "1", r.Header.Get("X-Attempt"))
 
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprint(w, `{"result":"ok"}`)
@@ -674,8 +669,7 @@ func TestDispatchToEndpoint_Success(t *testing.T) {
 	run := &domain.JobRun{ID: "run-1", JobID: "job-1", Attempt: 1, Payload: json.RawMessage(`{"input":"data"}`)}
 
 	result, err := e.dispatchToEndpoint(context.Background(), srv.URL, run, nil)
-	require.NoError(
-		t, err)
+	require.NoError(t, err)
 	require.JSONEq(t,
 		`{"result":"ok"}`,
 		string(result),

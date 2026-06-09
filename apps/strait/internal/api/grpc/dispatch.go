@@ -630,7 +630,16 @@ func TaskResultOutput(opaque any) json.RawMessage {
 }
 
 func taskResultOutputInvalid(status string, output []byte) bool {
-	return (status == "success" || status == "completed") && len(output) > 0 && !json.Valid(output)
+	return taskResultStatusRequiresJSONOutput(status) && len(output) > 0 && !json.Valid(output)
+}
+
+func taskResultStatusRequiresJSONOutput(status string) bool {
+	switch status {
+	case "success", "completed":
+		return true
+	default:
+		return false
+	}
 }
 
 func unwrapTaskResult(opaque any) (*workerv1.TaskResult, bool) {
@@ -652,10 +661,19 @@ func (d *WorkerDispatcher) CompleteWorkerTask(ctx context.Context, opaque any, s
 	if !ok || wrapped == nil || wrapped.TaskID == "" || d.queries == nil {
 		return nil
 	}
-	if status != domain.WorkerTaskStatusCompleted && status != domain.WorkerTaskStatusFailed {
+	if !isTerminalWorkerTaskCompletionStatus(status) {
 		return fmt.Errorf("worker dispatch: unsupported terminal worker task status %q", status)
 	}
 	return d.queries.UpdateWorkerTaskStatus(ctx, wrapped.TaskID, status)
+}
+
+func isTerminalWorkerTaskCompletionStatus(status domain.WorkerTaskStatus) bool {
+	switch status {
+	case domain.WorkerTaskStatusCompleted, domain.WorkerTaskStatusFailed:
+		return true
+	default:
+		return false
+	}
 }
 
 // ResultStatus implements worker.WorkerRunDispatcher by delegating to

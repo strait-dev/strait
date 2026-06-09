@@ -44,5 +44,14 @@ func isMissingIndexError(err error) bool {
 	if !errors.As(err, &pgErr) {
 		return false
 	}
-	return pgErr.Code == "42P01" || pgErr.Code == "42704"
+	return isMissingIndexErrorCode(pgErr.Code)
+}
+
+func isMissingIndexErrorCode(code string) bool {
+	switch code {
+	case "42P01", "42704":
+		return true
+	default:
+		return false
+	}
 }

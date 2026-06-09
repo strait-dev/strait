@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"strait/internal/domain"
@@ -46,7 +47,7 @@ func (e *Executor) applyWorkerSentryScope(scope *sentry.Scope, run *domain.JobRu
 		telemetry.SetSentryTag(scope, telemetry.TagRunID, run.ID)
 		telemetry.SetSentryTag(scope, telemetry.TagJobID, run.JobID)
 		telemetry.SetSentryTag(scope, telemetry.TagProjectID, run.ProjectID)
-		telemetry.SetSentryTag(scope, telemetry.TagAttempt, fmt.Sprintf("%d", run.Attempt))
+		telemetry.SetSentryTag(scope, telemetry.TagAttempt, strconv.Itoa(run.Attempt))
 		if run.CreatedBy != "" {
 			actorType := workerActorType(run)
 			telemetry.SetSentryTag(scope, telemetry.TagActorID, run.CreatedBy)

@@ -85,10 +85,11 @@ func subscribeRequiredWorkerControlChannel(ctx context.Context, pub pubsub.Publi
 		return nil, status.Errorf(codes.Unavailable, "worker stream %s subscription unavailable", purpose)
 	}
 	sub, err := pub.Subscribe(ctx, channel)
-	if err != nil || sub == nil {
-		if err == nil {
-			err = errors.New("nil subscription")
-		}
+	if err != nil {
+		return nil, status.Errorf(codes.Unavailable, "worker stream %s subscription failed: %v", purpose, err)
+	}
+	if sub == nil {
+		err = errors.New("nil subscription")
 		return nil, status.Errorf(codes.Unavailable, "worker stream %s subscription failed: %v", purpose, err)
 	}
 	return sub, nil
@@ -893,10 +894,14 @@ func (s *workerService) handleAck(ctx context.Context, workerID, projectID strin
 	if err != nil {
 		return err
 	}
-	if task == nil || task.Status != domain.WorkerTaskStatusAssigned {
+	if task == nil || !canAcknowledgeWorkerTaskStatus(task.Status) {
 		return nil
 	}
 	return s.queries.UpdateWorkerTaskStatus(ctx, task.ID, domain.WorkerTaskStatusAccepted)
+}
+
+func canAcknowledgeWorkerTaskStatus(status domain.WorkerTaskStatus) bool {
+	return status == domain.WorkerTaskStatusAssigned
 }
 
 // handleHeartbeat is a no-op on the DB. last_seen_at is refreshed by the

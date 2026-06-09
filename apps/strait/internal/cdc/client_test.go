@@ -6,7 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"strings"
+	"net/url"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -15,6 +15,45 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestSequinEndpointHasBaseURL(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		endpoint url.URL
+		want     bool
+	}{
+		{
+			name:     "scheme and host",
+			endpoint: url.URL{Scheme: "http", Host: "sequin.local"},
+			want:     true,
+		},
+		{
+			name:     "missing scheme",
+			endpoint: url.URL{Host: "sequin.local"},
+			want:     false,
+		},
+		{
+			name:     "missing host",
+			endpoint: url.URL{Scheme: "http"},
+			want:     false,
+		},
+		{
+			name:     "empty endpoint",
+			endpoint: url.URL{},
+			want:     false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, tt.want, sequinEndpointHasBaseURL(tt.endpoint))
+		})
+	}
+}
 
 func TestClientReceiveSuccess(t *testing.T) {
 	t.Parallel()
@@ -123,9 +162,8 @@ func TestClientReceiveServerError(t *testing.T) {
 	client := NewClient(ts.URL, "consumer-err", "token-err")
 	_, err := client.Receive(context.Background(), 1, 1)
 	require.Error(t, err)
-	assert.False(t, !strings.Contains(err.Error(), "status 500") || !strings.Contains(err.
-		Error(), "boom",
-	))
+	assert.Contains(t, err.Error(), "status 500")
+	assert.Contains(t, err.Error(), "boom")
 }
 
 func TestClientReceiveInvalidJSON(t *testing.T) {
@@ -236,7 +274,8 @@ func TestClientAckSuccess(t *testing.T) {
 		assert.NoError(t, json.NewDecoder(r.Body).Decode(&reqBody))
 
 		ackIDs, ok := reqBody["ack_ids"].([]any)
-		assert.False(t, !ok || len(ackIDs) != 2)
+		assert.True(t, ok)
+		assert.Len(t, ackIDs, 2)
 
 		w.WriteHeader(http.StatusOK)
 	}))

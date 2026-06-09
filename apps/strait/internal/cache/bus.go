@@ -98,7 +98,7 @@ func (b *Bus) PublishUpdate(ctx context.Context, namespace, key string, version 
 }
 
 func (b *Bus) publish(ctx context.Context, msg BusMessage) error {
-	if b == nil || b.publisher == nil {
+	if !b.canPublish() {
 		return nil
 	}
 	msg.Origin = b.origin
@@ -215,7 +215,7 @@ func appendBusJSONString(out []byte, value string) []byte {
 }
 
 func (b *Bus) Run(ctx context.Context, registry *Registry) error {
-	if b == nil || b.publisher == nil || registry == nil {
+	if !b.canSubscribe(registry) {
 		<-ctx.Done()
 		return nil
 	}
@@ -247,4 +247,18 @@ func (b *Bus) Run(ctx context.Context, registry *Registry) error {
 			registry.Handle(ctx, data)
 		}
 	}
+}
+
+func (b *Bus) canPublish() bool {
+	if b == nil {
+		return false
+	}
+	return b.publisher != nil
+}
+
+func (b *Bus) canSubscribe(registry *Registry) bool {
+	if !b.canPublish() {
+		return false
+	}
+	return registry != nil
 }

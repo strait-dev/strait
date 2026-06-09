@@ -788,6 +788,8 @@ func (s *Server) handleBulkReplayRuns(ctx context.Context, input *BulkReplayRuns
 		Error         string `json:"error,omitempty"`
 	}
 
+	const replayJobUnavailable = "job not found or disabled"
+
 	results := make([]replayResult, 0, len(req.RunIDs))
 	replayed := 0
 
@@ -803,8 +805,16 @@ func (s *Server) handleBulkReplayRuns(ctx context.Context, input *BulkReplayRuns
 		}
 
 		job, err := s.store.GetJob(ctx, original.JobID)
-		if err != nil || job == nil || !job.Enabled {
-			results = append(results, replayResult{OriginalRunID: runID, Status: "failed", Error: "job not found or disabled"})
+		if err != nil {
+			results = append(results, replayResult{OriginalRunID: runID, Status: "failed", Error: replayJobUnavailable})
+			continue
+		}
+		if job == nil {
+			results = append(results, replayResult{OriginalRunID: runID, Status: "failed", Error: replayJobUnavailable})
+			continue
+		}
+		if !job.Enabled {
+			results = append(results, replayResult{OriginalRunID: runID, Status: "failed", Error: replayJobUnavailable})
 			continue
 		}
 
@@ -949,7 +959,7 @@ func (s *Server) handleRestartRun(ctx context.Context, input *RestartRunInput) (
 		return nil, err
 	}
 
-	if run.Status != domain.StatusExecuting && run.Status != domain.StatusPaused {
+	if !isRestartableRunStatus(run.Status) {
 		return nil, huma.Error400BadRequest("run must be executing or paused to restart")
 	}
 
@@ -971,6 +981,15 @@ func (s *Server) handleRestartRun(ctx context.Context, input *RestartRunInput) (
 	})
 
 	return &RestartRunOutput{Body: updatedRun}, nil
+}
+
+func isRestartableRunStatus(status domain.RunStatus) bool {
+	switch status {
+	case domain.StatusExecuting, domain.StatusPaused:
+		return true
+	default:
+		return false
+	}
 }
 
 // parseBracketParam extracts the key from bracket notation params like "metadata[key]".

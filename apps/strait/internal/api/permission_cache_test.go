@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"slices"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -16,6 +15,53 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestPermissionCache_CacheEnabled(t *testing.T) {
+	t.Parallel()
+
+	enabled := newPermissionCache(time.Minute)
+	defer enabled.Stop()
+
+	disabled := newPermissionCache(0)
+	defer disabled.Stop()
+
+	tests := []struct {
+		name  string
+		cache *permissionCache
+		want  bool
+	}{
+		{
+			name:  "nil cache",
+			cache: nil,
+			want:  false,
+		},
+		{
+			name:  "disabled cache",
+			cache: disabled,
+			want:  false,
+		},
+		{
+			name: "missing inner cache",
+			cache: &permissionCache{
+				disabled: false,
+			},
+			want: false,
+		},
+		{
+			name:  "enabled cache",
+			cache: enabled,
+			want:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			require.Equal(t, tt.want, tt.cache.cacheEnabled())
+		})
+	}
+}
 
 func TestPermissionCache_GetSet(t *testing.T) {
 	t.Parallel()
@@ -86,9 +132,8 @@ func TestPermissionCache_RedisL2BackfillAndCachebusInvalidate(t *testing.T) {
 	depsB.Registry = registryB
 	cacheB := newPermissionCache(time.Minute, depsB)
 	perms, ok := cacheB.Get("proj", "user")
-	require.False(t, !ok || len(perms) !=
-		1 || perms[0] != "jobs:read",
-	)
+	require.True(t, ok)
+	require.Equal(t, []string{"jobs:read"}, perms)
 
 	publishTestInvalidate(t, registryB, permissionCacheNamespace, cacheB.key("proj", "user"))
 	if _, ok := cacheB.Get("proj", "user"); ok {
@@ -141,10 +186,8 @@ func TestStrongPermissionCache_BarrierRejectsStaleUpdate(t *testing.T) {
 	}
 	cache.SetWithVersion("proj", "user", []string{domain.ScopeJobsWrite}, 5)
 	got, ok := cache.Get("proj", "user")
-	require.False(t, !ok || !slices.
-		Contains(got, domain.
-			ScopeJobsWrite,
-		))
+	require.True(t, ok)
+	require.Contains(t, got, domain.ScopeJobsWrite)
 }
 
 func TestPermissionCache_ProjectInvalidationClearsRedisL2(t *testing.T) {
@@ -180,6 +223,47 @@ func TestPermissionCache_ProjectInvalidationClearsRedisL2(t *testing.T) {
 		Exists(t.Context(), indexKey).Val())
 }
 
+func TestPermissionCache_ProjectKeyIndexGuards(t *testing.T) {
+	t.Parallel()
+
+	c := &permissionCache{
+		byProject: make(map[string]map[string]struct{}),
+	}
+
+	assert.False(t, c.canIndexProjectKey("", "key"))
+	assert.False(t, c.canIndexProjectKey("proj", ""))
+	assert.True(t, c.canIndexProjectKey("proj", "key"))
+	assert.False(t, c.canIndexRedisProject("proj"))
+	assert.False(t, c.canIndexRedisProjectKey("proj", "key"))
+
+	var nilCache *permissionCache
+	assert.False(t, nilCache.canIndexProjectKey("proj", "key"))
+	assert.False(t, nilCache.canIndexRedisProject("proj"))
+	assert.False(t, nilCache.canIndexRedisProjectKey("proj", "key"))
+}
+
+func TestPermissionCache_ProjectKeyTrackingSkipsInvalidKeys(t *testing.T) {
+	t.Parallel()
+
+	c := &permissionCache{
+		byProject: make(map[string]map[string]struct{}),
+	}
+
+	c.trackProjectKey(t.Context(), "", "key")
+	c.trackProjectKey(t.Context(), "proj", "")
+	require.Empty(t, c.projectKeys("proj"))
+
+	c.trackProjectKey(t.Context(), "proj", "key")
+	require.Equal(t, []string{"key"}, c.projectKeys("proj"))
+
+	c.untrackProjectKey(t.Context(), "", "key")
+	c.untrackProjectKey(t.Context(), "proj", "")
+	require.Equal(t, []string{"key"}, c.projectKeys("proj"))
+
+	c.untrackProjectKey(t.Context(), "proj", "key")
+	require.Empty(t, c.projectKeys("proj"))
+}
+
 func TestPermissionCache_IsolatesProjects(t *testing.T) {
 	t.Parallel()
 
@@ -197,10 +281,7 @@ func TestPermissionCache_IsolatesProjects(t *testing.T) {
 	permsB, ok := c.Get("proj-b", "user")
 	require.True(
 		t, ok)
-	require.False(t, len(permsB) !=
-		1 ||
-		permsB[0] !=
-			"*")
+	require.Equal(t, []string{"*"}, permsB)
 }
 
 func TestPermissionCache_EvictsOnExpiredRead(t *testing.T) {
@@ -243,9 +324,8 @@ func TestPermissionCache_SetOverwritesExisting(t *testing.T) {
 	perms, ok := c.Get("proj", "user")
 	require.True(
 		t, ok)
-	require.False(t, len(perms) !=
-		2 || perms[0] !=
-		"*")
+	require.Len(t, perms, 2)
+	require.Equal(t, "*", perms[0])
 }
 
 func TestPermissionCache_InvalidateNonexistent(t *testing.T) {
@@ -466,9 +546,7 @@ func TestPermissionCache_RefreshedBetweenRLockAndLock(t *testing.T) {
 	perms, ok := c.Get("proj", "user")
 	require.True(
 		t, ok)
-	require.False(t, len(perms) !=
-		1 || perms[0] !=
-		"refreshed")
+	require.Equal(t, []string{"refreshed"}, perms)
 }
 
 func TestPermissionCache_KeySeparatorCollision(t *testing.T) {
@@ -484,15 +562,10 @@ func TestPermissionCache_KeySeparatorCollision(t *testing.T) {
 	permsAB, ok := c.Get("a", "b")
 	require.True(
 		t, ok)
-	require.False(t, len(permsAB) !=
-		1 ||
-		permsAB[0] != "perm-ab")
+	require.Equal(t, []string{"perm-ab"}, permsAB)
 
 	permsCollision, ok := c.Get("a\x00b", "")
 	require.True(
 		t, ok)
-	require.False(t, len(permsCollision) !=
-		1 || permsCollision[0] !=
-		"perm-collision",
-	)
+	require.Equal(t, []string{"perm-collision"}, permsCollision)
 }

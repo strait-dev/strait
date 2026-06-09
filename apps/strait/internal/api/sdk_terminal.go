@@ -228,7 +228,10 @@ func (s *Server) handleSDKSpawn(ctx context.Context, input *SDKSpawnInput) (*SDK
 		}
 	}
 	job, err := s.store.GetJobBySlug(ctx, req.ProjectID, req.JobSlug)
-	if err != nil || job == nil {
+	if err != nil {
+		return nil, huma.Error404NotFound("job not found")
+	}
+	if job == nil {
 		return nil, huma.Error404NotFound("job not found")
 	}
 	if isCrossProject {
@@ -344,7 +347,7 @@ func (s *Server) handleSDKContinue(ctx context.Context, input *SDKContinueInput)
 		}
 		return nil, huma.Error500InternalServerError("failed to get run")
 	}
-	if parentRun.Status != domain.StatusExecuting && parentRun.Status != domain.StatusWaiting {
+	if !canContinueSDKParentRun(parentRun.Status) {
 		return nil, huma.Error409Conflict("run must be executing or waiting to continue")
 	}
 	const maxLineageDepth = 10
@@ -385,6 +388,15 @@ func (s *Server) handleSDKContinue(ctx context.Context, input *SDKContinueInput)
 		return nil, huma.Error500InternalServerError("failed to enqueue continuation run")
 	}
 	return &SDKContinueOutput{Body: continuationRun}, nil
+}
+
+func canContinueSDKParentRun(status domain.RunStatus) bool {
+	switch status {
+	case domain.StatusExecuting, domain.StatusWaiting:
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *Server) resumeWaitingParentIfReady(ctx context.Context, run *domain.JobRun) error {

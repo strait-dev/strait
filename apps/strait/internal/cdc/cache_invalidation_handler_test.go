@@ -118,12 +118,9 @@ func TestCacheInvalidationHandler_PublishesTargetedInvalidations(t *testing.T) {
 		require.NoError(t, json.Unmarshal(publisher.
 			calls[len(publisher.calls)-1].data,
 			&busMsg))
-		require.False(t, busMsg.Action !=
-			straitcache.
-				BusActionInvalidate || busMsg.Namespace !=
-			tc.namespace ||
-			busMsg.
-				Key != tc.key)
+		require.Equal(t, straitcache.BusActionInvalidate, busMsg.Action)
+		require.Equal(t, tc.namespace, busMsg.Namespace)
+		require.Equal(t, tc.key, busMsg.Key)
 	}
 }
 
@@ -146,6 +143,113 @@ func TestCacheInvalidationHandler_SkipsRowsWithoutAddressableKey(t *testing.T) {
 	)
 	require.Empty(t,
 		publisher.calls)
+}
+
+func TestCacheInvalidationHandlerCanProcess(t *testing.T) {
+	t.Parallel()
+
+	publisher := &cacheInvalidationPublisher{}
+	bus := straitcache.NewBus(publisher, straitcache.BusConfig{Origin: "cdc-test"})
+
+	tests := []struct {
+		name    string
+		handler *cacheInvalidationHandler
+		msg     Message
+		want    bool
+	}{
+		{
+			name:    "nil handler",
+			handler: nil,
+			msg:     Message{Record: []byte(`{"key_hash":"hash-1"}`)},
+			want:    false,
+		},
+		{
+			name: "missing bus",
+			handler: &cacheInvalidationHandler{
+				fn: invalidateAPIKeyCache,
+			},
+			msg:  Message{Record: []byte(`{"key_hash":"hash-1"}`)},
+			want: false,
+		},
+		{
+			name: "missing invalidation function",
+			handler: &cacheInvalidationHandler{
+				bus: bus,
+			},
+			msg:  Message{Record: []byte(`{"key_hash":"hash-1"}`)},
+			want: false,
+		},
+		{
+			name: "empty record",
+			handler: &cacheInvalidationHandler{
+				bus: bus,
+				fn:  invalidateAPIKeyCache,
+			},
+			msg:  Message{},
+			want: false,
+		},
+		{
+			name: "ready",
+			handler: &cacheInvalidationHandler{
+				bus: bus,
+				fn:  invalidateAPIKeyCache,
+			},
+			msg:  Message{Record: []byte(`{"key_hash":"hash-1"}`)},
+			want: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			require.Equal(t, tt.want, cacheInvalidationHandlerCanProcess(tt.handler, tt.msg))
+		})
+	}
+}
+
+func TestPermissionCacheRecordAddressable(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		projectID string
+		userID    string
+		want      bool
+	}{
+		{
+			name:      "project and user",
+			projectID: "proj-1",
+			userID:    "user-1",
+			want:      true,
+		},
+		{
+			name:      "missing project",
+			projectID: "",
+			userID:    "user-1",
+			want:      false,
+		},
+		{
+			name:      "missing user",
+			projectID: "proj-1",
+			userID:    "",
+			want:      false,
+		},
+		{
+			name:      "missing both",
+			projectID: "",
+			userID:    "",
+			want:      false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			require.Equal(t, tt.want, permissionCacheRecordAddressable(tt.projectID, tt.userID))
+		})
+	}
 }
 
 func TestCacheInvalidationHandler_DeletePublishesVersionedBarrier(t *testing.T) {

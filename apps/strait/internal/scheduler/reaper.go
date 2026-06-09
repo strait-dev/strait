@@ -636,8 +636,12 @@ func (r *Reaper) reapApprovalReminders(ctx context.Context) {
 		if !ok {
 			var wfErr error
 			wfRun, wfErr = ns.GetWorkflowRun(ctx, approval.WorkflowRunID)
-			if wfErr != nil || wfRun == nil {
+			if wfErr != nil {
 				slog.Warn("failed to get workflow run for approval reminder", "workflow_run_id", approval.WorkflowRunID, "error", wfErr)
+				continue
+			}
+			if wfRun == nil {
+				slog.Warn("failed to get workflow run for approval reminder", "workflow_run_id", approval.WorkflowRunID)
 				continue
 			}
 			workflowRuns[approval.WorkflowRunID] = wfRun
@@ -731,8 +735,12 @@ func (r *Reaper) sendApprovalNotification(ctx context.Context, workflowRunID, ev
 	}
 
 	wfRun, err := ns.GetWorkflowRun(ctx, workflowRunID)
-	if err != nil || wfRun == nil {
+	if err != nil {
 		slog.Warn("failed to get workflow run for approval notification", "workflow_run_id", workflowRunID, "error", err)
+		return
+	}
+	if wfRun == nil {
+		slog.Warn("failed to get workflow run for approval notification", "workflow_run_id", workflowRunID)
 		return
 	}
 
@@ -1055,10 +1063,11 @@ func (r *Reaper) retryStaleRun(ctx context.Context, run *domain.JobRun) bool {
 	}
 
 	job, err := retryStore.GetJob(ctx, run.JobID)
-	if err != nil || job == nil {
-		if err != nil {
-			slog.Warn("failed to load job for stale run retry decision", "run_id", run.ID, "job_id", run.JobID, "error", err)
-		}
+	if err != nil {
+		slog.Warn("failed to load job for stale run retry decision", "run_id", run.ID, "job_id", run.JobID, "error", err)
+		return false
+	}
+	if job == nil {
 		return false
 	}
 

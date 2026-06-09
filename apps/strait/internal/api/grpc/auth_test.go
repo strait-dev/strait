@@ -19,6 +19,12 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+type fakePeerAddr string
+
+func (a fakePeerAddr) Network() string { return "test" }
+
+func (a fakePeerAddr) String() string { return string(a) }
+
 // TestHashGRPCAPIKey verifies that hashGRPCAPIKey produces a stable SHA-256 hex digest.
 func TestHashGRPCAPIKey(t *testing.T) {
 	key := "sk_test_abc123"
@@ -147,6 +153,90 @@ func TestResolveAPIKey_MissingAuthorizationHeader(t *testing.T) {
 	)
 }
 
+func TestGRPCPeerHasAddress(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		ok   bool
+		peer *peer.Peer
+		want bool
+	}{
+		{
+			name: "missing peer context",
+			ok:   false,
+			peer: nil,
+			want: false,
+		},
+		{
+			name: "nil peer",
+			ok:   true,
+			peer: nil,
+			want: false,
+		},
+		{
+			name: "nil address",
+			ok:   true,
+			peer: &peer.Peer{},
+			want: false,
+		},
+		{
+			name: "address present",
+			ok:   true,
+			peer: &peer.Peer{Addr: &net.TCPAddr{IP: net.ParseIP("203.0.113.20"), Port: 443}},
+			want: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, tt.want, grpcPeerHasAddress(tt.ok, tt.peer))
+		})
+	}
+}
+
+func TestGRPCPeerIP(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		ctx  context.Context
+		want string
+	}{
+		{
+			name: "missing peer context",
+			ctx:  context.Background(),
+			want: "unknown",
+		},
+		{
+			name: "tcp host",
+			ctx: peer.NewContext(
+				context.Background(),
+				&peer.Peer{Addr: &net.TCPAddr{IP: net.ParseIP("203.0.113.20"), Port: 443}},
+			),
+			want: "203.0.113.20",
+		},
+		{
+			name: "address string fallback",
+			ctx: peer.NewContext(
+				context.Background(),
+				&peer.Peer{Addr: fakePeerAddr("worker.local")},
+			),
+			want: "worker.local",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, tt.want, grpcPeerIP(tt.ctx))
+		})
+	}
+}
+
 // TestResolveAPIKey_InvalidAuthorizationFormat verifies error for non-Bearer prefix.
 func TestResolveAPIKey_InvalidAuthorizationFormat(t *testing.T) {
 	md := metadata.Pairs("authorization", "Basic dXNlcjpwYXNz")
@@ -230,17 +320,10 @@ func TestResolveAPIKeyFromContextWithLimit_BlockedBeforeStoreLookup(t *testing.T
 	require.Equal(
 		t, codes.ResourceExhausted,
 		s.Code())
-	require.False(
-		t, len(limiter.blockChecks) != 1 ||
-			limiter.
-				blockChecks[0] !=
-				"203.0.113.10",
-	)
-	require.False(
-		t, len(limiter.failures) != 0 ||
-			len(limiter.
-				resets,
-			) != 0)
+	require.Len(t, limiter.blockChecks, 1)
+	require.Equal(t, "203.0.113.10", limiter.blockChecks[0])
+	require.Empty(t, limiter.failures)
+	require.Empty(t, limiter.resets)
 }
 
 func TestResolveAPIKeyFromContextWithLimit_RecordsMalformedAuthFailure(t *testing.T) {
@@ -258,11 +341,8 @@ func TestResolveAPIKeyFromContextWithLimit_RecordsMalformedAuthFailure(t *testin
 	require.Equal(
 		t, codes.Unauthenticated,
 		s.Code())
-	require.False(
-		t, len(limiter.failures) != 1 ||
-			limiter.
-				failures[0] != "198.51.100.7",
-	)
+	require.Len(t, limiter.failures, 1)
+	require.Equal(t, "198.51.100.7", limiter.failures[0])
 	require.Empty(t,
 		limiter.resets)
 }
@@ -273,6 +353,40 @@ func TestValidGRPCAPIKeyFormat_AllowsExpectedShape(t *testing.T) {
 	rawKey := "strait_" + strings.Repeat("a", 64)
 	require.True(t,
 		validGRPCAPIKeyFormat(rawKey))
+}
+
+func TestGRPCAPIKeyLengthValid(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		rawKey string
+		want   bool
+	}{
+		{
+			name:   "empty key",
+			rawKey: "",
+			want:   false,
+		},
+		{
+			name:   "max length",
+			rawKey: strings.Repeat("a", grpcAPIKeyMaxLength),
+			want:   true,
+		},
+		{
+			name:   "over max length",
+			rawKey: strings.Repeat("a", grpcAPIKeyMaxLength+1),
+			want:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			require.Equal(t, tt.want, grpcAPIKeyLengthValid(tt.rawKey))
+		})
+	}
 }
 
 // TestAPIKey_Expired verifies that an expired key fails lifecycle validation.
@@ -358,6 +472,55 @@ func TestValidateWorkerAPIKey_AllowsWorkersConnectScope(t *testing.T) {
 		Scopes:    []string{domain.ScopeWorkersConnect},
 	}
 	require.NoError(t, validateWorkerAPIKey(apiKey))
+}
+
+func TestAPIKeyAllowsWorkerConnections(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		apiKey *domain.APIKey
+		want   bool
+	}{
+		{
+			name:   "nil api key",
+			apiKey: nil,
+			want:   false,
+		},
+		{
+			name:   "nil scopes",
+			apiKey: &domain.APIKey{Scopes: nil},
+			want:   false,
+		},
+		{
+			name:   "empty scopes",
+			apiKey: &domain.APIKey{Scopes: []string{}},
+			want:   false,
+		},
+		{
+			name:   "wrong scope",
+			apiKey: &domain.APIKey{Scopes: []string{domain.ScopeJobsRead}},
+			want:   false,
+		},
+		{
+			name:   "workers connect scope",
+			apiKey: &domain.APIKey{Scopes: []string{domain.ScopeWorkersConnect}},
+			want:   true,
+		},
+		{
+			name:   "wildcard scope",
+			apiKey: &domain.APIKey{Scopes: []string{domain.ScopeAll}},
+			want:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, tt.want, apiKeyAllowsWorkerConnections(tt.apiKey))
+		})
+	}
 }
 
 // TestValidateWorkerAPIKey_EmptyScopesDenied is the regression guard for the

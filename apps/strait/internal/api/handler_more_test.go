@@ -1941,6 +1941,30 @@ func TestHandleRetryWebhookDelivery_Success(t *testing.T) {
 		w.Code)
 }
 
+func TestIsRetriableWebhookDeliveryStatus(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		status string
+		want   bool
+	}{
+		{name: "failed", status: domain.WebhookStatusFailed, want: true},
+		{name: "dead", status: domain.WebhookStatusDead, want: true},
+		{name: "pending", status: domain.WebhookStatusPending},
+		{name: "delivered", status: domain.WebhookStatusDelivered},
+		{name: "unknown", status: "unknown"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			require.Equal(t, tt.want, isRetriableWebhookDeliveryStatus(tt.status))
+		})
+	}
+}
+
 func TestHandleRetryWebhookDelivery_Conflict(t *testing.T) {
 	t.Parallel()
 

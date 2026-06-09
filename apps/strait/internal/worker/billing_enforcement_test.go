@@ -226,6 +226,29 @@ func (m *mockBillingEnforcerStore) CountHTTPJobsByOrg(context.Context, string) (
 	return 0, nil
 }
 
+func TestUsesHTTPExecutionMode(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		mode domain.ExecutionMode
+		want bool
+	}{
+		{name: "legacy empty", want: true},
+		{name: "http", mode: domain.ExecutionModeHTTP, want: true},
+		{name: "worker", mode: domain.ExecutionModeWorker},
+		{name: "unknown", mode: "unknown"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, tt.want, usesHTTPExecutionMode(tt.mode))
+		})
+	}
+}
+
 func newWorkerTestEnforcer(t *testing.T, billingStore billing.Store) (*billing.Enforcer, *miniredis.Miniredis) {
 	t.Helper()
 	mr := miniredis.RunT(t)

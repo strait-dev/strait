@@ -73,3 +73,34 @@ func TestHandleGetPerformanceAnalytics_NilStore_Returns503(t *testing.T) {
 
 		w.Code)
 }
+
+func TestNormalizeAnalyticsBucket(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		bucket    string
+		want      string
+		wantError bool
+	}{
+		{name: "default", bucket: "", want: "day"},
+		{name: "hour", bucket: "hour", want: "hour"},
+		{name: "day", bucket: "day", want: "day"},
+		{name: "invalid", bucket: "week", wantError: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := normalizeAnalyticsBucket(tt.bucket)
+			if tt.wantError {
+				require.Error(t, err)
+				return
+			}
+
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
+		})
+	}
+}

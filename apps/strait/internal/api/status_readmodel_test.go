@@ -45,12 +45,8 @@ func TestStatusReadModel_GetRunUsesRedisBeforeStore(t *testing.T) {
 
 	got, err := srv.getRunWithStatusReadModel(context.Background(), "run-1")
 	require.NoError(t, err)
-	require.Equal(t, domain.StatusExecuting,
-
-		got.Status,
-	)
-	require.EqualValues(t, 0, storeCalls.
-		Load())
+	require.Equal(t, domain.StatusExecuting, got.Status)
+	require.EqualValues(t, 0, storeCalls.Load())
 }
 
 func TestStatusReadModel_GetRunColdFallbackFillsRedis(t *testing.T) {
@@ -80,13 +76,9 @@ func TestStatusReadModel_GetRunColdFallbackFillsRedis(t *testing.T) {
 	for range 2 {
 		got, err := srv.getRunWithStatusReadModel(context.Background(), "run-1")
 		require.NoError(t, err)
-		require.Equal(t, domain.StatusQueued,
-			got.
-				Status,
-		)
+		require.Equal(t, domain.StatusQueued, got.Status)
 	}
-	require.EqualValues(t, 1, storeCalls.
-		Load())
+	require.EqualValues(t, 1, storeCalls.Load())
 }
 
 func TestStatusReadModel_GetRunColdFallbackUsesStoreCacheVersion(t *testing.T) {
@@ -116,10 +108,7 @@ func TestStatusReadModel_GetRunColdFallbackUsesStoreCacheVersion(t *testing.T) {
 
 	got, err := srv.getRunWithStatusReadModel(context.Background(), "run-1")
 	require.NoError(t, err)
-	require.Equal(t, domain.StatusExecuting,
-
-		got.Status,
-	)
+	require.Equal(t, domain.StatusExecuting, got.Status)
 
 	ok, err := model.CompareAndSet(context.Background(), "run-1", &domain.JobRun{ID: "run-1", Status: domain.StatusQueued}, 7)
 	require.NoError(t, err)
@@ -127,14 +116,9 @@ func TestStatusReadModel_GetRunColdFallbackUsesStoreCacheVersion(t *testing.T) {
 
 	cached, err := model.Get(context.Background(), "run-1")
 	require.NoError(t, err)
-	require.False(t, cached.Version !=
-		9 ||
-		cached.
-			Value.
-			Status != domain.StatusExecuting,
-	)
-	require.EqualValues(t, 1, storeCalls.
-		Load())
+	require.EqualValues(t, 9, cached.Version)
+	require.Equal(t, domain.StatusExecuting, cached.Value.Status)
+	require.EqualValues(t, 1, storeCalls.Load())
 }
 
 func TestStatusReadModel_GetWorkflowRunColdFallbackUsesStoreCacheVersion(t *testing.T) {
@@ -164,10 +148,7 @@ func TestStatusReadModel_GetWorkflowRunColdFallbackUsesStoreCacheVersion(t *test
 
 	got, err := srv.getWorkflowRunWithStatusReadModel(context.Background(), "wfr-1")
 	require.NoError(t, err)
-	require.Equal(t, domain.WfStatusRunning,
-
-		got.Status,
-	)
+	require.Equal(t, domain.WfStatusRunning, got.Status)
 
 	ok, err := model.CompareAndSet(context.Background(), "wfr-1", &domain.WorkflowRun{ID: "wfr-1", Status: domain.WfStatusPending}, 9)
 	require.NoError(t, err)
@@ -175,13 +156,9 @@ func TestStatusReadModel_GetWorkflowRunColdFallbackUsesStoreCacheVersion(t *test
 
 	cached, err := model.Get(context.Background(), "wfr-1")
 	require.NoError(t, err)
-	require.False(t, cached.Version !=
-		14 ||
-		cached.
-			Value.Status != domain.WfStatusRunning,
-	)
-	require.EqualValues(t, 1, storeCalls.
-		Load())
+	require.EqualValues(t, 14, cached.Version)
+	require.Equal(t, domain.WfStatusRunning, cached.Value.Status)
+	require.EqualValues(t, 1, storeCalls.Load())
 }
 
 type versionedStatusStore struct {

@@ -385,7 +385,7 @@ func (s *StepCallback) OnJobRunTerminal(ctx context.Context, run *domain.JobRun)
 }
 
 func (s *StepCallback) handleCompensationJobTerminal(ctx context.Context, run *domain.JobRun) (bool, error) {
-	if run == nil || run.Metadata == nil || run.Metadata[domain.RunMetadataCompensationRunID] == "" {
+	if !isCompensationJobRun(run) {
 		return false, nil
 	}
 	compStore, ok := s.store.(compensationCallbackStore)
@@ -432,12 +432,27 @@ func (s *StepCallback) handleCompensationJobTerminal(ctx context.Context, run *d
 	return true, nil
 }
 
+func isCompensationJobRun(run *domain.JobRun) bool {
+	if run == nil {
+		return false
+	}
+	if run.Metadata == nil {
+		return false
+	}
+	return run.Metadata[domain.RunMetadataCompensationRunID] != ""
+}
+
 // OnEventReceived handles progression when an external event is received for a workflow step.
 func (s *StepCallback) OnEventReceived(ctx context.Context, trigger *domain.EventTrigger) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "workflow.OnEventReceived")
 	defer span.End()
 
-	if trigger == nil || trigger.SourceType != domain.EventSourceWorkflowStep || trigger.WorkflowStepRunID == "" {
+	if trigger == nil {
+		return nil
+	}
+	isWorkflowStepEvent := trigger.SourceType == domain.EventSourceWorkflowStep
+	hasStepRunID := trigger.WorkflowStepRunID != ""
+	if !isWorkflowStepEvent || !hasStepRunID {
 		return nil
 	}
 
@@ -665,7 +680,16 @@ func (s *StepCallback) recordDecision(ctx context.Context, stepRun *domain.Workf
 
 // enqueueStepAnalytics sends a WorkflowStepAnalyticsRecord to ClickHouse.
 func (s *StepCallback) enqueueStepAnalytics(stepRun *domain.WorkflowStepRun, wc *wfCtx) {
-	if s.chExporter == nil || stepRun == nil || wc == nil || wc.run == nil {
+	if s.chExporter == nil {
+		return
+	}
+	if stepRun == nil {
+		return
+	}
+	if wc == nil {
+		return
+	}
+	if wc.run == nil {
 		return
 	}
 	var durationMs uint64

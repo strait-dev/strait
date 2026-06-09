@@ -647,11 +647,9 @@ func TestResolveExecutionPolicy_WarmPathUsesCachedRunVersionAndSteps(t *testing.
 		got, err := exec.resolveExecutionPolicy(t.Context(), run, fallback)
 		require.NoError(
 			t, err)
-		require.False(t,
-			got.maxAttempts !=
-				8 || got.timeoutSecs !=
-				42 || got.
-				retryInitialSecs != 4)
+		require.Equal(t, 8, got.maxAttempts)
+		require.Equal(t, 42, got.timeoutSecs)
+		require.Equal(t, 4, got.retryInitialSecs)
 	}
 	require.EqualValues(t, 2, stepRunCalls.
 		Load())

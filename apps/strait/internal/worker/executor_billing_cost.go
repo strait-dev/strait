@@ -9,11 +9,20 @@ import (
 )
 
 func (e *Executor) recordHTTPRunCost(ctx context.Context, job *domain.Job, run *domain.JobRun) {
-	if job.ExecutionMode != domain.ExecutionModeHTTP && job.ExecutionMode != "" {
+	if !usesHTTPExecutionMode(job.ExecutionMode) {
 		return
 	}
 	billing.RecordHTTPModeRunCompleted(ctx)
 	e.recordTerminalRunBilling(ctx, job, run)
+}
+
+func usesHTTPExecutionMode(mode domain.ExecutionMode) bool {
+	switch mode {
+	case "", domain.ExecutionModeHTTP:
+		return true
+	default:
+		return false
+	}
 }
 
 func (e *Executor) recordWorkerModeCost(ctx context.Context, run *domain.JobRun, job *domain.Job) {

@@ -137,11 +137,7 @@ func TestWorkflowProgression_ProcessOnceBatchesWorkflowContextLoad(t *testing.T)
 		incrementBatchCalls,
 	)
 
-	if got := eventStore.processed; len(got) != 2 || got[0] != 1 || got[1] != 2 {
-		require.Failf(t, "test failure",
-
-			"processed events = %v, want [1 2]", got)
-	}
+	require.Equal(t, []int64{1, 2}, eventStore.processed)
 	require.Empty(t, eventStore.
 		released)
 }

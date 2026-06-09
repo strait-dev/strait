@@ -122,12 +122,22 @@ func (t *Tier[K, V]) Close() {
 	t.Stop()
 }
 
+func (t *Tier[K, V]) l1Available() bool {
+	if t == nil {
+		return false
+	}
+	if t.disableL1 {
+		return false
+	}
+	return t.l1 != nil
+}
+
 func (t *Tier[K, V]) Get(ctx context.Context, key K, loader LoadFunc[K, V]) (V, error) {
 	if t == nil {
 		var zero V
 		return zero, fmt.Errorf("cache tier is nil")
 	}
-	if t.disableL1 || t.l1 == nil {
+	if !t.l1Available() {
 		entry, err := t.loadThroughL2(ctx, key, 0, loader)
 		return t.valueFromEntry(entry, err)
 	}
@@ -151,7 +161,7 @@ func (t *Tier[K, V]) GetConsistent(
 		var zero V
 		return zero, fmt.Errorf("cache tier is nil")
 	}
-	if !t.disableL1 && t.l1 != nil {
+	if t.l1Available() {
 		if entry, ok := t.l1.GetIfPresent(key); ok && entry.Version >= minVersion {
 			return t.valueFromEntry(entry, nil)
 		}
@@ -171,7 +181,7 @@ func (t *Tier[K, V]) Set(ctx context.Context, key K, value V, version int64) err
 	if t.negEnabled && t.isNegative(value) {
 		entry.Negative = true
 	}
-	if !t.disableL1 && t.l1 != nil {
+	if t.l1Available() {
 		t.l1.Set(key, entry)
 	}
 	if t.disableL2 || t.l2 == nil {
@@ -193,7 +203,7 @@ func (t *Tier[K, V]) CompareAndSet(ctx context.Context, key K, value V, version 
 		entry.Negative = true
 	}
 	if t.disableL2 || t.l2 == nil {
-		if !t.disableL1 && t.l1 != nil {
+		if t.l1Available() {
 			t.l1.Set(key, entry)
 		}
 		return true, nil
@@ -210,7 +220,7 @@ func (t *Tier[K, V]) CompareAndSet(ctx context.Context, key K, value V, version 
 		}
 		return false, nil
 	}
-	if !t.disableL1 && t.l1 != nil {
+	if t.l1Available() {
 		t.l1.Set(key, entry)
 	}
 	if t.cfg.OnL2Set != nil {
@@ -223,7 +233,7 @@ func (t *Tier[K, V]) Invalidate(ctx context.Context, key K) {
 	if t == nil {
 		return
 	}
-	if !t.disableL1 && t.l1 != nil {
+	if t.l1Available() {
 		t.l1.Invalidate(key)
 	}
 	if !t.disableL2 && t.l2 != nil {
@@ -241,7 +251,7 @@ func (t *Tier[K, V]) applyUpdate(ctx context.Context, key K, entry cacheEntry[V]
 		t.applyBarrier(ctx, key, entry.Version)
 		return
 	}
-	if !t.disableL1 && t.l1 != nil {
+	if t.l1Available() {
 		if current, ok := t.l1.GetIfPresent(key); ok && current.Version > entry.Version {
 			recordCacheCASReject(ctx, t.name)
 			if t.cfg.OnCASRejected != nil {
@@ -271,13 +281,13 @@ func (t *Tier[K, V]) applyUpdate(ctx context.Context, key K, entry cacheEntry[V]
 			}
 		}
 	}
-	if !t.disableL1 && t.l1 != nil {
+	if t.l1Available() {
 		t.l1.Set(key, entry)
 	}
 }
 
 func (t *Tier[K, V]) GetIfPresent(key K) (V, bool) {
-	if t == nil || t.disableL1 || t.l1 == nil {
+	if !t.l1Available() {
 		var zero V
 		return zero, false
 	}
@@ -315,7 +325,7 @@ func (t *Tier[K, V]) loadThroughL2(
 			}
 		case err == nil && entry.Version >= minVersion:
 			recordCacheOperation(ctx, t.name, "hit")
-			if !t.disableL1 && t.l1 != nil {
+			if t.l1Available() {
 				t.l1.Set(key, entry)
 			}
 			if t.cfg.OnL2Hit != nil {
@@ -388,7 +398,7 @@ func (t *Tier[K, V]) applyBarrier(ctx context.Context, key K, version int64) {
 		version = time.Now().UnixNano()
 	}
 	entry := cacheEntry[V]{Version: version, Barrier: true}
-	if !t.disableL1 && t.l1 != nil {
+	if t.l1Available() {
 		t.l1.Invalidate(key)
 	}
 	if t.disableL2 || t.l2 == nil {

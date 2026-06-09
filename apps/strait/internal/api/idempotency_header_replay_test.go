@@ -80,11 +80,7 @@ func TestCompleteCapturesHandlerHeaders(t *testing.T) {
 	require.Equal(t, "alpha",
 		gotHeaders.Get("X-Custom"))
 
-	if got := gotHeaders.Values("Set-Cookie"); len(got) != 2 || got[0] != "session=1" || got[1] != "csrf=2" {
-		require.Failf(t, "test failure",
-
-			"Set-Cookie = %v, want [session=1 csrf=2]", got)
-	}
+	require.Equal(t, []string{"session=1", "csrf=2"}, gotHeaders.Values("Set-Cookie"))
 }
 
 // TestCompleteSnapshotsHeadersAtWriteHeader regresses the .Clone()
@@ -182,11 +178,7 @@ func TestReplayWritesCachedHeadersVerbatim(t *testing.T) {
 	require.Equal(t, "hello",
 		w.Header().Get("X-Custom-Header"))
 
-	if got := w.Header().Values("Set-Cookie"); len(got) != 2 || got[0] != "session=abc" || got[1] != "csrf=def" {
-		require.Failf(t, "test failure",
-
-			"Set-Cookie = %v, want [session=abc csrf=def]", got)
-	}
+	require.Equal(t, []string{"session=abc", "csrf=def"}, w.Header().Values("Set-Cookie"))
 	require.Equal(t, "true",
 		w.Header().Get("Idempotency-Replayed"))
 	require.Equal(t, "<replay/>",

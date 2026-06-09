@@ -83,7 +83,7 @@ func requireJSONAccept(next http.Handler) http.Handler {
 }
 
 func acceptsJSONResponse(accept string) bool {
-	if accept == "" || accept == "*/*" {
+	if acceptsDefaultAPIResponseMediaType(accept) {
 		return true
 	}
 	if accept == "application/json" {
@@ -106,6 +106,10 @@ func acceptsJSONResponse(accept string) bool {
 		}
 	}
 	return false
+}
+
+func acceptsDefaultAPIResponseMediaType(accept string) bool {
+	return accept == "" || accept == "*/*"
 }
 
 // requireJSONContentType returns 415 Unsupported Media Type if a mutation
@@ -505,7 +509,13 @@ func (s *Server) apiKeyAuth(next http.Handler) http.Handler {
 		keyHash := hashAPIKey(rawKey)
 
 		apiKey, err := s.lookupAPIKeyForAuth(r.Context(), keyHash)
-		if err != nil || apiKey == nil {
+		if err != nil {
+			s.authLimiter.RecordFailureScoped(r.Context(), clientIP, ratelimit.AuthScopeAPIKey)
+			recordAuthDecision(r.Context(), "api_key", "failure")
+			respondError(w, r, http.StatusUnauthorized, "invalid api key")
+			return
+		}
+		if apiKey == nil {
 			s.authLimiter.RecordFailureScoped(r.Context(), clientIP, ratelimit.AuthScopeAPIKey)
 			recordAuthDecision(r.Context(), "api_key", "failure")
 			respondError(w, r, http.StatusUnauthorized, "invalid api key")
@@ -596,11 +606,14 @@ func (s *Server) apiKeyOrSecretAuth(next http.Handler) http.Handler {
 		}
 
 		authHeader := r.Header.Get("Authorization")
-		if strings.HasPrefix(authHeader, "Bearer strait_") {
+		hasAPIKeyBearerToken := strings.HasPrefix(authHeader, "Bearer strait_")
+		if hasAPIKeyBearerToken {
 			s.apiKeyAuth(next).ServeHTTP(w, r)
 			return
 		}
-		if strings.HasPrefix(authHeader, "Bearer ") && s.oidcVerifier != nil && s.oidcVerifier.enabled {
+		hasBearerToken := strings.HasPrefix(authHeader, "Bearer ")
+		oidcEnabled := s.oidcVerifier != nil && s.oidcVerifier.enabled
+		if hasBearerToken && oidcEnabled {
 			s.oidcAuth(next).ServeHTTP(w, r)
 			return
 		}
@@ -1144,13 +1157,25 @@ func (s *Server) resourceTags(ctx context.Context, resourceType, resourceID stri
 	switch resourceType {
 	case "job":
 		job, err := s.store.GetJob(ctx, resourceID)
-		if err != nil || job == nil || len(job.Tags) == 0 {
+		if err != nil {
+			return nil, false
+		}
+		if job == nil {
+			return nil, false
+		}
+		if len(job.Tags) == 0 {
 			return nil, false
 		}
 		return job.Tags, true
 	case "workflow":
 		wf, err := s.store.GetWorkflow(ctx, resourceID)
-		if err != nil || wf == nil || len(wf.Tags) == 0 {
+		if err != nil {
+			return nil, false
+		}
+		if wf == nil {
+			return nil, false
+		}
+		if len(wf.Tags) == 0 {
 			return nil, false
 		}
 		return wf.Tags, true
@@ -1493,7 +1518,7 @@ func (s *Server) resolveRateLimit(ctx context.Context, r *http.Request, projectI
 
 	// 1. Try API key-level rate limit (from context, no DB hit).
 	if apiKeyID != "" {
-		if apiKey, ok := ctx.Value(ctxAuthKeyObjKey).(*domain.APIKey); ok && apiKey != nil && apiKey.RateLimitRequests > 0 && apiKey.RateLimitWindowSecs > 0 {
+		if apiKey, ok := ctx.Value(ctxAuthKeyObjKey).(*domain.APIKey); ok && apiKeyHasRateLimit(apiKey) {
 			return capResolvedRateLimit(
 				resolvedRateLimit{limit: apiKey.RateLimitRequests, windowSecs: apiKey.RateLimitWindowSecs, key: "rl:apikey:" + apiKeyID},
 				planLimit,
@@ -1504,7 +1529,7 @@ func (s *Server) resolveRateLimit(ctx context.Context, r *http.Request, projectI
 	// 2. Fall back to project quota rate limit.
 	if projectID != "" && s.quotaCache != nil {
 		quota, err := s.quotaCache.Get(ctx, projectID)
-		if err == nil && quota != nil && quota.RateLimitRequests > 0 && quota.RateLimitWindowSecs > 0 {
+		if err == nil && projectQuotaHasRateLimit(quota) {
 			return capResolvedRateLimit(
 				resolvedRateLimit{limit: quota.RateLimitRequests, windowSecs: quota.RateLimitWindowSecs, key: "rl:project:" + projectID},
 				planLimit,
@@ -1539,8 +1564,16 @@ func (s *Server) resolveRateLimit(ctx context.Context, r *http.Request, projectI
 	return resolvedRateLimit{}
 }
 
+func apiKeyHasRateLimit(apiKey *domain.APIKey) bool {
+	return apiKey != nil && apiKey.RateLimitRequests > 0 && apiKey.RateLimitWindowSecs > 0
+}
+
+func projectQuotaHasRateLimit(quota *store.ProjectQuota) bool {
+	return quota != nil && quota.RateLimitRequests > 0 && quota.RateLimitWindowSecs > 0
+}
+
 func capResolvedRateLimit(rl resolvedRateLimit, planLimitPerMinute int) resolvedRateLimit {
-	if planLimitPerMinute <= 0 || rl.limit <= 0 || rl.windowSecs <= 0 {
+	if !canCapResolvedRateLimit(rl, planLimitPerMinute) {
 		return rl
 	}
 	planLimitForWindow := planLimitPerMinute * rl.windowSecs / 60
@@ -1551,6 +1584,10 @@ func capResolvedRateLimit(rl resolvedRateLimit, planLimitPerMinute int) resolved
 		rl.limit = planLimitForWindow
 	}
 	return rl
+}
+
+func canCapResolvedRateLimit(rl resolvedRateLimit, planLimitPerMinute int) bool {
+	return planLimitPerMinute > 0 && rl.limit > 0 && rl.windowSecs > 0
 }
 
 // auditVerifyRateLimit enforces a per-project rate limit on the audit chain

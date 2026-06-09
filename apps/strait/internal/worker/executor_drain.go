@@ -41,7 +41,15 @@ func (d *drainController) observePoll(requested, claimed int, err error) {
 	if d == nil {
 		return
 	}
-	if err != nil || claimed == 0 || requested <= 0 {
+	if err != nil {
+		d.backlogHint.Store(false)
+		return
+	}
+	if claimed == 0 {
+		d.backlogHint.Store(false)
+		return
+	}
+	if requested <= 0 {
 		d.backlogHint.Store(false)
 		return
 	}

@@ -118,7 +118,7 @@ func (n *StageNotifier) NotifyStepTransition(
 		"step_ref", step.StepRef,
 		"status", string(newStatus),
 		"event_type", eventType,
-		"channels", fmt.Sprintf("%d", len(channels)),
+		"channels", strconv.Itoa(len(channels)),
 	)
 }
 

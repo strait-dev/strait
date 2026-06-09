@@ -95,7 +95,9 @@ func (s *Server) handleCreateAPIKey(ctx context.Context, input *CreateAPIKeyInpu
 			return nil, huma.Error400BadRequest("invalid rotation_webhook_url")
 		}
 	}
-	if req.RotationIntervalDays != nil && *req.RotationIntervalDays > 0 && req.RotationWebhookURL == "" {
+	rotationIntervalConfigured := req.RotationIntervalDays != nil && *req.RotationIntervalDays > 0
+	rotationWebhookMissing := req.RotationWebhookURL == ""
+	if rotationIntervalConfigured && rotationWebhookMissing {
 		return nil, huma.Error400BadRequest("rotation_webhook_url is required when rotation_interval_days is set")
 	}
 
@@ -110,8 +112,19 @@ func (s *Server) handleCreateAPIKey(ctx context.Context, input *CreateAPIKeyInpu
 		return nil, err
 	}
 
-	key := &domain.APIKey{ProjectID: req.ProjectID, OrgID: req.OrgID, Name: req.Name, KeyHash: hashAPIKey(rawKey), KeyPrefix: rawKey[:domain.APIKeyPrefixLen], Scopes: req.Scopes, ExpiresAt: expiresAt, EnvironmentID: req.EnvironmentID, RotationIntervalDays: req.RotationIntervalDays, RotationWebhookURL: req.RotationWebhookURL}
-	if req.RotationIntervalDays != nil && *req.RotationIntervalDays > 0 {
+	key := &domain.APIKey{
+		ProjectID:            req.ProjectID,
+		OrgID:                req.OrgID,
+		Name:                 req.Name,
+		KeyHash:              hashAPIKey(rawKey),
+		KeyPrefix:            rawKey[:domain.APIKeyPrefixLen],
+		Scopes:               req.Scopes,
+		ExpiresAt:            expiresAt,
+		EnvironmentID:        req.EnvironmentID,
+		RotationIntervalDays: req.RotationIntervalDays,
+		RotationWebhookURL:   req.RotationWebhookURL,
+	}
+	if rotationIntervalConfigured {
 		nr := time.Now().Add(time.Duration(*req.RotationIntervalDays) * 24 * time.Hour)
 		key.NextRotationAt = &nr
 	}
@@ -144,7 +157,19 @@ func (s *Server) handleCreateAPIKey(ctx context.Context, input *CreateAPIKeyInpu
 		"rotation_interval_days":    req.RotationIntervalDays,
 		"rotation_webhook_url_host": urlHost(key.RotationWebhookURL),
 	})
-	return &CreateAPIKeyOutput{Body: CreateAPIKeyResponse{ID: key.ID, ProjectID: key.ProjectID, Name: key.Name, Key: rawKey, KeyPrefix: key.KeyPrefix, Scopes: key.Scopes, ExpiresAt: key.ExpiresAt, CreatedAt: key.CreatedAt, RotationWebhookSecret: rotationWebhookSecretPlaintext}}, nil
+	return &CreateAPIKeyOutput{
+		Body: CreateAPIKeyResponse{
+			ID:                    key.ID,
+			ProjectID:             key.ProjectID,
+			Name:                  key.Name,
+			Key:                   rawKey,
+			KeyPrefix:             key.KeyPrefix,
+			Scopes:                key.Scopes,
+			ExpiresAt:             key.ExpiresAt,
+			CreatedAt:             key.CreatedAt,
+			RotationWebhookSecret: rotationWebhookSecretPlaintext,
+		},
+	}, nil
 }
 
 func (s *Server) apiKeyExpiryFromProjectPolicy(ctx context.Context, projectID string, requested *time.Time) (*time.Time, error) {
@@ -295,7 +320,10 @@ func apiKeyExpiresChannel(apiKeyID string) string {
 
 func (s *Server) handleRevokeAPIKey(ctx context.Context, input *RevokeAPIKeyInput) (*RevokeAPIKeyOutput, error) {
 	key, err := s.store.GetAPIKeyByID(ctx, input.KeyID)
-	if err != nil || key == nil {
+	if err != nil {
+		return nil, huma.Error404NotFound("api key not found")
+	}
+	if key == nil {
 		return nil, huma.Error404NotFound("api key not found")
 	}
 	if err := requireProjectMatch(ctx, key.ProjectID); err != nil {
@@ -312,10 +340,8 @@ func (s *Server) handleRevokeAPIKey(ctx context.Context, input *RevokeAPIKeyInpu
 		if err := s.store.RevokeAPIKey(ctx, input.KeyID); err != nil {
 			return nil, huma.Error404NotFound("api key not found or already revoked")
 		}
-		version := key.CacheVersion + 1
-		if revoked, getErr := s.store.GetAPIKeyByID(ctx, input.KeyID); getErr == nil && revoked != nil && revoked.CacheVersion > 0 {
-			version = revoked.CacheVersion
-		}
+		revoked, getErr := s.store.GetAPIKeyByID(ctx, input.KeyID)
+		version := apiKeyCacheVersionAfterMutation(key.CacheVersion, revoked, getErr)
 		s.apiKeyCache.InvalidateWithVersion(ctx, key.KeyHash, version)
 		slog.Info("api key revoked", "key_id", input.KeyID, "actor", actorFromContext(ctx), "project_id", projectIDFromContext(ctx))
 		s.emitAuditEvent(ctx, domain.AuditActionAPIKeyRevoked, "api_key", input.KeyID, nil)
@@ -354,7 +380,10 @@ func (s *Server) handleRotateAPIKey(ctx context.Context, input *RotateAPIKeyInpu
 		return nil, huma.Error400BadRequest("grace_period_minutes must be <= 10080")
 	}
 	oldKey, err := s.store.GetAPIKeyByID(ctx, input.KeyID)
-	if err != nil || oldKey == nil {
+	if err != nil {
+		return nil, huma.Error404NotFound("api key not found")
+	}
+	if oldKey == nil {
 		return nil, huma.Error404NotFound("api key not found")
 	}
 	if err := requireProjectMatch(ctx, oldKey.ProjectID); err != nil {
@@ -380,7 +409,19 @@ func (s *Server) handleRotateAPIKey(ctx context.Context, input *RotateAPIKeyInpu
 	if err != nil {
 		return nil, err
 	}
-	newKey := &domain.APIKey{ProjectID: oldKey.ProjectID, OrgID: oldKey.OrgID, Name: oldKey.Name + " (rotated)", KeyHash: hashAPIKey(rawKey), KeyPrefix: rawKey[:domain.APIKeyPrefixLen], Scopes: oldKey.Scopes, ExpiresAt: expiresAt, EnvironmentID: oldKey.EnvironmentID, RotationIntervalDays: oldKey.RotationIntervalDays, RotationWebhookURL: oldKey.RotationWebhookURL, RotationWebhookSecret: oldKey.RotationWebhookSecret}
+	newKey := &domain.APIKey{
+		ProjectID:             oldKey.ProjectID,
+		OrgID:                 oldKey.OrgID,
+		Name:                  oldKey.Name + " (rotated)",
+		KeyHash:               hashAPIKey(rawKey),
+		KeyPrefix:             rawKey[:domain.APIKeyPrefixLen],
+		Scopes:                oldKey.Scopes,
+		ExpiresAt:             expiresAt,
+		EnvironmentID:         oldKey.EnvironmentID,
+		RotationIntervalDays:  oldKey.RotationIntervalDays,
+		RotationWebhookURL:    oldKey.RotationWebhookURL,
+		RotationWebhookSecret: oldKey.RotationWebhookSecret,
+	}
 	if oldKey.RotationIntervalDays != nil && *oldKey.RotationIntervalDays > 0 {
 		nr := time.Now().Add(time.Duration(*oldKey.RotationIntervalDays) * 24 * time.Hour)
 		newKey.NextRotationAt = &nr
@@ -393,10 +434,8 @@ func (s *Server) handleRotateAPIKey(ctx context.Context, input *RotateAPIKeyInpu
 		return nil, huma.Error500InternalServerError("failed to rotate api key")
 	}
 	s.apiKeyCache.Set(ctx, newKey)
-	oldKeyVersion := oldKey.CacheVersion + 1
-	if rotatedOldKey, getErr := s.store.GetAPIKeyByID(ctx, oldKey.ID); getErr == nil && rotatedOldKey != nil && rotatedOldKey.CacheVersion > 0 {
-		oldKeyVersion = rotatedOldKey.CacheVersion
-	}
+	rotatedOldKey, getErr := s.store.GetAPIKeyByID(ctx, oldKey.ID)
+	oldKeyVersion := apiKeyCacheVersionAfterMutation(oldKey.CacheVersion, rotatedOldKey, getErr)
 	s.apiKeyCache.InvalidateWithVersion(ctx, oldKey.KeyHash, oldKeyVersion)
 	if s.pubsub != nil && oldKey.ID != "" {
 		expireChannel := apiKeyExpiresChannel(oldKey.ID)
@@ -410,8 +449,26 @@ func (s *Server) handleRotateAPIKey(ctx context.Context, input *RotateAPIKeyInpu
 			}
 		}
 	}
-	s.emitAuditEvent(ctx, domain.AuditActionAPIKeyRotated, "api_key", input.KeyID, map[string]any{"new_key_id": newKey.ID, "grace_expires_at": graceExpiresAt, "grace_period_minute": req.GracePeriodMinutes})
-	return &RotateAPIKeyOutput{Body: map[string]any{"old_key_id": oldKey.ID, "new_key_id": newKey.ID, "project_id": newKey.ProjectID, "name": newKey.Name, "key": rawKey, "key_prefix": newKey.KeyPrefix, "scopes": newKey.Scopes, "expires_at": newKey.ExpiresAt, "created_at": newKey.CreatedAt, "grace_expires_at": graceExpiresAt}}, nil
+	auditDetails := map[string]any{
+		"new_key_id":          newKey.ID,
+		"grace_expires_at":    graceExpiresAt,
+		"grace_period_minute": req.GracePeriodMinutes,
+	}
+	s.emitAuditEvent(ctx, domain.AuditActionAPIKeyRotated, "api_key", input.KeyID, auditDetails)
+
+	body := map[string]any{
+		"old_key_id":       oldKey.ID,
+		"new_key_id":       newKey.ID,
+		"project_id":       newKey.ProjectID,
+		"name":             newKey.Name,
+		"key":              rawKey,
+		"key_prefix":       newKey.KeyPrefix,
+		"scopes":           newKey.Scopes,
+		"expires_at":       newKey.ExpiresAt,
+		"created_at":       newKey.CreatedAt,
+		"grace_expires_at": graceExpiresAt,
+	}
+	return &RotateAPIKeyOutput{Body: body}, nil
 }
 
 func requireAPIKeyCreationScope(ctx context.Context, req CreateAPIKeyRequest) error {
@@ -470,6 +527,20 @@ func filterAPIKeysForEnvironment(ctx context.Context, keys []domain.APIKey) []do
 		}
 	}
 	return filtered
+}
+
+func apiKeyCacheVersionAfterMutation(currentVersion int64, refreshed *domain.APIKey, refreshErr error) int64 {
+	fallbackVersion := currentVersion + 1
+	if refreshErr != nil {
+		return fallbackVersion
+	}
+	if refreshed == nil {
+		return fallbackVersion
+	}
+	if refreshed.CacheVersion <= 0 {
+		return fallbackVersion
+	}
+	return refreshed.CacheVersion
 }
 
 func apiKeyScopesForGrant(scopes []string) []string {

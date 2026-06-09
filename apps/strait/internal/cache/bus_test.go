@@ -368,6 +368,24 @@ func TestRegistry_BadNamespaceAndPayloadAreIgnoredAndCounted(t *testing.T) {
 	require.Equal(t, int64(1), unknown.Load())
 }
 
+func TestBusReadinessGuards(t *testing.T) {
+	t.Parallel()
+
+	var nilBus *Bus
+	registry := NewRegistry(RegistryConfig{Origin: "node-a"})
+	require.False(t, nilBus.canPublish())
+	require.False(t, nilBus.canSubscribe(registry))
+
+	busWithoutPublisher := NewBus(nil, BusConfig{Origin: "node-a"})
+	require.False(t, busWithoutPublisher.canPublish())
+	require.False(t, busWithoutPublisher.canSubscribe(registry))
+
+	bus := NewBus(newMemoryBusPublisher(), BusConfig{Origin: "node-a"})
+	require.True(t, bus.canPublish())
+	require.False(t, bus.canSubscribe(nil))
+	require.True(t, bus.canSubscribe(registry))
+}
+
 func TestBus_SubscribeFailureFailsOpen(t *testing.T) {
 	t.Parallel()
 

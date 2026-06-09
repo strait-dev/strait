@@ -18,37 +18,24 @@ func TestOnJobRunTerminal_CompensationCompletionMarksWorkflowCompensated(t *test
 	var workflowTo domain.WorkflowRunStatus
 	store := &mockCallbackStore{
 		markCompensationRunTerminalFn: func(_ context.Context, jobRunID string, status string, output json.RawMessage, errMsg string, finishedAt time.Time) (*domain.CompensationRun, error) {
-			require.Equal(t, "jr-comp",
-				jobRunID,
-			)
-			require.Equal(t, domain.
-				CompensationCompleted,
-
-				status)
-			require.Equal(t, `{"refunded":true}`,
-
-				string(output))
+			require.Equal(t, "jr-comp", jobRunID)
+			require.Equal(t, domain.CompensationCompleted, status)
+			require.Equal(t, `{"refunded":true}`, string(output))
 			require.Empty(t, errMsg)
 
 			terminalStatus = status
 			return &domain.CompensationRun{ID: "cr-1", WorkflowRunID: "wfr-1", Status: status}, nil
 		},
 		countIncompleteCompensationRunsFn: func(_ context.Context, workflowRunID string) (int, error) {
-			require.Equal(t, "wfr-1",
-				workflowRunID,
-			)
+			require.Equal(t, "wfr-1", workflowRunID)
 
 			return 0, nil
 		},
 		updateWorkflowRunStatusFn: func(_ context.Context, id string, from, to domain.WorkflowRunStatus, fields map[string]any) error {
-			require.False(t, id !=
-				"wfr-1" || from !=
-				domain.
-					WfStatusCompensating ||
-				to != domain.
-					WfStatusCompensated)
-			require.NotNil(t,
-				fields["finished_at"])
+			require.Equal(t, "wfr-1", id)
+			require.Equal(t, domain.WfStatusCompensating, from)
+			require.Equal(t, domain.WfStatusCompensated, to)
+			require.NotNil(t, fields["finished_at"])
 
 			workflowTo = to
 			return nil
@@ -66,13 +53,9 @@ func TestOnJobRunTerminal_CompensationCompletionMarksWorkflowCompensated(t *test
 			domain.RunMetadataCompensationStepRef:       "charge-card",
 		},
 	})
-	require.NoError(t,
-		err)
-	require.False(t, terminalStatus !=
-		domain.CompensationCompleted ||
-		workflowTo !=
-			domain.
-				WfStatusCompensated)
+	require.NoError(t, err)
+	require.Equal(t, domain.CompensationCompleted, terminalStatus)
+	require.Equal(t, domain.WfStatusCompensated, workflowTo)
 }
 
 func TestOnJobRunTerminal_CompensationFailureMarksWorkflowFailed(t *testing.T) {
@@ -81,25 +64,16 @@ func TestOnJobRunTerminal_CompensationFailureMarksWorkflowFailed(t *testing.T) {
 	var workflowTo domain.WorkflowRunStatus
 	store := &mockCallbackStore{
 		markCompensationRunTerminalFn: func(_ context.Context, jobRunID string, status string, output json.RawMessage, errMsg string, finishedAt time.Time) (*domain.CompensationRun, error) {
-			require.Equal(t, domain.
-				CompensationFailed,
-				status,
-			)
-			require.Equal(t, "refund failed",
-				errMsg,
-			)
+			require.Equal(t, domain.CompensationFailed, status)
+			require.Equal(t, "refund failed", errMsg)
 
 			return &domain.CompensationRun{ID: "cr-1", WorkflowRunID: "wfr-1", Status: status}, nil
 		},
 		updateWorkflowRunStatusFn: func(_ context.Context, id string, from, to domain.WorkflowRunStatus, fields map[string]any) error {
-			require.False(t, id !=
-				"wfr-1" || from !=
-				domain.
-					WfStatusCompensating ||
-				to != domain.
-					WfStatusCompensationFailed)
-			require.Equal(t, "refund failed",
-				fields["error"])
+			require.Equal(t, "wfr-1", id)
+			require.Equal(t, domain.WfStatusCompensating, from)
+			require.Equal(t, domain.WfStatusCompensationFailed, to)
+			require.Equal(t, "refund failed", fields["error"])
 
 			workflowTo = to
 			return nil
@@ -117,11 +91,45 @@ func TestOnJobRunTerminal_CompensationFailureMarksWorkflowFailed(t *testing.T) {
 			domain.RunMetadataCompensationStepRef:       "charge-card",
 		},
 	})
-	require.NoError(t,
-		err)
-	require.Equal(t, domain.
-		WfStatusCompensationFailed,
+	require.NoError(t, err)
+	require.Equal(t, domain.WfStatusCompensationFailed, workflowTo)
+}
 
-		workflowTo,
-	)
+func TestIsCompensationJobRun(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		run  *domain.JobRun
+		want bool
+	}{
+		{
+			name: "nil run",
+		},
+		{
+			name: "nil metadata",
+			run:  &domain.JobRun{},
+		},
+		{
+			name: "missing compensation id",
+			run:  &domain.JobRun{Metadata: map[string]string{}},
+		},
+		{
+			name: "compensation id present",
+			run: &domain.JobRun{
+				Metadata: map[string]string{
+					domain.RunMetadataCompensationRunID: "cr-1",
+				},
+			},
+			want: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			require.Equal(t, tc.want, isCompensationJobRun(tc.run))
+		})
+	}
 }

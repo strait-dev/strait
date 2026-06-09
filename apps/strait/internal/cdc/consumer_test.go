@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -127,9 +126,7 @@ func TestConsumerPollRoutesByTableAndAcksSuccess(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	assert.False(t, len(ackIDs) !=
-		1 || len(ackIDs[0]) !=
-		1 || ackIDs[0][0] != "a1")
+	assert.Equal(t, [][]string{{"a1"}}, ackIDs)
 	assert.Equal(t, 0, nackCalls)
 }
 
@@ -167,8 +164,7 @@ func TestConsumerPollHandlerFailureNacks(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	assert.False(t, len(nackIDs) !=
-		1 || len(nackIDs[0]) != 1 || nackIDs[0][0] != "a1")
+	assert.Equal(t, [][]string{{"a1"}}, nackIDs)
 }
 
 func TestConsumerPollUnknownTableAcks(t *testing.T) {
@@ -200,9 +196,7 @@ func TestConsumerPollUnknownTableAcks(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	assert.False(t, len(ackIDs) !=
-		1 || len(ackIDs[0]) !=
-		1 || ackIDs[0][0] != "a1")
+	assert.Equal(t, [][]string{{"a1"}}, ackIDs)
 	assert.Equal(t, 0, nackCalls)
 }
 
@@ -240,10 +234,7 @@ func TestConsumerPollEmptyTableAcksWithoutWarn(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	assert.False(t, len(ackIDs) !=
-		1 || len(ackIDs[0]) !=
-		1 || ackIDs[0][0] != "a-empty",
-	)
+	assert.Equal(t, [][]string{{"a-empty"}}, ackIDs)
 	assert.Equal(t, 0, nackCalls)
 	assert.EqualValues(t, 0, logs.warnCount.
 		Load())
@@ -290,13 +281,8 @@ func TestConsumerPollMixedBatchAckNackSplit(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	assert.Len(t,
-		ackIDs, 2)
-	assert.False(t, !slices.Contains(ackIDs,
-		"a1") || !slices.Contains(ackIDs, "a3"))
-	assert.False(t, len(nackIDs) !=
-		1 || nackIDs[0] !=
-		"a2")
+	assert.ElementsMatch(t, []string{"a1", "a3"}, ackIDs)
+	assert.Equal(t, []string{"a2"}, nackIDs)
 }
 
 func TestConsumerPollEmptyBatchNoAckNack(t *testing.T) {
@@ -812,9 +798,7 @@ func TestConsumer_CollectReturnsNilMessage_AcksWithoutPublish(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	assert.False(t, len(ackIDs) !=
-		1 || ackIDs[0] != "a1",
-	)
+	assert.Equal(t, []string{"a1"}, ackIDs)
 	assert.Equal(t, 0, nackCalls)
 
 	pub.mu.Lock()

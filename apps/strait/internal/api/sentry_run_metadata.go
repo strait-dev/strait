@@ -98,7 +98,7 @@ func applyTraceContextMetadata(ctx context.Context, metadata map[string]string) 
 		return
 	}
 	sc := trace.SpanContextFromContext(ctx)
-	if !sc.IsValid() || !sc.TraceID().IsValid() || !sc.SpanID().IsValid() {
+	if !validRunTraceSpanContext(sc) {
 		return
 	}
 	flags := "00"
@@ -123,4 +123,14 @@ func apiTraceparent(sc trace.SpanContext, flags string) string {
 	out[53] = flags[0]
 	out[54] = flags[1]
 	return string(out[:])
+}
+
+func validRunTraceSpanContext(sc trace.SpanContext) bool {
+	if !sc.IsValid() {
+		return false
+	}
+	if !sc.TraceID().IsValid() {
+		return false
+	}
+	return sc.SpanID().IsValid()
 }

@@ -18,6 +18,29 @@ type fakeDLQStore struct {
 	err        error
 }
 
+func TestNormalizeDLQOverflowPolicy(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		policy DLQOverflowPolicy
+		want   DLQOverflowPolicy
+	}{
+		{name: "drop oldest", policy: DLQOverflowDropOldest, want: DLQOverflowDropOldest},
+		{name: "reject", policy: DLQOverflowReject, want: DLQOverflowReject},
+		{name: "empty defaults", want: DLQOverflowDropOldest},
+		{name: "invalid defaults", policy: "nonsense", want: DLQOverflowDropOldest},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, tt.want, normalizeDLQOverflowPolicy(tt.policy))
+		})
+	}
+}
+
 func newFakeDLQStore() *fakeDLQStore {
 	return &fakeDLQStore{
 		perJob:     map[string]int{},

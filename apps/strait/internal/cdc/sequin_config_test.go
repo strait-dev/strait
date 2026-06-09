@@ -146,9 +146,8 @@ func tableName(t *testing.T, qualifiedTable string) string {
 	t.Helper()
 
 	table, ok := strings.CutPrefix(qualifiedTable, "public.")
-	require.False(t, !ok ||
-		table ==
-			"")
+	require.True(t, ok)
+	require.NotEmpty(t, table)
 
 	return table
 }

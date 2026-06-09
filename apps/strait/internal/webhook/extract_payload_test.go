@@ -53,7 +53,8 @@ func TestExtractPayload_FallsBackToMinimalWhenNeither(t *testing.T) {
 		Unmarshal(
 			got,
 			&parsed))
-	require.False(t, parsed["trigger_id"] != "trig-1" || parsed["delivery_id"] != "del-1")
+	require.Equal(t, "trig-1", parsed["trigger_id"])
+	require.Equal(t, "del-1", parsed["delivery_id"])
 }
 
 func TestExtractPayload_PrefersPayloadEvenOverInvalidLastError(t *testing.T) {

@@ -79,7 +79,7 @@ func NewRedisWebhookCircuitBreaker(client *redis.Client, enabled bool, opts ...R
 }
 
 func (cb *RedisWebhookCircuitBreaker) CanDeliver(ctx context.Context, url string) (bool, error) {
-	if !cb.enabled || cb.client == nil || url == "" {
+	if !cb.canUseRemoteState(url) {
 		return true, nil
 	}
 
@@ -114,7 +114,7 @@ func (cb *RedisWebhookCircuitBreaker) CanDeliver(ctx context.Context, url string
 }
 
 func (cb *RedisWebhookCircuitBreaker) RecordSuccess(ctx context.Context, url string) {
-	if !cb.enabled || cb.client == nil || url == "" {
+	if !cb.canUseRemoteState(url) {
 		return
 	}
 
@@ -122,7 +122,7 @@ func (cb *RedisWebhookCircuitBreaker) RecordSuccess(ctx context.Context, url str
 }
 
 func (cb *RedisWebhookCircuitBreaker) RecordFailure(ctx context.Context, url string) {
-	if !cb.enabled || cb.client == nil || url == "" {
+	if !cb.canUseRemoteState(url) {
 		return
 	}
 
@@ -147,6 +147,10 @@ func (cb *RedisWebhookCircuitBreaker) RecordFailure(ctx context.Context, url str
 	if err == nil && failures >= int64(cb.failureThreshold) {
 		_ = cb.client.Set(ctx, openKey, "1", cb.openDuration).Err()
 	}
+}
+
+func (cb *RedisWebhookCircuitBreaker) canUseRemoteState(url string) bool {
+	return cb.enabled && cb.client != nil && url != ""
 }
 
 func (cb *RedisWebhookCircuitBreaker) failureKey(url string) string {

@@ -28,7 +28,7 @@ func NewSharedDedupeStore(client redis.Cmdable, ttl time.Duration) *SharedDedupe
 }
 
 func (s *SharedDedupeStore) Claim(ctx context.Context, key string) (bool, error) {
-	if s == nil || s.client == nil || strings.TrimSpace(key) == "" {
+	if !s.canUseSharedDedupe(key) {
 		return true, nil
 	}
 	ok, err := s.client.SetNX(ctx, s.redisKey(key), "1", s.ttl).Result()
@@ -39,10 +39,14 @@ func (s *SharedDedupeStore) Claim(ctx context.Context, key string) (bool, error)
 }
 
 func (s *SharedDedupeStore) Release(ctx context.Context, key string) {
-	if s == nil || s.client == nil || strings.TrimSpace(key) == "" {
+	if !s.canUseSharedDedupe(key) {
 		return
 	}
 	_ = s.client.Del(ctx, s.redisKey(key)).Err()
+}
+
+func (s *SharedDedupeStore) canUseSharedDedupe(key string) bool {
+	return s != nil && s.client != nil && strings.TrimSpace(key) != ""
 }
 
 func (s *SharedDedupeStore) redisKey(key string) string {

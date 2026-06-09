@@ -86,7 +86,7 @@ func resolveAPIKeyFromContextWithLimitAndResolver(ctx context.Context, resolver 
 
 func grpcPeerIP(ctx context.Context) string {
 	p, ok := peer.FromContext(ctx)
-	if !ok || p == nil || p.Addr == nil {
+	if !grpcPeerHasAddress(ok, p) {
 		return "unknown"
 	}
 	addr := p.Addr.String()
@@ -98,6 +98,10 @@ func grpcPeerIP(ctx context.Context) string {
 		return addr
 	}
 	return "unknown"
+}
+
+func grpcPeerHasAddress(ok bool, p *peer.Peer) bool {
+	return ok && p != nil && p.Addr != nil
 }
 
 // resolveAPIKeyFromContext extracts the Bearer token from the gRPC metadata
@@ -136,7 +140,10 @@ func resolveAPIKeyFromContextWithResolver(ctx context.Context, resolver apiKeyRe
 		return nil, status.Error(codes.Unauthenticated, "invalid api key")
 	}
 	apiKey, err := resolver.LookupAPIKeyByHash(ctx, keyHash)
-	if err != nil || apiKey == nil {
+	if err != nil {
+		return nil, status.Error(codes.Unauthenticated, "invalid api key")
+	}
+	if apiKey == nil {
 		return nil, status.Error(codes.Unauthenticated, "invalid api key")
 	}
 
@@ -148,10 +155,14 @@ func resolveAPIKeyFromContextWithResolver(ctx context.Context, resolver apiKeyRe
 }
 
 func validGRPCAPIKeyFormat(rawKey string) bool {
-	if rawKey == "" || len(rawKey) > grpcAPIKeyMaxLength {
+	if !grpcAPIKeyLengthValid(rawKey) {
 		return false
 	}
 	return grpcAPIKeyPattern.MatchString(rawKey)
+}
+
+func grpcAPIKeyLengthValid(rawKey string) bool {
+	return rawKey != "" && len(rawKey) <= grpcAPIKeyMaxLength
 }
 
 func validateWorkerAPIKey(apiKey *domain.APIKey) error {
@@ -180,10 +191,20 @@ func validateWorkerAPIKey(apiKey *domain.APIKey) error {
 	// scope set must NOT pass here: domain.HasScope treats empty scopes as full
 	// access for backward compatibility, so a legacy or misconfigured key with no
 	// scopes would otherwise gain worker access it was never granted.
-	if len(apiKey.Scopes) == 0 || !domain.HasScope(apiKey.Scopes, domain.ScopeWorkersConnect) {
+	if !apiKeyAllowsWorkerConnections(apiKey) {
 		return status.Error(codes.PermissionDenied, "api key does not allow worker connections")
 	}
 	return nil
+}
+
+func apiKeyAllowsWorkerConnections(apiKey *domain.APIKey) bool {
+	if apiKey == nil {
+		return false
+	}
+	if len(apiKey.Scopes) == 0 {
+		return false
+	}
+	return domain.HasScope(apiKey.Scopes, domain.ScopeWorkersConnect)
 }
 
 // hashGRPCAPIKey returns the SHA-256 hex digest of the raw API key string via

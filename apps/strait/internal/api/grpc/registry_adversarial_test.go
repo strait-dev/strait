@@ -27,15 +27,13 @@ func TestAdversarial_WorkerIDHijackSameProject(t *testing.T) {
 	hijacker := makeWorker("target-worker", "proj-a", "key-attacker", []string{"q"}, 4)
 	err := r.Register(hijacker)
 	require.Error(t, err)
-	assert.False(t, !strings.Contains(err.Error(), "different api key") || !strings.Contains(err.Error(),
-
-		"proj-a"))
+	assert.Contains(t, err.Error(), "different api key")
+	assert.Contains(t, err.Error(), "proj-a")
 
 	// The original worker must still be registered.
 	snap := r.Snapshot()
-	assert.False(t, len(snap) !=
-		1 || snap[0].APIKeyID !=
-		"key-legit")
+	assert.Len(t, snap, 1)
+	assert.Equal(t, "key-legit", snap[0].APIKeyID)
 }
 
 func TestAdversarial_WorkerIDNamespaceAllowsSameIDAcrossProjects(t *testing.T) {

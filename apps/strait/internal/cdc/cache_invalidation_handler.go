@@ -65,7 +65,7 @@ func newCacheInvalidationHandler(
 func (h *cacheInvalidationHandler) Table() string { return h.table }
 
 func (h *cacheInvalidationHandler) Handle(ctx context.Context, msg Message) error {
-	if h == nil || h.bus == nil || h.fn == nil || len(msg.Record) == 0 {
+	if !cacheInvalidationHandlerCanProcess(h, msg) {
 		return nil
 	}
 	var record map[string]any
@@ -81,6 +81,17 @@ func (h *cacheInvalidationHandler) Handle(ctx context.Context, msg Message) erro
 		h.logger.Warn("cdc cache invalidation skipped", "table", h.table, "error", err)
 	}
 	return nil
+}
+
+func cacheInvalidationHandlerCanProcess(h *cacheInvalidationHandler, msg Message) bool {
+	if h == nil {
+		return false
+	}
+
+	hasBus := h.bus != nil
+	hasInvalidationFunc := h.fn != nil
+	hasRecord := len(msg.Record) > 0
+	return hasBus && hasInvalidationFunc && hasRecord
 }
 
 func invalidatePermissionProjectCache(
@@ -107,10 +118,14 @@ func invalidateAPIKeyCache(ctx context.Context, bus *straitcache.Bus, record map
 func invalidatePermissionCache(ctx context.Context, bus *straitcache.Bus, record map[string]any, version int64) error {
 	projectID := stringField(record, "project_id")
 	userID := stringField(record, "user_id")
-	if projectID == "" || userID == "" {
+	if !permissionCacheRecordAddressable(projectID, userID) {
 		return nil
 	}
 	return bus.PublishInvalidate(ctx, cacheNamespacePermission, permissionCacheKey(projectID, userID), version)
+}
+
+func permissionCacheRecordAddressable(projectID, userID string) bool {
+	return projectID != "" && userID != ""
 }
 
 func invalidateQuotaCache(ctx context.Context, bus *straitcache.Bus, record map[string]any, version int64) error {

@@ -68,12 +68,16 @@ func (c *apiKeyCache) Stop() {
 	c.tier.Stop()
 }
 
+func (c *apiKeyCache) cacheEnabled() bool {
+	return c != nil && c.tier != nil
+}
+
 func (c *apiKeyCache) Get(
 	ctx context.Context,
 	keyHash string,
 	loader func(context.Context, string) (*domain.APIKey, error),
 ) (*domain.APIKey, error) {
-	if c == nil || c.tier == nil {
+	if !c.cacheEnabled() {
 		return loader(ctx, keyHash)
 	}
 	got, err := c.tier.GetConsistentVersioned(
@@ -89,7 +93,7 @@ func (c *apiKeyCache) Get(
 }
 
 func (c *apiKeyCache) Set(ctx context.Context, key *domain.APIKey) {
-	if c == nil || c.tier == nil || key == nil || key.KeyHash == "" {
+	if !c.cacheEnabled() || key == nil || key.KeyHash == "" {
 		return
 	}
 	_, _ = c.tier.StrongWriteThrough(
@@ -108,7 +112,7 @@ func (c *apiKeyCache) Invalidate(ctx context.Context, keyHash string) {
 }
 
 func (c *apiKeyCache) InvalidateWithVersion(ctx context.Context, keyHash string, version int64) {
-	if c == nil || c.tier == nil || keyHash == "" {
+	if !c.cacheEnabled() || keyHash == "" {
 		return
 	}
 	_ = c.tier.StrongInvalidate(

@@ -46,12 +46,9 @@ func (s *Server) handleWebhookEndpointHealth(ctx context.Context, input *Webhook
 	if err != nil {
 		return nil, err
 	}
-	bucket := input.Bucket
-	if bucket == "" {
-		bucket = "day"
-	}
-	if bucket != "hour" && bucket != "day" {
-		return nil, huma.Error400BadRequest("bucket must be 'hour' or 'day'")
+	bucket, err := normalizeAnalyticsBucket(input.Bucket)
+	if err != nil {
+		return nil, err
 	}
 	span.SetAttributes(attribute.String("from", from.Format(time.RFC3339)), attribute.String("to", to.Format(time.RFC3339)), attribute.String("bucket", bucket))
 	result, rErr := s.analytics().GetWebhookEndpointHealth(ctx, projectID, from, to, bucket)

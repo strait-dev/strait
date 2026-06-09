@@ -35,50 +35,26 @@ func TestNewDebounceRun_MapsPendingAndJobFields(t *testing.T) {
 	}
 
 	run := newDebounceRun(pending, job, now)
-	require.Equal(t, pending.
-		ID, run.ID)
-	require.Equal(t, "debounce:pending-1",
-
-		run.IdempotencyKey,
-	)
-	require.False(t, run.JobID !=
-		pending.
-			JobID ||
-		run.ProjectID != pending.
-			ProjectID,
-	)
-	require.Equal(t, string(pending.
-		Payload,
-	), string(run.Payload))
-	require.Equal(t, "acme",
-		run.Tags["tenant"])
-	require.False(t, run.Status !=
-		domain.
-			StatusQueued ||
-		run.Attempt != 1 ||
-
-		run.TriggeredBy != domain.TriggerDebounce)
-	require.False(t, run.Priority !=
-		pending.
-			Priority ||
-		run.ConcurrencyKey !=
-
-			pending.ConcurrencyKey || run.CreatedBy != pending.CreatedBy)
-	require.False(t, run.JobVersion !=
-		job.
-			Version ||
-		run.JobVersionID != job.
-			VersionID)
-	require.False(t, run.ExecutionMode !=
-		job.ExecutionMode ||
-		run.QueueName !=
-			job.Queue)
+	require.Equal(t, pending.ID, run.ID)
+	require.Equal(t, "debounce:pending-1", run.IdempotencyKey)
+	require.Equal(t, pending.JobID, run.JobID)
+	require.Equal(t, pending.ProjectID, run.ProjectID)
+	require.Equal(t, string(pending.Payload), string(run.Payload))
+	require.Equal(t, "acme", run.Tags["tenant"])
+	require.Equal(t, domain.StatusQueued, run.Status)
+	require.Equal(t, 1, run.Attempt)
+	require.Equal(t, domain.TriggerDebounce, run.TriggeredBy)
+	require.Equal(t, pending.Priority, run.Priority)
+	require.Equal(t, pending.ConcurrencyKey, run.ConcurrencyKey)
+	require.Equal(t, pending.CreatedBy, run.CreatedBy)
+	require.Equal(t, job.Version, run.JobVersion)
+	require.Equal(t, job.VersionID, run.JobVersionID)
+	require.Equal(t, job.ExecutionMode, run.ExecutionMode)
+	require.Equal(t, job.Queue, run.QueueName)
 
 	wantExpiresAt := now.Add(90 * time.Second)
-	require.False(t, run.ExpiresAt ==
-		nil ||
-		!run.
-			ExpiresAt.Equal(wantExpiresAt))
+	require.NotNil(t, run.ExpiresAt)
+	require.True(t, run.ExpiresAt.Equal(wantExpiresAt))
 }
 
 func TestDebounceRunExpiresAt_Precedence(t *testing.T) {
