@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/tidwall/gjson"
@@ -385,7 +386,7 @@ func stringify(v any) string {
 		return val
 	case float64:
 		if val == float64(int64(val)) {
-			return fmt.Sprintf("%d", int64(val))
+			return strconv.FormatInt(int64(val), 10)
 		}
 		return fmt.Sprintf("%g", val)
 	case bool:
