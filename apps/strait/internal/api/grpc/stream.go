@@ -885,10 +885,14 @@ func (s *workerService) handleAck(ctx context.Context, workerID, projectID strin
 	if err != nil {
 		return err
 	}
-	if task == nil || task.Status != domain.WorkerTaskStatusAssigned {
+	if task == nil || !canAcknowledgeWorkerTaskStatus(task.Status) {
 		return nil
 	}
 	return s.queries.UpdateWorkerTaskStatus(ctx, task.ID, domain.WorkerTaskStatusAccepted)
+}
+
+func canAcknowledgeWorkerTaskStatus(status domain.WorkerTaskStatus) bool {
+	return status == domain.WorkerTaskStatusAssigned
 }
 
 // handleHeartbeat is a no-op on the DB. last_seen_at is refreshed by the
