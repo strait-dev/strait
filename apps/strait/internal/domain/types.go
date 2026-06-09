@@ -1116,6 +1116,13 @@ type WorkerQueueRef struct {
 	EnvironmentID string
 }
 
+// WorkerQueueAvailability describes the worker queues that can accept runs
+// on this replica and the total number of currently available worker slots.
+type WorkerQueueAvailability struct {
+	Queues         []WorkerQueueRef
+	SlotsAvailable int
+}
+
 // IsValid returns true if the execution mode is a known value.
 func (m ExecutionMode) IsValid() bool {
 	switch m {

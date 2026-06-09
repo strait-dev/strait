@@ -439,18 +439,27 @@ func (r *ConnectionRegistry) SnapshotQueues() []string {
 }
 
 // SnapshotWorkerQueues returns the deduplicated set of queue/environment
-// scopes across all active workers on this replica. Empty EnvironmentID means
-// a project-wide worker can accept runs from any environment in the same
-// project.
+// scopes across active workers that have at least one available slot on this
+// replica. Empty EnvironmentID means a project-wide worker can accept runs
+// from any environment in the same project.
 func (r *ConnectionRegistry) SnapshotWorkerQueues() []domain.WorkerQueueRef {
+	return r.SnapshotWorkerQueueAvailability().Queues
+}
+
+// SnapshotWorkerQueueAvailability returns the deduplicated queue/environment
+// scopes for workers that can accept at least one more task on this replica,
+// plus the total number of available slots across those workers.
+func (r *ConnectionRegistry) SnapshotWorkerQueueAvailability() domain.WorkerQueueAvailability {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
 	seen := make(map[domain.WorkerQueueRef]struct{})
+	slotsAvailable := 0
 	for _, w := range r.workers {
-		if w.Status != "active" {
+		if w.Status != "active" || w.SlotsAvailable <= 0 {
 			continue
 		}
+		slotsAvailable += int(w.SlotsAvailable)
 		for _, q := range w.Queues {
 			seen[domain.WorkerQueueRef{
 				ProjectID:     w.ProjectID,
@@ -460,13 +469,16 @@ func (r *ConnectionRegistry) SnapshotWorkerQueues() []domain.WorkerQueueRef {
 		}
 	}
 	if len(seen) == 0 {
-		return nil
+		return domain.WorkerQueueAvailability{}
 	}
 	out := make([]domain.WorkerQueueRef, 0, len(seen))
 	for ref := range seen {
 		out = append(out, ref)
 	}
-	return out
+	return domain.WorkerQueueAvailability{
+		Queues:         out,
+		SlotsAvailable: slotsAvailable,
+	}
 }
 
 // workerHasQueue returns true if the worker is registered for the given queue.

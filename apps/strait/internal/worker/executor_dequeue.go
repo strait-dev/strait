@@ -20,49 +20,67 @@ type QueueSnapshotter interface {
 	SnapshotWorkerQueues() []domain.WorkerQueueRef
 }
 
+type workerQueueAvailabilitySnapshotter interface {
+	SnapshotWorkerQueueAvailability() domain.WorkerQueueAvailability
+}
+
 // dequeueRuns fetches up to capacity runs from the queue.
 // In fair-share mode it round-robins across partitions; otherwise it performs
 // a two-pass dequeue: HTTP-eligible runs first, then worker-eligible runs.
-func (e *Executor) dequeueRuns(ctx context.Context, capacity int) ([]domain.JobRun, error) {
+func (e *Executor) dequeueRuns(ctx context.Context, capacity int) ([]domain.JobRun, int, error) {
 	if len(e.partitionCycle) > 0 {
-		return e.dequeueAcrossPartitions(ctx, capacity)
+		runs, err := e.dequeueAcrossPartitions(ctx, capacity)
+		return runs, capacity, err
 	}
 
 	// Pass 1: HTTP-eligible runs (any replica can dispatch these).
 	claimed := newClaimedRunBatch(capacity)
 	runs, err := e.queue.DequeueN(ctx, claimed.remaining())
 	if err != nil {
-		return nil, err
+		return nil, capacity, err
 	}
 	claimed.append(runs)
 
 	// Pass 2: Worker-eligible runs - only attempt if this replica has
 	// connected workers and capacity remains after the HTTP pass.
-	e.appendWorkerRuns(ctx, &claimed)
-	return claimed.runs, nil
+	workerRequested := e.appendWorkerRuns(ctx, &claimed)
+	requested := capacity
+	if workerRequested >= 0 {
+		requested = len(runs) + workerRequested
+	}
+	return claimed.runs, requested, nil
 }
 
 // appendWorkerRuns dequeues worker-mode runs and appends them to runs when
 // connected workers are available and remaining capacity allows it.
-func (e *Executor) appendWorkerRuns(ctx context.Context, claimed *claimedRunBatch) {
+func (e *Executor) appendWorkerRuns(ctx context.Context, claimed *claimedRunBatch) int {
 	if e.queueSnapshotter == nil {
-		return
+		return -1
 	}
-	workerQueues := e.queueSnapshotter.SnapshotWorkerQueues()
+	workerLimit := claimed.remaining()
+	var workerQueues []domain.WorkerQueueRef
+	if snapshotter, ok := e.queueSnapshotter.(workerQueueAvailabilitySnapshotter); ok {
+		availability := snapshotter.SnapshotWorkerQueueAvailability()
+		workerQueues = availability.Queues
+		workerLimit = min(workerLimit, availability.SlotsAvailable)
+	} else {
+		workerQueues = e.queueSnapshotter.SnapshotWorkerQueues()
+	}
 	if len(workerQueues) == 0 {
-		return
+		return 0
 	}
 	wq, ok := e.queue.(workerQueueDequeuer)
-	if !ok || claimed.full() {
-		return
+	if !ok || claimed.full() || workerLimit <= 0 {
+		return 0
 	}
-	workerRuns, wErr := wq.DequeueNForWorkerQueues(ctx, claimed.remaining(), workerQueues)
+	workerRuns, wErr := wq.DequeueNForWorkerQueues(ctx, workerLimit, workerQueues)
 	if wErr != nil {
 		// Log but don't block the HTTP pass result.
 		e.logger.Warn("worker dequeue failed", "error", wErr)
-		return
+		return workerLimit
 	}
 	claimed.append(workerRuns)
+	return workerLimit
 }
 
 func (e *Executor) dequeueAcrossPartitions(ctx context.Context, capacity int) ([]domain.JobRun, error) {

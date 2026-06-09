@@ -37,17 +37,18 @@ func (e *Executor) poll(ctx context.Context) {
 	}
 
 	var runs []domain.JobRun
+	requested := available
 	var err error
 
 	dequeueErr := e.dbCircuit.Do(ctx, func(innerCtx context.Context) error {
-		runs, err = e.dequeueRuns(innerCtx, available)
+		runs, requested, err = e.dequeueRuns(innerCtx, available)
 		return err
 	})
 	if e.metrics != nil {
 		e.metrics.DequeueDuration.Record(ctx, time.Since(start).Seconds())
 	}
 	if dequeueErr != nil {
-		e.drain.observePoll(available, 0, dequeueErr)
+		e.drain.observePoll(requested, 0, dequeueErr)
 		if errors.Is(dequeueErr, queue.ErrCircuitOpen) {
 			e.logger.Debug("poll: db circuit open, skipping")
 		} else {
@@ -56,10 +57,10 @@ func (e *Executor) poll(ctx context.Context) {
 		return
 	}
 	if len(runs) == 0 {
-		e.drain.observePoll(available, 0, nil)
+		e.drain.observePoll(requested, 0, nil)
 		return
 	}
-	e.drain.observePoll(available, len(runs), nil)
+	e.drain.observePoll(requested, len(runs), nil)
 
 	// Capture the claim time as close to DequeueN's return as possible so
 	// the ClaimToStart histogram measures the real gap between a run being

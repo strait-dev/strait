@@ -251,6 +251,36 @@ func TestRegistry_SnapshotWorkerQueues_IncludesEnvironmentScopes(t *testing.T) {
 	}
 }
 
+func TestRegistry_SnapshotWorkerQueueAvailability_CapsByAvailableSlots(t *testing.T) {
+	r := NewConnectionRegistry()
+	projectWide := makeWorker("wide", "proj-a", "key-wide", []string{"q1", "q2"}, 4)
+	projectWide.SlotsAvailable = 2
+	staging := makeWorker("staging", "proj-a", "key-staging", []string{"q1"}, 4)
+	staging.EnvironmentID = "env-staging"
+	staging.SlotsAvailable = 1
+	busy := makeWorker("busy", "proj-a", "key-busy", []string{"q3"}, 4)
+	busy.SlotsAvailable = 0
+	draining := makeWorker("draining", "proj-a", "key-draining", []string{"q4"}, 4)
+	draining.Status = "draining"
+
+	for _, w := range []*ConnectedWorker{projectWide, staging, busy, draining} {
+		require.NoError(t, r.Register(w))
+	}
+
+	got := r.SnapshotWorkerQueueAvailability()
+	require.Equal(t, 3, got.SlotsAvailable)
+
+	seen := make(map[domain.WorkerQueueRef]struct{}, len(got.Queues))
+	for _, ref := range got.Queues {
+		seen[ref] = struct{}{}
+	}
+	require.Contains(t, seen, domain.WorkerQueueRef{ProjectID: "proj-a", QueueName: "q1"})
+	require.Contains(t, seen, domain.WorkerQueueRef{ProjectID: "proj-a", QueueName: "q2"})
+	require.Contains(t, seen, domain.WorkerQueueRef{ProjectID: "proj-a", QueueName: "q1", EnvironmentID: "env-staging"})
+	require.NotContains(t, seen, domain.WorkerQueueRef{ProjectID: "proj-a", QueueName: "q3"})
+	require.NotContains(t, seen, domain.WorkerQueueRef{ProjectID: "proj-a", QueueName: "q4"})
+}
+
 // TestRegistry_MarkDraining transitions a worker status correctly.
 func TestRegistry_MarkDraining(t *testing.T) {
 	r := NewConnectionRegistry()

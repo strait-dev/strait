@@ -122,17 +122,17 @@ func resolveTerminalRetryTimeout(d time.Duration) time.Duration {
 	return d
 }
 
-func resolveTerminalRetryBackoff(initial, max time.Duration) (time.Duration, time.Duration) {
+func resolveTerminalRetryBackoff(initial, maxDelay time.Duration) (time.Duration, time.Duration) {
 	if initial <= 0 {
 		initial = defaultTerminalRetryInitial
 	}
-	if max <= 0 {
-		max = defaultTerminalRetryMax
+	if maxDelay <= 0 {
+		maxDelay = defaultTerminalRetryMax
 	}
-	if max < initial {
-		max = initial
+	if maxDelay < initial {
+		maxDelay = initial
 	}
-	return initial, max
+	return initial, maxDelay
 }
 
 func NewExecutor(cfg ExecutorConfig) *Executor {
