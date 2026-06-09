@@ -53,6 +53,10 @@ func (c *jobDependencyCache) Stop() {
 	c.tier.Stop()
 }
 
+func (c *jobDependencyCache) cacheEnabled() bool {
+	return c != nil && c.tier != nil
+}
+
 func newJobDependencyCacheL2(dep apiCacheDeps) straitcache.L2[jobDepsCacheKey, []domain.JobDependency] {
 	if dep.Redis == nil {
 		return nil
@@ -99,7 +103,7 @@ func (c *jobDependencyCache) List(
 	key jobDepsCacheKey,
 	loader func(context.Context, jobDepsCacheKey) (straitcache.Versioned[[]domain.JobDependency], error),
 ) ([]domain.JobDependency, error) {
-	if c == nil || c.tier == nil {
+	if !c.cacheEnabled() {
 		loaded, err := loader(ctx, key)
 		return loaded.Value, err
 	}
@@ -115,7 +119,7 @@ func (c *jobDependencyCache) InvalidateJob(ctx context.Context, jobID string) {
 }
 
 func (c *jobDependencyCache) InvalidateJobWithVersion(ctx context.Context, jobID string, version int64) {
-	if c == nil || c.tier == nil || jobID == "" {
+	if !c.cacheEnabled() || jobID == "" {
 		return
 	}
 	for _, limit := range jobDependencyCachedPageLimits {
@@ -136,7 +140,7 @@ func (c *jobDependencyCache) RefreshJob(
 	jobID string,
 	loader func(context.Context, jobDepsCacheKey) (straitcache.Versioned[[]domain.JobDependency], error),
 ) {
-	if c == nil || c.tier == nil || jobID == "" {
+	if !c.cacheEnabled() || jobID == "" {
 		return
 	}
 	for _, limit := range jobDependencyCachedPageLimits {

@@ -13,6 +13,43 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestJobDependencyCache_CacheEnabled(t *testing.T) {
+	t.Parallel()
+
+	enabled := newJobDependencyCache(time.Minute)
+	defer enabled.Stop()
+
+	tests := []struct {
+		name  string
+		cache *jobDependencyCache
+		want  bool
+	}{
+		{
+			name:  "nil cache",
+			cache: nil,
+			want:  false,
+		},
+		{
+			name:  "missing tier",
+			cache: &jobDependencyCache{},
+			want:  false,
+		},
+		{
+			name:  "enabled cache",
+			cache: enabled,
+			want:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			require.Equal(t, tt.want, tt.cache.cacheEnabled())
+		})
+	}
+}
+
 func TestJobDependencyCache_PreservesMaxDependencyCacheVersionInRedis(t *testing.T) {
 	t.Parallel()
 
