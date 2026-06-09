@@ -36,7 +36,7 @@ func (t *Tier[K, V]) GetConsistentVersioned(
 		}
 	}
 
-	entry, err, _ := t.loadGroup.Do(fmt.Sprintf("%s:%v:%d:versioned", t.name, key, minVersion), func() (any, error) {
+	entry, err, _ := t.loadGroup.Do(tierSingleflightKey(t.name, key, minVersion, true), func() (any, error) {
 		return t.loadVersionedThroughL2(ctx, key, minVersion, loader)
 	})
 	if err != nil {

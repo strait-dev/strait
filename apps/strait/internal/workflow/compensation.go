@@ -37,14 +37,13 @@ func BuildCompensationPlan(
 		return nil, nil
 	}
 
-	// Index step runs by ref.
-	runByRef := make(map[string]*domain.WorkflowStepRun, len(stepRuns))
-	for i := range stepRuns {
-		runByRef[stepRuns[i].StepRef] = &stepRuns[i]
-	}
-
 	// Collect completed steps with compensation jobs by definition index so the
 	// final plan can be produced by one reverse topological pass.
+	runLookup := stepRunLookup{runs: stepRuns}
+	if stepsFormOrderedLinearChainByRef(steps) {
+		return buildLinearCompensationPlan(workflowRunID, steps, &runLookup)
+	}
+
 	compensableRuns := make([]*domain.WorkflowStepRun, len(steps))
 	compensableCount := 0
 	for i := range steps {
@@ -52,7 +51,7 @@ func BuildCompensationPlan(
 		if step.CompensationJobID == "" {
 			continue
 		}
-		sr, ok := runByRef[step.StepRef]
+		sr, ok := runLookup.get(i, step.StepRef)
 		if !ok || sr.Status != domain.StepCompleted {
 			continue
 		}
@@ -64,10 +63,15 @@ func BuildCompensationPlan(
 		return nil, nil
 	}
 
-	stepIndex := buildStepIndex(steps)
 	topoOrder := []int(nil)
-	if !stepsAreTopologicallyOrdered(steps, stepIndex) {
-		topoOrder = buildTopologicalOrderIndexesWithStepIndex(steps, stepIndex)
+	if !stepsFormOrderedLinearChainByRef(steps) {
+		stepIndex := buildStepIndex(steps)
+		if stepsAreTopologicallyOrdered(steps, stepIndex) {
+			stepIndex = nil
+		}
+		if stepIndex != nil {
+			topoOrder = buildTopologicalOrderIndexesWithStepIndex(steps, stepIndex)
+		}
 	}
 
 	plan := &CompensationPlan{
@@ -87,6 +91,63 @@ func BuildCompensationPlan(
 	return plan, nil
 }
 
+func buildLinearCompensationPlan(
+	workflowRunID string,
+	steps []domain.WorkflowStep,
+	runLookup *stepRunLookup,
+) (*CompensationPlan, error) {
+	compensableCount := 0
+	for i := range steps {
+		step := &steps[i]
+		if step.CompensationJobID == "" {
+			continue
+		}
+		sr, ok := runLookup.get(i, step.StepRef)
+		if ok && sr.Status == domain.StepCompleted {
+			compensableCount++
+		}
+	}
+	if compensableCount == 0 {
+		return nil, nil
+	}
+
+	plan := &CompensationPlan{
+		WorkflowRunID: workflowRunID,
+		Steps:         make([]CompensationStep, 0, compensableCount),
+	}
+	for stepIdx := range slices.Backward(steps) {
+		step := &steps[stepIdx]
+		if step.CompensationJobID == "" {
+			continue
+		}
+		stepRun, ok := runLookup.get(stepIdx, step.StepRef)
+		if !ok || stepRun.Status != domain.StepCompleted {
+			continue
+		}
+		appendCompensationStepFromRun(plan, step, stepRun)
+	}
+	return plan, nil
+}
+
+type stepRunLookup struct {
+	runs  []domain.WorkflowStepRun
+	byRef map[string]*domain.WorkflowStepRun
+}
+
+func (l *stepRunLookup) get(definitionIndex int, stepRef string) (*domain.WorkflowStepRun, bool) {
+	if l.byRef == nil && definitionIndex < len(l.runs) && l.runs[definitionIndex].StepRef == stepRef {
+		return &l.runs[definitionIndex], true
+	}
+	if l.byRef == nil {
+		l.byRef = make(map[string]*domain.WorkflowStepRun, len(l.runs))
+		for i := range l.runs {
+			l.byRef[l.runs[i].StepRef] = &l.runs[i]
+		}
+	}
+	run, ok := l.byRef[stepRef]
+	return run, ok
+}
+
 func appendCompensationStep(
 	plan *CompensationPlan,
 	steps []domain.WorkflowStep,
@@ -98,6 +159,10 @@ func appendCompensationStep(
 		return
 	}
 	step := &steps[stepIdx]
+	appendCompensationStepFromRun(plan, step, stepRun)
+}
+
+func appendCompensationStepFromRun(plan *CompensationPlan, step *domain.WorkflowStep, stepRun *domain.WorkflowStepRun) {
 	plan.Steps = append(plan.Steps, CompensationStep{
 		StepRef:           step.StepRef,
 		StepRunID:         stepRun.ID,
@@ -119,8 +184,31 @@ func stepsAreTopologicallyOrdered(steps []domain.WorkflowStep, stepIndex map[str
 	return true
 }
 
+func stepsFormOrderedLinearChainByRef(steps []domain.WorkflowStep) bool {
+	if len(steps) <= 1 {
+		return true
+	}
+	if len(steps[0].DependsOn) != 0 {
+		return false
+	}
+	for stepIdx := 1; stepIdx < len(steps); stepIdx++ {
+		deps := steps[stepIdx].DependsOn
+		if len(deps) != 1 || deps[0] != steps[stepIdx-1].StepRef {
+			return false
+		}
+	}
+	return true
+}
+
 // buildTopologicalOrder returns step refs in topological order using Kahn's algorithm.
 func buildTopologicalOrder(steps []domain.WorkflowStep) []string {
+	if stepsFormOrderedLinearChainByRef(steps) {
+		order := make([]string, len(steps))
+		for i := range steps {
+			order[i] = steps[i].StepRef
+		}
+		return order
+	}
 	indexes := buildTopologicalOrderIndexes(steps)
 	order := make([]string, len(indexes))
 	for i, stepIdx := range indexes {
@@ -130,6 +218,9 @@ func buildTopologicalOrder(steps []domain.WorkflowStep) []string {
 }
 
 func buildTopologicalOrderIndexes(steps []domain.WorkflowStep) []int {
+	if stepsFormOrderedLinearChainByRef(steps) {
+		return orderedStepIndexes(len(steps))
+	}
 	stepIndex := make(map[string]int, len(steps))
 	for i, s := range steps {
 		if _, ok := stepIndex[s.StepRef]; !ok {

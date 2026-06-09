@@ -31,6 +31,11 @@ type pgQueClaimSelection struct {
 	HasConcurrencyLimit bool
 }
 
+type pgQueClaimSelectionBuffer struct {
+	runIDs      [pgQueSmallCandidateSetLimit]string
+	generations [pgQueSmallCandidateSetLimit]int64
+}
+
 type pgQueClaimRunRequest struct {
 	RunIDs              []string
 	Generations         []int64
@@ -47,7 +52,8 @@ func (q *PgQueQueue) claimReservedCandidates(ctx context.Context, candidates []p
 	if len(candidates) == 0 {
 		return nil, nil, false, nil
 	}
-	selection := selectPgQueClaimCandidates(candidates, limit)
+	var selectionBuffer pgQueClaimSelectionBuffer
+	selection := selectPgQueClaimCandidates(candidates, limit, &selectionBuffer)
 
 	runs, err := q.claimRuns(ctx, pgQueClaimRunRequest{
 		RunIDs:              selection.RunIDs,
@@ -67,10 +73,21 @@ func (q *PgQueQueue) claimReservedCandidates(ctx context.Context, candidates []p
 	return runs, unclaimed, false, nil
 }
 
-func selectPgQueClaimCandidates(candidates []pgQueCandidate, limit int) pgQueClaimSelection {
+func selectPgQueClaimCandidates(
+	candidates []pgQueCandidate,
+	limit int,
+	buffer *pgQueClaimSelectionBuffer,
+) pgQueClaimSelection {
 	selected := candidates[:min(len(candidates), limit)]
-	ids := make([]string, len(selected))
-	generations := make([]int64, len(selected))
+	var ids []string
+	var generations []int64
+	if buffer != nil && len(selected) <= pgQueSmallCandidateSetLimit {
+		ids = buffer.runIDs[:len(selected)]
+		generations = buffer.generations[:len(selected)]
+	} else {
+		ids = make([]string, len(selected))
+		generations = make([]int64, len(selected))
+	}
 	hasConcurrencyLimit := false
 	for i, candidate := range selected {
 		ids[i] = candidate.Event.RunID

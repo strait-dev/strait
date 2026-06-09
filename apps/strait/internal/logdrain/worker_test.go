@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"sort"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -949,4 +950,90 @@ func TestWorker_Tick_EventPaginationError(t *testing.T) {
 	w.mu.Unlock()
 	assert.True(t, cp.
 		FinishedAt.IsZero())
+}
+
+type benchmarkPagedEventStore struct {
+	events []domain.RunEvent
+}
+
+func (s *benchmarkPagedEventStore) ListLogDrains(context.Context, string) ([]domain.LogDrain, error) {
+	return nil, nil
+}
+
+func (s *benchmarkPagedEventStore) ListEventsAsc(_ context.Context, _ string, limit int, _ *time.Time, afterID string) ([]domain.RunEvent, error) {
+	start := 0
+	if afterID != "" {
+		idx, err := strconv.Atoi(afterID[4:])
+		if err != nil {
+			return nil, err
+		}
+		start = idx + 1
+	}
+	if start >= len(s.events) {
+		return nil, nil
+	}
+	end := start + limit
+	if end > len(s.events) {
+		end = len(s.events)
+	}
+	return s.events[start:end], nil
+}
+
+func (s *benchmarkPagedEventStore) ListEnabledLogDrains(context.Context) ([]domain.LogDrain, error) {
+	return nil, nil
+}
+
+func (s *benchmarkPagedEventStore) ListFinishedRunsSince(context.Context, string, time.Time, string, int) ([]domain.JobRun, error) {
+	return nil, nil
+}
+
+func TestWorkerFetchAllEvents_PagedNoNetwork(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+	events := make([]domain.RunEvent, 2500)
+	for i := range events {
+		events[i] = domain.RunEvent{
+			ID:        fmt.Sprintf("evt-%04d", i),
+			RunID:     "run-1",
+			Message:   "event",
+			CreatedAt: now.Add(time.Duration(i) * time.Millisecond),
+		}
+	}
+
+	w := NewWorker(&benchmarkPagedEventStore{events: events}, NewService(), time.Hour)
+	got, err := w.fetchAllEvents(t.Context(), "run-1")
+
+	require.NoError(t, err)
+	require.Len(t, got, len(events))
+	assert.Equal(t, "evt-0000", got[0].ID)
+	assert.Equal(t, "evt-2499", got[len(got)-1].ID)
+}
+
+func BenchmarkWorkerFetchAllEventsPaged(b *testing.B) {
+	now := time.Now()
+	events := make([]domain.RunEvent, 2500)
+	for i := range events {
+		events[i] = domain.RunEvent{
+			ID:        fmt.Sprintf("evt-%04d", i),
+			RunID:     "run-1",
+			Message:   "event",
+			CreatedAt: now.Add(time.Duration(i) * time.Millisecond),
+		}
+	}
+
+	w := NewWorker(&benchmarkPagedEventStore{events: events}, NewService(), time.Hour)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for b.Loop() {
+		got, err := w.fetchAllEvents(context.Background(), "run-1")
+		if err != nil {
+			b.Fatalf("fetchAllEvents() error = %v", err)
+		}
+		if len(got) != len(events) {
+			b.Fatalf("fetchAllEvents() returned %d events", len(got))
+		}
+	}
 }

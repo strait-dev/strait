@@ -75,3 +75,36 @@ func TestSignWebhookRequest_SignatureHeaderFormat(t *testing.T) {
 	require.NotContains(t, sig, ",", "signature must be a single v1= token")
 	require.NotContains(t, sig, "t=")
 }
+
+func TestSignWebhookRequest_ReplacesExistingHeaderValues(t *testing.T) {
+	t.Parallel()
+
+	req := httptest.NewRequest(http.MethodPost, "https://example.com/hook", nil)
+	req.Header[headerStraitTimestamp] = []string{"old", "duplicate"}
+	req.Header[headerStraitDeliveryID] = []string{"old", "duplicate"}
+	req.Header[headerStraitSignature] = []string{"old", "duplicate"}
+	req.Header[headerStraitSignature256] = []string{"old", "duplicate"}
+
+	SignWebhookRequest(req, []byte("s"), []byte("b"), "deliv", "2026-01-01T00:00:00Z")
+
+	assert.Equal(t, []string{"2026-01-01T00:00:00Z"}, req.Header.Values(headerStraitTimestamp))
+	assert.Equal(t, []string{"deliv"}, req.Header.Values(headerStraitDeliveryID))
+	assert.Len(t, req.Header.Values(headerStraitSignature), 1)
+	assert.Len(t, req.Header.Values(headerStraitSignature256), 1)
+}
+
+func BenchmarkSignWebhookRequest(b *testing.B) {
+	req := httptest.NewRequest(http.MethodPost, "https://example.com/hook", nil)
+	secret := []byte("test-secret")
+	body := []byte(`{"event":"api_key.auto_rotated","id":"01HXYZ0123456789ABCDEFGHJK"}`)
+	deliveryID := "01HXYZ0123456789ABCDEFGHJK"
+	timestamp := "2026-05-11T12:00:00Z"
+
+	b.ReportAllocs()
+	for b.Loop() {
+		SignWebhookRequest(req, secret, body, deliveryID, timestamp)
+		if req.Header.Get("X-Strait-Signature-256") == "" {
+			b.Fatal("missing signature header")
+		}
+	}
+}

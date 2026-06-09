@@ -7,6 +7,15 @@ import (
 	"net/http"
 )
 
+const (
+	headerStraitTimestamp    = "X-Strait-Timestamp"
+	headerStraitDeliveryID   = "X-Strait-Delivery-Id"
+	headerStraitSignature    = "X-Strait-Signature"
+	headerStraitSignature256 = "X-Strait-Signature-256"
+)
+
+var hmacSigningSeparator = []byte(".")
+
 // SignWebhookRequest adds the canonical X-Strait-{Timestamp,Delivery-ID,Signature}
 // headers (plus X-Strait-Signature-256 for sha256 receivers) to req.
 //
@@ -30,16 +39,46 @@ func SignWebhookRequest(req *http.Request, secret []byte, body []byte, deliveryI
 	}
 	mac := hmac.New(sha256.New, secret)
 	mac.Write([]byte(timestamp))
-	mac.Write([]byte("."))
+	mac.Write(hmacSigningSeparator)
 	mac.Write(body)
-	sig := hex.EncodeToString(mac.Sum(nil))
+	var sum [sha256.Size]byte
+	mac.Sum(sum[:0])
+	var sigHex [sha256.Size * 2]byte
+	hex.Encode(sigHex[:], sum[:])
 
 	bodyMac := hmac.New(sha256.New, secret)
 	bodyMac.Write(body)
-	bodySig := hex.EncodeToString(bodyMac.Sum(nil))
+	var bodySum [sha256.Size]byte
+	bodyMac.Sum(bodySum[:0])
+	var bodySigHex [sha256.Size * 2]byte
+	hex.Encode(bodySigHex[:], bodySum[:])
 
-	req.Header.Set("X-Strait-Timestamp", timestamp)
-	req.Header.Set("X-Strait-Delivery-ID", deliveryID)
-	req.Header.Set("X-Strait-Signature", "v1="+sig)
-	req.Header.Set("X-Strait-Signature-256", "sha256="+bodySig)
+	setCanonicalHeader(req.Header, headerStraitTimestamp, timestamp)
+	setCanonicalHeader(req.Header, headerStraitDeliveryID, deliveryID)
+	setCanonicalHeader(req.Header, headerStraitSignature, webhookV1SignatureHeader(sigHex))
+	setCanonicalHeader(req.Header, headerStraitSignature256, webhookSHA256SignatureHeader(bodySigHex))
+}
+
+func setCanonicalHeader(header http.Header, key string, value string) {
+	values := header[key]
+	if len(values) == 0 {
+		header[key] = []string{value}
+		return
+	}
+	values[0] = value
+	header[key] = values[:1]
+}
+
+func webhookV1SignatureHeader(sigHex [sha256.Size * 2]byte) string {
+	var stack [len("v1=") + sha256.Size*2]byte
+	out := append(stack[:0], "v1="...)
+	out = append(out, sigHex[:]...)
+	return string(out)
+}
+
+func webhookSHA256SignatureHeader(sigHex [sha256.Size * 2]byte) string {
+	var stack [len("sha256=") + sha256.Size*2]byte
+	out := append(stack[:0], "sha256="...)
+	out = append(out, sigHex[:]...)
+	return string(out)
 }

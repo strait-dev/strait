@@ -54,6 +54,8 @@ type recentDedupe struct {
 	limit    int
 	seen     map[string]struct{}
 	order    []string
+	head     int
+	count    int
 	shared   *SharedDedupeStore
 	fallback func(error)
 }
@@ -65,7 +67,7 @@ func newRecentDedupe(limit int) *recentDedupe {
 	return &recentDedupe{
 		limit: limit,
 		seen:  make(map[string]struct{}, limit),
-		order: make([]string, 0, limit),
+		order: make([]string, limit),
 	}
 }
 
@@ -91,12 +93,15 @@ func (d *recentDedupe) Remember(key string) bool {
 		return false
 	}
 	d.seen[key] = struct{}{}
-	d.order = append(d.order, key)
-	for len(d.order) > d.limit {
-		evicted := d.order[0]
+	if d.count < d.limit {
+		idx := (d.head + d.count) % d.limit
+		d.order[idx] = key
+		d.count++
+	} else {
+		evicted := d.order[d.head]
 		delete(d.seen, evicted)
-		copy(d.order, d.order[1:])
-		d.order = d.order[:len(d.order)-1]
+		d.order[d.head] = key
+		d.head = (d.head + 1) % d.limit
 	}
 	shared := d.shared
 	fallback := d.fallback
@@ -125,10 +130,20 @@ func (d *recentDedupe) Forget(key string) {
 	if ok {
 		delete(d.seen, key)
 	}
-	for i, existing := range d.order {
-		if existing == key {
-			copy(d.order[i:], d.order[i+1:])
-			d.order = d.order[:len(d.order)-1]
+	for offset := range d.count {
+		idx := (d.head + offset) % d.limit
+		if d.order[idx] == key {
+			for shift := offset; shift < d.count-1; shift++ {
+				to := (d.head + shift) % d.limit
+				from := (d.head + shift + 1) % d.limit
+				d.order[to] = d.order[from]
+			}
+			tail := (d.head + d.count - 1) % d.limit
+			d.order[tail] = ""
+			d.count--
+			if d.count == 0 {
+				d.head = 0
+			}
 			break
 		}
 	}

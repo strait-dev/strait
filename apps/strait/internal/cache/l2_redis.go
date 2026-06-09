@@ -47,9 +47,13 @@ func NewRedisL2[K comparable, V any](cfg RedisL2Config[K, V]) L2[K, V] {
 	if maxBytes <= 0 {
 		maxBytes = defaultMaxRedisValueBytes
 	}
+	namespace := strings.TrimSpace(cfg.Namespace)
+	if namespace == "" {
+		namespace = "default"
+	}
 	return &redisL2[K, V]{
 		client:        cfg.Client,
-		namespace:     cfg.Namespace,
+		namespace:     namespace,
 		key:           keyFn,
 		codec:         codec,
 		maxValueBytes: maxBytes,
@@ -148,11 +152,7 @@ func (r *redisL2[K, V]) Delete(ctx context.Context, key K) error {
 }
 
 func (r *redisL2[K, V]) redisKey(key K) string {
-	ns := strings.TrimSpace(r.namespace)
-	if ns == "" {
-		ns = "default"
-	}
-	return "strait:cache:" + ns + ":" + r.key(key)
+	return "strait:cache:" + r.namespace + ":" + r.key(key)
 }
 
 func redisClientReady(client redis.Cmdable) bool {

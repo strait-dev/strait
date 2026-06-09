@@ -156,7 +156,7 @@ func (t *Tier[K, V]) GetConsistent(
 			return t.valueFromEntry(entry, nil)
 		}
 	}
-	entry, err, _ := t.loadGroup.Do(fmt.Sprintf("%s:%v:%d", t.name, key, minVersion), func() (any, error) {
+	entry, err, _ := t.loadGroup.Do(tierSingleflightKey(t.name, key, minVersion, false), func() (any, error) {
 		return t.loadThroughL2(ctx, key, minVersion, loader)
 	})
 	if err != nil {

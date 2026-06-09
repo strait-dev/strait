@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"maps"
 
@@ -104,5 +105,22 @@ func applyTraceContextMetadata(ctx context.Context, metadata map[string]string) 
 	if sc.TraceFlags().IsSampled() {
 		flags = "01"
 	}
-	metadata[domain.RunMetadataTraceParent] = fmt.Sprintf("00-%s-%s-%s", sc.TraceID().String(), sc.SpanID().String(), flags)
+	metadata[domain.RunMetadataTraceParent] = apiTraceparent(sc, flags)
+}
+
+func apiTraceparent(sc trace.SpanContext, flags string) string {
+	traceID := sc.TraceID()
+	spanID := sc.SpanID()
+
+	var out [55]byte
+	out[0] = '0'
+	out[1] = '0'
+	out[2] = '-'
+	hex.Encode(out[3:35], traceID[:])
+	out[35] = '-'
+	hex.Encode(out[36:52], spanID[:])
+	out[52] = '-'
+	out[53] = flags[0]
+	out[54] = flags[1]
+	return string(out[:])
 }

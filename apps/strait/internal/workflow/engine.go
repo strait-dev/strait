@@ -2,6 +2,7 @@ package workflow
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -417,7 +418,7 @@ func workflowTraceContext(ctx context.Context) map[string]string {
 	}
 
 	traceCtx := map[string]string{
-		"traceparent": fmt.Sprintf("00-%s-%s-%s", spanCtx.TraceID(), spanCtx.SpanID(), spanCtx.TraceFlags()),
+		"traceparent": workflowTraceparent(spanCtx),
 	}
 	if spanCtx.TraceState().Len() > 0 {
 		traceState := spanCtx.TraceState().String()
@@ -426,6 +427,26 @@ func workflowTraceContext(ctx context.Context) map[string]string {
 		}
 	}
 	return traceCtx
+}
+
+func workflowTraceparent(spanCtx otelTrace.SpanContext) string {
+	const hexChars = "0123456789abcdef"
+
+	traceID := spanCtx.TraceID()
+	spanID := spanCtx.SpanID()
+	flags := byte(spanCtx.TraceFlags())
+
+	var out [55]byte
+	out[0] = '0'
+	out[1] = '0'
+	out[2] = '-'
+	hex.Encode(out[3:35], traceID[:])
+	out[35] = '-'
+	hex.Encode(out[36:52], spanID[:])
+	out[52] = '-'
+	out[53] = hexChars[flags>>4]
+	out[54] = hexChars[flags&0x0f]
+	return string(out[:])
 }
 
 func workflowSnapshotID(snapshot *domain.WorkflowSnapshot) string {

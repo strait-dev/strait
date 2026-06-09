@@ -24,9 +24,11 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+	"unsafe"
 
 	"strait/internal/billing"
 	"strait/internal/clickhouse"
@@ -311,6 +313,91 @@ func (n *DeliveryWorker) SetRunCostRecorder(recorder *billing.RunCostRecorder) {
 	n.costRecorder = recorder
 }
 
+type runWebhookPayload struct {
+	RunID     string          `json:"run_id"`
+	JobID     string          `json:"job_id"`
+	ProjectID string          `json:"project_id"`
+	Status    string          `json:"status"`
+	Attempt   int             `json:"attempt"`
+	Result    json.RawMessage `json:"result"`
+	Error     string          `json:"error"`
+	Timestamp time.Time       `json:"timestamp"`
+}
+
+func marshalEventTriggerNotifyPayload(trigger *domain.EventTrigger) (json.RawMessage, error) {
+	callbackURL := "/v1/events/" + trigger.EventKey + "/send"
+	out := make([]byte, 0, 120+len(trigger.EventKey)*2+len(trigger.ID)+len(trigger.ProjectID))
+	out = append(out, `{"event_key":`...)
+	out = strconv.AppendQuote(out, trigger.EventKey)
+	out = append(out, `,"trigger_id":`...)
+	out = strconv.AppendQuote(out, trigger.ID)
+	out = append(out, `,"project_id":`...)
+	out = strconv.AppendQuote(out, trigger.ProjectID)
+	out = append(out, `,"expires_at":`...)
+	out = appendWebhookJSONTime(out, trigger.ExpiresAt)
+	out = append(out, `,"callback_url":`...)
+	out = strconv.AppendQuote(out, callbackURL)
+	out = append(out, '}')
+	return json.RawMessage(out), nil
+}
+
+func marshalRunWebhookPayload(run *domain.JobRun, timestamp time.Time) (json.RawMessage, error) {
+	payload := runWebhookPayload{
+		RunID:     run.ID,
+		JobID:     run.JobID,
+		ProjectID: run.ProjectID,
+		Status:    string(run.Status),
+		Attempt:   run.Attempt,
+		Result:    run.Result,
+		Error:     run.Error,
+		Timestamp: timestamp,
+	}
+	if run.Result != nil && !json.Valid(run.Result) {
+		return json.Marshal(payload)
+	}
+
+	out := make([]byte, 0, 128+len(run.ID)+len(run.JobID)+len(run.ProjectID)+len(run.Status)+len(run.Result)+len(run.Error))
+	out = append(out, `{"run_id":`...)
+	out = strconv.AppendQuote(out, run.ID)
+	out = append(out, `,"job_id":`...)
+	out = strconv.AppendQuote(out, run.JobID)
+	out = append(out, `,"project_id":`...)
+	out = strconv.AppendQuote(out, run.ProjectID)
+	out = append(out, `,"status":`...)
+	out = strconv.AppendQuote(out, string(run.Status))
+	out = append(out, `,"attempt":`...)
+	out = strconv.AppendInt(out, int64(run.Attempt), 10)
+	out = append(out, `,"result":`...)
+	if run.Result == nil {
+		out = append(out, "null"...)
+	} else {
+		out = append(out, run.Result...)
+	}
+	out = append(out, `,"error":`...)
+	out = strconv.AppendQuote(out, run.Error)
+	out = append(out, `,"timestamp":`...)
+	out = appendWebhookJSONTime(out, timestamp)
+	out = append(out, '}')
+	return json.RawMessage(out), nil
+}
+
+func marshalDeliveryFallbackPayload(d *domain.WebhookDelivery) json.RawMessage {
+	out := make([]byte, 0, 36+len(d.EventTriggerID)+len(d.ID))
+	out = append(out, `{"trigger_id":`...)
+	out = strconv.AppendQuote(out, d.EventTriggerID)
+	out = append(out, `,"delivery_id":`...)
+	out = strconv.AppendQuote(out, d.ID)
+	out = append(out, '}')
+	return json.RawMessage(out)
+}
+
+func appendWebhookJSONTime(out []byte, timestamp time.Time) []byte {
+	out = append(out, '"')
+	out = timestamp.AppendFormat(out, time.RFC3339Nano)
+	out = append(out, '"')
+	return out
+}
+
 // NotifyAsync persists a webhook delivery for the given trigger.
 // This is the synchronous entry point called during trigger creation
 // via the onTriggerCreate callback. The actual HTTP delivery happens
@@ -324,13 +411,7 @@ func (n *DeliveryWorker) NotifyAsyncWithContext(ctx context.Context, trigger *do
 		return
 	}
 
-	payload, err := json.Marshal(map[string]any{
-		"event_key":    trigger.EventKey,
-		"trigger_id":   trigger.ID,
-		"project_id":   trigger.ProjectID,
-		"expires_at":   trigger.ExpiresAt,
-		"callback_url": fmt.Sprintf("/v1/events/%s/send", trigger.EventKey),
-	})
+	payload, err := marshalEventTriggerNotifyPayload(trigger)
 	if err != nil {
 		n.logger.Error("failed to marshal notify payload", "trigger_id", trigger.ID, "error", err)
 		return
@@ -366,16 +447,7 @@ func (n *DeliveryWorker) EnqueueRunWebhook(ctx context.Context, job *domain.Job,
 		return nil
 	}
 
-	payload, err := json.Marshal(map[string]any{
-		"run_id":     run.ID,
-		"job_id":     run.JobID,
-		"project_id": run.ProjectID,
-		"status":     string(run.Status),
-		"attempt":    run.Attempt,
-		"result":     run.Result,
-		"error":      run.Error,
-		"timestamp":  time.Now().UTC(),
-	})
+	payload, err := marshalRunWebhookPayload(run, time.Now().UTC())
 	if err != nil {
 		return fmt.Errorf("enqueue run webhook: marshal payload: %w", err)
 	}
@@ -810,11 +882,7 @@ func extractPayload(d *domain.WebhookDelivery) json.RawMessage {
 		d.LastError = ""
 		return payload
 	}
-	fallback, _ := json.Marshal(map[string]any{
-		"trigger_id":  d.EventTriggerID,
-		"delivery_id": d.ID,
-	})
-	return fallback
+	return marshalDeliveryFallbackPayload(d)
 }
 
 // groupByURL groups deliveries by (tenant scope, webhook_url). Including the
@@ -931,11 +999,7 @@ func webhookDeliveryPayload(d *domain.WebhookDelivery) []byte {
 			return payload
 		}
 	}
-	body, _ := json.Marshal(map[string]any{
-		"trigger_id":  d.EventTriggerID,
-		"delivery_id": d.ID,
-	})
-	return body
+	return marshalDeliveryFallbackPayload(d)
 }
 
 func webhookDeliveryTimeout(attempts int) time.Duration {
@@ -957,7 +1021,15 @@ func applyDeliveryMetadataHeaders(req *http.Request, d *domain.WebhookDelivery) 
 		req.Header.Set("X-Job-ID", d.JobID)
 	}
 	req.Header.Set("X-Strait-Delivery-ID", d.ID)
-	req.Header.Set("X-Strait-Attempt", fmt.Sprintf("%d/%d", d.Attempts, d.MaxAttempts))
+	req.Header.Set("X-Strait-Attempt", deliveryAttemptHeader(d.Attempts, d.MaxAttempts))
+}
+
+func deliveryAttemptHeader(attempts, maxAttempts int) string {
+	var buf [44]byte
+	out := strconv.AppendInt(buf[:0], int64(attempts), 10)
+	out = append(out, '/')
+	out = strconv.AppendInt(out, int64(maxAttempts), 10)
+	return string(out)
 }
 
 func (n *DeliveryWorker) deliverySigningSecrets(ctx context.Context, d *domain.WebhookDelivery) (deliverySigningSecrets, error) {
@@ -1569,6 +1641,8 @@ const replayKeyHexLen = 32
 
 const idempotencyKeyPrefix = "ik_"
 
+var idempotencyKeySeparatorBytes = []byte{':'}
+
 // ComputeReplayKey derives a subscriber-visible replay key that is
 // stable across every retry of the same physical delivery row AND bound
 // to the subscription's HMAC secret. Subscribers can verify the key by
@@ -1588,30 +1662,55 @@ func ComputeReplayKey(secret []byte, deliveryID string) string {
 		return ComputeReplayKeyUnsigned(deliveryID)
 	}
 	mac := hmac.New(sha256.New, secret)
-	_, _ = mac.Write([]byte(deliveryID))
+	writeStringToHash(mac, deliveryID)
 	// Truncate the raw HMAC bytes before hex-encoding rather than
 	// hex-encoding all 32 bytes and slicing 32 chars off the end: same
 	// output, roughly half the intermediate allocation on a hot
 	// signing path. replayKeyHexLen hex chars == replayKeyHexLen/2 raw
 	// bytes.
-	sum := mac.Sum(nil)
+	var digest [sha256.Size]byte
+	sum := mac.Sum(digest[:0])
 	rawLen := min(replayKeyHexLen/2, len(sum))
-	return replayKeyPrefix + hex.EncodeToString(sum[:rawLen])
+	var out [len(replayKeyPrefix) + replayKeyHexLen]byte
+	copy(out[:], replayKeyPrefix)
+	hex.Encode(out[len(replayKeyPrefix):], sum[:rawLen])
+	return string(out[:])
 }
 
 func ComputeIdempotencyKey(secret []byte, deliveryID string, attempt int) string {
 	if deliveryID == "" || attempt < 1 {
 		return ""
 	}
-	raw := fmt.Sprintf("%s:%d", deliveryID, attempt)
 	if len(secret) == 0 {
-		return raw
+		var raw strings.Builder
+		raw.Grow(len(deliveryID) + 1 + 20)
+		raw.WriteString(deliveryID)
+		raw.WriteByte(':')
+		raw.WriteString(strconv.Itoa(attempt))
+		return raw.String()
 	}
 	mac := hmac.New(sha256.New, secret)
-	_, _ = mac.Write([]byte(raw))
-	sum := mac.Sum(nil)
+	writeStringToHash(mac, deliveryID)
+	_, _ = mac.Write(idempotencyKeySeparatorBytes)
+	var attemptBuf [20]byte
+	attemptBytes := strconv.AppendInt(attemptBuf[:0], int64(attempt), 10)
+	_, _ = mac.Write(attemptBytes)
+	var digest [sha256.Size]byte
+	sum := mac.Sum(digest[:0])
 	rawLen := min(replayKeyHexLen/2, len(sum))
-	return idempotencyKeyPrefix + hex.EncodeToString(sum[:rawLen])
+	var out [len(idempotencyKeyPrefix) + replayKeyHexLen]byte
+	copy(out[:], idempotencyKeyPrefix)
+	hex.Encode(out[len(idempotencyKeyPrefix):], sum[:rawLen])
+	return string(out[:])
+}
+
+func writeStringToHash(w io.Writer, value string) {
+	if value == "" {
+		return
+	}
+	// hash.Hash implementations consume the bytes synchronously; this avoids
+	// copying hot-path delivery ids before HMAC signing.
+	_, _ = w.Write(unsafe.Slice(unsafe.StringData(value), len(value)))
 }
 
 // ComputeReplayKeyUnsigned derives a deterministic replay key for

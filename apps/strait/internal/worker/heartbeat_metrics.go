@@ -32,19 +32,20 @@ func init() {
 
 func (h *HeartbeatManager) recordOldestLag(ctx context.Context, ids []string) {
 	var oldest time.Time
+	h.activeMu.RLock()
 	for _, id := range ids {
-		value, ok := h.registeredAt.Load(id)
+		registeredAt, ok := h.active[id]
 		if !ok {
 			continue
 		}
-		registeredAt, ok := value.(time.Time)
-		if !ok || registeredAt.IsZero() {
+		if registeredAt.IsZero() {
 			continue
 		}
 		if oldest.IsZero() || registeredAt.Before(oldest) {
 			oldest = registeredAt
 		}
 	}
+	h.activeMu.RUnlock()
 	if oldest.IsZero() {
 		return
 	}

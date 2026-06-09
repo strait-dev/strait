@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -106,11 +107,7 @@ func (f *BatchFlusher) flush(ctx context.Context, batch store.FlushableBatch, jo
 		return nil
 	}
 
-	payloads := make([]json.RawMessage, len(items))
-	for i, item := range items {
-		payloads[i] = item.Payload
-	}
-	batchPayload, err := json.Marshal(map[string]any{"items": payloads})
+	batchPayload, err := marshalBatchPayload(items)
 	if err != nil {
 		return err
 	}
@@ -175,11 +172,7 @@ func (f *BatchFlusher) flushInTx(
 }
 
 func buildBatchRun(batch store.FlushableBatch, job *domain.Job, items []domain.BatchBufferItem) (*domain.JobRun, error) {
-	payloads := make([]json.RawMessage, len(items))
-	for i, item := range items {
-		payloads[i] = item.Payload
-	}
-	batchPayload, err := json.Marshal(map[string]any{"items": payloads})
+	batchPayload, err := marshalBatchPayload(items)
 	if err != nil {
 		return nil, err
 	}
@@ -208,6 +201,47 @@ func buildBatchRun(batch store.FlushableBatch, job *domain.Job, items []domain.B
 		QueueName:      job.Queue,
 		IdempotencyKey: batchIdempotencyKey(batch, items),
 	}, nil
+}
+
+func marshalBatchPayload(items []domain.BatchBufferItem) (json.RawMessage, error) {
+	size := len(`{"items":[]}`)
+	for _, item := range items {
+		if item.Payload == nil {
+			size += len("null")
+			continue
+		}
+		size += len(item.Payload)
+	}
+	if len(items) > 1 {
+		size += len(items) - 1
+	}
+
+	out := make([]byte, 0, size)
+	out = append(out, `{"items":[`...)
+	for i, item := range items {
+		if i > 0 {
+			out = append(out, ',')
+		}
+		if item.Payload == nil {
+			out = append(out, "null"...)
+			continue
+		}
+		out = append(out, item.Payload...)
+	}
+	out = append(out, `]}`...)
+	if !json.Valid(out) {
+		return nil, invalidBatchPayloadItemError(items)
+	}
+	return json.RawMessage(out), nil
+}
+
+func invalidBatchPayloadItemError(items []domain.BatchBufferItem) error {
+	for _, item := range items {
+		if item.Payload != nil && !json.Valid(item.Payload) {
+			return fmt.Errorf("batch payload item %s: invalid JSON", item.ID)
+		}
+	}
+	return fmt.Errorf("batch payload: invalid JSON")
 }
 
 func batchItemIDs(items []domain.BatchBufferItem) []string {

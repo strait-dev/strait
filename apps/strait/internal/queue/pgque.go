@@ -80,6 +80,7 @@ type PgQueQueue struct {
 type pgQueRouteState struct {
 	mu            sync.Mutex
 	configMu      sync.Mutex
+	queueName     string
 	configured    atomic.Bool
 	lastForceTick time.Time
 	activeBatch   *pgQueActiveBatch

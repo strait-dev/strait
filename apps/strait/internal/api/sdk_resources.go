@@ -32,7 +32,7 @@ func (s *Server) handleSDKResources(ctx context.Context, input *SDKResourcesInpu
 	if req.CPUPercent < 0 || req.CPUPercent > 100 {
 		return nil, huma.Error400BadRequest("cpu_percent must be between 0 and 100")
 	}
-	data, _ := json.Marshal(map[string]any{"memory_mb": req.MemoryMB, "memory_percent": req.MemoryPercent, "cpu_percent": req.CPUPercent})
+	data, _ := marshalSDKResourceSampleData(req.MemoryMB, req.MemoryPercent, req.CPUPercent)
 	level := "info"
 	message := fmt.Sprintf("memory: %.1fMB (%.1f%%), cpu: %.1f%%", req.MemoryMB, req.MemoryPercent, req.CPUPercent)
 	if req.MemoryPercent >= 90 {

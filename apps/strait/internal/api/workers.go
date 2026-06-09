@@ -100,11 +100,11 @@ type DeleteWorkerOutput struct {
 var workerDisconnectAckTimeout = 5 * time.Second
 
 func workerDisconnectChannel(projectID, workerID string) string {
-	return fmt.Sprintf("worker:disconnect:%s:%s", projectID, workerID)
+	return "worker:disconnect:" + projectID + ":" + workerID
 }
 
 func workerDisconnectAckChannel(projectID, workerID string) string {
-	return fmt.Sprintf("worker:disconnect_ack:%s:%s", projectID, workerID)
+	return "worker:disconnect_ack:" + projectID + ":" + workerID
 }
 
 func (s *Server) workerDisconnectAckTimeout() time.Duration {

@@ -2,6 +2,7 @@ package bundle
 
 import (
 	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 
@@ -248,6 +249,46 @@ func TestComputeDiff_DependencyOrder(t *testing.T) {
 	assert.Equal(t, "job", diff[1].ResourceType)
 	assert.Equal(t, "workflow", diff[2].ResourceType)
 	assert.Equal(t, "webhook_subscription", diff[3].ResourceType)
+}
+
+func BenchmarkComputeDiffLargeBundle(b *testing.B) {
+	bundle := &Bundle{}
+	bundle.Resources.Environments = make([]EnvironmentSpec, 100)
+	for i := range bundle.Resources.Environments {
+		bundle.Resources.Environments[i] = EnvironmentSpec{
+			Slug:       fmt.Sprintf("env-%d", i),
+			IsStandard: i%10 == 0,
+		}
+	}
+	bundle.Resources.Jobs = make([]JobSpec, 1000)
+	for i := range bundle.Resources.Jobs {
+		bundle.Resources.Jobs[i] = JobSpec{Slug: fmt.Sprintf("job-%d", i)}
+	}
+	bundle.Resources.Workflows = make([]WorkflowSpec, 500)
+	for i := range bundle.Resources.Workflows {
+		bundle.Resources.Workflows[i] = WorkflowSpec{Slug: fmt.Sprintf("workflow-%d", i)}
+	}
+	bundle.Resources.WebhookSubscriptions = make([]WebhookSubscriptionSpec, 100)
+	for i := range bundle.Resources.WebhookSubscriptions {
+		bundle.Resources.WebhookSubscriptions[i] = WebhookSubscriptionSpec{
+			URL:    fmt.Sprintf("https://example.com/%d", i),
+			Events: []string{"run.completed"},
+		}
+	}
+
+	existingJobs := map[string]bool{"job-1": true, "job-900": true}
+	existingWorkflows := map[string]bool{"workflow-2": true, "workflow-400": true}
+	existingEnvironments := map[string]bool{"env-3": true, "env-50": true}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for b.Loop() {
+		diff := ComputeDiff(bundle, existingJobs, existingWorkflows, existingEnvironments)
+		if len(diff) != 1700 {
+			b.Fatalf("ComputeDiff() produced %d entries", len(diff))
+		}
+	}
 }
 
 func TestDependencyOrder(t *testing.T) {

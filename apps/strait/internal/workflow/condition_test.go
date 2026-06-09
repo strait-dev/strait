@@ -267,6 +267,13 @@ func TestEvaluateCondition(t *testing.T) {
 			wantErr:      true,
 			errContains:  "unmarshal all_of condition",
 		},
+		{
+			name:         "all_of: nested non-string step_ref -> error",
+			cond:         mustJSON(`{"type":"all_of","conditions":[{"type":"step_status","step_ref":123,"status":"completed"}]}`),
+			stepStatuses: map[string]domain.StepRunStatus{},
+			wantErr:      true,
+			errContains:  "unmarshal step_status condition",
+		},
 	}
 
 	for _, tt := range tests {

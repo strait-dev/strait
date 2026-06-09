@@ -40,3 +40,15 @@ func TestHashIdempotencyKey(t *testing.T) {
 	// Distinct keys must not collide.
 	require.NotEqual(t, got, hashIdempotencyKey("idem-124"))
 }
+
+func BenchmarkHashIdempotencyKey(b *testing.B) {
+	key := "idem-0123456789abcdef0123456789abcdef"
+
+	b.ReportAllocs()
+	for b.Loop() {
+		hash := hashIdempotencyKey(key)
+		if len(hash) != 16 {
+			b.Fatalf("hashIdempotencyKey() length = %d, want 16", len(hash))
+		}
+	}
+}

@@ -134,9 +134,12 @@ func (r *ResilientPublisher) handleFailure(operation, channel string, err error)
 }
 
 func (r *ResilientPublisher) handleSuccess(operation, channel string) {
-	prevFailures := r.consecutiveFailures.Swap(0)
-	wasHealthy := r.healthy.Swap(true)
-	if !wasHealthy {
+	prevFailures := r.consecutiveFailures.Load()
+	if prevFailures != 0 {
+		prevFailures = r.consecutiveFailures.Swap(0)
+	}
+	if !r.healthy.Load() {
+		r.healthy.Store(true)
 		r.logger.Info("redis publisher recovered", "operation", operation, "channel", channel, "previous_failures", prevFailures)
 	}
 }

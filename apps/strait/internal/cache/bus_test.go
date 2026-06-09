@@ -84,6 +84,27 @@ func (m *memoryBusPublisher) subscriberCount(channel string) int {
 	return len(m.subscribers[channel])
 }
 
+type noopBusPublisher struct {
+	data []byte
+}
+
+func (n *noopBusPublisher) Publish(_ context.Context, _ string, data []byte) error {
+	n.data = data
+	return nil
+}
+
+func (n *noopBusPublisher) PublishBatch(context.Context, []pubsub.PubSubMessage) error {
+	return nil
+}
+
+func (n *noopBusPublisher) Subscribe(context.Context, string) (*pubsub.Subscription, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (n *noopBusPublisher) Close() error {
+	return nil
+}
+
 func TestBus_CrossReplicaInvalidateEvictsPeerL1(t *testing.T) {
 	t.Parallel()
 
@@ -129,6 +150,88 @@ func TestBus_CrossReplicaInvalidateEvictsPeerL1(t *testing.T) {
 		_, ok := peerTier.GetIfPresent("job-1")
 		return !ok
 	})
+}
+
+func TestMarshalBusMessage(t *testing.T) {
+	t.Parallel()
+
+	sentAt := time.Date(2026, 6, 8, 12, 34, 56, 789, time.UTC)
+	data, err := marshalBusMessage(BusMessage{
+		Action:    BusActionUpdate,
+		Namespace: "worker_job_health",
+		Key:       "job-1",
+		Version:   42,
+		Origin:    "node-a",
+		Payload:   json.RawMessage(`{"status":"ok"}`),
+		SentAt:    sentAt,
+	})
+	require.NoError(t, err)
+
+	var got BusMessage
+	require.NoError(t, json.Unmarshal(data, &got))
+	require.Equal(t, BusActionUpdate, got.Action)
+	require.Equal(t, "worker_job_health", got.Namespace)
+	require.Equal(t, "job-1", got.Key)
+	require.Equal(t, int64(42), got.Version)
+	require.Equal(t, "node-a", got.Origin)
+	require.JSONEq(t, `{"status":"ok"}`, string(got.Payload))
+	require.Equal(t, sentAt, got.SentAt)
+}
+
+func TestMarshalBusMessageOmitEmptyPayloadAndVersion(t *testing.T) {
+	t.Parallel()
+
+	data, err := marshalBusMessage(BusMessage{
+		Action:    BusActionInvalidate,
+		Namespace: "api_key",
+		Key:       "key-1",
+		Origin:    "node-a",
+		SentAt:    time.Date(2026, 6, 8, 12, 34, 56, 0, time.UTC),
+	})
+	require.NoError(t, err)
+	require.NotContains(t, string(data), "payload")
+	require.NotContains(t, string(data), "version")
+}
+
+func TestMarshalBusMessageEscapesControlCharacterKeys(t *testing.T) {
+	t.Parallel()
+
+	key := "job-1\x001000\x00"
+	data, err := marshalBusMessage(BusMessage{
+		Action:    BusActionInvalidate,
+		Namespace: "api_job_dependencies",
+		Key:       key,
+		Origin:    "node-a",
+		SentAt:    time.Date(2026, 6, 8, 12, 34, 56, 0, time.UTC),
+	})
+	require.NoError(t, err)
+
+	var got BusMessage
+	require.NoError(t, json.Unmarshal(data, &got))
+	require.Equal(t, key, got.Key)
+}
+
+func TestMarshalBusMessageRejectsInvalidPayload(t *testing.T) {
+	t.Parallel()
+
+	_, err := marshalBusMessage(BusMessage{Payload: json.RawMessage(`{`)})
+	require.Error(t, err)
+}
+
+func BenchmarkBusPublishInvalidate(b *testing.B) {
+	publisher := &noopBusPublisher{}
+	bus := NewBus(publisher, BusConfig{Origin: "node-a"})
+	ctx := context.Background()
+
+	b.ReportAllocs()
+	for b.Loop() {
+		if err := bus.PublishInvalidate(ctx, "worker_job_health", "job-0123456789", 123456789); err != nil {
+			b.Fatal(err)
+		}
+		if len(publisher.data) == 0 {
+			b.Fatal("empty bus message")
+		}
+	}
 }
 
 func TestBus_SelfOriginMessageDoesNotEvictOrigin(t *testing.T) {

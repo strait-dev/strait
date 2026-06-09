@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"log/slog"
+	"strconv"
 	"sync"
 	"time"
 
@@ -541,7 +542,32 @@ func (cs *CronScheduler) withCronFireLock(ctx context.Context, projectID, kind, 
 }
 
 func cronFireKey(kind, id string, now time.Time) string {
-	return fmt.Sprintf("cron:%s:%s:%d", kind, id, now.Truncate(time.Minute).Unix())
+	const prefix = "cron:"
+	const maxInt64Digits = 20
+	size := len(prefix) + len(kind) + 1 + len(id) + 1 + maxInt64Digits
+	if size <= 96 {
+		var buf [96]byte
+		out := append(buf[:0], prefix...)
+		out = append(out, kind...)
+		out = append(out, ':')
+		out = append(out, id...)
+		out = append(out, ':')
+		out = strconv.AppendInt(out, cronFireUnixMinute(now), 10)
+		return string(out)
+	}
+	out := make([]byte, 0, size)
+	out = append(out, prefix...)
+	out = append(out, kind...)
+	out = append(out, ':')
+	out = append(out, id...)
+	out = append(out, ':')
+	out = strconv.AppendInt(out, cronFireUnixMinute(now), 10)
+	return string(out)
+}
+
+func cronFireUnixMinute(now time.Time) int64 {
+	unix := now.Unix()
+	return unix - unix%60
 }
 
 func cronFireLockID(key string) int64 {

@@ -111,9 +111,11 @@ func TestBatchFlushPayload(t *testing.T) {
 	payload, err := batchFlushPayload([]domain.BatchBufferItem{
 		{Payload: json.RawMessage(`{"a":1}`)},
 		{Payload: json.RawMessage(`["b"]`)},
+		{Payload: json.RawMessage(`"quoted"`)},
+		{},
 	})
 	require.NoError(t, err)
-	require.JSONEq(t, `{"items":[{"a":1},["b"]]}`,
+	require.JSONEq(t, `{"items":[{"a":1},["b"],"quoted",null]}`,
 
 		string(payload))
 }
@@ -125,5 +127,25 @@ func TestBatchFlushPayload_InvalidItem(t *testing.T) {
 		require.Fail(t,
 
 			"expected invalid batch item payload to fail")
+	}
+}
+
+func BenchmarkBatchFlushPayload(b *testing.B) {
+	items := make([]domain.BatchBufferItem, 128)
+	for i := range items {
+		items[i] = domain.BatchBufferItem{Payload: json.RawMessage(`{"value":123,"status":"queued"}`)}
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for range b.N {
+		payload, err := batchFlushPayload(items)
+		if err != nil {
+			b.Fatalf("batchFlushPayload() error = %v", err)
+		}
+		if len(payload) == 0 {
+			b.Fatal("batchFlushPayload() returned empty payload")
+		}
 	}
 }

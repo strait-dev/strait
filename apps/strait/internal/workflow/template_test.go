@@ -9,6 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+var stringifyBenchmarkSink string
+
 func TestRenderTemplateVars(t *testing.T) {
 	t.Parallel()
 	t.Run("simple string substitution", func(t *testing.T) {
@@ -566,6 +568,25 @@ func BenchmarkRenderTemplateVars(b *testing.B) {
 			_ = renderTemplateVars(payload, vars)
 		}
 	})
+}
+
+func BenchmarkStringify(b *testing.B) {
+	values := map[string]any{
+		"string":           "template-value",
+		"float_integer":    float64(42),
+		"float_fractional": 42.125,
+		"bool":             true,
+		"object":           map[string]any{"ok": true, "count": float64(42)},
+	}
+
+	for name, value := range values {
+		b.Run(name, func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				stringifyBenchmarkSink = stringify(value)
+			}
+		})
+	}
 }
 
 func BenchmarkRenderStringValue(b *testing.B) {

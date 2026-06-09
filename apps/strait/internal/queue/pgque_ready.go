@@ -2,8 +2,9 @@ package queue
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
+	"strconv"
+	"strings"
 
 	"strait/internal/dbscan"
 	"strait/internal/domain"
@@ -19,9 +20,9 @@ func (q *PgQueQueue) sendReadyEvent(ctx context.Context, db store.DBTX, run *dom
 	if err != nil {
 		return err
 	}
-	queueName := pgQueQueueName(routeKey)
-	if !q.routeConfigured(routeKey) {
-		if err := q.ensureRoute(ctx, db, routeKey, queueName); err != nil {
+	state := q.routeState(routeKey)
+	if !state.configured.Load() {
+		if err := q.ensureRoute(ctx, db, routeKey, state.queueName); err != nil {
 			return err
 		}
 	}
@@ -29,16 +30,13 @@ func (q *PgQueQueue) sendReadyEvent(ctx context.Context, db store.DBTX, run *dom
 	if err != nil {
 		return err
 	}
-	payload, err := json.Marshal(pgQueReadyEvent{
+	payload := marshalPgQueReadyEventText(pgQueReadyEvent{
 		RunID:      run.ID,
 		RouteKey:   routeKey,
 		Generation: generation,
 		Priority:   run.Priority,
 	})
-	if err != nil {
-		return fmt.Errorf("pgque ready event: marshal: %w", err)
-	}
-	if err := q.pgque(db).sendText(ctx, queueName, pgQueReadyEventType, string(payload)); err != nil {
+	if err := q.pgque(db).sendText(ctx, state.queueName, pgQueReadyEventType, payload); err != nil {
 		return fmt.Errorf("pgque send ready event: %w", err)
 	}
 	if err := q.recordReadyEmitBatch(ctx, db, []string{run.ID}, []int64{generation}); err != nil {
@@ -70,16 +68,12 @@ func (q *PgQueQueue) sendReadyEvents(ctx context.Context, db store.DBTX, runs []
 			return fmt.Errorf("pgque ready generation: missing run %s", readyRun.run.ID)
 		}
 		readyGenerations = append(readyGenerations, generation)
-		payload, err := json.Marshal(pgQueReadyEvent{
+		payloadText := marshalPgQueReadyEventText(pgQueReadyEvent{
 			RunID:      readyRun.run.ID,
 			RouteKey:   readyRun.routeKey,
 			Generation: generation,
 			Priority:   readyRun.run.Priority,
 		})
-		if err != nil {
-			return fmt.Errorf("pgque ready event: marshal: %w", err)
-		}
-		payloadText := string(payload)
 		if byRoute != nil {
 			byRoute[readyRun.routeKey] = append(byRoute[readyRun.routeKey], payloadText)
 			continue
@@ -109,14 +103,85 @@ func (q *PgQueQueue) sendReadyEvents(ctx context.Context, db store.DBTX, runs []
 	return nil
 }
 
+func marshalPgQueReadyEvent(event pgQueReadyEvent) []byte {
+	return []byte(marshalPgQueReadyEventText(event))
+}
+
+func marshalPgQueReadyEventText(event pgQueReadyEvent) string {
+	var out strings.Builder
+	out.Grow(len(event.RunID) + len(event.RouteKey) + 72)
+	out.WriteString(`{"run_id":`)
+	writePgQueJSONString(&out, event.RunID)
+	out.WriteString(`,"route_key":`)
+	writePgQueJSONString(&out, event.RouteKey)
+	out.WriteString(`,"generation":`)
+	writePgQueInt64(&out, event.Generation)
+	out.WriteString(`,"priority":`)
+	writePgQueInt64(&out, int64(event.Priority))
+	out.WriteByte('}')
+	return out.String()
+}
+
+func writePgQueInt64(out *strings.Builder, value int64) {
+	var buffer [20]byte
+	out.Write(strconv.AppendInt(buffer[:0], value, 10))
+}
+
+func writePgQueJSONString(out *strings.Builder, value string) {
+	const hex = "0123456789abcdef"
+
+	out.WriteByte('"')
+	start := 0
+	for i := range len(value) {
+		c := value[i]
+		switch c {
+		case '\\', '"':
+			out.WriteString(value[start:i])
+			out.WriteByte('\\')
+			out.WriteByte(c)
+			start = i + 1
+		case '\b':
+			out.WriteString(value[start:i])
+			out.WriteString(`\b`)
+			start = i + 1
+		case '\f':
+			out.WriteString(value[start:i])
+			out.WriteString(`\f`)
+			start = i + 1
+		case '\n':
+			out.WriteString(value[start:i])
+			out.WriteString(`\n`)
+			start = i + 1
+		case '\r':
+			out.WriteString(value[start:i])
+			out.WriteString(`\r`)
+			start = i + 1
+		case '\t':
+			out.WriteString(value[start:i])
+			out.WriteString(`\t`)
+			start = i + 1
+		default:
+			if c < 0x20 {
+				out.WriteString(value[start:i])
+				out.WriteString(`\u00`)
+				out.WriteByte(hex[c>>4])
+				out.WriteByte(hex[c&0xf])
+				start = i + 1
+			}
+		}
+	}
+	out.WriteString(value[start:])
+	out.WriteByte('"')
+}
+
 func (q *PgQueQueue) sendReadyPayloadBatch(ctx context.Context, db store.DBTX, routeKey string, payloads []string) error {
-	queueName := pgQueQueueName(routeKey)
-	if !q.routeConfigured(routeKey) {
-		if err := q.ensureRoute(ctx, db, routeKey, queueName); err != nil {
+	state := q.routeState(routeKey)
+	if !state.configured.Load() {
+		if err := q.ensureRoute(ctx, db, routeKey, state.queueName); err != nil {
 			return err
 		}
 	}
-	if err := q.pgque(db).sendTextBatch(ctx, queueName, pgQueReadyEventType, payloads); err != nil {
+	if err := q.pgque(db).sendTextBatch(ctx, state.queueName, pgQueReadyEventType, payloads); err != nil {
 		return fmt.Errorf("pgque send ready event batch: %w", err)
 	}
 	return nil
@@ -151,10 +216,42 @@ func (q *PgQueQueue) readyRunsForEvents(ctx context.Context, db store.DBTX, runs
 		}
 		return readyRuns, runIDs, nil
 	}
+	if len(workerJobIDs) == 1 {
+		route, ok, err := q.workerJobRoute(ctx, db, workerJobIDs[0])
+		if err != nil {
+			return nil, nil, err
+		}
+		if !ok {
+			return nil, nil, fmt.Errorf("pgque worker route lookup: missing job %s", workerJobIDs[0])
+		}
+		var lastProjectID, lastQueueName, lastRouteKey string
+		for i := range readyRuns {
+			run := readyRuns[i].run
+			if run.ExecutionMode != domain.ExecutionModeWorker {
+				readyRuns[i].routeKey = pgQueHTTPRouteKey
+				continue
+			}
+			queueName := runQueueName(run.QueueName)
+			if run.QueueName == "" {
+				queueName = route.queueName
+			}
+			if run.ProjectID == lastProjectID && queueName == lastQueueName {
+				readyRuns[i].routeKey = lastRouteKey
+				continue
+			}
+			routeKey := pgQueWorkerRouteKey(run.ProjectID, queueName, route.environmentID)
+			readyRuns[i].routeKey = routeKey
+			lastProjectID = run.ProjectID
+			lastQueueName = queueName
+			lastRouteKey = routeKey
+		}
+		return readyRuns, runIDs, nil
+	}
 	workerRoutes, err := q.workerJobRoutes(ctx, db, workerJobIDs)
 	if err != nil {
 		return nil, nil, err
 	}
+	var lastJobID, lastProjectID, lastQueueName, lastRouteKey string
 	for i := range readyRuns {
 		run := readyRuns[i].run
 		if run.ExecutionMode != domain.ExecutionModeWorker {
@@ -169,7 +266,16 @@ func (q *PgQueQueue) readyRunsForEvents(ctx context.Context, db store.DBTX, runs
 		if run.QueueName == "" {
 			queueName = route.queueName
 		}
-		readyRuns[i].routeKey = pgQueWorkerRouteKey(run.ProjectID, queueName, route.environmentID)
+		if run.JobID == lastJobID && run.ProjectID == lastProjectID && queueName == lastQueueName {
+			readyRuns[i].routeKey = lastRouteKey
+			continue
+		}
+		routeKey := pgQueWorkerRouteKey(run.ProjectID, queueName, route.environmentID)
+		readyRuns[i].routeKey = routeKey
+		lastJobID = run.JobID
+		lastProjectID = run.ProjectID
+		lastQueueName = queueName
+		lastRouteKey = routeKey
 	}
 	return readyRuns, runIDs, nil
 }
