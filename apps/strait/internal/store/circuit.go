@@ -53,7 +53,7 @@ func (q *Queries) CanDispatchEndpoint(ctx context.Context, endpointURL string, n
 	if state == nil || state.State == domain.CircuitStateClosed {
 		return true, nil, nil
 	}
-	if state.State == domain.CircuitStateOpen && state.HalfOpenUntil != nil && state.HalfOpenUntil.After(now) {
+	if endpointCircuitCoolingDown(state, now) {
 		return false, state.HalfOpenUntil, nil
 	}
 
@@ -111,11 +111,24 @@ func (q *Queries) canDispatchEndpointLocked(ctx context.Context, endpointURL str
 	}
 
 	// If the circuit is still open (half_open_until is in the future), reject.
-	if state.State == domain.CircuitStateOpen && state.HalfOpenUntil != nil && state.HalfOpenUntil.After(now) {
+	if endpointCircuitCoolingDown(&state, now) {
 		return false, state.HalfOpenUntil, nil
 	}
 
 	return true, nil, nil
+}
+
+func endpointCircuitCoolingDown(state *domain.EndpointCircuitState, now time.Time) bool {
+	if state == nil {
+		return false
+	}
+	if state.State != domain.CircuitStateOpen {
+		return false
+	}
+	if state.HalfOpenUntil == nil {
+		return false
+	}
+	return state.HalfOpenUntil.After(now)
 }
 
 func (q *Queries) RecordEndpointCircuitFailure(ctx context.Context, endpointURL string, now time.Time, threshold int, openDuration time.Duration) error {

@@ -752,6 +752,49 @@ func TestCanDispatchEndpoint_OpenExpiredSlowPathUsesFORUPDATE(t *testing.T) {
 		queries[1], "FOR UPDATE")
 }
 
+func TestEndpointCircuitCoolingDown(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
+	future := now.Add(time.Minute)
+	past := now.Add(-time.Minute)
+
+	tests := []struct {
+		name  string
+		state *domain.EndpointCircuitState
+		want  bool
+	}{
+		{
+			name: "nil state",
+		},
+		{
+			name:  "closed state",
+			state: &domain.EndpointCircuitState{State: domain.CircuitStateClosed, HalfOpenUntil: &future},
+		},
+		{
+			name:  "open without half open deadline",
+			state: &domain.EndpointCircuitState{State: domain.CircuitStateOpen},
+		},
+		{
+			name:  "open expired deadline",
+			state: &domain.EndpointCircuitState{State: domain.CircuitStateOpen, HalfOpenUntil: &past},
+		},
+		{
+			name:  "open future deadline",
+			state: &domain.EndpointCircuitState{State: domain.CircuitStateOpen, HalfOpenUntil: &future},
+			want:  true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			require.Equal(t, tc.want, endpointCircuitCoolingDown(tc.state, now))
+		})
+	}
+}
+
 func BenchmarkCanDispatchEndpoint_ClosedFastPath(b *testing.B) {
 	db := &mockDBTX{
 		queryRowFn: func(_ context.Context, _ string, _ ...any) pgx.Row {
