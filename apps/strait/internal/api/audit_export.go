@@ -124,12 +124,9 @@ func (s *Server) handleExportAuditEvents(ctx context.Context, input *ExportAudit
 		return nil, huma.Error400BadRequest("export window must not exceed 90 days")
 	}
 
-	format := input.Format
-	if format == "" {
-		format = "json"
-	}
-	if format != "json" && format != "csv" && format != "ndjson" {
-		return nil, huma.Error400BadRequest("format must be one of: json, csv, ndjson")
+	format, err := normalizeExportFormat(input.Format, true, "format must be one of: json, csv, ndjson")
+	if err != nil {
+		return nil, err
 	}
 
 	w := responseWriterFromContext(ctx)

@@ -15,6 +15,40 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestNormalizeExportFormat(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		format    string
+		allowCSV  bool
+		want      string
+		wantError bool
+	}{
+		{name: "default", want: "json"},
+		{name: "json", format: "json", want: "json"},
+		{name: "ndjson", format: "ndjson", want: "ndjson"},
+		{name: "csv allowed", format: "csv", allowCSV: true, want: "csv"},
+		{name: "csv rejected", format: "csv", wantError: true},
+		{name: "unknown rejected", format: "xml", allowCSV: true, wantError: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := normalizeExportFormat(tt.format, tt.allowCSV, "invalid format")
+			if tt.wantError {
+				require.Error(t, err)
+				return
+			}
+
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
+		})
+	}
+}
+
 func TestExportJobs_JSON_ReturnsArray(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{

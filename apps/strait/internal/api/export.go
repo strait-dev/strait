@@ -29,12 +29,9 @@ func (s *Server) handleExportJobs(ctx context.Context, input *ExportJobsInput) (
 		return nil, huma.Error400BadRequest("project_id is required")
 	}
 
-	format := input.Format
-	if format == "" {
-		format = "json"
-	}
-	if format != "json" && format != "ndjson" {
-		return nil, huma.Error400BadRequest("format must be one of: json, ndjson")
+	format, err := normalizeExportFormat(input.Format, false, "format must be one of: json, ndjson")
+	if err != nil {
+		return nil, err
 	}
 
 	w := responseWriterFromContext(ctx)
@@ -117,12 +114,9 @@ func (s *Server) handleExportRuns(ctx context.Context, input *ExportRunsInput) (
 		return nil, huma.Error400BadRequest(fmt.Sprintf("export window must not exceed %d days", maxExportWindowDays))
 	}
 
-	format := input.Format
-	if format == "" {
-		format = "json"
-	}
-	if format != "json" && format != "ndjson" && format != "csv" {
-		return nil, huma.Error400BadRequest("format must be one of: json, ndjson, csv")
+	format, err := normalizeExportFormat(input.Format, true, "format must be one of: json, ndjson, csv")
+	if err != nil {
+		return nil, err
 	}
 
 	w := responseWriterFromContext(ctx)
@@ -205,12 +199,9 @@ func (s *Server) handleExportWorkflows(ctx context.Context, input *ExportWorkflo
 		return nil, huma.Error400BadRequest("project_id is required")
 	}
 
-	format := input.Format
-	if format == "" {
-		format = "json"
-	}
-	if format != "json" && format != "ndjson" {
-		return nil, huma.Error400BadRequest("format must be one of: json, ndjson")
+	format, err := normalizeExportFormat(input.Format, false, "format must be one of: json, ndjson")
+	if err != nil {
+		return nil, err
 	}
 
 	w := responseWriterFromContext(ctx)
@@ -277,4 +268,21 @@ func streamJSON(w io.Writer, flusher http.Flusher, canFlush bool, iterate func(w
 	if canFlush {
 		flusher.Flush()
 	}
+}
+
+func normalizeExportFormat(format string, allowCSV bool, errorMessage string) (string, error) {
+	if format == "" {
+		return "json", nil
+	}
+
+	switch format {
+	case "json", "ndjson":
+		return format, nil
+	case "csv":
+		if allowCSV {
+			return format, nil
+		}
+	}
+
+	return "", huma.Error400BadRequest(errorMessage)
 }
