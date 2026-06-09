@@ -596,7 +596,7 @@ func (s *StepCallback) SkipStep(ctx context.Context, workflowRunID, stepRef, rea
 	if stepRun == nil {
 		return fmt.Errorf("step run not found for %s", stepRef)
 	}
-	if stepRun.Status != domain.StepPending && stepRun.Status != domain.StepWaiting {
+	if !isPendingOrWaitingStepStatus(stepRun.Status) {
 		return fmt.Errorf("cannot skip step in %s status", stepRun.Status)
 	}
 
@@ -663,7 +663,7 @@ func (s *StepCallback) ForceCompleteStep(ctx context.Context, workflowRunID, ste
 	if stepRun == nil {
 		return fmt.Errorf("step run not found for %s", stepRef)
 	}
-	if stepRun.Status != domain.StepPending && stepRun.Status != domain.StepWaiting {
+	if !isPendingOrWaitingStepStatus(stepRun.Status) {
 		return fmt.Errorf("cannot force-complete step in %s status", stepRun.Status)
 	}
 
@@ -687,6 +687,15 @@ func (s *StepCallback) ForceCompleteStep(ctx context.Context, workflowRunID, ste
 		return fmt.Errorf("fan-in after force-complete: %w", err)
 	}
 	return s.checkWorkflowCompletion(ctx, workflowRunID, wc)
+}
+
+func isPendingOrWaitingStepStatus(status domain.StepRunStatus) bool {
+	switch status {
+	case domain.StepPending, domain.StepWaiting:
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *StepCallback) ResumeWorkflowRun(ctx context.Context, workflowRunID string) error {
