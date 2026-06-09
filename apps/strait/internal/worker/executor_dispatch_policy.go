@@ -24,10 +24,10 @@ func (e *Executor) resolveExecutionPolicy(ctx context.Context, run *domain.JobRu
 	}
 
 	stepRun, err := e.store.GetWorkflowStepRun(ctx, run.WorkflowStepRunID)
-	if err != nil || stepRun == nil {
-		if err != nil {
-			return fallback, err
-		}
+	if err != nil {
+		return fallback, err
+	}
+	if stepRun == nil {
 		return fallback, fmt.Errorf("%w: %s", store.ErrWorkflowStepRunNotFound, run.WorkflowStepRunID)
 	}
 
@@ -73,10 +73,10 @@ func (e *Executor) resolveExecutionPolicy(ctx context.Context, run *domain.JobRu
 func (e *Executor) getWorkflowRunVersion(ctx context.Context, workflowRunID string) (workflowRunVersion, error) {
 	loader := func(loadCtx context.Context, key string) (workflowRunVersion, error) {
 		wfRun, err := e.store.GetWorkflowRun(loadCtx, key)
-		if err != nil || wfRun == nil {
-			if err != nil {
-				return workflowRunVersion{}, err
-			}
+		if err != nil {
+			return workflowRunVersion{}, err
+		}
+		if wfRun == nil {
 			return workflowRunVersion{}, nil
 		}
 		return workflowRunVersion{WorkflowID: wfRun.WorkflowID, Version: wfRun.WorkflowVersion}, nil
