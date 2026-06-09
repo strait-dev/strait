@@ -202,7 +202,13 @@ type TokenSample struct {
 // most-recently-updated. Used by a scheduler sampler to populate the
 // backpressure_tokens_available gauge. Read-only and index-friendly.
 func (b *Backpressure) SampleAvailableTokens(ctx context.Context, sampleN int) ([]TokenSample, error) {
-	if b == nil || !b.enabled || sampleN <= 0 {
+	if b == nil {
+		return nil, nil
+	}
+	if !b.enabled {
+		return nil, nil
+	}
+	if sampleN <= 0 {
 		return nil, nil
 	}
 	rows, err := b.db.Query(ctx, `

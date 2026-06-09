@@ -40,6 +40,25 @@ func TestBackpressure_EmptyProjectID(t *testing.T) {
 	require.NoError(t, b.TryConsume(context.Background(), ""))
 }
 
+func TestBackpressure_SampleAvailableTokensNoOpGuards(t *testing.T) {
+	t.Parallel()
+
+	var b *Backpressure
+	samples, err := b.SampleAvailableTokens(context.Background(), 10)
+	require.NoError(t, err)
+	require.Nil(t, samples)
+
+	disabled := NewBackpressure(nil, BackpressureConfig{}, false)
+	samples, err = disabled.SampleAvailableTokens(context.Background(), 10)
+	require.NoError(t, err)
+	require.Nil(t, samples)
+
+	enabled := NewBackpressure(nil, BackpressureConfig{}, true)
+	samples, err = enabled.SampleAvailableTokens(context.Background(), 0)
+	require.NoError(t, err)
+	require.Nil(t, samples)
+}
+
 func TestBackpressure_DefaultConfig(t *testing.T) {
 	b := NewBackpressure(nil, BackpressureConfig{}, true)
 	assert.Equal(t, 1000, b.cfg.DefaultMaxTokens)
