@@ -159,7 +159,11 @@ func (b *Backpressure) tryConsumeNOn(ctx context.Context, db store.DBTX, project
 				project_rate_limits.tokens +
 					GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (NOW() - project_rate_limits.last_refill_at)) * project_rate_limits.refill_per_sec)::int)
 			) - $4::int,
-			last_refill_at = NOW(),
+			last_refill_at = CASE
+				WHEN GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (NOW() - project_rate_limits.last_refill_at)) * project_rate_limits.refill_per_sec)::int) > 0
+				THEN NOW()
+				ELSE project_rate_limits.last_refill_at
+			END,
 			updated_at = NOW()
 		WHERE LEAST(
 			project_rate_limits.max_tokens,
