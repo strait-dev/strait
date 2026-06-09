@@ -73,11 +73,6 @@ func FuzzRequireJSONContentType(f *testing.F) {
 		req.Header.Set("Content-Type", ct)
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, req)
-		assert.False(t,
-			w.Code != http.StatusOK &&
-				w.Code !=
-					http.
-						StatusUnsupportedMediaType,
-		)
+		assert.Contains(t, []int{http.StatusOK, http.StatusUnsupportedMediaType}, w.Code)
 	})
 }
