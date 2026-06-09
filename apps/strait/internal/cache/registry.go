@@ -235,7 +235,7 @@ func (h TierHandler[K, V]) InvalidateCacheKey(ctx context.Context, key string, v
 }
 
 func (h TierHandler[K, V]) ApplyCacheUpdate(ctx context.Context, key string, _ int64, payload json.RawMessage) {
-	if h.Tier == nil || h.Parse == nil || len(payload) == 0 {
+	if !h.canApplyUpdate(payload) {
 		return
 	}
 	parsed, ok := h.Parse(key)
@@ -248,6 +248,16 @@ func (h TierHandler[K, V]) ApplyCacheUpdate(ctx context.Context, key string, _ i
 		return
 	}
 	h.Tier.applyUpdate(ctx, parsed, entry)
+}
+
+func (h TierHandler[K, V]) canApplyUpdate(payload json.RawMessage) bool {
+	if h.Tier == nil {
+		return false
+	}
+	if h.Parse == nil {
+		return false
+	}
+	return len(payload) > 0
 }
 
 func newOriginID() string {

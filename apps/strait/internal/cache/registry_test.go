@@ -47,3 +47,65 @@ func TestRegistryRegisteredNamespacesNilSafe(t *testing.T) {
 	var registry *Registry
 	require.Nil(t, registry.RegisteredNamespaces())
 }
+
+func TestTierHandlerCanApplyUpdate(t *testing.T) {
+	t.Parallel()
+
+	parse := func(key string) (string, bool) { return key, true }
+	tier := NewTier[string, string](TierConfig[string, string]{
+		Name:        "tier_handler_update_guard",
+		MaximumSize: 10,
+		TTL:         0,
+	})
+	defer tier.Close()
+
+	tests := []struct {
+		name    string
+		handler TierHandler[string, string]
+		payload json.RawMessage
+		want    bool
+	}{
+		{
+			name: "missing tier",
+			handler: TierHandler[string, string]{
+				Parse: parse,
+			},
+			payload: json.RawMessage(`{"version":1,"value":"v"}`),
+			want:    false,
+		},
+		{
+			name: "missing parser",
+			handler: TierHandler[string, string]{
+				Tier: tier,
+			},
+			payload: json.RawMessage(`{"version":1,"value":"v"}`),
+			want:    false,
+		},
+		{
+			name: "empty payload",
+			handler: TierHandler[string, string]{
+				Tier:  tier,
+				Parse: parse,
+			},
+			payload: nil,
+			want:    false,
+		},
+		{
+			name: "ready",
+			handler: TierHandler[string, string]{
+				Tier:  tier,
+				Parse: parse,
+			},
+			payload: json.RawMessage(`{"version":1,"value":"v"}`),
+			want:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			require.Equal(t, tt.want, tt.handler.canApplyUpdate(tt.payload))
+		})
+	}
+}
