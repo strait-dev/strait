@@ -135,10 +135,8 @@ func TestLoadStepDefinitions_SnapshotNotFound_FallsBackToLiveTable(t *testing.T)
 	steps, err := cb.loadStepDefinitions(context.Background(), wfRun)
 	require.NoError(t,
 		err)
-	assert.False(t, len(steps) != 1 ||
-		steps[0].StepRef !=
-			"fallback",
-	)
+	assert.Len(t, steps, 1)
+	assert.Equal(t, "fallback", steps[0].StepRef)
 }
 
 func TestLoadStepDefinitions_SnapshotPreservesAllFields(t *testing.T) {
@@ -250,9 +248,8 @@ func TestLoadWfCtx_UsesSnapshotSteps(t *testing.T) {
 	wc, err := cb.loadWfCtx(context.Background(), "wr-1")
 	require.NoError(t,
 		err)
-	assert.False(t, len(wc.steps) != 1 ||
-		wc.steps[0].StepRef !=
-			"snap-step")
+	assert.Len(t, wc.steps, 1)
+	assert.Equal(t, "snap-step", wc.steps[0].StepRef)
 
 	if _, ok := wc.stepByRef["snap-step"]; !ok {
 		assert.Fail(t,
