@@ -51,6 +51,51 @@ func TestQuotaCache_HitAndMiss(t *testing.T) {
 	require.EqualValues(t, 1, calls.Load())
 }
 
+func TestQuotaCache_CacheEnabled(t *testing.T) {
+	t.Parallel()
+
+	var calls atomic.Int64
+	enabled := newQuotaCacheWithLoader(5*time.Second, &calls, &store.ProjectQuota{ProjectID: "p1"}, nil)
+	disabled := newQuotaCacheWithLoader(0, &calls, &store.ProjectQuota{ProjectID: "p1"}, nil)
+
+	tests := []struct {
+		name  string
+		cache *quotaCache
+		want  bool
+	}{
+		{
+			name:  "nil cache",
+			cache: nil,
+			want:  false,
+		},
+		{
+			name:  "enabled cache",
+			cache: enabled,
+			want:  true,
+		},
+		{
+			name:  "disabled cache",
+			cache: disabled,
+			want:  false,
+		},
+		{
+			name: "missing tier",
+			cache: &quotaCache{
+				disabled: false,
+			},
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			require.Equal(t, tt.want, tt.cache.cacheEnabled())
+		})
+	}
+}
+
 func TestQuotaCache_Invalidate(t *testing.T) {
 	t.Parallel()
 
