@@ -417,6 +417,31 @@ func TestTaskResultHelpers_UnwrapWorkerTaskResult(t *testing.T) {
 	}
 }
 
+func TestIsTerminalWorkerTaskCompletionStatus(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		status domain.WorkerTaskStatus
+		want   bool
+	}{
+		{name: "completed", status: domain.WorkerTaskStatusCompleted, want: true},
+		{name: "failed", status: domain.WorkerTaskStatusFailed, want: true},
+		{name: "assigned", status: domain.WorkerTaskStatusAssigned, want: false},
+		{name: "accepted", status: domain.WorkerTaskStatusAccepted, want: false},
+		{name: "result received", status: domain.WorkerTaskStatusResultReceived, want: false},
+		{name: "finalizing", status: domain.WorkerTaskStatusFinalizing, want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, tt.want, isTerminalWorkerTaskCompletionStatus(tt.status))
+		})
+	}
+}
+
 func TestTaskResultOutput_NilWrongTypeAndEmpty(t *testing.T) {
 	tests := []struct {
 		name  string

@@ -644,10 +644,19 @@ func (d *WorkerDispatcher) CompleteWorkerTask(ctx context.Context, opaque any, s
 	if !ok || wrapped == nil || wrapped.TaskID == "" || d.queries == nil {
 		return nil
 	}
-	if status != domain.WorkerTaskStatusCompleted && status != domain.WorkerTaskStatusFailed {
+	if !isTerminalWorkerTaskCompletionStatus(status) {
 		return fmt.Errorf("worker dispatch: unsupported terminal worker task status %q", status)
 	}
 	return d.queries.UpdateWorkerTaskStatus(ctx, wrapped.TaskID, status)
+}
+
+func isTerminalWorkerTaskCompletionStatus(status domain.WorkerTaskStatus) bool {
+	switch status {
+	case domain.WorkerTaskStatusCompleted, domain.WorkerTaskStatusFailed:
+		return true
+	default:
+		return false
+	}
 }
 
 // ResultStatus implements worker.WorkerRunDispatcher by delegating to
