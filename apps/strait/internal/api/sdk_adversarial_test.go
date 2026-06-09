@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"math"
 	"net/http"
 	"net/http/httptest"
@@ -558,9 +559,10 @@ func TestRunTokenAuth_AssignmentBoundTokenRequiresActiveMatchingWorkerTask(t *te
 	t.Parallel()
 
 	tests := []struct {
-		name string
-		task *domain.WorkerTask
-		want int
+		name    string
+		task    *domain.WorkerTask
+		taskErr error
+		want    int
 	}{
 		{
 			name: "matching assigned task",
@@ -592,6 +594,15 @@ func TestRunTokenAuth_AssignmentBoundTokenRequiresActiveMatchingWorkerTask(t *te
 			},
 			want: http.StatusUnauthorized,
 		},
+		{
+			name:    "lookup error",
+			taskErr: errors.New("worker task lookup failed"),
+			want:    http.StatusUnauthorized,
+		},
+		{
+			name: "missing task",
+			want: http.StatusUnauthorized,
+		},
 	}
 
 	for _, tt := range tests {
@@ -613,6 +624,7 @@ func TestRunTokenAuth_AssignmentBoundTokenRequiresActiveMatchingWorkerTask(t *te
 				attempt:      1,
 				projectID:    "proj-1",
 				task:         tt.task,
+				err:          tt.taskErr,
 			}
 			srv := NewServer(ServerDeps{Config: cfg, Store: ms, Queue: &mockQueue{}})
 			t.Cleanup(srv.Close)

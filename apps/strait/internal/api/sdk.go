@@ -320,7 +320,10 @@ func (s *Server) verifyRunTokenAssignment(ctx context.Context, runID, projectID,
 		return errors.New("failed to verify run assignment")
 	}
 	task, err := getter.GetWorkerTask(ctx, assignmentID)
-	if err != nil || task == nil {
+	if err != nil {
+		return errors.New("run assignment not found")
+	}
+	if task == nil {
 		return errors.New("run assignment not found")
 	}
 	if task.RunID != runID || task.ProjectID != projectID {
