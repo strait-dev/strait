@@ -96,16 +96,10 @@ func TestDispatch_ConnectionRefused_Fails(t *testing.T) {
 	)
 }
 
-// dispatch: nil job reference -- should handle gracefully
-
-func TestDispatch_NilJobLookup_PanicsOnNilReturn(t *testing.T) {
+// dispatch: nil job reference -- should system-fail without panicking.
+func TestDispatch_NilJobLookup_SystemFails(t *testing.T) {
 	t.Parallel()
 
-	// When store.GetJob returns (nil, nil), resolveJobForRun dereferences nil
-	// at current.Version before executeInner can check for nil. This test
-	// documents the current behavior: a nil pointer panic is recovered by
-	// the test framework. Fixing this would require a nil guard in
-	// resolveJobForRun before the version comparison.
 	st := &mockExecutorStore{}
 	st.getJobFn = func(_ context.Context, _ string) (*domain.Job, error) {
 		return nil, nil
@@ -114,12 +108,11 @@ func TestDispatch_NilJobLookup_PanicsOnNilReturn(t *testing.T) {
 	exec := newTestExecutor(t, st, &mockExecQueue{}, time.Hour, http.DefaultClient)
 	run := testRun(1)
 
-	defer func() {
-		r := recover()
-		require.NotNil(t,
-			r)
-	}()
 	exec.execute(context.Background(), run)
+
+	calls := st.statusUpdates()
+	require.NotEmpty(t, calls)
+	require.Equal(t, domain.StatusSystemFailed, calls[0].to)
 }
 
 func TestDispatch_JobLookupError_SystemFails(t *testing.T) {

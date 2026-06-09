@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"strait/internal/domain"
+	"strait/internal/store"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -417,6 +418,20 @@ func TestResolveJobForRun_GetJobError(t *testing.T) {
 		err)
 }
 
+func TestResolveJobForRun_GetJobNil(t *testing.T) {
+	t.Parallel()
+	ms := &mockExecutorStore{
+		getJobFn: func(_ context.Context, _ string) (*domain.Job, error) {
+			return nil, nil
+		},
+	}
+	e := newTestExecutor(t, ms, nil, 0, nil)
+	run := &domain.JobRun{ID: "run-1", JobID: "job-1", JobVersion: 1, Status: domain.StatusDequeued}
+
+	_, err := e.resolveJobForRun(context.Background(), run)
+	require.ErrorIs(t, err, store.ErrJobNotFound)
+}
+
 func TestResolveJobForRun_GetJobAtVersionError(t *testing.T) {
 	t.Parallel()
 	ms := &mockExecutorStore{
@@ -438,6 +453,28 @@ func TestResolveJobForRun_GetJobAtVersionError(t *testing.T) {
 	_, err := e.resolveJobForRun(context.Background(), run)
 	require.Error(t,
 		err)
+}
+
+func TestResolveJobForRun_GetJobAtVersionNil(t *testing.T) {
+	t.Parallel()
+	ms := &mockExecutorStore{
+		getJobFn: func(_ context.Context, _ string) (*domain.Job, error) {
+			return &domain.Job{
+				ID: "job-1", Version: 5, VersionID: "ver_v5",
+				VersionPolicy: domain.VersionPolicyPin,
+				EndpointURL:   "https://v5.example.com",
+				MaxAttempts:   3, TimeoutSecs: 30,
+			}, nil
+		},
+		getJobAtVersionFn: func(_ context.Context, _ string, _ int) (*domain.Job, error) {
+			return nil, nil
+		},
+	}
+	e := newTestExecutor(t, ms, nil, 0, nil)
+	run := &domain.JobRun{ID: "run-1", JobID: "job-1", JobVersion: 2, Status: domain.StatusDequeued}
+
+	_, err := e.resolveJobForRun(context.Background(), run)
+	require.ErrorIs(t, err, store.ErrJobNotFound)
 }
 
 func TestResolveJobForRun_Pin_MultipleVersionGap(t *testing.T) {
