@@ -43,7 +43,13 @@ type BackpressureSampler struct {
 // skip registration. A nil sampler or metrics struct is also treated as
 // disabled so wiring is tolerant of partial configuration in tests.
 func NewBackpressureSampler(sampler BackpressureTokenSampler, metrics *queue.QueueMetrics, interval time.Duration, sampleN int) *BackpressureSampler {
-	if sampler == nil || metrics == nil || interval <= 0 {
+	if sampler == nil {
+		return nil
+	}
+	if metrics == nil {
+		return nil
+	}
+	if interval <= 0 {
 		return nil
 	}
 	if sampleN <= 0 {
