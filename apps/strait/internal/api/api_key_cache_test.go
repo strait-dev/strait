@@ -104,11 +104,8 @@ func TestAPIKeyCache_ServesValidKeyAndSanitizesSecrets(t *testing.T) {
 	second, err := cache.Get(t.Context(), "hash-1", loader)
 	require.NoError(t, err)
 	require.EqualValues(t, 1, loads.Load())
-	require.Equal(t, domain.ScopeRunsRead,
-		second.
-			Scopes[0])
-	require.Empty(t,
-		second.RotationWebhookSecret)
+	require.Equal(t, domain.ScopeRunsRead, second.Scopes[0])
+	require.Empty(t, second.RotationWebhookSecret)
 }
 
 func TestAPIKeyCache_NegativeCachesInvalidKey(t *testing.T) {
@@ -202,9 +199,8 @@ func TestAPIKeyCache_RedisL2BackfillAndCachebusInvalidate(t *testing.T) {
 		return nil, store.ErrAPIKeyNotFound
 	})
 	require.NoError(t, err)
-	require.False(t, got == nil ||
-		got.ID != "key-1",
-	)
+	require.NotNil(t, got)
+	require.Equal(t, "key-1", got.ID)
 	require.EqualValues(t, 0, loads.Load())
 
 	publishTestInvalidate(t, registryB, apiKeyAuthCacheNamespace, "hash-1")
@@ -235,9 +231,8 @@ func TestAPIKeyCache_PreservesStoreCacheVersionInRedis(t *testing.T) {
 		}, nil
 	})
 	require.NoError(t, err)
-	require.False(t, got == nil ||
-		got.CacheVersion !=
-			7)
+	require.NotNil(t, got)
+	require.EqualValues(t, 7, got.CacheVersion)
 
 	raw, err := deps.Redis.Get(t.Context(), "strait:cache:"+apiKeyAuthCacheNamespace+":hash-versioned").Bytes()
 	require.NoError(t, err)
@@ -271,11 +266,8 @@ func TestAPIKeyCache_StrongModeFallsBackToDBWhenRedisEntryMissing(t *testing.T) 
 
 			"Get() warm error = %v", err)
 	}
-	require.NoError(t, deps.Redis.
-		Del(t.Context(),
-			"strait:cache:"+
-				apiKeyAuthCacheNamespace+
-				":hash-1").Err())
+	key := "strait:cache:" + apiKeyAuthCacheNamespace + ":hash-1"
+	require.NoError(t, deps.Redis.Del(t.Context(), key).Err())
 
 	var loads atomic.Int64
 	got, err := cache.Get(t.Context(), "hash-1", func(context.Context, string) (*domain.APIKey, error) {
