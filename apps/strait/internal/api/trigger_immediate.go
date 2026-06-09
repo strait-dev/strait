@@ -151,16 +151,27 @@ func (s *Server) enqueueImmediateTriggerRun(
 
 func (s *Server) triggerDependenciesSatisfied(ctx context.Context, run *domain.JobRun) (bool, error) {
 	if s.jobDependencyCache == nil {
+		s.recordTriggerDependencyGate(ctx, "uncached")
 		return s.store.AreJobDependenciesSatisfied(ctx, run)
 	}
 	deps, err := s.listCachedJobDependencies(ctx, run.JobID, 1000)
 	if err != nil {
+		s.recordTriggerDependencyGate(ctx, "list_error")
 		return false, fmt.Errorf("list job dependencies: %w", err)
 	}
 	if len(deps) == 0 {
+		s.recordTriggerDependencyGate(ctx, "skipped")
 		return true, nil
 	}
+	s.recordTriggerDependencyGate(ctx, "evaluated")
 	return s.store.AreJobDependenciesSatisfied(ctx, run)
+}
+
+func (s *Server) recordTriggerDependencyGate(ctx context.Context, result string) {
+	if s.metrics == nil || s.metrics.TriggerDependencyGate == nil {
+		return
+	}
+	s.metrics.TriggerDependencyGate.Add(ctx, 1, otelmetric.WithAttributes(otelattr.String("result", result)))
 }
 
 func (s *Server) emitImmediateTriggerAudit(

@@ -52,6 +52,7 @@ type Metrics struct {
 	EventTriggersTimedOut    metric.Int64Counter
 	EventTriggerWaitDuration metric.Float64Histogram
 
+	TriggerDependencyGate    metric.Int64Counter
 	WorkflowDependencyWaits  metric.Int64Counter
 	WorkflowStepWaitDuration metric.Float64Histogram
 	WorkflowStalledRuns      metric.Int64Counter
@@ -513,6 +514,15 @@ func initMetricInstruments(meter metric.Meter) (*Metrics, error) {
 		return nil, fmt.Errorf("create workflow dependency waits counter: %w", err)
 	}
 
+	triggerDependencyGate, err := meter.Int64Counter(
+		"strait_trigger_dependency_gate_total",
+		metric.WithDescription("Total trigger dependency gate decisions, labeled by result"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("create trigger dependency gate counter: %w", err)
+	}
+
 	workflowStepWaitDuration, err := meter.Float64Histogram(
 		"strait_workflow_step_wait_duration_seconds",
 		metric.WithDescription("Time a workflow step spent waiting before running"),
@@ -865,6 +875,7 @@ func initMetricInstruments(meter metric.Meter) (*Metrics, error) {
 		ChildCancellationsTotal:      childCancellationsTotal,
 		LatencyAnomalies:             latencyAnomalies,
 		SnoozeTotal:                  snoozeTotal,
+		TriggerDependencyGate:        triggerDependencyGate,
 		WorkflowDependencyWaits:      workflowDependencyWaits,
 		WorkflowStepWaitDuration:     workflowStepWaitDuration,
 		WorkflowStalledRuns:          workflowStalledRuns,

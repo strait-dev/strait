@@ -7,8 +7,11 @@ import (
 	"time"
 
 	"strait/internal/domain"
+	"strait/internal/telemetry"
 
 	"github.com/stretchr/testify/require"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 )
 
 func TestNewImmediateTriggerRunBuildsRunEnvelope(t *testing.T) {
@@ -139,6 +142,14 @@ func TestTriggerDependenciesSatisfiedSkipsSatisfactionCheckWhenNoDependencies(t 
 	t.Parallel()
 
 	listCalls := 0
+	reader := sdkmetric.NewManualReader()
+	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	t.Cleanup(func() {
+		require.NoError(t, provider.Shutdown(context.Background()))
+	})
+	counter, err := provider.Meter("trigger-immediate-test").Int64Counter("strait_trigger_dependency_gate_total")
+	require.NoError(t, err)
+
 	ms := &APIStoreMock{
 		ListJobDependenciesFunc: func(context.Context, string, int, *time.Time) ([]domain.JobDependency, error) {
 			listCalls++
@@ -154,6 +165,7 @@ func TestTriggerDependenciesSatisfiedSkipsSatisfactionCheckWhenNoDependencies(t 
 	srv := &Server{
 		store:              ms,
 		jobDependencyCache: cache,
+		metrics:            &telemetry.Metrics{TriggerDependencyGate: counter},
 	}
 
 	satisfied, err := srv.triggerDependenciesSatisfied(context.Background(), &domain.JobRun{JobID: "job-1"})
@@ -161,4 +173,31 @@ func TestTriggerDependenciesSatisfiedSkipsSatisfactionCheckWhenNoDependencies(t 
 	require.NoError(t, err)
 	require.True(t, satisfied)
 	require.Equal(t, 1, listCalls)
+	assertTriggerDependencyGateMetric(t, reader, "skipped")
+}
+
+func assertTriggerDependencyGateMetric(t *testing.T, reader *sdkmetric.ManualReader, result string) {
+	t.Helper()
+
+	var rm metricdata.ResourceMetrics
+	require.NoError(t, reader.Collect(context.Background(), &rm))
+	for _, scope := range rm.ScopeMetrics {
+		for _, metric := range scope.Metrics {
+			if metric.Name != "strait_trigger_dependency_gate_total" {
+				continue
+			}
+			sum, ok := metric.Data.(metricdata.Sum[int64])
+			require.Truef(t, ok, "unexpected metric type %T", metric.Data)
+			for _, point := range sum.DataPoints {
+				if point.Value != 1 {
+					continue
+				}
+				got, ok := point.Attributes.Value("result")
+				if ok && got.AsString() == result {
+					return
+				}
+			}
+		}
+	}
+	require.Failf(t, "test failure", "metric result=%q not found in %#v", result, rm.ScopeMetrics)
 }
