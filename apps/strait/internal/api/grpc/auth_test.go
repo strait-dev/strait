@@ -440,6 +440,55 @@ func TestValidateWorkerAPIKey_AllowsWorkersConnectScope(t *testing.T) {
 	require.NoError(t, validateWorkerAPIKey(apiKey))
 }
 
+func TestAPIKeyAllowsWorkerConnections(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		apiKey *domain.APIKey
+		want   bool
+	}{
+		{
+			name:   "nil api key",
+			apiKey: nil,
+			want:   false,
+		},
+		{
+			name:   "nil scopes",
+			apiKey: &domain.APIKey{Scopes: nil},
+			want:   false,
+		},
+		{
+			name:   "empty scopes",
+			apiKey: &domain.APIKey{Scopes: []string{}},
+			want:   false,
+		},
+		{
+			name:   "wrong scope",
+			apiKey: &domain.APIKey{Scopes: []string{domain.ScopeJobsRead}},
+			want:   false,
+		},
+		{
+			name:   "workers connect scope",
+			apiKey: &domain.APIKey{Scopes: []string{domain.ScopeWorkersConnect}},
+			want:   true,
+		},
+		{
+			name:   "wildcard scope",
+			apiKey: &domain.APIKey{Scopes: []string{domain.ScopeAll}},
+			want:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, tt.want, apiKeyAllowsWorkerConnections(tt.apiKey))
+		})
+	}
+}
+
 // TestValidateWorkerAPIKey_EmptyScopesDenied is the regression guard for the
 // empty-scopes bypass: domain.HasScope treats empty scopes as full access, so the
 // worker gate must reject a key with no scopes explicitly.

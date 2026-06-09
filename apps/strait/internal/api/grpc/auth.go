@@ -184,10 +184,20 @@ func validateWorkerAPIKey(apiKey *domain.APIKey) error {
 	// scope set must NOT pass here: domain.HasScope treats empty scopes as full
 	// access for backward compatibility, so a legacy or misconfigured key with no
 	// scopes would otherwise gain worker access it was never granted.
-	if len(apiKey.Scopes) == 0 || !domain.HasScope(apiKey.Scopes, domain.ScopeWorkersConnect) {
+	if !apiKeyAllowsWorkerConnections(apiKey) {
 		return status.Error(codes.PermissionDenied, "api key does not allow worker connections")
 	}
 	return nil
+}
+
+func apiKeyAllowsWorkerConnections(apiKey *domain.APIKey) bool {
+	if apiKey == nil {
+		return false
+	}
+	if len(apiKey.Scopes) == 0 {
+		return false
+	}
+	return domain.HasScope(apiKey.Scopes, domain.ScopeWorkersConnect)
 }
 
 // hashGRPCAPIKey returns the SHA-256 hex digest of the raw API key string via
