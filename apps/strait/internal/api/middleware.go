@@ -595,11 +595,14 @@ func (s *Server) apiKeyOrSecretAuth(next http.Handler) http.Handler {
 		}
 
 		authHeader := r.Header.Get("Authorization")
-		if strings.HasPrefix(authHeader, "Bearer strait_") {
+		hasAPIKeyBearerToken := strings.HasPrefix(authHeader, "Bearer strait_")
+		if hasAPIKeyBearerToken {
 			s.apiKeyAuth(next).ServeHTTP(w, r)
 			return
 		}
-		if strings.HasPrefix(authHeader, "Bearer ") && s.oidcVerifier != nil && s.oidcVerifier.enabled {
+		hasBearerToken := strings.HasPrefix(authHeader, "Bearer ")
+		oidcEnabled := s.oidcVerifier != nil && s.oidcVerifier.enabled
+		if hasBearerToken && oidcEnabled {
 			s.oidcAuth(next).ServeHTTP(w, r)
 			return
 		}
