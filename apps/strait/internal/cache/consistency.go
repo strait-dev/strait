@@ -30,7 +30,7 @@ func (t *Tier[K, V]) GetConsistentVersioned(
 		var zero Versioned[V]
 		return zero, fmt.Errorf("cache tier is nil")
 	}
-	if !t.disableL1 && t.l1 != nil {
+	if t.l1Available() {
 		if entry, ok := t.l1.GetIfPresent(key); ok && entry.Version >= minVersion {
 			return Versioned[V]{Value: t.clone(entry.Value), Version: entry.Version}, nil
 		}
@@ -166,7 +166,7 @@ func (t *Tier[K, V]) loadVersionedThroughL2(
 			}
 		case err == nil && entry.Version >= minVersion:
 			recordCacheOperation(ctx, t.name, "hit")
-			if !t.disableL1 && t.l1 != nil {
+			if t.l1Available() {
 				t.l1.Set(key, entry)
 			}
 			if t.cfg.OnL2Hit != nil {
@@ -215,14 +215,14 @@ func (t *Tier[K, V]) loadVersionedThroughL2(
 			}
 			newer, getErr := t.l2.Get(ctx, key)
 			if getErr == nil && newer.Version >= minVersion {
-				if !t.disableL1 && t.l1 != nil {
+				if t.l1Available() {
 					t.l1.Set(key, newer)
 				}
 				return newer, nil
 			}
 		}
 	}
-	if !t.disableL1 && t.l1 != nil {
+	if t.l1Available() {
 		t.l1.Set(key, entry)
 	}
 	return entry, nil
