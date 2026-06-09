@@ -134,7 +134,7 @@ func (s *Server) handleCreateAPIKey(ctx context.Context, input *CreateAPIKeyInpu
 		return nil, huma.Error500InternalServerError("failed to create api key")
 	}
 	s.apiKeyCache.Set(ctx, key)
-	s.emitAuditEvent(ctx, domain.AuditActionAPIKeyCreated, "api_key", key.ID, map[string]any{
+	s.emitAuditEvent(auditContextWithProject(ctx, key.ProjectID), domain.AuditActionAPIKeyCreated, "api_key", key.ID, map[string]any{
 		"name":                      key.Name,
 		"key_prefix":                key.KeyPrefix,
 		"scopes":                    key.Scopes,

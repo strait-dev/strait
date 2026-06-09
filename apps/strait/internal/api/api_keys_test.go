@@ -22,6 +22,7 @@ func TestHandleCreateAPIKey_Success(t *testing.T) {
 	t.Parallel()
 	var created atomic.Bool
 	var captured *domain.APIKey
+	var capturedAudit *domain.AuditEvent
 
 	ms := &APIStoreMock{
 		CreateAPIKeyFunc: func(_ context.Context, key *domain.APIKey) error {
@@ -29,6 +30,10 @@ func TestHandleCreateAPIKey_Success(t *testing.T) {
 			captured = key
 			key.ID = "key-123"
 			key.CreatedAt = time.Now().UTC()
+			return nil
+		},
+		CreateAuditEventFunc: func(_ context.Context, ev *domain.AuditEvent) error {
+			capturedAudit = ev
 			return nil
 		},
 	}
@@ -85,6 +90,10 @@ func TestHandleCreateAPIKey_Success(t *testing.T) {
 	require.False(t, resp.CreatedAt.
 		IsZero(),
 	)
+	require.NotNil(t, capturedAudit)
+	require.Equal(t, domain.AuditActionAPIKeyCreated, capturedAudit.Action)
+	require.Equal(t, "proj-1", capturedAudit.ProjectID)
+	require.Equal(t, "key-123", capturedAudit.ResourceID)
 }
 
 func TestHandleCreateAPIKey_WithExpiry(t *testing.T) {
