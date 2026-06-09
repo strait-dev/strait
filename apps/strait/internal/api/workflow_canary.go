@@ -39,16 +39,8 @@ func (s *Server) handleCreateCanaryDeployment(ctx context.Context, input *Create
 		return nil, huma.Error400BadRequest(err.Error())
 	}
 
-	wf, err := s.store.GetWorkflow(ctx, req.WorkflowID)
-	if err != nil || wf == nil {
-		return nil, huma.Error404NotFound("workflow not found")
-	}
-
-	if err := requireProjectMatch(ctx, wf.ProjectID); err != nil {
-		return nil, huma.Error404NotFound("workflow not found")
-	}
-
-	if err := s.checkFeatureAllowed(ctx, wf.ProjectID, billing.FeatureCanaryDeployments, "Canary deployments"); err != nil {
+	wf, err := s.workflowForCanaryDeployment(ctx, req.WorkflowID)
+	if err != nil {
 		return nil, err
 	}
 
@@ -97,16 +89,7 @@ func (s *Server) handleUpdateCanaryDeployment(ctx context.Context, input *Update
 		return nil, newValidationError(err)
 	}
 
-	wf, err := s.store.GetWorkflow(ctx, input.WorkflowID)
-	if err != nil || wf == nil {
-		return nil, huma.Error404NotFound("workflow not found")
-	}
-
-	if err := requireProjectMatch(ctx, wf.ProjectID); err != nil {
-		return nil, huma.Error404NotFound("workflow not found")
-	}
-
-	if err := s.checkFeatureAllowed(ctx, wf.ProjectID, billing.FeatureCanaryDeployments, "Canary deployments"); err != nil {
+	if _, err := s.workflowForCanaryDeployment(ctx, input.WorkflowID); err != nil {
 		return nil, err
 	}
 
@@ -146,16 +129,7 @@ type RollbackCanaryOutput struct {
 }
 
 func (s *Server) handleRollbackCanaryDeployment(ctx context.Context, input *RollbackCanaryInput) (*RollbackCanaryOutput, error) {
-	wf, err := s.store.GetWorkflow(ctx, input.WorkflowID)
-	if err != nil || wf == nil {
-		return nil, huma.Error404NotFound("workflow not found")
-	}
-
-	if err := requireProjectMatch(ctx, wf.ProjectID); err != nil {
-		return nil, huma.Error404NotFound("workflow not found")
-	}
-
-	if err := s.checkFeatureAllowed(ctx, wf.ProjectID, billing.FeatureCanaryDeployments, "Canary deployments"); err != nil {
+	if _, err := s.workflowForCanaryDeployment(ctx, input.WorkflowID); err != nil {
 		return nil, err
 	}
 
@@ -192,16 +166,7 @@ type GetCanaryStatusOutput struct {
 }
 
 func (s *Server) handleGetCanaryStatus(ctx context.Context, input *GetCanaryStatusInput) (*GetCanaryStatusOutput, error) {
-	wf, err := s.store.GetWorkflow(ctx, input.WorkflowID)
-	if err != nil || wf == nil {
-		return nil, huma.Error404NotFound("workflow not found")
-	}
-
-	if err := requireProjectMatch(ctx, wf.ProjectID); err != nil {
-		return nil, huma.Error404NotFound("workflow not found")
-	}
-
-	if err := s.checkFeatureAllowed(ctx, wf.ProjectID, billing.FeatureCanaryDeployments, "Canary deployments"); err != nil {
+	if _, err := s.workflowForCanaryDeployment(ctx, input.WorkflowID); err != nil {
 		return nil, err
 	}
 
@@ -214,4 +179,21 @@ func (s *Server) handleGetCanaryStatus(ctx context.Context, input *GetCanaryStat
 	}
 
 	return &GetCanaryStatusOutput{Body: canary}, nil
+}
+
+func (s *Server) workflowForCanaryDeployment(ctx context.Context, workflowID string) (*domain.Workflow, error) {
+	wf, err := s.store.GetWorkflow(ctx, workflowID)
+	if err != nil {
+		return nil, huma.Error404NotFound("workflow not found")
+	}
+	if wf == nil {
+		return nil, huma.Error404NotFound("workflow not found")
+	}
+	if err := requireProjectMatch(ctx, wf.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("workflow not found")
+	}
+	if err := s.checkFeatureAllowed(ctx, wf.ProjectID, billing.FeatureCanaryDeployments, "Canary deployments"); err != nil {
+		return nil, err
+	}
+	return wf, nil
 }
