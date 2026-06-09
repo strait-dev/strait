@@ -25,7 +25,7 @@ const (
 )
 
 var conditionRegexCache = struct {
-	sync.RWMutex
+	mu       sync.RWMutex
 	compiled map[string]*regexp.Regexp
 }{
 	compiled: make(map[string]*regexp.Regexp),
@@ -423,9 +423,9 @@ func conditionOperandString(result gjson.Result, stepStatuses map[string]domain.
 }
 
 func cachedConditionRegex(pattern string) (*regexp.Regexp, error) {
-	conditionRegexCache.RLock()
+	conditionRegexCache.mu.RLock()
 	re := conditionRegexCache.compiled[pattern]
-	conditionRegexCache.RUnlock()
+	conditionRegexCache.mu.RUnlock()
 	if re != nil {
 		return re, nil
 	}
@@ -435,16 +435,16 @@ func cachedConditionRegex(pattern string) (*regexp.Regexp, error) {
 		return nil, err
 	}
 
-	conditionRegexCache.Lock()
+	conditionRegexCache.mu.Lock()
 	if existing := conditionRegexCache.compiled[pattern]; existing != nil {
-		conditionRegexCache.Unlock()
+		conditionRegexCache.mu.Unlock()
 		return existing, nil
 	}
 	if len(conditionRegexCache.compiled) >= maxConditionRegexCacheEntries {
 		conditionRegexCache.compiled = make(map[string]*regexp.Regexp)
 	}
 	conditionRegexCache.compiled[pattern] = compiled
-	conditionRegexCache.Unlock()
+	conditionRegexCache.mu.Unlock()
 
 	return compiled, nil
 }
