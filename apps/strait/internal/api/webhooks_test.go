@@ -135,12 +135,12 @@ func TestHandleReplayWebhookDelivery_Success(t *testing.T) {
 	require.Equal(t, http.StatusCreated,
 		w.Code,
 	)
-	require.False(t, strings.Contains(w.Body.String(), "token=secret") || strings.Contains(w.Body.
-		String(), "user:pass") ||
-		strings.Contains(w.Body.String(),
-			"/private/path"))
+	body := w.Body.String()
+	require.NotContains(t, body, "token=secret")
+	require.NotContains(t, body, "user:pass")
+	require.NotContains(t, body, "/private/path")
 	require.Contains(
-		t, w.Body.String(), "https://hooks.example.com")
+		t, body, "https://hooks.example.com")
 }
 
 func TestHandleReplayWebhookDelivery_WrongProject(t *testing.T) {
