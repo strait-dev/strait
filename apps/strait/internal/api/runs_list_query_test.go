@@ -43,7 +43,7 @@ func TestNewListRunsQuery_BuildsFilters(t *testing.T) {
 	assertStringPtr(t, "triggeredBy", query.triggeredBy, "api")
 	assertStringPtr(t, "batchID", query.batchID, "batch-1")
 	require.True(t, json.Valid(query.payloadContains))
-	require.Equal(t, `{"customer":"acme"}`, string(query.payloadContains))
+	require.JSONEq(t, `{"customer":"acme"}`, string(query.payloadContains))
 	require.NotNil(t, query.executionMode)
 	require.Equal(t, domain.ExecutionModeWorker, *query.executionMode)
 

@@ -274,8 +274,8 @@ func TestClientAckSuccess(t *testing.T) {
 		assert.NoError(t, json.NewDecoder(r.Body).Decode(&reqBody))
 
 		ackIDs, ok := reqBody["ack_ids"].([]any)
-		require.True(t, ok)
-		require.Len(t, ackIDs, 2)
+		assert.True(t, ok)
+		assert.Len(t, ackIDs, 2)
 
 		w.WriteHeader(http.StatusOK)
 	}))
