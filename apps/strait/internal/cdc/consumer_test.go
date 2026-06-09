@@ -127,9 +127,7 @@ func TestConsumerPollRoutesByTableAndAcksSuccess(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	assert.False(t, len(ackIDs) !=
-		1 || len(ackIDs[0]) !=
-		1 || ackIDs[0][0] != "a1")
+	assert.Equal(t, [][]string{{"a1"}}, ackIDs)
 	assert.Equal(t, 0, nackCalls)
 }
 
@@ -167,8 +165,7 @@ func TestConsumerPollHandlerFailureNacks(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	assert.False(t, len(nackIDs) !=
-		1 || len(nackIDs[0]) != 1 || nackIDs[0][0] != "a1")
+	assert.Equal(t, [][]string{{"a1"}}, nackIDs)
 }
 
 func TestConsumerPollUnknownTableAcks(t *testing.T) {
@@ -200,9 +197,7 @@ func TestConsumerPollUnknownTableAcks(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	assert.False(t, len(ackIDs) !=
-		1 || len(ackIDs[0]) !=
-		1 || ackIDs[0][0] != "a1")
+	assert.Equal(t, [][]string{{"a1"}}, ackIDs)
 	assert.Equal(t, 0, nackCalls)
 }
 
