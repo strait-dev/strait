@@ -468,10 +468,8 @@ func TestParseBracketParam(t *testing.T) {
 		t.Run(tt.param, func(t *testing.T) {
 			t.Parallel()
 			k, ok := parseBracketParam(tt.param, tt.prefix)
-			assert.False(
-				t, ok != tt.wantOK ||
-					k != tt.
-						wantK)
+			assert.Equal(t, tt.wantOK, ok)
+			assert.Equal(t, tt.wantK, k)
 		})
 	}
 }
@@ -546,10 +544,8 @@ func TestHandleResumeRun_RequeuesRun(t *testing.T) {
 			return &domain.JobRun{ID: id, Status: domain.StatusQueued, ExecutionMode: domain.ExecutionModeHTTP}, nil
 		},
 		UpdateRunStatusFunc: func(_ context.Context, _ string, from, to domain.RunStatus, _ map[string]any) error {
-			require.False(t, from != domain.
-				StatusPaused ||
-				to != domain.StatusQueued,
-			)
+			require.Equal(t, domain.StatusPaused, from)
+			require.Equal(t, domain.StatusQueued, to)
 
 			return nil
 		},
