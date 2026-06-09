@@ -83,7 +83,7 @@ func requireJSONAccept(next http.Handler) http.Handler {
 }
 
 func acceptsAPIResponseMediaType(accept string) bool {
-	if accept == "" || accept == "*/*" {
+	if acceptsDefaultAPIResponseMediaType(accept) {
 		return true
 	}
 	for part := range strings.SplitSeq(accept, ",") {
@@ -93,6 +93,10 @@ func acceptsAPIResponseMediaType(accept string) bool {
 		}
 	}
 	return false
+}
+
+func acceptsDefaultAPIResponseMediaType(accept string) bool {
+	return accept == "" || accept == "*/*"
 }
 
 func isAPIResponseMediaType(mt string) bool {

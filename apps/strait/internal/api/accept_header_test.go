@@ -54,6 +54,29 @@ func TestRequireJSONAccept(t *testing.T) {
 	}
 }
 
+func TestAcceptsDefaultAPIResponseMediaType(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		accept string
+		want   bool
+	}{
+		{name: "empty", accept: "", want: true},
+		{name: "wildcard", accept: "*/*", want: true},
+		{name: "json", accept: "application/json", want: false},
+		{name: "html", accept: "text/html", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, tt.want, acceptsDefaultAPIResponseMediaType(tt.accept))
+		})
+	}
+}
+
 func FuzzRequireJSONAccept(f *testing.F) {
 	f.Add("application/json")
 	f.Add("*/*")
