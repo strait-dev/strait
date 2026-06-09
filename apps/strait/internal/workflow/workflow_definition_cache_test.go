@@ -60,8 +60,8 @@ func TestWorkflowDefinitionCache_EngineCachesAndClonesSteps(t *testing.T) {
 		err)
 	require.EqualValues(t, 1,
 		calls.Load())
-	require.False(t, got[0].DependsOn[0] !=
-		"root" || got[0].ApprovalApprovers[0] != "user-1")
+	require.Equal(t, "root", got[0].DependsOn[0])
+	require.Equal(t, "user-1", got[0].ApprovalApprovers[0])
 
 	byteFieldsWereCloned := string(got[0].Condition) == `{"if":true}` &&
 		string(got[0].Payload) == `{"payload":true}` &&
