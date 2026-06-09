@@ -33,9 +33,8 @@ func TestAdversarial_WorkerIDHijackSameProject(t *testing.T) {
 
 	// The original worker must still be registered.
 	snap := r.Snapshot()
-	assert.False(t, len(snap) !=
-		1 || snap[0].APIKeyID !=
-		"key-legit")
+	assert.Len(t, snap, 1)
+	assert.Equal(t, "key-legit", snap[0].APIKeyID)
 }
 
 func TestAdversarial_WorkerIDNamespaceAllowsSameIDAcrossProjects(t *testing.T) {
