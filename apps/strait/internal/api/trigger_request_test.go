@@ -66,6 +66,30 @@ func TestPrepareTriggerRequestBuildsState(t *testing.T) {
 			quota.Timezone)
 }
 
+func TestCanonicalizePayloadFastPathForEmptyObject(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		payload json.RawMessage
+	}{
+		{name: "empty", payload: nil},
+		{name: "literal empty object", payload: json.RawMessage(`{}`)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			canonical, hash, err := canonicalizePayload(tt.payload)
+
+			require.NoError(t, err)
+			require.Equal(t, `{}`, string(canonical))
+			require.Equal(t, canonicalEmptyPayloadHash, hash)
+		})
+	}
+}
+
 func TestPrepareTriggerRequestReturnsIdempotencyHitBeforeQuota(t *testing.T) {
 	t.Parallel()
 

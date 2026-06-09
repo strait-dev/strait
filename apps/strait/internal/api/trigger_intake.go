@@ -92,9 +92,11 @@ func validateTriggerTTLSecs(ttlSecs *int) error {
 	return nil
 }
 
+const canonicalEmptyPayloadHash = "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+
 func canonicalizePayload(payload json.RawMessage) (json.RawMessage, string, error) {
-	if len(payload) == 0 {
-		payload = json.RawMessage(`{}`)
+	if len(payload) == 0 || (len(payload) == 2 && payload[0] == '{' && payload[1] == '}') {
+		return json.RawMessage(`{}`), canonicalEmptyPayloadHash, nil
 	}
 
 	var v any
