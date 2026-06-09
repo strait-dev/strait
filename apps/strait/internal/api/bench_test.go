@@ -27,6 +27,7 @@ func benchmarkConfig() *config.Config {
 		InternalSecret:      "test-secret-value",
 		MaxBulkTriggerItems: 500,
 		JWTSigningKey:       testJWTSigningKey,
+		JobDepsCacheTTL:     5 * time.Minute,
 	}
 }
 

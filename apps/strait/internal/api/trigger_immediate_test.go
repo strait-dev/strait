@@ -134,3 +134,31 @@ func TestExtractDependencyKey(t *testing.T) {
 		})
 	}
 }
+
+func TestTriggerDependenciesSatisfiedSkipsSatisfactionCheckWhenNoDependencies(t *testing.T) {
+	t.Parallel()
+
+	listCalls := 0
+	ms := &APIStoreMock{
+		ListJobDependenciesFunc: func(context.Context, string, int, *time.Time) ([]domain.JobDependency, error) {
+			listCalls++
+			return nil, nil
+		},
+		AreJobDependenciesSatisfiedFunc: func(context.Context, *domain.JobRun) (bool, error) {
+			require.Fail(t, "dependency satisfaction query must be skipped for jobs with no dependency edges")
+			return false, nil
+		},
+	}
+	cache := newJobDependencyCache(time.Minute)
+	t.Cleanup(cache.Stop)
+	srv := &Server{
+		store:              ms,
+		jobDependencyCache: cache,
+	}
+
+	satisfied, err := srv.triggerDependenciesSatisfied(context.Background(), &domain.JobRun{JobID: "job-1"})
+
+	require.NoError(t, err)
+	require.True(t, satisfied)
+	require.Equal(t, 1, listCalls)
+}

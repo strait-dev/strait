@@ -119,7 +119,7 @@ func (s *Server) enqueueImmediateTriggerRun(
 			}
 		}
 		if initialStatus == domain.StatusQueued {
-			satisfied, depErr := s.store.AreJobDependenciesSatisfied(guardCtx, run)
+			satisfied, depErr := s.triggerDependenciesSatisfied(guardCtx, run)
 			if depErr != nil {
 				return fmt.Errorf("evaluate job dependencies: %w", depErr)
 			}
@@ -147,6 +147,20 @@ func (s *Server) enqueueImmediateTriggerRun(
 		return nil, triggerLimitAPIError(err, "failed to enqueue run")
 	}
 	return result, nil
+}
+
+func (s *Server) triggerDependenciesSatisfied(ctx context.Context, run *domain.JobRun) (bool, error) {
+	if s.jobDependencyCache == nil {
+		return s.store.AreJobDependenciesSatisfied(ctx, run)
+	}
+	deps, err := s.listCachedJobDependencies(ctx, run.JobID, 1000)
+	if err != nil {
+		return false, fmt.Errorf("list job dependencies: %w", err)
+	}
+	if len(deps) == 0 {
+		return true, nil
+	}
+	return s.store.AreJobDependenciesSatisfied(ctx, run)
 }
 
 func (s *Server) emitImmediateTriggerAudit(
