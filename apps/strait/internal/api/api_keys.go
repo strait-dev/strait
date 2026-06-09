@@ -371,7 +371,19 @@ func (s *Server) handleRotateAPIKey(ctx context.Context, input *RotateAPIKeyInpu
 	if err != nil {
 		return nil, err
 	}
-	newKey := &domain.APIKey{ProjectID: oldKey.ProjectID, OrgID: oldKey.OrgID, Name: oldKey.Name + " (rotated)", KeyHash: hashAPIKey(rawKey), KeyPrefix: rawKey[:domain.APIKeyPrefixLen], Scopes: oldKey.Scopes, ExpiresAt: expiresAt, EnvironmentID: oldKey.EnvironmentID, RotationIntervalDays: oldKey.RotationIntervalDays, RotationWebhookURL: oldKey.RotationWebhookURL, RotationWebhookSecret: oldKey.RotationWebhookSecret}
+	newKey := &domain.APIKey{
+		ProjectID:             oldKey.ProjectID,
+		OrgID:                 oldKey.OrgID,
+		Name:                  oldKey.Name + " (rotated)",
+		KeyHash:               hashAPIKey(rawKey),
+		KeyPrefix:             rawKey[:domain.APIKeyPrefixLen],
+		Scopes:                oldKey.Scopes,
+		ExpiresAt:             expiresAt,
+		EnvironmentID:         oldKey.EnvironmentID,
+		RotationIntervalDays:  oldKey.RotationIntervalDays,
+		RotationWebhookURL:    oldKey.RotationWebhookURL,
+		RotationWebhookSecret: oldKey.RotationWebhookSecret,
+	}
 	if oldKey.RotationIntervalDays != nil && *oldKey.RotationIntervalDays > 0 {
 		nr := time.Now().Add(time.Duration(*oldKey.RotationIntervalDays) * 24 * time.Hour)
 		newKey.NextRotationAt = &nr
@@ -401,8 +413,26 @@ func (s *Server) handleRotateAPIKey(ctx context.Context, input *RotateAPIKeyInpu
 			}
 		}
 	}
-	s.emitAuditEvent(ctx, domain.AuditActionAPIKeyRotated, "api_key", input.KeyID, map[string]any{"new_key_id": newKey.ID, "grace_expires_at": graceExpiresAt, "grace_period_minute": req.GracePeriodMinutes})
-	return &RotateAPIKeyOutput{Body: map[string]any{"old_key_id": oldKey.ID, "new_key_id": newKey.ID, "project_id": newKey.ProjectID, "name": newKey.Name, "key": rawKey, "key_prefix": newKey.KeyPrefix, "scopes": newKey.Scopes, "expires_at": newKey.ExpiresAt, "created_at": newKey.CreatedAt, "grace_expires_at": graceExpiresAt}}, nil
+	auditDetails := map[string]any{
+		"new_key_id":          newKey.ID,
+		"grace_expires_at":    graceExpiresAt,
+		"grace_period_minute": req.GracePeriodMinutes,
+	}
+	s.emitAuditEvent(ctx, domain.AuditActionAPIKeyRotated, "api_key", input.KeyID, auditDetails)
+
+	body := map[string]any{
+		"old_key_id":       oldKey.ID,
+		"new_key_id":       newKey.ID,
+		"project_id":       newKey.ProjectID,
+		"name":             newKey.Name,
+		"key":              rawKey,
+		"key_prefix":       newKey.KeyPrefix,
+		"scopes":           newKey.Scopes,
+		"expires_at":       newKey.ExpiresAt,
+		"created_at":       newKey.CreatedAt,
+		"grace_expires_at": graceExpiresAt,
+	}
+	return &RotateAPIKeyOutput{Body: body}, nil
 }
 
 func requireAPIKeyCreationScope(ctx context.Context, req CreateAPIKeyRequest) error {
