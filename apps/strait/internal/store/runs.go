@@ -1188,7 +1188,16 @@ func (q *Queries) tryUpdateRunStateStatus(ctx context.Context, id string, from, 
 }
 
 func activeClaimRunStateShouldRequeue(from, to domain.RunStatus) bool {
-	return to == domain.StatusQueued && (from == domain.StatusExecuting || from == domain.StatusDequeued)
+	return to == domain.StatusQueued && isActiveClaimRunStateStatus(from)
+}
+
+func isActiveClaimRunStateStatus(status domain.RunStatus) bool {
+	switch status {
+	case domain.StatusExecuting, domain.StatusDequeued:
+		return true
+	default:
+		return false
+	}
 }
 
 func (q *Queries) tryRequeueActiveClaimRunState(

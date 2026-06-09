@@ -363,6 +363,55 @@ func TestUpdateRunStatus_NormalTransition(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestActiveClaimRunStateShouldRequeue(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		from domain.RunStatus
+		to   domain.RunStatus
+		want bool
+	}{
+		{name: "executing to queued", from: domain.StatusExecuting, to: domain.StatusQueued, want: true},
+		{name: "dequeued to queued", from: domain.StatusDequeued, to: domain.StatusQueued, want: true},
+		{name: "queued to queued", from: domain.StatusQueued, to: domain.StatusQueued, want: false},
+		{name: "executing to completed", from: domain.StatusExecuting, to: domain.StatusCompleted, want: false},
+		{name: "failed to queued", from: domain.StatusFailed, to: domain.StatusQueued, want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			require.Equal(t, tt.want, activeClaimRunStateShouldRequeue(tt.from, tt.to))
+		})
+	}
+}
+
+func TestIsActiveClaimRunStateStatus(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		status domain.RunStatus
+		want   bool
+	}{
+		{name: "executing", status: domain.StatusExecuting, want: true},
+		{name: "dequeued", status: domain.StatusDequeued, want: true},
+		{name: "queued", status: domain.StatusQueued, want: false},
+		{name: "completed", status: domain.StatusCompleted, want: false},
+		{name: "failed", status: domain.StatusFailed, want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			require.Equal(t, tt.want, isActiveClaimRunStateStatus(tt.status))
+		})
+	}
+}
+
 func TestQueueStats_Success(t *testing.T) {
 	t.Parallel()
 	db := &mockDBTX{
