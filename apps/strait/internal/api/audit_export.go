@@ -14,6 +14,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"time"
 	"unicode"
 
@@ -305,7 +306,7 @@ func (s *Server) streamAuditCSV(ctx context.Context, w io.Writer, flusher http.F
 			sanitizeCSVCell(ev.UserAgent),
 			sanitizeCSVCell(ev.RequestID),
 			sanitizeCSVCell(ev.TraceID),
-			fmt.Sprintf("%d", ev.SchemaVersion),
+			strconv.FormatUint(uint64(ev.SchemaVersion), 10),
 		}
 		if err := cw.Write(record); err != nil {
 			return fmt.Errorf("write csv row: %w", err)
@@ -325,7 +326,7 @@ func (s *Server) streamAuditCSV(ctx context.Context, w io.Writer, flusher http.F
 	}
 	if capped {
 		// Append a CSV sentinel row noting the cap.
-		_ = cw.Write([]string{"_capped", fmt.Sprintf("%d", exported), "", "", "", "", "", "", "", "", "", "", "", ""})
+		_ = cw.Write([]string{"_capped", strconv.Itoa(exported), "", "", "", "", "", "", "", "", "", "", "", ""})
 	}
 
 	cw.Flush()
