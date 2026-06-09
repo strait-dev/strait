@@ -77,10 +77,11 @@ func subscribeRequiredWorkerControlChannel(ctx context.Context, pub pubsub.Publi
 		return nil, status.Errorf(codes.Unavailable, "worker stream %s subscription unavailable", purpose)
 	}
 	sub, err := pub.Subscribe(ctx, channel)
-	if err != nil || sub == nil {
-		if err == nil {
-			err = errors.New("nil subscription")
-		}
+	if err != nil {
+		return nil, status.Errorf(codes.Unavailable, "worker stream %s subscription failed: %v", purpose, err)
+	}
+	if sub == nil {
+		err = errors.New("nil subscription")
 		return nil, status.Errorf(codes.Unavailable, "worker stream %s subscription failed: %v", purpose, err)
 	}
 	return sub, nil
