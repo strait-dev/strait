@@ -279,7 +279,11 @@ func extractDependencyKey(payload json.RawMessage) string {
 	if len(payload) == 0 {
 		return ""
 	}
-	if !bytes.Contains(payload, dependencyKeyJSONToken) && !bytes.Contains(payload, jsonUnicodeEscapeIndicator) {
+	if bytes.Contains(payload, dependencyKeyJSONToken) {
+		if key, ok := extractTopLevelDependencyKey(payload); ok {
+			return key
+		}
+	} else if !bytes.Contains(payload, jsonUnicodeEscapeIndicator) {
 		return ""
 	}
 	var body map[string]any
@@ -290,4 +294,89 @@ func extractDependencyKey(payload json.RawMessage) string {
 		return key
 	}
 	return ""
+}
+
+func extractTopLevelDependencyKey(payload []byte) (string, bool) {
+	depth := 0
+	inString := false
+	escaped := false
+	for i := 0; i < len(payload); i++ {
+		c := payload[i]
+		if inString {
+			if escaped {
+				escaped = false
+				continue
+			}
+			switch c {
+			case '\\':
+				escaped = true
+			case '"':
+				inString = false
+			}
+			continue
+		}
+		switch c {
+		case '"':
+			if depth == 1 && bytes.HasPrefix(payload[i:], dependencyKeyJSONToken) {
+				if key, ok, definitive := parseDependencyKeyStringValue(payload[i+len(dependencyKeyJSONToken):]); definitive {
+					return key, ok
+				}
+			}
+			inString = true
+		case '{', '[':
+			depth++
+		case '}', ']':
+			if depth > 0 {
+				depth--
+			}
+		}
+	}
+	return "", false
+}
+
+func parseDependencyKeyStringValue(payload []byte) (string, bool, bool) {
+	i := skipJSONWhitespace(payload, 0)
+	if i >= len(payload) || payload[i] != ':' {
+		return "", false, false
+	}
+	i = skipJSONWhitespace(payload, i+1)
+	if i >= len(payload) || payload[i] != '"' {
+		return "", true, true
+	}
+	start := i
+	i++
+	escaped := false
+	for ; i < len(payload); i++ {
+		c := payload[i]
+		if escaped {
+			escaped = false
+			continue
+		}
+		switch c {
+		case '\\':
+			escaped = true
+		case '"':
+			if !bytes.Contains(payload[start:i+1], []byte(`\`)) {
+				return string(payload[start+1 : i]), true, true
+			}
+			value, err := strconv.Unquote(string(payload[start : i+1]))
+			if err != nil {
+				return "", false, false
+			}
+			return value, true, true
+		}
+	}
+	return "", false, false
+}
+
+func skipJSONWhitespace(payload []byte, i int) int {
+	for i < len(payload) {
+		switch payload[i] {
+		case ' ', '\n', '\r', '\t':
+			i++
+		default:
+			return i
+		}
+	}
+	return i
 }

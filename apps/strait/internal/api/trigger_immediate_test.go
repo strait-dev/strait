@@ -127,8 +127,11 @@ func TestExtractDependencyKey(t *testing.T) {
 		{name: "invalid", payload: json.RawMessage(`{`), want: ""},
 		{name: "missing", payload: json.RawMessage(`{"ok":true}`), want: ""},
 		{name: "token in value", payload: json.RawMessage(`{"message":"\"dependency_key\""}`), want: ""},
+		{name: "nested key ignored", payload: json.RawMessage(`{"nested":{"dependency_key":"dep-nested"}}`), want: ""},
 		{name: "non-string", payload: json.RawMessage(`{"dependency_key":42}`), want: ""},
 		{name: "string", payload: json.RawMessage(`{"dependency_key":"dep-1"}`), want: "dep-1"},
+		{name: "string with whitespace", payload: json.RawMessage(`{"dependency_key" : "dep-spaced"}`), want: "dep-spaced"},
+		{name: "escaped string value", payload: json.RawMessage(`{"dependency_key":"dep-\u0031"}`), want: "dep-1"},
 		{name: "escaped key", payload: json.RawMessage(`{"dependency\u005fkey":"dep-2"}`), want: "dep-2"},
 	}
 
