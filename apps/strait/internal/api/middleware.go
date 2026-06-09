@@ -498,7 +498,13 @@ func (s *Server) apiKeyAuth(next http.Handler) http.Handler {
 		keyHash := hashAPIKey(rawKey)
 
 		apiKey, err := s.lookupAPIKeyForAuth(r.Context(), keyHash)
-		if err != nil || apiKey == nil {
+		if err != nil {
+			s.authLimiter.RecordFailureScoped(r.Context(), clientIP, ratelimit.AuthScopeAPIKey)
+			recordAuthDecision(r.Context(), "api_key", "failure")
+			respondError(w, r, http.StatusUnauthorized, "invalid api key")
+			return
+		}
+		if apiKey == nil {
 			s.authLimiter.RecordFailureScoped(r.Context(), clientIP, ratelimit.AuthScopeAPIKey)
 			recordAuthDecision(r.Context(), "api_key", "failure")
 			respondError(w, r, http.StatusUnauthorized, "invalid api key")
