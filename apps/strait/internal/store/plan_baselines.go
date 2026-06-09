@@ -31,7 +31,7 @@ func (q *Queries) Explain(ctx context.Context, sql string) ([]byte, error) {
 	defer span.End()
 
 	trimmed := strings.TrimSpace(sql)
-	if trimmed == "" || !strings.HasPrefix(strings.ToUpper(trimmed), "SELECT") || strings.Contains(trimmed, ";") {
+	if !isExplainableSelect(trimmed) {
 		return nil, fmt.Errorf("explain: only single SELECT statements are allowed")
 	}
 
@@ -41,6 +41,12 @@ func (q *Queries) Explain(ctx context.Context, sql string) ([]byte, error) {
 		return nil, fmt.Errorf("explain: %w", err)
 	}
 	return out, nil
+}
+
+func isExplainableSelect(trimmedSQL string) bool {
+	return trimmedSQL != "" &&
+		strings.HasPrefix(strings.ToUpper(trimmedSQL), "SELECT") &&
+		!strings.Contains(trimmedSQL, ";")
 }
 
 // GetPlanBaseline returns the stored baseline for `name`, if any.
