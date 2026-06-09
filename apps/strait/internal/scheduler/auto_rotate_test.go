@@ -151,23 +151,17 @@ func TestAutoRotateAPIKeys_RotatesExpiredKey(t *testing.T) {
 		createdKey.
 			EnvironmentID,
 	)
-	require.False(t, len(createdKey.Scopes) != 2 ||
-		createdKey.Scopes[0] !=
-			"jobs:read")
+	require.Len(t, createdKey.Scopes, 2)
+	require.Equal(t, "jobs:read", createdKey.Scopes[0])
 	require.NotNil(t, createdKey.
 		NextRotationAt,
 	)
 	require.NotNil(t, createdKey.
 		ExpiresAt,
 	)
-	require.False(t, createdKey.
-		ExpiresAt.
-		After(time.
-			Now().Add(91*24*
-			time.Hour)))
-	require.False(t, createdKey.
-		KeyPrefix ==
-		"" || len(createdKey.KeyPrefix) != 12)
+	require.LessOrEqual(t, createdKey.ExpiresAt.Unix(), time.Now().Add(91*24*time.Hour).Unix())
+	require.NotEmpty(t, createdKey.KeyPrefix)
+	require.Len(t, createdKey.KeyPrefix, 12)
 	require.NotEmpty(t,
 		createdKey.KeyHash,
 	)
