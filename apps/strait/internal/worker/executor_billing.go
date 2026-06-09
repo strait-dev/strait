@@ -96,7 +96,7 @@ func (e *Executor) checkDispatchHTTPModeAllowed(
 	orgID string,
 	countedMonthlyRun bool,
 ) bool {
-	if job.ExecutionMode != domain.ExecutionModeHTTP && job.ExecutionMode != "" {
+	if !usesHTTPExecutionMode(job.ExecutionMode) {
 		return true
 	}
 	limits, err := e.billingEnforcer.GetOrgPlanLimits(ctx, orgID)
