@@ -35,10 +35,12 @@ func (e *Executor) completeRunWithWebhookOnce(ctx context.Context, run *domain.J
 				}
 			}
 			if !completion.enqueueWebhook {
-				return nil
+				return e.enqueueRunSubscriptionWebhooks(ctx, q, completion)
 			}
-			_, err := q.EnqueueRunWebhook(ctx, job, completion.webhookRun, e.webhookMaxRetry)
-			return err
+			if _, err := q.EnqueueRunWebhook(ctx, job, completion.webhookRun, e.webhookMaxRetry); err != nil {
+				return err
+			}
+			return e.enqueueRunSubscriptionWebhooks(ctx, q, completion)
 		})
 	}
 	if completion.enqueueWebhook {
@@ -46,6 +48,89 @@ func (e *Executor) completeRunWithWebhookOnce(ctx context.Context, run *domain.J
 			"run_id", run.ID, "job_id", job.ID, "webhook_url", httputil.RedactURLForLog(job.WebhookURL))
 	}
 	return e.store.UpdateRunStatus(ctx, run.ID, completion.from, completion.to, completion.fields)
+}
+
+func (e *Executor) enqueueRunSubscriptionWebhooks(ctx context.Context, q *store.Queries, completion terminalRunCompletion) error {
+	eventType, ok := runWebhookEventType(completion.to)
+	if !ok {
+		return nil
+	}
+	if completion.webhookRun.ProjectID == "" {
+		return nil
+	}
+	subs, err := q.ListWebhookSubscriptions(ctx, completion.webhookRun.ProjectID)
+	if err != nil {
+		return fmt.Errorf("list run webhook subscriptions: %w", err)
+	}
+	payload, err := runSubscriptionWebhookPayload(completion.webhookRun, eventType)
+	if err != nil {
+		return err
+	}
+	now := time.Now().Add(-1 * time.Second)
+	for _, sub := range subs {
+		if !sub.Active || !matchesRunSubscriptionEvent(sub.EventTypes, eventType) {
+			continue
+		}
+		delivery := &domain.WebhookDelivery{
+			SubscriptionID: sub.ID,
+			RunID:          completion.webhookRun.ID,
+			JobID:          completion.webhookRun.JobID,
+			ProjectID:      sub.ProjectID,
+			WebhookURL:     sub.WebhookURL,
+			RetryPolicy:    domain.WebhookRetryPolicyExponential,
+			Status:         domain.WebhookStatusPending,
+			Attempts:       0,
+			MaxAttempts:    e.webhookMaxRetry,
+			NextRetryAt:    &now,
+			Payload:        payload,
+		}
+		if err := q.CreateWebhookDelivery(ctx, delivery); err != nil {
+			return fmt.Errorf("create run subscription webhook delivery: %w", err)
+		}
+	}
+	return nil
+}
+
+func runWebhookEventType(status domain.RunStatus) (string, bool) {
+	switch status {
+	case domain.StatusCompleted:
+		return domain.WebhookEventRunCompleted, true
+	case domain.StatusFailed, domain.StatusCrashed, domain.StatusSystemFailed, domain.StatusDeadLetter:
+		return domain.WebhookEventRunFailed, true
+	case domain.StatusTimedOut:
+		return domain.WebhookEventRunTimedOut, true
+	case domain.StatusCanceled, domain.StatusExpired:
+		return domain.WebhookEventRunCanceled, true
+	default:
+		return "", false
+	}
+}
+
+func matchesRunSubscriptionEvent(types []string, eventType string) bool {
+	for _, t := range types {
+		if t == eventType || t == "*" {
+			return true
+		}
+	}
+	return false
+}
+
+func runSubscriptionWebhookPayload(run *domain.JobRun, eventType string) (json.RawMessage, error) {
+	payload, err := json.Marshal(map[string]any{
+		"type":       eventType,
+		"run_id":     run.ID,
+		"job_id":     run.JobID,
+		"project_id": run.ProjectID,
+		"status":     string(run.Status),
+		"attempt":    run.Attempt,
+		"result":     run.Result,
+		"error":      run.Error,
+		"timestamp":  time.Now().UTC(),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("marshal run subscription webhook payload: %w", err)
+	}
+	return payload, nil
 }
 
 func (e *Executor) retryTerminalCompletion(

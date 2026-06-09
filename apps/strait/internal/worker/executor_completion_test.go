@@ -313,6 +313,55 @@ func TestTerminalRunCompletion_FailedRunSkipsEndpointSuccess(t *testing.T) {
 				Equal(finishedAt))
 }
 
+func TestRunWebhookEventType(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		status domain.RunStatus
+		want   string
+		ok     bool
+	}{
+		{status: domain.StatusCompleted, want: domain.WebhookEventRunCompleted, ok: true},
+		{status: domain.StatusFailed, want: domain.WebhookEventRunFailed, ok: true},
+		{status: domain.StatusTimedOut, want: domain.WebhookEventRunTimedOut, ok: true},
+		{status: domain.StatusCanceled, want: domain.WebhookEventRunCanceled, ok: true},
+		{status: domain.StatusQueued, ok: false},
+	}
+	for _, tt := range tests {
+		t.Run(string(tt.status), func(t *testing.T) {
+			got, ok := runWebhookEventType(tt.status)
+			require.Equal(t, tt.ok, ok)
+			require.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestRunSubscriptionWebhookPayload(t *testing.T) {
+	t.Parallel()
+
+	run := &domain.JobRun{
+		ID:        "run-1",
+		JobID:     "job-1",
+		ProjectID: "project-1",
+		Status:    domain.StatusCompleted,
+		Attempt:   2,
+		Result:    json.RawMessage(`{"ok":true}`),
+	}
+
+	payload, err := runSubscriptionWebhookPayload(run, domain.WebhookEventRunCompleted)
+	require.NoError(t, err)
+
+	var decoded map[string]any
+	require.NoError(t, json.Unmarshal(payload, &decoded))
+	require.Equal(t, domain.WebhookEventRunCompleted, decoded["type"])
+	require.Equal(t, "run-1", decoded["run_id"])
+	require.Equal(t, "job-1", decoded["job_id"])
+	require.Equal(t, "project-1", decoded["project_id"])
+	require.Equal(t, "completed", decoded["status"])
+	require.EqualValues(t, 2, decoded["attempt"])
+	require.Equal(t, map[string]any{"ok": true}, decoded["result"])
+}
+
 // Handler integration tests.
 
 func TestHandleSuccess_EmitsCompletedEvent(t *testing.T) {
