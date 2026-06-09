@@ -1137,13 +1137,25 @@ func (s *Server) resourceTags(ctx context.Context, resourceType, resourceID stri
 	switch resourceType {
 	case "job":
 		job, err := s.store.GetJob(ctx, resourceID)
-		if err != nil || job == nil || len(job.Tags) == 0 {
+		if err != nil {
+			return nil, false
+		}
+		if job == nil {
+			return nil, false
+		}
+		if len(job.Tags) == 0 {
 			return nil, false
 		}
 		return job.Tags, true
 	case "workflow":
 		wf, err := s.store.GetWorkflow(ctx, resourceID)
-		if err != nil || wf == nil || len(wf.Tags) == 0 {
+		if err != nil {
+			return nil, false
+		}
+		if wf == nil {
+			return nil, false
+		}
+		if len(wf.Tags) == 0 {
 			return nil, false
 		}
 		return wf.Tags, true
