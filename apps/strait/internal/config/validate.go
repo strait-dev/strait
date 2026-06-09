@@ -136,6 +136,15 @@ func (c *Config) Validate() error {
 	if c.DBMaxConns < 1 {
 		errs = append(errs, fmt.Errorf("DB_MAX_CONNS must be >= 1, got %d", c.DBMaxConns))
 	}
+	if c.BackpressureDefaultMaxTokens < 0 {
+		errs = append(errs, fmt.Errorf("BACKPRESSURE_DEFAULT_MAX_TOKENS must be >= 0, got %d", c.BackpressureDefaultMaxTokens))
+	}
+	if c.BackpressureDefaultRefillPerSec < 0 {
+		errs = append(errs, fmt.Errorf("BACKPRESSURE_DEFAULT_REFILL_PER_SEC must be >= 0, got %d", c.BackpressureDefaultRefillPerSec))
+	}
+	if c.BackpressureEnabled && c.BackpressureDefaultMaxTokens == 0 {
+		errs = append(errs, fmt.Errorf("BACKPRESSURE_DEFAULT_MAX_TOKENS must be > 0 when BACKPRESSURE_ENABLED=true"))
+	}
 	switch strings.ToLower(strings.TrimSpace(c.ExecutionTraceMode)) {
 	case "off", "errors", "full":
 	default:

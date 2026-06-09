@@ -154,6 +154,19 @@ type Config struct {
 	// the sampler; the gauge will simply report no points.
 	BackpressureSamplerInterval time.Duration `env:"BACKPRESSURE_SAMPLER_INTERVAL" default:"15s"`
 
+	// BackpressureEnabled gates the per-project enqueue token bucket. Keep this
+	// enabled in production unless an upstream limiter is enforcing equivalent
+	// tenant isolation.
+	BackpressureEnabled bool `env:"BACKPRESSURE_ENABLED" default:"true"`
+
+	// BackpressureDefaultMaxTokens controls the initial burst capacity for
+	// projects without an explicit project_rate_limits row.
+	BackpressureDefaultMaxTokens int `env:"BACKPRESSURE_DEFAULT_MAX_TOKENS" default:"1000"`
+
+	// BackpressureDefaultRefillPerSec controls the steady-state accepted enqueue
+	// rate per project for projects without an explicit project_rate_limits row.
+	BackpressureDefaultRefillPerSec int `env:"BACKPRESSURE_DEFAULT_REFILL_PER_SEC" default:"100"`
+
 	// BackpressureSamplerN bounds the number of project rate-limit rows
 	// the sampler reads per tick. Larger values give better gauge
 	// coverage on high-tenant deployments at the cost of one extra

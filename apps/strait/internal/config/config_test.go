@@ -69,6 +69,11 @@ func TestLoad_Defaults(t *testing.T) {
 		{"RateLimitWindow", cfg.RateLimitWindow, time.Minute},
 		{"TriggerRateLimitRequests", cfg.TriggerRateLimitRequests, 10},
 		{"TriggerRateLimitWindow", cfg.TriggerRateLimitWindow, time.Minute},
+		{"BackpressureEnabled", cfg.BackpressureEnabled, true},
+		{"BackpressureDefaultMaxTokens", cfg.BackpressureDefaultMaxTokens, 1000},
+		{"BackpressureDefaultRefillPerSec", cfg.BackpressureDefaultRefillPerSec, 100},
+		{"BackpressureSamplerInterval", cfg.BackpressureSamplerInterval, 15 * time.Second},
+		{"BackpressureSamplerN", cfg.BackpressureSamplerN, 100},
 		{"RequestTimeout", cfg.RequestTimeout, 30 * time.Second},
 		{"MaxRequestBodySize", cfg.MaxRequestBodySize, int64(1 << 20)},
 		{"MaxBulkTriggerItems", cfg.MaxBulkTriggerItems, 500},
@@ -240,6 +245,8 @@ func TestLoad_OverrideDefaults(t *testing.T) {
 	t.Setenv("INDEX_MAINTENANCE_INTERVAL", "12h")
 	t.Setenv("ADAPTIVE_CONCURRENCY_MIN", "3")
 	t.Setenv("ADAPTIVE_CONCURRENCY_MAX", "30")
+	t.Setenv("BACKPRESSURE_DEFAULT_MAX_TOKENS", "4000")
+	t.Setenv("BACKPRESSURE_DEFAULT_REFILL_PER_SEC", "750")
 
 	cfg, err := Load()
 	require.NoError(t, err)
@@ -254,6 +261,64 @@ func TestLoad_OverrideDefaults(t *testing.T) {
 	)
 	require.Equal(t, 3, cfg.AdaptiveConcurrencyMin)
 	require.Equal(t, 30, cfg.AdaptiveConcurrencyMax)
+	require.Equal(t, 4000, cfg.BackpressureDefaultMaxTokens)
+	require.Equal(t, 750, cfg.BackpressureDefaultRefillPerSec)
+}
+
+func TestLoad_BackpressureDisabledAllowsZeroBucket(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("BACKPRESSURE_ENABLED", "false")
+	t.Setenv("BACKPRESSURE_DEFAULT_MAX_TOKENS", "0")
+	t.Setenv("BACKPRESSURE_DEFAULT_REFILL_PER_SEC", "0")
+
+	cfg, err := Load()
+	require.NoError(t, err)
+	require.False(t, cfg.BackpressureEnabled)
+	require.Zero(t, cfg.BackpressureDefaultMaxTokens)
+	require.Zero(t, cfg.BackpressureDefaultRefillPerSec)
+}
+
+func TestLoad_BackpressureValidation(t *testing.T) {
+	tests := []struct {
+		name     string
+		env      map[string]string
+		errorSub string
+	}{
+		{
+			name: "enabled requires positive max tokens",
+			env: map[string]string{
+				"BACKPRESSURE_DEFAULT_MAX_TOKENS": "0",
+			},
+			errorSub: "BACKPRESSURE_DEFAULT_MAX_TOKENS must be > 0",
+		},
+		{
+			name: "rejects negative max tokens",
+			env: map[string]string{
+				"BACKPRESSURE_DEFAULT_MAX_TOKENS": "-1",
+			},
+			errorSub: "BACKPRESSURE_DEFAULT_MAX_TOKENS must be >= 0",
+		},
+		{
+			name: "rejects negative refill",
+			env: map[string]string{
+				"BACKPRESSURE_DEFAULT_REFILL_PER_SEC": "-1",
+			},
+			errorSub: "BACKPRESSURE_DEFAULT_REFILL_PER_SEC must be >= 0",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			setRequiredEnv(t)
+			for key, value := range tt.env {
+				t.Setenv(key, value)
+			}
+
+			_, err := Load()
+			require.Error(t, err)
+			require.Contains(t, err.Error(), tt.errorSub)
+		})
+	}
 }
 
 func TestLoad_EncryptionKeyRotationConfig(t *testing.T) {

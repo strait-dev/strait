@@ -94,6 +94,9 @@ Strait uses a vendored and modified SQL snapshot of [PgQue](https://github.com/N
 | `TRIGGER_RATE_LIMIT_REQUESTS` | `10` | Trigger requests allowed per window. |
 | `TRIGGER_RATE_LIMIT_WINDOW` | `1m` | Trigger rate-limit window. |
 | `MAX_BULK_TRIGGER_ITEMS` | `500` | Max items in one bulk trigger request. |
+| `BACKPRESSURE_ENABLED` | `true` | Enable the per-project enqueue token bucket. Keep enabled unless an upstream limiter enforces equivalent tenant isolation. |
+| `BACKPRESSURE_DEFAULT_MAX_TOKENS` | `1000` | Initial enqueue burst capacity for projects without an explicit project rate-limit row. |
+| `BACKPRESSURE_DEFAULT_REFILL_PER_SEC` | `100` | Steady-state accepted enqueue refill rate per project for projects without an explicit project rate-limit row. |
 
 ## Security
 
