@@ -49,7 +49,7 @@ func (s *StepCallback) fanInAndStartReadyChildren(ctx context.Context, stepRun *
 	if freshErr != nil {
 		return fmt.Errorf("re-read workflow run status: %w", freshErr)
 	}
-	if freshRun.Status == domain.WfStatusPaused || freshRun.Status.IsTerminal() {
+	if workflowProgressionShouldStop(freshRun.Status) {
 		return nil
 	}
 
@@ -96,7 +96,7 @@ func (s *StepCallback) fanInBatchAndStartReadyChildren(ctx context.Context, work
 	if freshErr != nil {
 		return fmt.Errorf("re-read workflow run status: %w", freshErr)
 	}
-	if freshRun.Status == domain.WfStatusPaused || freshRun.Status.IsTerminal() {
+	if workflowProgressionShouldStop(freshRun.Status) {
 		return nil
 	}
 
@@ -114,6 +114,10 @@ func (s *StepCallback) fanInBatchAndStartReadyChildren(ctx context.Context, work
 	}
 
 	return s.scheduleRunnableSteps(ctx, freshRun, wc.steps, stepStatuses, runningStepRuns, runnableStepRuns)
+}
+
+func workflowProgressionShouldStop(status domain.WorkflowRunStatus) bool {
+	return status == domain.WfStatusPaused || status.IsTerminal()
 }
 
 func (s *StepCallback) scheduleRunnableSteps(

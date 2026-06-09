@@ -16,6 +16,35 @@ import (
 
 // prefetchStepOutputs tests.
 
+func TestWorkflowProgressionShouldStop(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		status domain.WorkflowRunStatus
+		want   bool
+	}{
+		{name: "pending", status: domain.WfStatusPending, want: false},
+		{name: "running", status: domain.WfStatusRunning, want: false},
+		{name: "paused", status: domain.WfStatusPaused, want: true},
+		{name: "completed", status: domain.WfStatusCompleted, want: true},
+		{name: "failed", status: domain.WfStatusFailed, want: true},
+		{name: "timed out", status: domain.WfStatusTimedOut, want: true},
+		{name: "canceled", status: domain.WfStatusCanceled, want: true},
+		{name: "compensating", status: domain.WfStatusCompensating, want: false},
+		{name: "compensated", status: domain.WfStatusCompensated, want: true},
+		{name: "compensation failed", status: domain.WfStatusCompensationFailed, want: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			require.Equal(t, tt.want, workflowProgressionShouldStop(tt.status))
+		})
+	}
+}
+
 // TestPrefetchStepOutputs_BatchesAllDeps verifies that a single
 // GetStepOutputs call is made with the deduplicated union of all
 // DependsOn refs across runnable step runs.
