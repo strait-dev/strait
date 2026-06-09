@@ -95,11 +95,6 @@ func FuzzRequireJSONAccept(f *testing.F) {
 		req.Header.Set("Accept", accept)
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, req)
-		assert.False(t,
-			w.Code != http.StatusOK &&
-				w.Code !=
-					http.
-						StatusNotAcceptable,
-		)
+		assert.Contains(t, []int{http.StatusOK, http.StatusNotAcceptable}, w.Code)
 	})
 }
