@@ -17,6 +17,53 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestPermissionCache_CacheEnabled(t *testing.T) {
+	t.Parallel()
+
+	enabled := newPermissionCache(time.Minute)
+	defer enabled.Stop()
+
+	disabled := newPermissionCache(0)
+	defer disabled.Stop()
+
+	tests := []struct {
+		name  string
+		cache *permissionCache
+		want  bool
+	}{
+		{
+			name:  "nil cache",
+			cache: nil,
+			want:  false,
+		},
+		{
+			name:  "disabled cache",
+			cache: disabled,
+			want:  false,
+		},
+		{
+			name: "missing inner cache",
+			cache: &permissionCache{
+				disabled: false,
+			},
+			want: false,
+		},
+		{
+			name:  "enabled cache",
+			cache: enabled,
+			want:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			require.Equal(t, tt.want, tt.cache.cacheEnabled())
+		})
+	}
+}
+
 func TestPermissionCache_GetSet(t *testing.T) {
 	t.Parallel()
 

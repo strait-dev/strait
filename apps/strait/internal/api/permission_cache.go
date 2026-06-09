@@ -100,6 +100,10 @@ func (c *permissionCache) Stop() {
 	c.inner.Stop()
 }
 
+func (c *permissionCache) cacheEnabled() bool {
+	return c != nil && !c.disabled && c.inner != nil
+}
+
 func (c *permissionCache) key(projectID, userID string) string {
 	return projectID + "\x00" + userID
 }
@@ -112,7 +116,7 @@ func (c *permissionCache) GetContext(ctx context.Context, projectID, userID stri
 	if ctx == nil {
 		ctx = cacheMetricsContext
 	}
-	if c == nil || c.disabled || c.inner == nil {
+	if !c.cacheEnabled() {
 		if c != nil {
 			c.misses.Add(ctx, 1)
 		}
@@ -146,7 +150,7 @@ func (c *permissionCache) SetWithVersionContext(
 	permissions []string,
 	version int64,
 ) {
-	if c == nil || c.disabled || c.inner == nil {
+	if !c.cacheEnabled() {
 		return
 	}
 	if ctx == nil {
@@ -185,7 +189,7 @@ func (c *permissionCache) InvalidateWithVersion(projectID, userID string, versio
 }
 
 func (c *permissionCache) InvalidateWithVersionContext(ctx context.Context, projectID, userID string, version int64) {
-	if c == nil || c.disabled || c.inner == nil {
+	if !c.cacheEnabled() {
 		return
 	}
 	if ctx == nil {
@@ -204,7 +208,7 @@ func (c *permissionCache) InvalidateWithVersionContext(ctx context.Context, proj
 }
 
 func (c *permissionCache) InvalidateProject(ctx context.Context, projectID string, version int64) {
-	if c == nil || c.disabled || c.inner == nil || projectID == "" {
+	if !c.cacheEnabled() || projectID == "" {
 		return
 	}
 	if ctx == nil {
