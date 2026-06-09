@@ -30,7 +30,7 @@ func ValidateEndpointURL(rawURL string, opts ...func(*endpointValidationOpts)) e
 	host := u.Hostname()
 	ip := net.ParseIP(host)
 	if ip != nil && !o.allowPrivate {
-		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+		if isPrivateOrLinkLocalIP(ip) {
 			return fmt.Errorf("URL must not point to private or loopback addresses")
 		}
 		if isCGNAT(ip) {
@@ -42,6 +42,13 @@ func ValidateEndpointURL(rawURL string, opts ...func(*endpointValidationOpts)) e
 	}
 
 	return nil
+}
+
+func isPrivateOrLinkLocalIP(ip net.IP) bool {
+	return ip.IsLoopback() ||
+		ip.IsPrivate() ||
+		ip.IsLinkLocalUnicast() ||
+		ip.IsLinkLocalMulticast()
 }
 
 // EndpointValidationOpts holds options for endpoint URL validation.
