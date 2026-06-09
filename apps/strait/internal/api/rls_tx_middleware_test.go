@@ -74,17 +74,17 @@ func TestRLSTxMiddleware_TimeoutCommitFailureReturnsRetryable429(t *testing.T) {
 func TestRLSTxMiddleware_UsesAdmissionTimeoutForDatabaseBoundaries(t *testing.T) {
 	t.Parallel()
 
-	var beginCtx context.Context
-	var execCtx context.Context
-	var commitCtx context.Context
+	var beginDeadline capturedAdmissionDeadline
+	var execDeadline capturedAdmissionDeadline
+	var commitDeadline capturedAdmissionDeadline
 	tx := &fakeRLSTx{
-		execCtx:   &execCtx,
-		commitCtx: &commitCtx,
+		execDeadline:   &execDeadline,
+		commitDeadline: &commitDeadline,
 	}
 	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 	srv.txPool = fakeTxBeginner{
-		tx:       tx,
-		beginCtx: &beginCtx,
+		tx:            tx,
+		beginDeadline: &beginDeadline,
 	}
 	handler := srv.rlsTxMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusCreated)
@@ -96,9 +96,9 @@ func TestRLSTxMiddleware_UsesAdmissionTimeoutForDatabaseBoundaries(t *testing.T)
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 	require.Equal(t, http.StatusCreated, w.Code)
-	requireAdmissionDeadline(t, beginCtx)
-	requireAdmissionDeadline(t, execCtx)
-	requireAdmissionDeadline(t, commitCtx)
+	requireAdmissionDeadline(t, beginDeadline)
+	requireAdmissionDeadline(t, execDeadline)
+	requireAdmissionDeadline(t, commitDeadline)
 }
 
 func TestRLSTxMiddleware_RetryableBeginFailureReturns429(t *testing.T) {
@@ -345,15 +345,15 @@ func TestRLSTxMiddleware_WebhookTestBypassesBufferedTransaction(t *testing.T) {
 }
 
 type fakeTxBeginner struct {
-	tx         *fakeRLSTx
-	beginCount *atomic.Int32
-	beginErr   error
-	beginCtx   *context.Context
+	tx            *fakeRLSTx
+	beginCount    *atomic.Int32
+	beginErr      error
+	beginDeadline *capturedAdmissionDeadline
 }
 
 func (f fakeTxBeginner) Begin(ctx context.Context) (pgx.Tx, error) {
-	if f.beginCtx != nil {
-		*f.beginCtx = ctx
+	if f.beginDeadline != nil {
+		f.beginDeadline.capture(ctx)
 	}
 	if f.beginCount != nil {
 		f.beginCount.Add(1)
@@ -367,8 +367,8 @@ func (f fakeTxBeginner) Begin(ctx context.Context) (pgx.Tx, error) {
 type fakeRLSTx struct {
 	commitErr         error
 	execErr           error
-	execCtx           *context.Context
-	commitCtx         *context.Context
+	execDeadline      *capturedAdmissionDeadline
+	commitDeadline    *capturedAdmissionDeadline
 	setProjectContext bool
 	commitCalled      bool
 	rollbackCalled    bool
@@ -376,8 +376,8 @@ type fakeRLSTx struct {
 
 func (f *fakeRLSTx) Begin(context.Context) (pgx.Tx, error) { return nil, errors.New("not implemented") }
 func (f *fakeRLSTx) Commit(ctx context.Context) error {
-	if f.commitCtx != nil {
-		*f.commitCtx = ctx
+	if f.commitDeadline != nil {
+		f.commitDeadline.capture(ctx)
 	}
 	f.commitCalled = true
 	return f.commitErr
@@ -395,8 +395,8 @@ func (f *fakeRLSTx) Prepare(context.Context, string, string) (*pgconn.StatementD
 	return nil, errors.New("not implemented")
 }
 func (f *fakeRLSTx) Exec(ctx context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
-	if f.execCtx != nil {
-		*f.execCtx = ctx
+	if f.execDeadline != nil {
+		f.execDeadline.capture(ctx)
 	}
 	if sql == "SELECT set_config('app.current_project_id', $1, true)" {
 		f.setProjectContext = true
@@ -419,11 +419,18 @@ func (retryableAdmissionErr) SafeToRetry() bool {
 	return true
 }
 
-func requireAdmissionDeadline(t *testing.T, ctx context.Context) {
+type capturedAdmissionDeadline struct {
+	deadline time.Time
+	ok       bool
+}
+
+func (d *capturedAdmissionDeadline) capture(ctx context.Context) {
+	d.deadline, d.ok = ctx.Deadline()
+}
+
+func requireAdmissionDeadline(t *testing.T, deadline capturedAdmissionDeadline) {
 	t.Helper()
 
-	require.NotNil(t, ctx)
-	deadline, ok := ctx.Deadline()
-	require.True(t, ok, "expected admission context to have a deadline")
-	require.LessOrEqual(t, time.Until(deadline), databaseAdmissionOperationTimeout)
+	require.True(t, deadline.ok, "expected admission context to have a deadline")
+	require.LessOrEqual(t, time.Until(deadline.deadline), databaseAdmissionOperationTimeout)
 }
