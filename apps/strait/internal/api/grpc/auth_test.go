@@ -19,6 +19,12 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+type fakePeerAddr string
+
+func (a fakePeerAddr) Network() string { return "test" }
+
+func (a fakePeerAddr) String() string { return string(a) }
+
 // TestHashGRPCAPIKey verifies that hashGRPCAPIKey produces a stable SHA-256 hex digest.
 func TestHashGRPCAPIKey(t *testing.T) {
 	key := "sk_test_abc123"
@@ -145,6 +151,90 @@ func TestResolveAPIKey_MissingAuthorizationHeader(t *testing.T) {
 		codes.Unauthenticated,
 		s.Code(),
 	)
+}
+
+func TestGRPCPeerHasAddress(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		ok   bool
+		peer *peer.Peer
+		want bool
+	}{
+		{
+			name: "missing peer context",
+			ok:   false,
+			peer: nil,
+			want: false,
+		},
+		{
+			name: "nil peer",
+			ok:   true,
+			peer: nil,
+			want: false,
+		},
+		{
+			name: "nil address",
+			ok:   true,
+			peer: &peer.Peer{},
+			want: false,
+		},
+		{
+			name: "address present",
+			ok:   true,
+			peer: &peer.Peer{Addr: &net.TCPAddr{IP: net.ParseIP("203.0.113.20"), Port: 443}},
+			want: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, tt.want, grpcPeerHasAddress(tt.ok, tt.peer))
+		})
+	}
+}
+
+func TestGRPCPeerIP(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		ctx  context.Context
+		want string
+	}{
+		{
+			name: "missing peer context",
+			ctx:  context.Background(),
+			want: "unknown",
+		},
+		{
+			name: "tcp host",
+			ctx: peer.NewContext(
+				context.Background(),
+				&peer.Peer{Addr: &net.TCPAddr{IP: net.ParseIP("203.0.113.20"), Port: 443}},
+			),
+			want: "203.0.113.20",
+		},
+		{
+			name: "address string fallback",
+			ctx: peer.NewContext(
+				context.Background(),
+				&peer.Peer{Addr: fakePeerAddr("worker.local")},
+			),
+			want: "worker.local",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, tt.want, grpcPeerIP(tt.ctx))
+		})
+	}
 }
 
 // TestResolveAPIKey_InvalidAuthorizationFormat verifies error for non-Bearer prefix.

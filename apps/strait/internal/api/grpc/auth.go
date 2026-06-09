@@ -86,7 +86,7 @@ func resolveAPIKeyFromContextWithLimitAndResolver(ctx context.Context, resolver 
 
 func grpcPeerIP(ctx context.Context) string {
 	p, ok := peer.FromContext(ctx)
-	if !ok || p == nil || p.Addr == nil {
+	if !grpcPeerHasAddress(ok, p) {
 		return "unknown"
 	}
 	addr := p.Addr.String()
@@ -98,6 +98,10 @@ func grpcPeerIP(ctx context.Context) string {
 		return addr
 	}
 	return "unknown"
+}
+
+func grpcPeerHasAddress(ok bool, p *peer.Peer) bool {
+	return ok && p != nil && p.Addr != nil
 }
 
 // resolveAPIKeyFromContext extracts the Bearer token from the gRPC metadata
