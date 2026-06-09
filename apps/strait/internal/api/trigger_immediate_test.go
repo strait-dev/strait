@@ -177,6 +177,38 @@ func TestImmediateTriggerAuditDetailsIncludesOperationalFields(t *testing.T) {
 	require.Equal(t, true, details["waiting"])
 }
 
+func TestImmediateTriggerAuditDetailsJSONOmitsEmptyOptionalFields(t *testing.T) {
+	t.Parallel()
+
+	detailsJSON := immediateTriggerAuditDetailsJSON(&domain.JobRun{
+		ID:          "run-1",
+		Priority:    0,
+		TriggeredBy: domain.TriggerManual,
+	}, nil, "", false)
+
+	require.JSONEq(t, `{"run_id":"run-1","priority":0,"triggered_by":"manual"}`, string(detailsJSON))
+}
+
+func TestImmediateTriggerAuditDetailsJSONIncludesOperationalFields(t *testing.T) {
+	t.Parallel()
+
+	scheduledAt := time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
+	detailsJSON := immediateTriggerAuditDetailsJSON(&domain.JobRun{
+		ID:          `run-"quoted"`,
+		Priority:    5,
+		TriggeredBy: domain.TriggerManual,
+	}, &scheduledAt, "idem-123", true)
+
+	require.JSONEq(t, `{
+		"run_id":"run-\"quoted\"",
+		"priority":5,
+		"triggered_by":"manual",
+		"scheduled_at":"2026-06-09T12:00:00Z",
+		"idempotency_key_hash":"f6fdb32bfd0ba473",
+		"waiting":true
+	}`, string(detailsJSON))
+}
+
 func TestTriggerDependenciesSatisfiedSkipsSatisfactionCheckWhenNoDependencies(t *testing.T) {
 	t.Parallel()
 

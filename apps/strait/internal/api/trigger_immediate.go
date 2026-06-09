@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"time"
 
 	"strait/internal/domain"
@@ -188,8 +189,48 @@ func (s *Server) emitImmediateTriggerAudit(
 	idempotencyKey string,
 	waitingRun bool,
 ) {
+	if len(run.Tags) == 0 {
+		detailsJSON := immediateTriggerAuditDetailsJSON(run, scheduledAt, idempotencyKey, waitingRun)
+		if s.emitAuditEventRawAsync(
+			auditContextWithProject(ctx, job.ProjectID),
+			domain.AuditActionJobTriggered,
+			"job",
+			job.ID,
+			detailsJSON,
+		) {
+			return
+		}
+	}
 	details := immediateTriggerAuditDetails(run, scheduledAt, idempotencyKey, waitingRun)
 	s.emitAuditEventAsync(auditContextWithProject(ctx, job.ProjectID), domain.AuditActionJobTriggered, "job", job.ID, details)
+}
+
+func immediateTriggerAuditDetailsJSON(
+	run *domain.JobRun,
+	scheduledAt *time.Time,
+	idempotencyKey string,
+	waitingRun bool,
+) json.RawMessage {
+	details := make([]byte, 0, 160)
+	details = append(details, `{"run_id":`...)
+	details = strconv.AppendQuote(details, run.ID)
+	details = append(details, `,"priority":`...)
+	details = strconv.AppendInt(details, int64(run.Priority), 10)
+	details = append(details, `,"triggered_by":`...)
+	details = strconv.AppendQuote(details, run.TriggeredBy)
+	if scheduledAt != nil {
+		details = append(details, `,"scheduled_at":`...)
+		details = strconv.AppendQuote(details, scheduledAt.Format(time.RFC3339Nano))
+	}
+	if idempotencyKeyHash := hashIdempotencyKey(idempotencyKey); idempotencyKeyHash != "" {
+		details = append(details, `,"idempotency_key_hash":`...)
+		details = strconv.AppendQuote(details, idempotencyKeyHash)
+	}
+	if waitingRun {
+		details = append(details, `,"waiting":true`...)
+	}
+	details = append(details, '}')
+	return details
 }
 
 func immediateTriggerAuditDetails(
