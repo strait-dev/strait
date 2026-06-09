@@ -7,7 +7,13 @@ import (
 )
 
 func runQueueWaitUntil(run *domain.JobRun, end time.Time) time.Duration {
-	if run == nil || run.CreatedAt.IsZero() || end.IsZero() {
+	if run == nil {
+		return 0
+	}
+	if run.CreatedAt.IsZero() {
+		return 0
+	}
+	if end.IsZero() {
 		return 0
 	}
 	return nonNegativeDuration(end.Sub(run.CreatedAt))
@@ -21,7 +27,13 @@ func runStartedQueueWait(run *domain.JobRun) time.Duration {
 }
 
 func runDequeueDurationUntil(run *domain.JobRun, end time.Time) time.Duration {
-	if run == nil || run.StartedAt == nil || end.IsZero() {
+	if run == nil {
+		return 0
+	}
+	if run.StartedAt == nil {
+		return 0
+	}
+	if end.IsZero() {
 		return 0
 	}
 	return nonNegativeDuration(end.Sub(*run.StartedAt))
