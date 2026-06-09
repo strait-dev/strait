@@ -16,6 +16,15 @@ import (
 )
 
 func mergedRunTags(base, overlay map[string]string) map[string]string {
+	if len(base) == 0 && len(overlay) == 0 {
+		return nil
+	}
+	if len(base) == 0 {
+		return maps.Clone(overlay)
+	}
+	if len(overlay) == 0 {
+		return maps.Clone(base)
+	}
 	runTags := make(map[string]string, len(base)+len(overlay))
 	maps.Copy(runTags, base)
 	maps.Copy(runTags, overlay)
@@ -23,15 +32,21 @@ func mergedRunTags(base, overlay map[string]string) map[string]string {
 }
 
 func mergeRunMetadata(metadata, defaults map[string]string) map[string]string {
+	if len(metadata) == 0 && len(defaults) == 0 {
+		return nil
+	}
+	if len(metadata) == 0 {
+		return maps.Clone(defaults)
+	}
+	if len(defaults) == 0 {
+		return maps.Clone(metadata)
+	}
 	merged := make(map[string]string, len(defaults)+len(metadata))
 	maps.Copy(merged, metadata)
 	for key, value := range defaults {
 		if _, exists := merged[key]; !exists {
 			merged[key] = value
 		}
-	}
-	if len(merged) == 0 {
-		return nil
 	}
 	return merged
 }
