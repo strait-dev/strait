@@ -45,8 +45,12 @@ func newCachedAPIKeyResolver(client redis.Cmdable, ttl time.Duration, fallback a
 	}
 }
 
+func (r *cachedAPIKeyResolver) cacheEnabled() bool {
+	return r != nil && r.tier != nil
+}
+
 func (r *cachedAPIKeyResolver) LookupAPIKeyByHash(ctx context.Context, keyHash string) (*domain.APIKey, error) {
-	if r == nil || r.tier == nil {
+	if !r.cacheEnabled() {
 		if r == nil || r.fallback == nil {
 			return nil, store.ErrAPIKeyNotFound
 		}
