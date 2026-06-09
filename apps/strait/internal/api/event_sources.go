@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
 	"time"
 
@@ -528,8 +527,25 @@ func (s *Server) releaseEventSourceSignatureReplay(ctx context.Context, projectI
 }
 
 func eventSourceSignatureReplayKey(sourceID, algorithm, sigHeader string) string {
-	sum := sha256.Sum256([]byte(fmt.Sprintf("event-source-signature:%s:%s:%s", sourceID, algorithm, sigHeader)))
-	return "event-source-signature:" + hex.EncodeToString(sum[:])
+	const prefix = "event-source-signature:"
+	size := len(prefix) + len(sourceID) + 1 + len(algorithm) + 1 + len(sigHeader)
+	var stack [256]byte
+	input := stack[:0]
+	if size > len(stack) {
+		input = make([]byte, 0, size)
+	}
+	input = append(input, prefix...)
+	input = append(input, sourceID...)
+	input = append(input, ':')
+	input = append(input, algorithm...)
+	input = append(input, ':')
+	input = append(input, sigHeader...)
+
+	sum := sha256.Sum256(input)
+	var out [len(prefix) + sha256.Size*2]byte
+	copy(out[:], prefix)
+	hex.Encode(out[len(prefix):], sum[:])
+	return string(out[:])
 }
 
 func (s *Server) dispatchEventSubscription(

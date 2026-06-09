@@ -269,6 +269,22 @@ func TestDispatchHMAC_DifferentInputsDifferentSigs(t *testing.T) {
 	assert.NotEqual(t, s2, s1)
 }
 
+func BenchmarkDispatchHMAC(b *testing.B) {
+	body := []byte(`{"event":"run.assigned","run_id":"run-1","status":"executing"}`)
+	secret := "endpoint-signing-secret"
+	timestamp := "1780839000"
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for range b.N {
+		signature := dispatchHMAC(secret, timestamp, body)
+		if len(signature) == 0 {
+			b.Fatal("dispatchHMAC() returned empty signature")
+		}
+	}
+}
+
 func TestBuildAssignment_RunTokenIncludesAttemptAndAssignment(t *testing.T) {
 	dispatcher := &WorkerDispatcher{jwtSigningKey: "test-jwt-key"}
 	run := &domain.JobRun{ID: "run-1", ProjectID: "proj-1", Attempt: 3}

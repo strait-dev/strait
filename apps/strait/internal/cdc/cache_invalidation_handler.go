@@ -3,7 +3,6 @@ package cdc
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"log/slog"
 	"strconv"
 	"time"
@@ -176,7 +175,23 @@ func permissionCacheKey(projectID, userID string) string {
 }
 
 func jobDependencyCacheKey(jobID string, limit int) string {
-	return fmt.Sprintf("%s\x00%d\x00", jobID, limit)
+	const maxIntDigits = 20
+	const sepCount = 2
+	size := len(jobID) + sepCount + maxIntDigits
+	if size <= 96 {
+		var buf [96]byte
+		out := append(buf[:0], jobID...)
+		out = append(out, 0)
+		out = strconv.AppendInt(out, int64(limit), 10)
+		out = append(out, 0)
+		return string(out)
+	}
+	out := make([]byte, 0, size)
+	out = append(out, jobID...)
+	out = append(out, 0)
+	out = strconv.AppendInt(out, int64(limit), 10)
+	out = append(out, 0)
+	return string(out)
 }
 
 func cacheVersionFromRecord(record map[string]any) int64 {

@@ -23,6 +23,19 @@ func TestWorkflowProgression_GroupEventsByWorkflow(t *testing.T) {
 		1)
 }
 
+func TestWorkflowProgression_GroupEventsByWorkflowSingleWorkflow(t *testing.T) {
+	events := []store.WorkflowProgressionEvent{
+		{ID: 1, WorkflowRunID: "wf-a", StepRunID: "step-a"},
+		{ID: 2, WorkflowRunID: "wf-a", StepRunID: "step-b"},
+		{ID: 3, WorkflowRunID: "wf-a", StepRunID: "step-c"},
+	}
+
+	grouped := groupProgressionEventsByWorkflow(events)
+
+	require.Len(t, grouped, 1)
+	require.Equal(t, events, grouped["wf-a"])
+}
+
 type fakeProgressionEventStore struct {
 	events    []store.WorkflowProgressionEvent
 	processed []int64

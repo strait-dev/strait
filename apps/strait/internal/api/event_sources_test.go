@@ -2,6 +2,8 @@ package api
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -14,6 +16,34 @@ import (
 
 	"github.com/stretchr/testify/require"
 )
+
+func TestEventSourceSignatureReplayKey(t *testing.T) {
+	t.Parallel()
+
+	sourceID := "src-1"
+	algorithm := "hmac-sha256"
+	sigHeader := "sha256=abcdef"
+	sum := sha256.Sum256([]byte("event-source-signature:" + sourceID + ":" + algorithm + ":" + sigHeader))
+	want := "event-source-signature:" + hex.EncodeToString(sum[:])
+
+	require.Equal(t, want, eventSourceSignatureReplayKey(sourceID, algorithm, sigHeader))
+}
+
+func BenchmarkEventSourceSignatureReplayKey(b *testing.B) {
+	sourceID := "src_0123456789abcdef"
+	algorithm := "hmac-sha256"
+	sigHeader := "sha256=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for range b.N {
+		key := eventSourceSignatureReplayKey(sourceID, algorithm, sigHeader)
+		if key == "" {
+			b.Fatal("eventSourceSignatureReplayKey() returned empty key")
+		}
+	}
+}
 
 // handleCreateEventSource.
 

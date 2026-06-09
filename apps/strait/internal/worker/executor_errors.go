@@ -99,12 +99,19 @@ func isBudgetError(err error) bool {
 // retry attempts without storing the full error string in metadata. Truncates
 // by rune so multi-byte UTF-8 sequences are never split mid-character.
 func errorHash(errMsg string) string {
-	runes := []rune(errMsg)
-	if len(runes) > 200 {
-		runes = runes[:200]
+	end := len(errMsg)
+	runeCount := 0
+	for idx := range errMsg {
+		if runeCount == 200 {
+			end = idx
+			break
+		}
+		runeCount++
 	}
-	h := sha256.Sum256([]byte(string(runes)))
-	return hex.EncodeToString(h[:8])
+	h := sha256.Sum256([]byte(errMsg[:end]))
+	var out [16]byte
+	hex.Encode(out[:], h[:8])
+	return string(out[:])
 }
 
 func errorHashForError(err error) string {

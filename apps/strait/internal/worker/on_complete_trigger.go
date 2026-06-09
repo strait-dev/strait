@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"strconv"
 
 	"strait/internal/domain"
 )
@@ -86,16 +87,7 @@ func (t *OnCompleteTrigger) MaybeTriggerOnFailure(ctx context.Context, run *doma
 		return
 	}
 
-	// Build failure context payload.
-	failurePayload, _ := json.Marshal(map[string]any{
-		"source_job_id":  job.ID,
-		"source_run_id":  run.ID,
-		"error":          errMsg,
-		"error_class":    run.ErrorClass,
-		"status":         string(run.Status),
-		"attempt":        run.Attempt,
-		"original_input": run.Payload,
-	})
+	failurePayload, _ := marshalOnFailurePayload(job, run, errMsg)
 
 	payload := json.RawMessage(failurePayload)
 	if len(job.OnFailurePayloadMapping) > 0 {
@@ -126,4 +118,54 @@ func isTerminalFailureStatus(status domain.RunStatus) bool {
 	default:
 		return false
 	}
+}
+
+func marshalOnFailurePayload(job *domain.Job, run *domain.JobRun, errMsg string) ([]byte, error) {
+	originalInput := []byte(run.Payload)
+	if originalInput == nil {
+		originalInput = []byte("null")
+	} else if !json.Valid(originalInput) {
+		return json.Marshal(onFailurePayload{
+			SourceJobID:   job.ID,
+			SourceRunID:   run.ID,
+			Error:         errMsg,
+			ErrorClass:    run.ErrorClass,
+			Status:        string(run.Status),
+			Attempt:       run.Attempt,
+			OriginalInput: run.Payload,
+		})
+	}
+
+	const (
+		onFailurePayloadFixedBytes = 98
+		maxIntDecimalBytes         = 20
+	)
+	payload := make([]byte, 0,
+		onFailurePayloadFixedBytes+maxIntDecimalBytes+len(job.ID)+len(run.ID)+len(errMsg)+len(run.ErrorClass)+len(run.Status)+len(originalInput))
+	payload = append(payload, `{"source_job_id":`...)
+	payload = strconv.AppendQuote(payload, job.ID)
+	payload = append(payload, `,"source_run_id":`...)
+	payload = strconv.AppendQuote(payload, run.ID)
+	payload = append(payload, `,"error":`...)
+	payload = strconv.AppendQuote(payload, errMsg)
+	payload = append(payload, `,"error_class":`...)
+	payload = strconv.AppendQuote(payload, run.ErrorClass)
+	payload = append(payload, `,"status":`...)
+	payload = strconv.AppendQuote(payload, string(run.Status))
+	payload = append(payload, `,"attempt":`...)
+	payload = strconv.AppendInt(payload, int64(run.Attempt), 10)
+	payload = append(payload, `,"original_input":`...)
+	payload = append(payload, originalInput...)
+	payload = append(payload, '}')
+	return payload, nil
+}
+
+type onFailurePayload struct {
+	SourceJobID   string          `json:"source_job_id"`
+	SourceRunID   string          `json:"source_run_id"`
+	Error         string          `json:"error"`
+	ErrorClass    string          `json:"error_class"`
+	Status        string          `json:"status"`
+	Attempt       int             `json:"attempt"`
+	OriginalInput json.RawMessage `json:"original_input"`
 }

@@ -33,6 +33,14 @@ func TestSimulate_DryRun_LinearDAG(t *testing.T) {
 	assert.Equal(t, 60, result.
 		EstimatedDuration,
 	)
+	assert.Equal(t, []int{0, 1, 2}, []int{
+		result.ExecutionPlan[0].ParallelGroup,
+		result.ExecutionPlan[1].ParallelGroup,
+		result.ExecutionPlan[2].ParallelGroup,
+	})
+	require.Len(t, result.DAG.Edges, 2)
+	assert.Equal(t, DAGEdge{From: "a", To: "b"}, result.DAG.Edges[0])
+	assert.Equal(t, DAGEdge{From: "b", To: "c"}, result.DAG.Edges[1])
 }
 
 func TestSimulate_DryRun_ParallelBranches(t *testing.T) {

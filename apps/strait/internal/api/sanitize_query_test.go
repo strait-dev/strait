@@ -93,6 +93,44 @@ func BenchmarkShouldLogRequestSuccess(b *testing.B) {
 	}
 }
 
+func BenchmarkSanitizeQuery(b *testing.B) {
+	benchmarks := []struct {
+		name   string
+		params map[string][]string
+	}{
+		{name: "empty", params: map[string][]string{}},
+		{name: "safe", params: map[string][]string{
+			"cursor": {"abc123"},
+			"limit":  {"100"},
+			"status": {"active"},
+		}},
+		{name: "sensitive_lower", params: map[string][]string{
+			"access_token": {"secret-token"},
+			"cursor":       {"abc123"},
+		}},
+		{name: "sensitive_mixed", params: map[string][]string{
+			"X-CSRF-Token": {"csrf-token-value"},
+			"page":         {"3"},
+		}},
+		{name: "multi_values", params: map[string][]string{
+			"sort":      {"created_at", "updated_at"},
+			"signature": {"abc", "def"},
+		}},
+	}
+
+	for _, bm := range benchmarks {
+		b.Run(bm.name, func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				out := sanitizeQuery(bm.params)
+				if len(bm.params) > 0 && out == "" {
+					b.Fatal("sanitizeQuery returned empty output")
+				}
+			}
+		})
+	}
+}
+
 // TestSanitizeQueryPreservesSafeParams regresses the happy
 // path: benign pagination/sort params keep their values.
 func TestSanitizeQueryPreservesSafeParams(t *testing.T) {

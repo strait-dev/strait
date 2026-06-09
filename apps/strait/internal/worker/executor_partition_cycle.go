@@ -26,22 +26,22 @@ func buildPartitionCycle(partitions []string, weightsRaw string) []string {
 }
 
 func parsePartitionWeights(raw string) map[string]int {
-	weights := make(map[string]int)
 	if raw == "" {
-		return weights
+		return nil
 	}
 
+	weights := make(map[string]int)
 	for _, token := range strings.FieldsFunc(raw, func(r rune) bool { return r == ',' }) {
 		token = strings.TrimSpace(token)
 		if token == "" {
 			continue
 		}
-		parts := strings.SplitN(token, ":", 2)
-		if len(parts) != 2 {
+		keyRaw, weightRaw, ok := strings.Cut(token, ":")
+		if !ok {
 			continue
 		}
-		key := strings.TrimSpace(parts[0])
-		weight, err := strconv.Atoi(strings.TrimSpace(parts[1]))
+		key := strings.TrimSpace(keyRaw)
+		weight, err := strconv.Atoi(strings.TrimSpace(weightRaw))
 		if err != nil || weight <= 0 {
 			continue
 		}

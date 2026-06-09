@@ -463,6 +463,17 @@ func TestHashAPIKey_DifferentKeys(t *testing.T) {
 	require.NotEqual(t, h2, h1)
 }
 
+func BenchmarkHashAPIKey(b *testing.B) {
+	key := "strait_" + strings.Repeat("ab", 32)
+
+	b.ReportAllocs()
+	for b.Loop() {
+		if hashAPIKey(key) == "" {
+			b.Fatal("hashAPIKey returned empty hash")
+		}
+	}
+}
+
 func TestAPIKeyAuth_ValidKey(t *testing.T) {
 	t.Parallel()
 	rawKey := "strait_" + strings.Repeat("ab", 32)

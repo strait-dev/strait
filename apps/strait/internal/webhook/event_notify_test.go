@@ -1072,6 +1072,225 @@ func TestComputeIdempotencyKey_HMACDerivation(t *testing.T) {
 			deliveryID, 2))
 }
 
+func TestWebhookDeliveryPayloadMarshalers(t *testing.T) {
+	t.Parallel()
+
+	ts := time.Date(2026, 6, 7, 12, 0, 0, 0, time.UTC)
+	triggerPayload, err := marshalEventTriggerNotifyPayload(&domain.EventTrigger{
+		ID:        "trigger-1",
+		EventKey:  "evt-1",
+		ProjectID: "project-1",
+		ExpiresAt: ts,
+	})
+	require.NoError(t, err)
+	require.JSONEq(t, `{"event_key":"evt-1","trigger_id":"trigger-1","project_id":"project-1","expires_at":"2026-06-07T12:00:00Z","callback_url":"/v1/events/evt-1/send"}`, string(triggerPayload))
+
+	runPayload, err := marshalRunWebhookPayload(&domain.JobRun{
+		ID:        "run-1",
+		JobID:     "job-1",
+		ProjectID: "project-1",
+		Status:    domain.StatusCompleted,
+		Attempt:   2,
+		Result:    json.RawMessage(`{"ok":true}`),
+	}, ts)
+	require.NoError(t, err)
+	require.JSONEq(t, `{"run_id":"run-1","job_id":"job-1","project_id":"project-1","status":"completed","attempt":2,"result":{"ok":true},"error":"","timestamp":"2026-06-07T12:00:00Z"}`, string(runPayload))
+
+	fallback := marshalDeliveryFallbackPayload(&domain.WebhookDelivery{
+		ID:             "delivery-1",
+		EventTriggerID: "trigger-1",
+	})
+	require.JSONEq(t, `{"trigger_id":"trigger-1","delivery_id":"delivery-1"}`, string(fallback))
+}
+
+func TestWebhookDeliveryPayloadMarshalersEscapeFields(t *testing.T) {
+	t.Parallel()
+
+	ts := time.Date(2026, 6, 7, 12, 0, 0, 123456789, time.FixedZone("offset", -3*60*60))
+	triggerPayload, err := marshalEventTriggerNotifyPayload(&domain.EventTrigger{
+		ID:        "trigger-\"1",
+		EventKey:  "evt-\\\n<&>",
+		ProjectID: "project-<&>",
+		ExpiresAt: ts,
+	})
+	require.NoError(t, err)
+	require.JSONEq(t, `{"event_key":"evt-\\\n<&>","trigger_id":"trigger-\"1","project_id":"project-<&>","expires_at":"2026-06-07T12:00:00.123456789-03:00","callback_url":"/v1/events/evt-\\\n<&>/send"}`, string(triggerPayload))
+
+	runPayload, err := marshalRunWebhookPayload(&domain.JobRun{
+		ID:        "run-\"1",
+		JobID:     "job-\\1",
+		ProjectID: "project\n1",
+		Status:    domain.StatusCompleted,
+		Attempt:   2,
+		Result:    json.RawMessage(`[1,2,3]`),
+		Error:     "boom <&>",
+	}, ts)
+	require.NoError(t, err)
+	require.JSONEq(t, `{"run_id":"run-\"1","job_id":"job-\\1","project_id":"project\n1","status":"completed","attempt":2,"result":[1,2,3],"error":"boom <&>","timestamp":"2026-06-07T12:00:00.123456789-03:00"}`, string(runPayload))
+
+	fallback := marshalDeliveryFallbackPayload(&domain.WebhookDelivery{
+		ID:             "delivery-\"1",
+		EventTriggerID: "trigger\n1",
+	})
+	require.JSONEq(t, `{"trigger_id":"trigger\n1","delivery_id":"delivery-\"1"}`, string(fallback))
+}
+
+func TestMarshalRunWebhookPayloadHandlesResultEdges(t *testing.T) {
+	t.Parallel()
+
+	ts := time.Date(2026, 6, 7, 12, 0, 0, 0, time.UTC)
+	runPayload, err := marshalRunWebhookPayload(&domain.JobRun{
+		ID:        "run-1",
+		JobID:     "job-1",
+		ProjectID: "project-1",
+		Status:    domain.StatusCompleted,
+		Attempt:   1,
+	}, ts)
+	require.NoError(t, err)
+	require.JSONEq(t, `{"run_id":"run-1","job_id":"job-1","project_id":"project-1","status":"completed","attempt":1,"result":null,"error":"","timestamp":"2026-06-07T12:00:00Z"}`, string(runPayload))
+
+	runPayload, err = marshalRunWebhookPayload(&domain.JobRun{
+		ID:        "run-1",
+		JobID:     "job-1",
+		ProjectID: "project-1",
+		Status:    domain.StatusCompleted,
+		Attempt:   1,
+		Result:    json.RawMessage(`{"broken"`),
+	}, ts)
+	require.Error(t, err)
+	require.Nil(t, runPayload)
+}
+
+func BenchmarkWebhookDeliveryPayloadMarshalers(b *testing.B) {
+	ts := time.Date(2026, 6, 7, 12, 0, 0, 0, time.UTC)
+
+	b.Run("event_trigger_notify", func(b *testing.B) {
+		trigger := &domain.EventTrigger{
+			ID:        "trigger-1",
+			EventKey:  "evt-1",
+			ProjectID: "project-1",
+			ExpiresAt: ts,
+		}
+		b.ReportAllocs()
+		for range b.N {
+			payload, err := marshalEventTriggerNotifyPayload(trigger)
+			if err != nil {
+				b.Fatalf("marshalEventTriggerNotifyPayload() error = %v", err)
+			}
+			if len(payload) == 0 {
+				b.Fatal("marshalEventTriggerNotifyPayload() returned empty payload")
+			}
+		}
+	})
+
+	b.Run("run_webhook", func(b *testing.B) {
+		run := &domain.JobRun{
+			ID:        "run-1",
+			JobID:     "job-1",
+			ProjectID: "project-1",
+			Status:    domain.StatusCompleted,
+			Attempt:   2,
+			Result:    json.RawMessage(`{"ok":true}`),
+		}
+		b.ReportAllocs()
+		for range b.N {
+			payload, err := marshalRunWebhookPayload(run, ts)
+			if err != nil {
+				b.Fatalf("marshalRunWebhookPayload() error = %v", err)
+			}
+			if len(payload) == 0 {
+				b.Fatal("marshalRunWebhookPayload() returned empty payload")
+			}
+		}
+	})
+
+	b.Run("fallback", func(b *testing.B) {
+		delivery := &domain.WebhookDelivery{ID: "delivery-1", EventTriggerID: "trigger-1"}
+		b.ReportAllocs()
+		for range b.N {
+			payload := marshalDeliveryFallbackPayload(delivery)
+			if len(payload) == 0 {
+				b.Fatal("marshalDeliveryFallbackPayload() returned empty payload")
+			}
+		}
+	})
+}
+
+func BenchmarkComputeReplayKey(b *testing.B) {
+	secret := []byte("whsec_test_secret_bytes")
+	deliveryID := "whd-signed-1"
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for range b.N {
+		key := ComputeReplayKey(secret, deliveryID)
+		if len(key) == 0 {
+			b.Fatal("ComputeReplayKey() returned empty key")
+		}
+	}
+}
+
+func BenchmarkComputeIdempotencyKey(b *testing.B) {
+	secret := []byte("whsec_test_secret_bytes")
+	deliveryID := "whd-signed-1"
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for range b.N {
+		key := ComputeIdempotencyKey(secret, deliveryID, 2)
+		if len(key) == 0 {
+			b.Fatal("ComputeIdempotencyKey() returned empty key")
+		}
+	}
+}
+
+func TestApplyDeliveryMetadataHeaders(t *testing.T) {
+	t.Parallel()
+
+	req, err := http.NewRequest(http.MethodPost, "https://example.com/hooks", nil)
+	require.NoError(t, err)
+
+	applyDeliveryMetadataHeaders(req, &domain.WebhookDelivery{
+		ID:             "delivery-1",
+		EventTriggerID: "trigger-1",
+		RunID:          "run-1",
+		JobID:          "job-1",
+		Attempts:       12,
+		MaxAttempts:    30,
+	})
+
+	assert.Equal(t, "application/json", req.Header.Get("Content-Type"))
+	assert.Equal(t, "trigger-1", req.Header.Get("X-Strait-Trigger-ID"))
+	assert.Equal(t, "run-1", req.Header.Get("X-Run-ID"))
+	assert.Equal(t, "job-1", req.Header.Get("X-Job-ID"))
+	assert.Equal(t, "delivery-1", req.Header.Get("X-Strait-Delivery-ID"))
+	assert.Equal(t, "12/30", req.Header.Get("X-Strait-Attempt"))
+}
+
+func BenchmarkApplyDeliveryMetadataHeaders(b *testing.B) {
+	delivery := &domain.WebhookDelivery{
+		ID:             "delivery-1",
+		EventTriggerID: "trigger-1",
+		RunID:          "run-1",
+		JobID:          "job-1",
+		Attempts:       12,
+		MaxAttempts:    30,
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for range b.N {
+		req, err := http.NewRequest(http.MethodPost, "https://example.com/hooks", nil)
+		if err != nil {
+			b.Fatal(err)
+		}
+		applyDeliveryMetadataHeaders(req, delivery)
+	}
+}
+
 func TestAttemptDelivery_WithSubscriptionID_AuthenticatesReplayAndIdempotencyKeys(t *testing.T) {
 	t.Parallel()
 

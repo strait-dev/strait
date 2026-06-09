@@ -16,6 +16,9 @@ func addWorkerRunBreadcrumb(ctx context.Context, category, message string, run *
 	if run == nil {
 		return
 	}
+	if sentry.GetHubFromContext(ctx) == nil {
+		return
+	}
 	if data == nil {
 		data = map[string]any{}
 	}

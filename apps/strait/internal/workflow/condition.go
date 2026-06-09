@@ -133,6 +133,29 @@ func evaluateStepStatusCondition(cond json.RawMessage, stepStatuses map[string]d
 	return actualStatus == domain.StepRunStatus(statusValue.Str), nil
 }
 
+func evaluateStepStatusConditionResult(cond gjson.Result, stepStatuses map[string]domain.StepRunStatus) (bool, error) {
+	stepRefValue := cond.Get("step_ref")
+	statusValue := cond.Get("status")
+	invalidShape := stepRefValue.Exists() && stepRefValue.Type != gjson.String
+	invalidShape = invalidShape || (statusValue.Exists() && statusValue.Type != gjson.String)
+	if invalidShape {
+		var c stepStatusCondition
+		if err := json.Unmarshal([]byte(cond.Raw), &c); err != nil {
+			return false, fmt.Errorf("unmarshal step_status condition: %w", err)
+		}
+	}
+
+	stepRef := stepRefValue.Str
+	if stepRef == "" {
+		return false, fmt.Errorf("step_ref is required for step_status condition")
+	}
+	actualStatus, found := stepStatuses[stepRef]
+	if !found {
+		return false, fmt.Errorf("step %q not found in statuses", stepRef)
+	}
+	return actualStatus == domain.StepRunStatus(statusValue.Str), nil
+}
+
 func evaluateStepStatusInCondition(cond json.RawMessage, stepStatuses map[string]domain.StepRunStatus) (bool, error) {
 	stepRefValue := gjson.GetBytes(cond, "step_ref")
 	allowedStatuses := gjson.GetBytes(cond, "statuses")
@@ -176,12 +199,55 @@ func evaluateStepStatusInCondition(cond json.RawMessage, stepStatuses map[string
 	return matched, nil
 }
 
+func evaluateStepStatusInConditionResult(cond gjson.Result, stepStatuses map[string]domain.StepRunStatus) (bool, error) {
+	stepRefValue := cond.Get("step_ref")
+	allowedStatuses := cond.Get("statuses")
+	invalidShape := stepRefValue.Exists() && stepRefValue.Type != gjson.String
+	invalidShape = invalidShape || (allowedStatuses.Exists() && !allowedStatuses.IsArray())
+	if invalidShape {
+		var c stepStatusInCondition
+		if err := json.Unmarshal([]byte(cond.Raw), &c); err != nil {
+			return false, fmt.Errorf("unmarshal step_status_in condition: %w", err)
+		}
+	}
+
+	stepRef := stepRefValue.Str
+	if stepRef == "" {
+		return false, fmt.Errorf("step_ref is required for step_status_in condition")
+	}
+	actualStatus, found := stepStatuses[stepRef]
+	if !found {
+		return false, fmt.Errorf("step %q not found in statuses", stepRef)
+	}
+
+	var invalidAllowedStatus bool
+	var matched bool
+	allowedStatuses.ForEach(func(_, status gjson.Result) bool {
+		if status.Type != gjson.String {
+			invalidAllowedStatus = true
+			return false
+		}
+		if actualStatus == domain.StepRunStatus(status.Str) {
+			matched = true
+			return false
+		}
+		return true
+	})
+	if invalidAllowedStatus {
+		var c stepStatusInCondition
+		if err := json.Unmarshal([]byte(cond.Raw), &c); err != nil {
+			return false, fmt.Errorf("unmarshal step_status_in condition: %w", err)
+		}
+	}
+	return matched, nil
+}
+
 func evaluateNotCondition(cond json.RawMessage, stepStatuses map[string]domain.StepRunStatus) (bool, error) {
 	nested := gjson.GetBytes(cond, "condition")
 	if !nested.Exists() {
 		return false, fmt.Errorf("condition is required for not condition")
 	}
-	ok, err := EvaluateCondition(json.RawMessage(nested.Raw), stepStatuses)
+	ok, err := evaluateConditionResult(nested, stepStatuses)
 	if err != nil {
 		return false, err
 	}
@@ -198,7 +264,7 @@ func evaluateAllOfCondition(cond json.RawMessage, stepStatuses map[string]domain
 	allMet := true
 	conditions.ForEach(func(_, subCondition gjson.Result) bool {
 		var ok bool
-		ok, evalErr = EvaluateCondition(json.RawMessage(subCondition.Raw), stepStatuses)
+		ok, evalErr = evaluateConditionResult(subCondition, stepStatuses)
 		if evalErr != nil {
 			return false
 		}
@@ -224,7 +290,7 @@ func evaluateAnyOfCondition(cond json.RawMessage, stepStatuses map[string]domain
 	var anyMet bool
 	conditions.ForEach(func(_, subCondition gjson.Result) bool {
 		var ok bool
-		ok, evalErr = EvaluateCondition(json.RawMessage(subCondition.Raw), stepStatuses)
+		ok, evalErr = evaluateConditionResult(subCondition, stepStatuses)
 		if evalErr != nil {
 			return false
 		}
@@ -251,6 +317,107 @@ func compositeConditions(cond json.RawMessage, condType string) (gjson.Result, e
 	return conditions, nil
 }
 
+func evaluateConditionResult(cond gjson.Result, stepStatuses map[string]domain.StepRunStatus) (bool, error) {
+	condType := cond.Get("type").String()
+	if condType == "" {
+		return false, fmt.Errorf("unknown condition type: %q", "")
+	}
+
+	switch condType {
+	case "step_status":
+		return evaluateStepStatusConditionResult(cond, stepStatuses)
+	case "step_status_in":
+		return evaluateStepStatusInConditionResult(cond, stepStatuses)
+	case "not":
+		return evaluateNotConditionResult(cond, stepStatuses)
+	case "all_of":
+		return evaluateAllOfConditionResult(cond, stepStatuses)
+	case "any_of":
+		return evaluateAnyOfConditionResult(cond, stepStatuses)
+	case "eq", "ne", "gt", "gte", "lt", "lte", "contains", "in", "regex":
+		return evaluateBinaryConditionResult(condType, cond, stepStatuses)
+	case "exists":
+		return evaluateExistsConditionResult(cond, stepStatuses)
+	default:
+		return false, fmt.Errorf("unknown condition type: %q", condType)
+	}
+}
+
+func evaluateNotConditionResult(cond gjson.Result, stepStatuses map[string]domain.StepRunStatus) (bool, error) {
+	nested := cond.Get("condition")
+	if !nested.Exists() {
+		return false, fmt.Errorf("condition is required for not condition")
+	}
+	ok, err := evaluateConditionResult(nested, stepStatuses)
+	if err != nil {
+		return false, err
+	}
+	return !ok, nil
+}
+
+func evaluateAllOfConditionResult(cond gjson.Result, stepStatuses map[string]domain.StepRunStatus) (bool, error) {
+	conditions, err := compositeConditionsResult(cond, "all_of")
+	if err != nil {
+		return false, err
+	}
+
+	var evalErr error
+	allMet := true
+	conditions.ForEach(func(_, subCondition gjson.Result) bool {
+		var ok bool
+		ok, evalErr = evaluateConditionResult(subCondition, stepStatuses)
+		if evalErr != nil {
+			return false
+		}
+		if !ok {
+			allMet = false
+			return false
+		}
+		return true
+	})
+	if evalErr != nil {
+		return false, evalErr
+	}
+	return allMet, nil
+}
+
+func evaluateAnyOfConditionResult(cond gjson.Result, stepStatuses map[string]domain.StepRunStatus) (bool, error) {
+	conditions, err := compositeConditionsResult(cond, "any_of")
+	if err != nil {
+		return false, err
+	}
+
+	var evalErr error
+	var anyMet bool
+	conditions.ForEach(func(_, subCondition gjson.Result) bool {
+		var ok bool
+		ok, evalErr = evaluateConditionResult(subCondition, stepStatuses)
+		if evalErr != nil {
+			return false
+		}
+		if ok {
+			anyMet = true
+			return false
+		}
+		return true
+	})
+	if evalErr != nil {
+		return false, evalErr
+	}
+	return anyMet, nil
+}
+
+func compositeConditionsResult(cond gjson.Result, condType string) (gjson.Result, error) {
+	conditions := cond.Get("conditions")
+	if conditions.Exists() && !conditions.IsArray() {
+		var c compositeCondition
+		if err := json.Unmarshal([]byte(cond.Raw), &c); err != nil {
+			return gjson.Result{}, fmt.Errorf("unmarshal %s condition: %w", condType, err)
+		}
+	}
+	return conditions, nil
+}
+
 func evaluateBinaryCondition(
 	condType string,
 	cond json.RawMessage,
@@ -262,6 +429,40 @@ func evaluateBinaryCondition(
 
 	var c binaryCondition
 	if err := json.Unmarshal(cond, &c); err != nil {
+		return false, fmt.Errorf("unmarshal %s condition: %w", condType, err)
+	}
+	left := resolveOperand(c.Left, stepStatuses)
+	right := resolveOperand(c.Right, stepStatuses)
+
+	switch condType {
+	case "eq":
+		return fmt.Sprint(left) == fmt.Sprint(right), nil
+	case "ne":
+		return fmt.Sprint(left) != fmt.Sprint(right), nil
+	case "gt", "gte", "lt", "lte":
+		return evaluateNumericCondition(condType, left, right)
+	case "contains":
+		return strings.Contains(fmt.Sprint(left), fmt.Sprint(right)), nil
+	case "in":
+		return evaluateInCondition(left, right)
+	case "regex":
+		return evaluateRegexCondition(fmt.Sprint(left), fmt.Sprint(right))
+	default:
+		return false, nil
+	}
+}
+
+func evaluateBinaryConditionResult(
+	condType string,
+	cond gjson.Result,
+	stepStatuses map[string]domain.StepRunStatus,
+) (bool, error) {
+	if handled, ok, err := evaluateFastStringBinaryConditionResult(condType, cond, stepStatuses); ok || err != nil {
+		return handled, err
+	}
+
+	var c binaryCondition
+	if err := json.Unmarshal([]byte(cond.Raw), &c); err != nil {
 		return false, fmt.Errorf("unmarshal %s condition: %w", condType, err)
 	}
 	left := resolveOperand(c.Left, stepStatuses)
@@ -340,6 +541,15 @@ func evaluateExistsCondition(cond json.RawMessage, stepStatuses map[string]domai
 	return fmt.Sprint(v) != "", nil
 }
 
+func evaluateExistsConditionResult(cond gjson.Result, stepStatuses map[string]domain.StepRunStatus) (bool, error) {
+	var c unaryCondition
+	if err := json.Unmarshal([]byte(cond.Raw), &c); err != nil {
+		return false, fmt.Errorf("unmarshal exists condition: %w", err)
+	}
+	v := resolveOperand(c.Operand, stepStatuses)
+	return fmt.Sprint(v) != "", nil
+}
+
 func evaluateFastStringBinaryCondition(
 	condType string,
 	cond json.RawMessage,
@@ -356,6 +566,50 @@ func evaluateFastStringBinaryCondition(
 		return false, false, nil
 	}
 	right, ok := conditionOperandString(gjson.GetBytes(cond, "right"), stepStatuses)
+	if !ok {
+		return false, false, nil
+	}
+
+	switch condType {
+	case "eq":
+		return left == right, true, nil
+	case "ne":
+		return left != right, true, nil
+	case "contains":
+		return strings.Contains(left, right), true, nil
+	case "regex":
+		if len(right) > maxRegexPatternLen {
+			return false, true, fmt.Errorf("regex pattern exceeds maximum length of %d characters", maxRegexPatternLen)
+		}
+		if len(left) > maxRegexInputLen {
+			return false, true, fmt.Errorf("regex input exceeds maximum length of %d characters", maxRegexInputLen)
+		}
+		re, err := cachedConditionRegex(right)
+		if err != nil {
+			return false, true, fmt.Errorf("invalid regex: %w", err)
+		}
+		return re.MatchString(left), true, nil
+	default:
+		return false, false, nil
+	}
+}
+
+func evaluateFastStringBinaryConditionResult(
+	condType string,
+	cond gjson.Result,
+	stepStatuses map[string]domain.StepRunStatus,
+) (bool, bool, error) {
+	switch condType {
+	case "eq", "ne", "contains", "regex":
+	default:
+		return false, false, nil
+	}
+
+	left, ok := conditionOperandString(cond.Get("left"), stepStatuses)
+	if !ok {
+		return false, false, nil
+	}
+	right, ok := conditionOperandString(cond.Get("right"), stepStatuses)
 	if !ok {
 		return false, false, nil
 	}

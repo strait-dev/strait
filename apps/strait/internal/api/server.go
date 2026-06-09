@@ -1439,8 +1439,17 @@ func (s *Server) handleOpenAPISpec(w http.ResponseWriter, r *http.Request) {
 }
 
 func acceptsGzip(acceptEncoding string) bool {
+	if acceptEncoding == "" {
+		return false
+	}
+	if acceptEncoding[0] == 'g' {
+		if acceptEncoding == "gzip" || strings.HasPrefix(acceptEncoding, "gzip;") {
+			return true
+		}
+	}
 	for part := range strings.SplitSeq(acceptEncoding, ",") {
-		if strings.EqualFold(strings.TrimSpace(strings.SplitN(part, ";", 2)[0]), "gzip") {
+		mt, _, _ := strings.Cut(part, ";")
+		if strings.EqualFold(strings.TrimSpace(mt), "gzip") {
 			return true
 		}
 	}

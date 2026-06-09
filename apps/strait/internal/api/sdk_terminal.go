@@ -88,11 +88,11 @@ func (s *Server) handleSDKComplete(ctx context.Context, input *SDKCompleteInput)
 		slog.Error("failed to resume waiting parent", "run_id", runID, "error", err)
 	}
 	if s.pubsub != nil {
-		payload, err := json.Marshal(map[string]any{"type": "status_change", "run_id": runID, "from": string(run.Status), "to": "completed", "timestamp": now.UTC()})
+		payload, err := marshalSDKStatusChangePayload(runID, string(run.Status), "completed", now.UTC())
 		if err != nil {
 			slog.Warn("failed to marshal status change payload", "run_id", runID, "error", err)
 		} else {
-			if err := s.pubsub.Publish(ctx, fmt.Sprintf("run:%s", runID), payload); err != nil {
+			if err := s.pubsub.Publish(ctx, apiRunPubSubChannel(runID), payload); err != nil {
 				slog.Warn("failed to publish event", "run_id", runID, "error", err)
 			}
 		}
@@ -155,18 +155,11 @@ func (s *Server) handleSDKFail(ctx context.Context, input *SDKFailInput) (*SDKFa
 		slog.Error("failed to resume waiting parent", "run_id", runID, "error", err)
 	}
 	if s.pubsub != nil {
-		payload, err := json.Marshal(map[string]any{
-			"type":      "status_change",
-			"run_id":    runID,
-			"from":      string(run.Status),
-			"to":        "failed",
-			"error":     req.Error,
-			"timestamp": now.UTC(),
-		})
+		payload, err := marshalSDKFailedStatusChangePayload(runID, string(run.Status), "failed", req.Error, now.UTC())
 		if err != nil {
 			slog.Warn("failed to marshal status change payload", "run_id", runID, "error", err)
 		} else {
-			if err := s.pubsub.Publish(ctx, fmt.Sprintf("run:%s", runID), payload); err != nil {
+			if err := s.pubsub.Publish(ctx, apiRunPubSubChannel(runID), payload); err != nil {
 				slog.Warn("failed to publish event", "run_id", runID, "error", err)
 			}
 		}

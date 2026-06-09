@@ -214,7 +214,7 @@ func TestSSE_KeepaliveFormat(t *testing.T) {
 }
 
 // FuzzSSEMessageFormat fuzzes the content passed through the SSE data frame
-// format to ensure fmt.Fprintf never panics regardless of input.
+// writer to ensure arbitrary pubsub bytes never panic the stream path.
 func FuzzSSEMessageFormat(f *testing.F) {
 	f.Add([]byte(`{"status":"ok"}`))
 	f.Add([]byte(""))
@@ -226,10 +226,8 @@ func FuzzSSEMessageFormat(f *testing.F) {
 	f.Add([]byte(strings.Repeat("A", 1024)))
 
 	f.Fuzz(func(t *testing.T, data []byte) {
-		// Simulates what handleRunStream does: fmt.Fprintf(w, "data: %s\n\n", msg).
-		// This must never panic.
 		var buf strings.Builder
-		_, _ = fmt.Fprintf(&buf, "data: %s\n\n", data)
+		_ = writeSSEDataFrame(&buf, sseDataFramePrefix(""), data)
 
 		result := buf.String()
 		require.True(

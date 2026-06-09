@@ -239,6 +239,50 @@ func TestBatchFlusher_TransactionalEnqueueFailureRollsBackDrain(t *testing.T) {
 	require.Empty(t, bs.deletedItems)
 }
 
+func TestMarshalBatchPayloadPreservesRawItems(t *testing.T) {
+	t.Parallel()
+
+	payload, err := marshalBatchPayload([]domain.BatchBufferItem{
+		{ID: "item-1", Payload: json.RawMessage(`{"a":1}`)},
+		{ID: "item-2", Payload: json.RawMessage(`"quoted"`)},
+		{ID: "item-3"},
+		{ID: "item-4", Payload: json.RawMessage(`[true,false]`)},
+	})
+	require.NoError(t, err)
+	require.JSONEq(t, `{"items":[{"a":1},"quoted",null,[true,false]]}`, string(payload))
+}
+
+func TestMarshalBatchPayloadRejectsInvalidRawItem(t *testing.T) {
+	t.Parallel()
+
+	payload, err := marshalBatchPayload([]domain.BatchBufferItem{
+		{ID: "bad-item", Payload: json.RawMessage(`{"broken"`)},
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "bad-item")
+	require.Nil(t, payload)
+}
+
+func BenchmarkMarshalBatchPayload(b *testing.B) {
+	items := make([]domain.BatchBufferItem, 128)
+	for i := range items {
+		items[i] = domain.BatchBufferItem{Payload: json.RawMessage(`{"value":123,"status":"queued"}`)}
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for range b.N {
+		payload, err := marshalBatchPayload(items)
+		if err != nil {
+			b.Fatalf("marshalBatchPayload() error = %v", err)
+		}
+		if len(payload) == 0 {
+			b.Fatal("marshalBatchPayload() returned empty payload")
+		}
+	}
+}
+
 func TestBatchFlusher_TransactionalIdempotencyConflictCommitsDrain(t *testing.T) {
 	t.Parallel()
 

@@ -140,6 +140,16 @@ func TestHeartbeatManager_RegisterDeregister(t *testing.T) {
 			},
 			want: 0,
 		},
+		{
+			name: "duplicate deregister keeps active count at zero",
+			run: func(h *HeartbeatManager) {
+				h.Register("run-1")
+				h.Register("run-1")
+				h.Deregister("run-1")
+				h.Deregister("run-1")
+			},
+			want: 0,
+		},
 	}
 
 	for _, tt := range tests {

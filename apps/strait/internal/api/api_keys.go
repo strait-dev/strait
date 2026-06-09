@@ -54,6 +54,7 @@ func generateAPIKey() (string, error) {
 	}
 	return "strait_" + hex.EncodeToString(b), nil
 }
+
 func hashAPIKey(key string) string { return crypto.HashAPIKey(key) }
 
 type CreateAPIKeyInput struct{ Body CreateAPIKeyRequest }
@@ -309,6 +310,14 @@ type RevokeAPIKeyInput struct {
 }
 type RevokeAPIKeyOutput struct{ Body map[string]string }
 
+func apiKeyRevokedChannel(apiKeyID string) string {
+	return "apikey:revoked:" + apiKeyID
+}
+
+func apiKeyExpiresChannel(apiKeyID string) string {
+	return "apikey:expires:" + apiKeyID
+}
+
 func (s *Server) handleRevokeAPIKey(ctx context.Context, input *RevokeAPIKeyInput) (*RevokeAPIKeyOutput, error) {
 	key, err := s.store.GetAPIKeyByID(ctx, input.KeyID)
 	if err != nil {
@@ -341,7 +350,7 @@ func (s *Server) handleRevokeAPIKey(ctx context.Context, input *RevokeAPIKeyInpu
 	// Broadcast revocation to all gRPC replicas so any worker streams authenticated
 	// with this key are closed immediately.
 	if s.pubsub != nil {
-		revokeChannel := fmt.Sprintf("apikey:revoked:%s", input.KeyID)
+		revokeChannel := apiKeyRevokedChannel(input.KeyID)
 		if pubErr := s.pubsub.Publish(ctx, revokeChannel, []byte(input.KeyID)); pubErr != nil {
 			slog.Error("api key revoke: broadcast publish failed",
 				"key_id", input.KeyID,
@@ -429,7 +438,7 @@ func (s *Server) handleRotateAPIKey(ctx context.Context, input *RotateAPIKeyInpu
 	oldKeyVersion := apiKeyCacheVersionAfterMutation(oldKey.CacheVersion, rotatedOldKey, getErr)
 	s.apiKeyCache.InvalidateWithVersion(ctx, oldKey.KeyHash, oldKeyVersion)
 	if s.pubsub != nil && oldKey.ID != "" {
-		expireChannel := fmt.Sprintf("apikey:expires:%s", oldKey.ID)
+		expireChannel := apiKeyExpiresChannel(oldKey.ID)
 		if pubErr := s.pubsub.Publish(ctx, expireChannel, []byte(graceExpiresAt.UTC().Format(time.RFC3339Nano))); pubErr != nil {
 			slog.Error("api key rotation expiry broadcast failed",
 				"key_id", oldKey.ID,

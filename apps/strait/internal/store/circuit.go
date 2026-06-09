@@ -16,6 +16,10 @@ func (q *Queries) GetEndpointCircuitState(ctx context.Context, endpointURL strin
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetEndpointCircuitState")
 	defer span.End()
 
+	return q.getEndpointCircuitState(ctx, endpointURL)
+}
+
+func (q *Queries) getEndpointCircuitState(ctx context.Context, endpointURL string) (*domain.EndpointCircuitState, error) {
 	const sql = `
 		SELECT endpoint_url, state, consecutive_failures, opened_at, half_open_until, updated_at, created_at
 		FROM endpoint_circuit_state
@@ -46,7 +50,7 @@ func (q *Queries) CanDispatchEndpoint(ctx context.Context, endpointURL string, n
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.CanDispatchEndpoint")
 	defer span.End()
 
-	state, err := q.GetEndpointCircuitState(ctx, endpointURL)
+	state, err := q.getEndpointCircuitState(ctx, endpointURL)
 	if err != nil {
 		return false, nil, err
 	}

@@ -83,6 +83,10 @@ func TestRealIP_XForwardedFor(t *testing.T) {
 			xff:  "1.2.3.4, 10.0.0.7, 10.0.0.8", addr: "10.0.0.5:1234", trusted: internalProxies, want: "1.2.3.4",
 		},
 		{
+			name: "trusted peer skips empty and whitespace xff hops",
+			xff:  " 1.2.3.4 , , 10.0.0.7,   ", addr: "10.0.0.5:1234", trusted: internalProxies, want: "1.2.3.4",
+		},
+		{
 			name: "trusted peer with xff that is all trusted falls back to remote addr",
 			xff:  "10.0.0.7, 10.0.0.8", addr: "10.0.0.5:1234", trusted: internalProxies, want: "10.0.0.5",
 		},

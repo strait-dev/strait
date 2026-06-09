@@ -571,14 +571,22 @@ func (d *WorkerDispatcher) buildAssignment(run *domain.JobRun, job *domain.Job, 
 	return a, nil
 }
 
+var dispatchHMACSeparator = []byte(".")
+
 // dispatchHMAC returns `v1=<hex-sha256>` for the given secret, timestamp, and
 // body. Matches worker.SignHTTPDispatch exactly.
 func dispatchHMAC(secret, timestamp string, body []byte) string {
 	mac := hmac.New(sha256.New, []byte(secret))
 	mac.Write([]byte(timestamp))
-	mac.Write([]byte("."))
+	mac.Write(dispatchHMACSeparator)
 	mac.Write(body)
-	return "v1=" + hex.EncodeToString(mac.Sum(nil))
+
+	var sum [sha256.Size]byte
+	digest := mac.Sum(sum[:0])
+	out := make([]byte, len("v1=")+hex.EncodedLen(len(digest)))
+	copy(out, "v1=")
+	hex.Encode(out[len("v1="):], digest)
+	return string(out)
 }
 
 // TaskResultStatus returns the status string from an opaque TaskResult

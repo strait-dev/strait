@@ -76,3 +76,64 @@ func FuzzRequireJSONContentType(f *testing.F) {
 		assert.Contains(t, []int{http.StatusOK, http.StatusUnsupportedMediaType}, w.Code)
 	})
 }
+
+type contentTypeBenchmarkResponseWriter struct {
+	header http.Header
+	status int
+}
+
+func (w *contentTypeBenchmarkResponseWriter) Header() http.Header {
+	return w.header
+}
+
+func (w *contentTypeBenchmarkResponseWriter) Write(data []byte) (int, error) {
+	return len(data), nil
+}
+
+func (w *contentTypeBenchmarkResponseWriter) WriteHeader(status int) {
+	w.status = status
+}
+
+func BenchmarkRequireJSONContentType(b *testing.B) {
+	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+	handler := requireJSONContentType(inner)
+
+	benchmarks := []struct {
+		name        string
+		method      string
+		contentType string
+		body        string
+		want        int
+	}{
+		{name: "get_bypass", method: http.MethodGet, contentType: "text/html", want: http.StatusNoContent},
+		{name: "json", method: http.MethodPost, contentType: "application/json", body: "{}", want: http.StatusNoContent},
+		{name: "json_charset", method: http.MethodPost, contentType: "application/json; charset=utf-8", body: "{}", want: http.StatusNoContent},
+		{name: "xml_rejected", method: http.MethodPost, contentType: "text/xml", body: "<x/>", want: http.StatusUnsupportedMediaType},
+	}
+
+	for _, bm := range benchmarks {
+		b.Run(bm.name, func(b *testing.B) {
+			var req *http.Request
+			if bm.body != "" {
+				req = httptest.NewRequest(bm.method, "/", strings.NewReader(bm.body))
+			} else {
+				req = httptest.NewRequest(bm.method, "/", nil)
+			}
+			if bm.contentType != "" {
+				req.Header.Set("Content-Type", bm.contentType)
+			}
+			w := &contentTypeBenchmarkResponseWriter{header: make(http.Header)}
+
+			b.ReportAllocs()
+			for b.Loop() {
+				w.status = 0
+				handler.ServeHTTP(w, req)
+				if w.status != bm.want {
+					b.Fatalf("status = %d, want %d", w.status, bm.want)
+				}
+			}
+		})
+	}
+}

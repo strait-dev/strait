@@ -55,3 +55,34 @@ func TestNewCacheCore_RedisValueSizeCap(t *testing.T) {
 	require.Error(t,
 		err)
 }
+
+func TestRedisL2KeyNormalizesNamespace(t *testing.T) {
+	t.Parallel()
+
+	rdb := redis.NewClient(&redis.Options{Addr: "127.0.0.1:0"})
+	t.Cleanup(func() { _ = rdb.Close() })
+	l2 := NewRedisL2[string, string](RedisL2Config[string, string]{
+		Client:    rdb,
+		Namespace: " cache_namespace ",
+		Key:       func(key string) string { return key },
+	}).(*redisL2[string, string])
+
+	require.Equal(t, "strait:cache:cache_namespace:cache-key", l2.redisKey("cache-key"))
+}
+
+func BenchmarkRedisL2Key(b *testing.B) {
+	rdb := redis.NewClient(&redis.Options{Addr: "127.0.0.1:0"})
+	defer func() { _ = rdb.Close() }()
+	l2 := NewRedisL2[string, string](RedisL2Config[string, string]{
+		Client:    rdb,
+		Namespace: " cache_namespace ",
+		Key:       func(key string) string { return key },
+	}).(*redisL2[string, string])
+
+	b.ReportAllocs()
+	for b.Loop() {
+		if l2.redisKey("cache-key") == "" {
+			b.Fatal("empty redis key")
+		}
+	}
+}

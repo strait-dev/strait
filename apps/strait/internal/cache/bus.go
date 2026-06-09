@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"time"
 
 	"strait/internal/pubsub"
@@ -102,7 +103,7 @@ func (b *Bus) publish(ctx context.Context, msg BusMessage) error {
 	}
 	msg.Origin = b.origin
 	msg.SentAt = time.Now().UTC()
-	data, err := json.Marshal(msg)
+	data, err := marshalBusMessage(msg)
 	if err != nil {
 		return fmt.Errorf("marshal cachebus message: %w", err)
 	}
@@ -118,6 +119,99 @@ func (b *Bus) publish(ctx context.Context, msg BusMessage) error {
 	}
 	recordCacheBusEvent(ctx, string(msg.Action), msg.Namespace, "publish", msg.SentAt)
 	return nil
+}
+
+func marshalBusMessage(msg BusMessage) ([]byte, error) {
+	if len(msg.Payload) > 0 && !json.Valid(msg.Payload) {
+		return nil, fmt.Errorf("invalid cachebus payload")
+	}
+
+	size := len(`{"action":"","namespace":"","key":"","origin":"","sent_at":""}`) +
+		len(msg.Action) + len(msg.Namespace) + len(msg.Key) + len(msg.Origin) + len(time.RFC3339Nano) +
+		jsonStringExtraBytes(string(msg.Action)) + jsonStringExtraBytes(msg.Namespace) +
+		jsonStringExtraBytes(msg.Key) + jsonStringExtraBytes(msg.Origin)
+	if msg.Version != 0 {
+		size += len(`,"version":`) + 20
+	}
+	if len(msg.Payload) > 0 {
+		size += len(`,"payload":`) + len(msg.Payload)
+	}
+	out := make([]byte, 0, size)
+	out = append(out, `{"action":`...)
+	out = appendBusJSONString(out, string(msg.Action))
+	out = append(out, `,"namespace":`...)
+	out = appendBusJSONString(out, msg.Namespace)
+	out = append(out, `,"key":`...)
+	out = appendBusJSONString(out, msg.Key)
+	if msg.Version != 0 {
+		out = append(out, `,"version":`...)
+		out = strconv.AppendInt(out, msg.Version, 10)
+	}
+	out = append(out, `,"origin":`...)
+	out = appendBusJSONString(out, msg.Origin)
+	if len(msg.Payload) > 0 {
+		out = append(out, `,"payload":`...)
+		out = append(out, msg.Payload...)
+	}
+	out = append(out, `,"sent_at":"`...)
+	out = msg.SentAt.AppendFormat(out, time.RFC3339Nano)
+	out = append(out, `"}`...)
+	return out, nil
+}
+
+func jsonStringExtraBytes(value string) int {
+	extra := 0
+	for i := range len(value) {
+		switch c := value[i]; {
+		case c < 0x20:
+			extra += len(`\u00xx`) - 1
+		case c == '"' || c == '\\':
+			extra++
+		}
+	}
+	return extra
+}
+
+func appendBusJSONString(out []byte, value string) []byte {
+	const hex = "0123456789abcdef"
+
+	out = append(out, '"')
+	start := 0
+	for i := range len(value) {
+		switch c := value[i]; {
+		case c == '"' || c == '\\':
+			out = append(out, value[start:i]...)
+			out = append(out, '\\', c)
+			start = i + 1
+		case c == '\b':
+			out = append(out, value[start:i]...)
+			out = append(out, `\b`...)
+			start = i + 1
+		case c == '\f':
+			out = append(out, value[start:i]...)
+			out = append(out, `\f`...)
+			start = i + 1
+		case c == '\n':
+			out = append(out, value[start:i]...)
+			out = append(out, `\n`...)
+			start = i + 1
+		case c == '\r':
+			out = append(out, value[start:i]...)
+			out = append(out, `\r`...)
+			start = i + 1
+		case c == '\t':
+			out = append(out, value[start:i]...)
+			out = append(out, `\t`...)
+			start = i + 1
+		case c < 0x20:
+			out = append(out, value[start:i]...)
+			out = append(out, '\\', 'u', '0', '0', hex[c>>4], hex[c&0xf])
+			start = i + 1
+		}
+	}
+	out = append(out, value[start:]...)
+	out = append(out, '"')
+	return out
 }
 
 func (b *Bus) Run(ctx context.Context, registry *Registry) error {

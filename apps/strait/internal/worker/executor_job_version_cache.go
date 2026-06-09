@@ -2,7 +2,7 @@ package worker
 
 import (
 	"context"
-	"fmt"
+	"strconv"
 	"time"
 
 	straitcache "strait/internal/cache"
@@ -62,7 +62,21 @@ func newWorkerJobVersionL2(redis redis.Cmdable) straitcache.L2[jobVersionKey, *d
 }
 
 func workerJobVersionKeyString(key jobVersionKey) string {
-	return fmt.Sprintf("%s\x00%d", key.JobID, key.Version)
+	const maxIntDigits = 20
+	const sepLen = 1
+	size := len(key.JobID) + sepLen + maxIntDigits
+	if size <= 64 {
+		var buf [64]byte
+		out := append(buf[:0], key.JobID...)
+		out = append(out, 0)
+		out = strconv.AppendInt(out, int64(key.Version), 10)
+		return string(out)
+	}
+	out := make([]byte, 0, size)
+	out = append(out, key.JobID...)
+	out = append(out, 0)
+	out = strconv.AppendInt(out, int64(key.Version), 10)
+	return string(out)
 }
 
 func (c *tierVersionedJobCache) Load(

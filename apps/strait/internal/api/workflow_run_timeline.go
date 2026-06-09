@@ -89,8 +89,44 @@ func buildWorkflowRunTimeline(run *domain.WorkflowRun, stepRuns []domain.Workflo
 func buildWorkflowTimelineRelationships(windows []workflowTimelineWindow) (map[string][]string, map[string]bool) {
 	parallelMap := make(map[string][]string, len(windows))
 	criticalRefs := make(map[string]bool, len(windows))
+	if len(windows) == 0 {
+		return parallelMap, criticalRefs
+	}
+
 	for _, w := range windows {
 		criticalRefs[w.ref] = true
+	}
+
+	counts, totalParallelRefs := countWorkflowTimelineRelationships(windows, criticalRefs)
+	if totalParallelRefs == 0 {
+		return parallelMap, criticalRefs
+	}
+
+	storage := make([]string, totalParallelRefs)
+	offset := 0
+	for i, count := range counts {
+		if count == 0 {
+			continue
+		}
+		parallelMap[windows[i].ref] = storage[offset : offset : offset+count]
+		offset += count
+	}
+	fillWorkflowTimelineRelationships(windows, parallelMap)
+	return parallelMap, criticalRefs
+}
+
+func countWorkflowTimelineRelationships(
+	windows []workflowTimelineWindow,
+	criticalRefs map[string]bool,
+) ([]int, int) {
+	var counts []int
+	totalParallelRefs := 0
+	countOverlap := func(windowIdx int) {
+		if counts == nil {
+			counts = make([]int, len(windows))
+		}
+		counts[windowIdx]++
+		totalParallelRefs++
 	}
 
 	activeCap := min(len(windows), 64)
@@ -102,7 +138,7 @@ func buildWorkflowTimelineRelationships(windows []workflowTimelineWindow) (map[s
 				continue
 			}
 			kept = append(kept, prior)
-			parallelMap[a.ref] = append(parallelMap[a.ref], prior.ref)
+			countOverlap(i)
 			if prior.end.After(a.end) {
 				criticalRefs[a.ref] = false
 			}
@@ -114,7 +150,7 @@ func buildWorkflowTimelineRelationships(windows []workflowTimelineWindow) (map[s
 
 		for j := i + 1; j < len(windows) && windows[j].start.Before(a.end); j++ {
 			next := windows[j]
-			parallelMap[a.ref] = append(parallelMap[a.ref], next.ref)
+			countOverlap(i)
 			if next.end.After(a.end) {
 				criticalRefs[a.ref] = false
 			}
@@ -124,7 +160,28 @@ func buildWorkflowTimelineRelationships(windows []workflowTimelineWindow) (map[s
 		}
 		active = append(active, a)
 	}
-	return parallelMap, criticalRefs
+	return counts, totalParallelRefs
+}
+
+func fillWorkflowTimelineRelationships(windows []workflowTimelineWindow, parallelMap map[string][]string) {
+	activeCap := min(len(windows), 64)
+	active := make([]workflowTimelineWindow, 0, activeCap)
+	for i, a := range windows {
+		kept := active[:0]
+		for _, prior := range active {
+			if !prior.end.After(a.start) {
+				continue
+			}
+			kept = append(kept, prior)
+			parallelMap[a.ref] = append(parallelMap[a.ref], prior.ref)
+		}
+		active = kept
+
+		for j := i + 1; j < len(windows) && windows[j].start.Before(a.end); j++ {
+			parallelMap[a.ref] = append(parallelMap[a.ref], windows[j].ref)
+		}
+		active = append(active, a)
+	}
 }
 
 func buildWorkflowTimelineParallelMap(windows []workflowTimelineWindow) map[string][]string {

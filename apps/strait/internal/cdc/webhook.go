@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -30,7 +29,7 @@ type WebhookReceiver struct {
 	additionalHandlers map[string][]Handler
 	publisher          EventPublisher
 	logger             *slog.Logger
-	secret             string
+	secretKey          []byte
 	dedupeTTL          time.Duration
 	sharedDedupe       *SharedDedupeStore
 	seenMu             sync.Mutex
@@ -45,7 +44,12 @@ type WebhookReceiverOption func(*WebhookReceiver)
 // deployments can instantiate a receiver without synthetic signatures.
 func WithWebhookSecret(secret string) WebhookReceiverOption {
 	return func(wr *WebhookReceiver) {
-		wr.secret = strings.TrimSpace(secret)
+		secret = strings.TrimSpace(secret)
+		if secret == "" {
+			wr.secretKey = nil
+			return
+		}
+		wr.secretKey = []byte(secret)
 	}
 }
 
@@ -202,7 +206,7 @@ func (wr *WebhookReceiver) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (wr *WebhookReceiver) verifySignature(r *http.Request, body []byte) bool {
-	if wr.secret == "" {
+	if len(wr.secretKey) == 0 {
 		return true
 	}
 	got := firstHeader(r,
@@ -218,13 +222,44 @@ func (wr *WebhookReceiver) verifySignature(r *http.Request, body []byte) bool {
 	if trimmed, ok := strings.CutPrefix(got, "sha256="); ok {
 		got = trimmed
 	}
-	gotBytes, err := hex.DecodeString(got)
-	if err != nil {
+	var gotBytes [sha256.Size]byte
+	if !decodeHexSHA256String(got, &gotBytes) {
 		return false
 	}
-	mac := hmac.New(sha256.New, []byte(wr.secret))
+	mac := hmac.New(sha256.New, wr.secretKey)
 	_, _ = mac.Write(body)
-	return hmac.Equal(gotBytes, mac.Sum(nil))
+	var expected [sha256.Size]byte
+	return hmac.Equal(gotBytes[:], mac.Sum(expected[:0]))
+}
+
+func decodeHexSHA256String(s string, out *[sha256.Size]byte) bool {
+	if len(s) != sha256.Size*2 {
+		return false
+	}
+	for i := 0; i < sha256.Size; i++ {
+		hi := hexNibble(s[i*2])
+		lo := hexNibble(s[i*2+1])
+		if hi == invalidHexNibble || lo == invalidHexNibble {
+			return false
+		}
+		out[i] = hi<<4 | lo
+	}
+	return true
+}
+
+const invalidHexNibble = 0xff
+
+func hexNibble(c byte) byte {
+	switch {
+	case c >= '0' && c <= '9':
+		return c - '0'
+	case c >= 'a' && c <= 'f':
+		return c - 'a' + 10
+	case c >= 'A' && c <= 'F':
+		return c - 'A' + 10
+	default:
+		return invalidHexNibble
+	}
 }
 
 func firstHeader(r *http.Request, names ...string) string {

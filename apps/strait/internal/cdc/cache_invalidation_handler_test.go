@@ -11,6 +11,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+var jobDependencyCacheKeySink string
+
 type cacheInvalidationPublisher struct {
 	calls []publishCall
 }
@@ -120,6 +122,13 @@ func TestCacheInvalidationHandler_PublishesTargetedInvalidations(t *testing.T) {
 		require.Equal(t, tc.namespace, busMsg.Namespace)
 		require.Equal(t, tc.key, busMsg.Key)
 	}
+}
+
+func TestJobDependencyCacheKey(t *testing.T) {
+	t.Parallel()
+
+	require.Equal(t, "job-1\x001000\x00", jobDependencyCacheKey("job-1", defaultJobDependencyListSize))
+	require.Equal(t, "job-1\x000\x00", jobDependencyCacheKey("job-1", 0))
 }
 
 func TestCacheInvalidationHandler_SkipsRowsWithoutAddressableKey(t *testing.T) {
@@ -286,4 +295,13 @@ func TestCacheInvalidationHandler_BadPayloadIsIgnored(t *testing.T) {
 		Message{Action: ActionUpdate, Record: []byte(`{"key_hash":`)}))
 	require.Empty(t,
 		publisher.calls)
+}
+
+func BenchmarkJobDependencyCacheKey(b *testing.B) {
+	jobID := "job_0123456789abcdef"
+
+	b.ReportAllocs()
+	for b.Loop() {
+		jobDependencyCacheKeySink = jobDependencyCacheKey(jobID, defaultJobDependencyListSize)
+	}
 }

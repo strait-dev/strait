@@ -22,13 +22,28 @@ func ValidateDAG(steps []domain.WorkflowStep) error {
 
 	stepIndex := make(map[string]int, len(steps))
 	needsDepDedup := false
+	orderedDependencies := true
 
 	for i, s := range steps {
 		if _, exists := stepIndex[s.StepRef]; exists {
 			return fmt.Errorf("duplicate step_ref: %q", s.StepRef)
 		}
-		stepIndex[s.StepRef] = i
 		needsDepDedup = needsDepDedup || len(s.DependsOn) > 1
+
+		for _, dep := range s.DependsOn {
+			if dep == s.StepRef {
+				return fmt.Errorf("step %q depends on itself", s.StepRef)
+			}
+			if _, exists := stepIndex[dep]; !exists {
+				orderedDependencies = false
+			}
+		}
+
+		stepIndex[s.StepRef] = i
+	}
+
+	if orderedDependencies {
+		return nil
 	}
 
 	alreadyOrdered, err := validateDAGDependenciesAreOrdered(steps, stepIndex)

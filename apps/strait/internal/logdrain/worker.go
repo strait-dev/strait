@@ -243,10 +243,17 @@ func (w *Worker) fetchAllEvents(ctx context.Context, runID string) ([]domain.Run
 		if err != nil {
 			return nil, err
 		}
-		all = append(all, batch...)
 		if len(batch) < defaultEventLimit {
+			if len(all) == 0 {
+				return batch, nil
+			}
+			all = append(all, batch...)
 			break
 		}
+		if len(all) == 0 {
+			all = make([]domain.RunEvent, 0, len(batch)+defaultEventLimit)
+		}
+		all = append(all, batch...)
 		last := batch[len(batch)-1]
 		afterTime = &last.CreatedAt
 		afterID = last.ID

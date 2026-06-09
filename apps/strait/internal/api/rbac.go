@@ -202,6 +202,9 @@ func (s *Server) listAllProjectRolesForInvalidation(ctx context.Context, project
 		if hasMore {
 			page = roles[:maxPageLimit]
 		}
+		if cursor == nil && !hasMore {
+			return page, nil
+		}
 		out = append(out, page...)
 		if !hasMore {
 			return out, nil
@@ -227,6 +230,9 @@ func (s *Server) listAllProjectMembersForInvalidation(ctx context.Context, proje
 		hasMore := len(members) > maxPageLimit
 		if hasMore {
 			page = members[:maxPageLimit]
+		}
+		if cursor == nil && !hasMore {
+			return page, nil
 		}
 		out = append(out, page...)
 		if !hasMore {

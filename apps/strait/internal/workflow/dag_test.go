@@ -63,6 +63,13 @@ func TestValidateDAG(t *testing.T) {
 			},
 		},
 		{
+			name: "valid: unordered input with duplicate deps falls back to topological validation",
+			steps: []domain.WorkflowStep{
+				step("B", "A", "A"),
+				step("A"),
+			},
+		},
+		{
 			name: "valid: complex DAG",
 			steps: []domain.WorkflowStep{
 				step("A"),

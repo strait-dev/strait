@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"time"
@@ -41,6 +42,35 @@ type sseStreamOptions struct {
 type featureGate struct {
 	feature billing.Feature
 	name    string
+}
+
+var (
+	sseDefaultDataPrefix = []byte("data: ")
+	sseFrameSuffix       = []byte("\n\n")
+	sseKeepaliveFrame    = []byte(": keepalive\n\n")
+)
+
+func sseDataFramePrefix(eventName string) []byte {
+	if eventName == "" {
+		return sseDefaultDataPrefix
+	}
+	return []byte("event: " + eventName + "\ndata: ")
+}
+
+func writeSSEDataFrame(w io.Writer, framePrefix []byte, msg []byte) error {
+	if _, err := w.Write(framePrefix); err != nil {
+		return err
+	}
+	if _, err := w.Write(msg); err != nil {
+		return err
+	}
+	_, err := w.Write(sseFrameSuffix)
+	return err
+}
+
+func writeSSEKeepaliveFrame(w io.Writer) error {
+	_, err := w.Write(sseKeepaliveFrame)
+	return err
 }
 
 // streamSSE is the single SSE pump every handler routes through. It
@@ -123,10 +153,7 @@ func (s *Server) streamSSE(w http.ResponseWriter, r *http.Request, opts sseStrea
 	ticker := time.NewTicker(keepalive)
 	defer ticker.Stop()
 
-	dataPrefix := "data: %s\n\n"
-	if opts.eventName != "" {
-		dataPrefix = "event: " + opts.eventName + "\ndata: %s\n\n"
-	}
+	dataPrefix := sseDataFramePrefix(opts.eventName)
 
 	for {
 		select {
@@ -136,13 +163,13 @@ func (s *Server) streamSSE(w http.ResponseWriter, r *http.Request, opts sseStrea
 			if !ok {
 				return
 			}
-			if _, err := fmt.Fprintf(w, dataPrefix, msg); err != nil {
+			if err := writeSSEDataFrame(w, dataPrefix, msg); err != nil {
 				slog.Warn("failed to write SSE data", "run_id", runID, "channel", channel, "error", err)
 				return
 			}
 			flusher.Flush()
 		case <-ticker.C:
-			if _, err := fmt.Fprintf(w, ": keepalive\n\n"); err != nil {
+			if err := writeSSEKeepaliveFrame(w); err != nil {
 				slog.Warn("failed to write SSE keepalive", "run_id", runID, "channel", channel, "error", err)
 				return
 			}

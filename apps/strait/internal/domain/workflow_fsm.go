@@ -1,7 +1,5 @@
 package domain
 
-import "slices"
-
 var validWorkflowTransitions = map[WorkflowRunStatus][]WorkflowRunStatus{
 	WfStatusPending:            {WfStatusRunning, WfStatusCanceled},
 	WfStatusRunning:            {WfStatusPaused, WfStatusCompleted, WfStatusFailed, WfStatusTimedOut, WfStatusCanceled},
@@ -16,12 +14,30 @@ var validWorkflowTransitions = map[WorkflowRunStatus][]WorkflowRunStatus{
 }
 
 func ValidateWorkflowTransition(from, to WorkflowRunStatus) error {
-	transitions, ok := validWorkflowTransitions[from]
-	if !ok {
+	switch from {
+	case WfStatusPending:
+		if to == WfStatusRunning || to == WfStatusCanceled {
+			return nil
+		}
+	case WfStatusRunning:
+		if to == WfStatusPaused || to == WfStatusCompleted || to == WfStatusFailed || to == WfStatusTimedOut || to == WfStatusCanceled {
+			return nil
+		}
+	case WfStatusPaused:
+		if to == WfStatusRunning || to == WfStatusCompleted || to == WfStatusFailed || to == WfStatusTimedOut || to == WfStatusCanceled {
+			return nil
+		}
+	case WfStatusCompleted, WfStatusCanceled, WfStatusCompensated, WfStatusCompensationFailed:
+	case WfStatusFailed, WfStatusTimedOut:
+		if to == WfStatusCompensating {
+			return nil
+		}
+	case WfStatusCompensating:
+		if to == WfStatusCompensated || to == WfStatusCompensationFailed || to == WfStatusCanceled {
+			return nil
+		}
+	default:
 		return &UnknownStatusError{Status: RunStatus(from)}
-	}
-	if slices.Contains(transitions, to) {
-		return nil
 	}
 	return &TransitionError{From: RunStatus(from), To: RunStatus(to)}
 }
@@ -37,12 +53,22 @@ var validStepTransitions = map[StepRunStatus][]StepRunStatus{
 }
 
 func ValidateStepTransition(from, to StepRunStatus) error {
-	transitions, ok := validStepTransitions[from]
-	if !ok {
+	switch from {
+	case StepPending:
+		if to == StepWaiting || to == StepRunning || to == StepSkipped || to == StepCanceled || to == StepCompleted {
+			return nil
+		}
+	case StepWaiting:
+		if to == StepRunning || to == StepSkipped || to == StepCanceled || to == StepCompleted {
+			return nil
+		}
+	case StepRunning:
+		if to == StepCompleted || to == StepFailed || to == StepCanceled {
+			return nil
+		}
+	case StepCompleted, StepFailed, StepSkipped, StepCanceled:
+	default:
 		return &UnknownStatusError{Status: RunStatus(from)}
-	}
-	if slices.Contains(transitions, to) {
-		return nil
 	}
 	return &TransitionError{From: RunStatus(from), To: RunStatus(to)}
 }

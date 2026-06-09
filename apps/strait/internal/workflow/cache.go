@@ -2,7 +2,7 @@ package workflow
 
 import (
 	"context"
-	"fmt"
+	"strconv"
 	"time"
 
 	straitcache "strait/internal/cache"
@@ -76,7 +76,21 @@ func newWorkflowStepsVersionL2(redis redis.Cmdable) straitcache.L2[workflowSteps
 }
 
 func workflowStepsVersionKeyString(key workflowStepsVersionKey) string {
-	return fmt.Sprintf("%s\x00%d", key.WorkflowID, key.Version)
+	const maxIntDigits = 20
+	const sepLen = 1
+	size := len(key.WorkflowID) + sepLen + maxIntDigits
+	if size <= 64 {
+		var buf [64]byte
+		out := append(buf[:0], key.WorkflowID...)
+		out = append(out, 0)
+		out = strconv.AppendInt(out, int64(key.Version), 10)
+		return string(out)
+	}
+	out := make([]byte, 0, size)
+	out = append(out, key.WorkflowID...)
+	out = append(out, 0)
+	out = strconv.AppendInt(out, int64(key.Version), 10)
+	return string(out)
 }
 
 func (c *workflowStepsVersionCache) Load(

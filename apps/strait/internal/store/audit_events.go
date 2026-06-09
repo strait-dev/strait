@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unsafe"
 
 	"strait/internal/domain"
 
@@ -62,8 +63,14 @@ func ComputeAuditSignature(ev *domain.AuditEvent, key []byte) string {
 	default:
 		canonical = auditSignatureCanonicalV1(ev)
 	}
-	mac.Write([]byte(canonical))
-	return hex.EncodeToString(mac.Sum(nil))
+	if canonical != "" {
+		_, _ = mac.Write(unsafe.Slice(unsafe.StringData(canonical), len(canonical)))
+	}
+	var sum [sha256.Size]byte
+	digest := mac.Sum(sum[:0])
+	var out [sha256.Size * 2]byte
+	hex.Encode(out[:], digest)
+	return string(out[:])
 }
 
 func auditSignatureCanonicalV1(ev *domain.AuditEvent) string {
@@ -151,15 +158,30 @@ func auditSignatureCanonicalV4(ev *domain.AuditEvent) string {
 }
 
 func lengthDelimitedAuditCanonical(prefix string, fields []string) string {
-	var b strings.Builder
-	b.WriteString(prefix)
+	size := len(prefix)
 	for _, field := range fields {
-		b.WriteString(strconv.Itoa(len(field)))
+		size += decimalDigitCount(len(field)) + len(field) + len(":\n")
+	}
+	var b strings.Builder
+	b.Grow(size)
+	b.WriteString(prefix)
+	var lenBuf [20]byte
+	for _, field := range fields {
+		b.Write(strconv.AppendInt(lenBuf[:0], int64(len(field)), 10))
 		b.WriteByte(':')
 		b.WriteString(field)
 		b.WriteByte('\n')
 	}
 	return b.String()
+}
+
+func decimalDigitCount(n int) int {
+	digits := 1
+	for n >= 10 {
+		n /= 10
+		digits++
+	}
+	return digits
 }
 
 func (q *Queries) CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) error {

@@ -73,7 +73,7 @@ func (s *Server) mountProfilingRoutes(r chi.Router) {
 
 func (s *Server) profilingAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		clientIP := realIP(r, s.trustedProxies)
+		clientIP := clientIPFromRequest(r, s.trustedProxies)
 		if blocked, retryAfter := s.authLimiter.IsBlockedScoped(r.Context(), clientIP, ratelimit.AuthScopeProfiling); blocked {
 			recordAuthDecision(r.Context(), pprofAuthKind, "throttled")
 			recordAuthRateLimitThrottled(r.Context(), pprofAuthKind)
@@ -127,7 +127,7 @@ func (s *Server) profilingCIDRAllowlist(next http.Handler) http.Handler {
 			return
 		}
 
-		clientIP := realIP(r, s.trustedProxies)
+		clientIP := clientIPFromRequest(r, s.trustedProxies)
 		if !ipInNets(clientIP, s.profilingAllowedCIDRs) {
 			respondError(w, r, http.StatusForbidden, "profiling access denied")
 			return
@@ -161,7 +161,7 @@ func (s *Server) pprofAccessRecorder(next http.Handler) http.Handler {
 			"endpoint", endpoint,
 			"status", status,
 			"duration_ms", time.Since(start).Milliseconds(),
-			"remote_ip", realIP(r, s.trustedProxies),
+			"remote_ip", clientIPFromRequest(r, s.trustedProxies),
 			"request_id", chimw.GetReqID(r.Context()),
 		}
 		if status >= http.StatusBadRequest {
@@ -180,7 +180,7 @@ func (s *Server) pprofProfileStartLogger(next http.Handler) http.Handler {
 			slog.Info("pprof profile started",
 				"method", r.Method,
 				"path", r.URL.Path,
-				"remote_ip", realIP(r, s.trustedProxies),
+				"remote_ip", clientIPFromRequest(r, s.trustedProxies),
 				"request_id", chimw.GetReqID(r.Context()),
 			)
 		}

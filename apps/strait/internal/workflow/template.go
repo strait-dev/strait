@@ -42,7 +42,8 @@ func renderTemplateVars(payload, variables json.RawMessage) json.RawMessage {
 		return payload
 	}
 
-	rendered, changed := walkAndRender(data, vars)
+	var cache renderTemplateVarCache
+	rendered, changed := walkAndRender(data, vars, &cache)
 	if !changed {
 		return payload
 	}
@@ -79,12 +80,12 @@ func payloadHasResolvableTemplateJSON(payload, variables []byte) bool {
 
 // walkAndRender recursively walks a parsed JSON value and renders template
 // variables in any string values encountered.
-func walkAndRender(v any, vars map[string]any) (any, bool) {
+func walkAndRender(v any, vars map[string]any, cache *renderTemplateVarCache) (any, bool) {
 	switch val := v.(type) {
 	case map[string]any:
 		changedAny := false
 		for k, child := range val {
-			rendered, changed := walkAndRender(child, vars)
+			rendered, changed := walkAndRender(child, vars, cache)
 			if changed {
 				val[k] = rendered
 				changedAny = true
@@ -94,7 +95,7 @@ func walkAndRender(v any, vars map[string]any) (any, bool) {
 	case []any:
 		changedAny := false
 		for i, child := range val {
-			rendered, changed := walkAndRender(child, vars)
+			rendered, changed := walkAndRender(child, vars, cache)
 			if changed {
 				val[i] = rendered
 				changedAny = true
@@ -102,7 +103,7 @@ func walkAndRender(v any, vars map[string]any) (any, bool) {
 		}
 		return val, changedAny
 	case string:
-		rendered := renderStringValue(val, vars)
+		rendered := renderStringValueWithCache(val, vars, cache)
 		if renderedString, ok := rendered.(string); ok && renderedString == val {
 			return val, false
 		}
@@ -117,8 +118,17 @@ func walkAndRender(v any, vars map[string]any) (any, bool) {
 // is preserved (e.g. number stays a number). Otherwise, variables are converted
 // to their string representation and interpolated.
 func renderStringValue(s string, vars map[string]any) any {
+	return renderStringValueWithCache(s, vars, nil)
+}
+
+func renderStringValueWithCache(s string, vars map[string]any, cache *renderTemplateVarCache) any {
 	if !strings.Contains(s, "{{") {
 		return s
+	}
+	if cache != nil {
+		if rendered, ok := cache.renderedStringValue(s); ok {
+			return rendered
+		}
 	}
 
 	open, end, varName, ok := nextTemplateVar(s, 0)
@@ -128,8 +138,14 @@ func renderStringValue(s string, vars map[string]any) any {
 
 	// Entire string is a single "{{var_name}}" — preserve the variable's type.
 	if open == 0 && end == len(s) {
-		if val, ok := resolveVar(vars, varName); ok {
+		if val, ok := resolveTemplateVar(vars, cache, varName); ok {
+			if cache != nil {
+				cache.rememberRenderedString(s, val)
+			}
 			return val
+		}
+		if cache != nil {
+			cache.rememberRenderedString(s, s)
 		}
 		return s
 	}
@@ -140,8 +156,8 @@ func renderStringValue(s string, vars map[string]any) any {
 	prev := 0
 	for {
 		buf.WriteString(s[prev:open])
-		if val, ok := resolveVar(vars, varName); ok {
-			buf.WriteString(stringify(val))
+		if val, ok := stringifyTemplateVar(vars, cache, varName); ok {
+			buf.WriteString(val)
 		} else {
 			buf.WriteString(s[open:end])
 		}
@@ -153,7 +169,97 @@ func renderStringValue(s string, vars map[string]any) any {
 		}
 	}
 	buf.WriteString(s[prev:])
-	return buf.String()
+	rendered := buf.String()
+	if cache != nil {
+		cache.rememberRenderedString(s, rendered)
+	}
+	return rendered
+}
+
+type renderTemplateVarCache struct {
+	names        [8]string
+	values       [8]any
+	strings      [8]string
+	stringSet    [8]bool
+	missingNames [8]string
+	renderInputs [8]string
+	renderValues [8]any
+	valueCount   int
+	missingCount int
+	renderCount  int
+}
+
+func (c *renderTemplateVarCache) renderedStringValue(input string) (any, bool) {
+	for i := range c.renderCount {
+		if c.renderInputs[i] == input {
+			return c.renderValues[i], true
+		}
+	}
+	return nil, false
+}
+
+func (c *renderTemplateVarCache) rememberRenderedString(input string, value any) {
+	if c.renderCount >= len(c.renderInputs) {
+		return
+	}
+	c.renderInputs[c.renderCount] = input
+	c.renderValues[c.renderCount] = value
+	c.renderCount++
+}
+
+func resolveTemplateVar(vars map[string]any, cache *renderTemplateVarCache, name string) (any, bool) {
+	if cache == nil {
+		return resolveVar(vars, name)
+	}
+	for i := range cache.valueCount {
+		if cache.names[i] == name {
+			return cache.values[i], true
+		}
+	}
+	for i := range cache.missingCount {
+		if cache.missingNames[i] == name {
+			return nil, false
+		}
+	}
+
+	val, ok := resolveVar(vars, name)
+	if !ok {
+		if cache.missingCount < len(cache.missingNames) {
+			cache.missingNames[cache.missingCount] = name
+			cache.missingCount++
+		}
+		return nil, false
+	}
+	if cache.valueCount < len(cache.names) {
+		cache.names[cache.valueCount] = name
+		cache.values[cache.valueCount] = val
+		cache.valueCount++
+	}
+	return val, true
+}
+
+func stringifyTemplateVar(vars map[string]any, cache *renderTemplateVarCache, name string) (string, bool) {
+	if cache == nil {
+		val, ok := resolveVar(vars, name)
+		if !ok {
+			return "", false
+		}
+		return stringify(val), true
+	}
+	val, ok := resolveTemplateVar(vars, cache, name)
+	if !ok {
+		return "", false
+	}
+	for i := range cache.valueCount {
+		if cache.names[i] == name {
+			if !cache.stringSet[i] {
+				cache.strings[i] = stringify(val)
+				cache.stringSet[i] = true
+			}
+			return cache.strings[i], true
+		}
+	}
+	return stringify(val), true
 }
 
 // resolveVar looks up a variable name in the vars map. Supports dot-separated
@@ -388,7 +494,7 @@ func stringify(v any) string {
 		if val == float64(int64(val)) {
 			return strconv.FormatInt(int64(val), 10)
 		}
-		return fmt.Sprintf("%g", val)
+		return strconv.FormatFloat(val, 'g', -1, 64)
 	case bool:
 		if val {
 			return "true"

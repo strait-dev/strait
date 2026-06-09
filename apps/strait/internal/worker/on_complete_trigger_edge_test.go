@@ -93,6 +93,16 @@ func TestApplyPayloadMapping_MixedExistingAndMissing(t *testing.T) {
 		float64(2), out["version"], 1e-9)
 }
 
+func TestApplyPayloadMapping_DirectOutputSortedAndSkipsMissing(t *testing.T) {
+	t.Parallel()
+	result := json.RawMessage(`{"user":{"id":"u1"},"order":{"id":"o1"}}`)
+	mapping := json.RawMessage(`{"z_user":"user.id","a_order":"order.id","m_missing":"missing.path"}`)
+
+	mapped, err := applyPayloadMapping(result, mapping)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"a_order":"o1","z_user":"u1"}`, string(mapped))
+}
+
 func TestApplyPayloadMapping_TopLevelKeys(t *testing.T) {
 	t.Parallel()
 	result := json.RawMessage(`{"status": "ok", "count": 42}`)
@@ -160,6 +170,22 @@ func TestApplyPayloadMapping_ScalarResult(t *testing.T) {
 		t, err)
 	assert.Equal(t,
 		string(result), string(mapped))
+}
+
+func BenchmarkApplyPayloadMapping(b *testing.B) {
+	result := json.RawMessage(`{"user":{"id":"usr-123","name":"Ada Lovelace","plan":"pro"},"order":{"id":"ord-456","total":129.95,"items":[{"sku":"sku-1","qty":2},{"sku":"sku-2","qty":1}]},"flags":{"trial":false,"priority":true},"metadata":{"region":"us-east-1","source":"api"}}`)
+	mapping := json.RawMessage(`{"user_id":"user.id","user_name":"user.name","order_id":"order.id","order_total":"order.total","first_sku":"order.items.0.sku","priority":"flags.priority","region":"metadata.region"}`)
+
+	b.ReportAllocs()
+	for b.Loop() {
+		mapped, err := applyPayloadMapping(result, mapping)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if len(mapped) == 0 {
+			b.Fatal("applyPayloadMapping() returned empty payload")
+		}
+	}
 }
 
 // extractPath edge cases.
