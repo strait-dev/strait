@@ -30,13 +30,13 @@ func (t *Tier[K, V]) GetConsistentVersioned(
 		var zero Versioned[V]
 		return zero, fmt.Errorf("cache tier is nil")
 	}
-	if !t.disableL1 && t.l1 != nil {
+	if t.l1Available() {
 		if entry, ok := t.l1.GetIfPresent(key); ok && entry.Version >= minVersion {
 			return Versioned[V]{Value: t.clone(entry.Value), Version: entry.Version}, nil
 		}
 	}
 
-	entry, err, _ := t.loadGroup.Do(fmt.Sprintf("%s:%v:%d:versioned", t.name, key, minVersion), func() (any, error) {
+	entry, err, _ := t.loadGroup.Do(tierSingleflightKey(t.name, key, minVersion, true), func() (any, error) {
 		return t.loadVersionedThroughL2(ctx, key, minVersion, loader)
 	})
 	if err != nil {
@@ -67,7 +67,7 @@ func (t *Tier[K, V]) WriteThrough(
 	if err != nil || !ok {
 		return ok, err
 	}
-	if bus != nil && namespace != "" && busKey != "" {
+	if cacheBusPublishConfigured(bus, namespace, busKey) {
 		entry := cacheEntry[V]{Version: version, Value: t.sanitize(value)}
 		if t.negEnabled && t.isNegative(value) {
 			entry.Negative = true
@@ -95,10 +95,20 @@ func (t *Tier[K, V]) InvalidateThrough(
 		return nil
 	}
 	t.applyBarrier(ctx, key, version)
-	if bus != nil && namespace != "" && busKey != "" {
+	if cacheBusPublishConfigured(bus, namespace, busKey) {
 		return bus.PublishInvalidate(ctx, namespace, busKey, version)
 	}
 	return nil
+}
+
+func cacheBusPublishConfigured(bus *Bus, namespace, busKey string) bool {
+	if bus == nil {
+		return false
+	}
+	if namespace == "" {
+		return false
+	}
+	return busKey != ""
 }
 
 func (t *Tier[K, V]) StrongWriteThrough(
@@ -156,7 +166,7 @@ func (t *Tier[K, V]) loadVersionedThroughL2(
 			}
 		case err == nil && entry.Version >= minVersion:
 			recordCacheOperation(ctx, t.name, "hit")
-			if !t.disableL1 && t.l1 != nil {
+			if t.l1Available() {
 				t.l1.Set(key, entry)
 			}
 			if t.cfg.OnL2Hit != nil {
@@ -205,14 +215,14 @@ func (t *Tier[K, V]) loadVersionedThroughL2(
 			}
 			newer, getErr := t.l2.Get(ctx, key)
 			if getErr == nil && newer.Version >= minVersion {
-				if !t.disableL1 && t.l1 != nil {
+				if t.l1Available() {
 					t.l1.Set(key, newer)
 				}
 				return newer, nil
 			}
 		}
 	}
-	if !t.disableL1 && t.l1 != nil {
+	if t.l1Available() {
 		t.l1.Set(key, entry)
 	}
 	return entry, nil

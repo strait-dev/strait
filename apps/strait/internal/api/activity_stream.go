@@ -1,8 +1,9 @@
 package api
 
 import (
+	"bytes"
 	"context"
-	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"time"
@@ -13,12 +14,70 @@ import (
 	"strait/internal/domain"
 )
 
+var (
+	activityStreamEventPrefix    = []byte("event: activity\ndata: ")
+	activityStreamFrameSuffix    = []byte("\n\n")
+	activityStreamKeepaliveFrame = []byte(": keepalive\n\n")
+)
+
+// stripSSENewlines removes CR and LF bytes from an SSE data payload so a crafted
+// message cannot break event framing and inject additional data:/event: lines.
+func stripSSENewlines(msg []byte) []byte {
+	if !bytes.ContainsAny(msg, "\r\n") {
+		return msg
+	}
+	out := make([]byte, 0, len(msg))
+	for _, b := range msg {
+		if b == '\r' || b == '\n' {
+			continue
+		}
+		out = append(out, b)
+	}
+	return out
+}
+
 func (s *Server) requireActivityStreamPermissions(next http.Handler) http.Handler {
 	return s.requirePermission(domain.ScopeRunsRead)(
 		s.requirePermission(domain.ScopeWorkflowsRead)(
 			s.requirePermission(domain.ScopeJobsRead)(next),
 		),
 	)
+}
+
+func activityStreamJobRunsChannel(projectID string) string {
+	return "cdc:project:" + projectID + ":job_runs"
+}
+
+func activityStreamWorkflowRunsChannel(projectID string) string {
+	return "cdc:project:" + projectID + ":workflow_runs"
+}
+
+func activityStreamEventTriggersChannel(projectID string) string {
+	return "cdc:project:" + projectID + ":event_triggers"
+}
+
+func activityStreamChannels(projectID string) [3]string {
+	return [3]string{
+		activityStreamJobRunsChannel(projectID),
+		activityStreamWorkflowRunsChannel(projectID),
+		activityStreamEventTriggersChannel(projectID),
+	}
+}
+
+func writeActivityStreamEvent(w io.Writer, msg []byte) error {
+	if _, err := w.Write(activityStreamEventPrefix); err != nil {
+		return err
+	}
+	if _, err := w.Write(msg); err != nil {
+		return err
+	}
+	_, err := w.Write(activityStreamFrameSuffix)
+	return err
+}
+
+func writeActivityStreamKeepalive(w io.Writer) error {
+	_, err := w.Write(activityStreamKeepaliveFrame)
+	return err
 }
 
 // handleProjectActivityStream serves a real-time SSE stream of all CDC events
@@ -69,11 +128,7 @@ func (s *Server) handleProjectActivityStream(w http.ResponseWriter, r *http.Requ
 	flusher.Flush()
 
 	// Subscribe to all CDC channels for this project.
-	channels := []string{
-		fmt.Sprintf("cdc:project:%s:job_runs", projectID),
-		fmt.Sprintf("cdc:project:%s:workflow_runs", projectID),
-		fmt.Sprintf("cdc:project:%s:event_triggers", projectID),
-	}
+	channels := activityStreamChannels(projectID)
 
 	merged := make(chan []byte, 64)
 
@@ -129,10 +184,16 @@ loop:
 			if !ok {
 				break loop
 			}
-			fmt.Fprintf(w, "event: activity\ndata: %s\n\n", msg)
+			if err := writeActivityStreamEvent(w, stripSSENewlines(msg)); err != nil {
+				slog.Warn("activity stream: write failed", "project_id", projectID, "error", err)
+				break loop
+			}
 			flusher.Flush()
 		case <-ticker.C:
-			fmt.Fprintf(w, ": keepalive\n\n")
+			if err := writeActivityStreamKeepalive(w); err != nil {
+				slog.Warn("activity stream: keepalive write failed", "project_id", projectID, "error", err)
+				break loop
+			}
 			flusher.Flush()
 		}
 	}

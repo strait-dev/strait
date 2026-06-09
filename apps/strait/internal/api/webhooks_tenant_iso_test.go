@@ -16,10 +16,10 @@ import (
 func TestTenantIso_Webhooks_ReplayDelivery_RejectsEmptyProjectID(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
-		GetWebhookDeliveryFunc: func(_ context.Context, id string) (*domain.WebhookDelivery, error) {
+		GetWebhookDeliveryFunc: func(_ context.Context, _ string, id string) (*domain.WebhookDelivery, error) {
 			return &domain.WebhookDelivery{ID: id, JobID: "", ProjectID: ""}, nil
 		},
-		ReplayWebhookDeliveryFunc: func(_ context.Context, _ string) (*domain.WebhookDelivery, error) {
+		ReplayWebhookDeliveryFunc: func(_ context.Context, _, _ string) (*domain.WebhookDelivery, error) {
 			require.Fail(t,
 
 				"ReplayWebhookDelivery must not be called for empty-project delivery")

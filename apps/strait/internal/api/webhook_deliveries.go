@@ -102,7 +102,7 @@ func (s *Server) handleGetWebhookDelivery(ctx context.Context, input *GetWebhook
 	if deliveryID == "" {
 		return nil, huma.Error400BadRequest("delivery ID is required")
 	}
-	delivery, err := s.store.GetWebhookDelivery(ctx, deliveryID)
+	delivery, err := s.store.GetWebhookDelivery(ctx, projectIDFromContext(ctx), deliveryID)
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") {
 			return nil, huma.Error404NotFound("delivery not found")
@@ -135,7 +135,7 @@ func (s *Server) handleRetryWebhookDelivery(ctx context.Context, input *RetryWeb
 	if deliveryID == "" {
 		return nil, huma.Error400BadRequest("delivery ID is required")
 	}
-	d, err := s.store.GetWebhookDelivery(ctx, deliveryID)
+	d, err := s.store.GetWebhookDelivery(ctx, projectIDFromContext(ctx), deliveryID)
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") {
 			return nil, huma.Error404NotFound("delivery not found")
@@ -148,7 +148,7 @@ func (s *Server) handleRetryWebhookDelivery(ctx context.Context, input *RetryWeb
 	if err := s.verifyDeliveryProjectAccess(ctx, d); err != nil {
 		return nil, huma.Error404NotFound("delivery not found")
 	}
-	if d.Status != domain.WebhookStatusFailed && d.Status != domain.WebhookStatusDead {
+	if !isRetriableWebhookDeliveryStatus(d.Status) {
 		return nil, huma.Error409Conflict("only failed or dead deliveries can be retried")
 	}
 	retried, err := s.store.RetryWebhookDelivery(ctx, deliveryID)
@@ -189,6 +189,15 @@ func sanitizeWebhookDeliveryResponse(delivery domain.WebhookDelivery) domain.Web
 	return delivery
 }
 
+func isRetriableWebhookDeliveryStatus(status string) bool {
+	switch status {
+	case domain.WebhookStatusFailed, domain.WebhookStatusDead:
+		return true
+	default:
+		return false
+	}
+}
+
 // verifyDeliveryProjectAccess checks that the webhook delivery belongs to the
 // caller's project by looking up the associated job. Returns nil if there is no
 // project in context (internal caller) or the delivery has no job (e.g. event
@@ -209,7 +218,10 @@ func (s *Server) verifyDeliveryProjectAccess(ctx context.Context, d *domain.Webh
 		return nil // no job association to verify
 	}
 	job, err := s.store.GetJob(ctx, d.JobID)
-	if err != nil || job == nil {
+	if err != nil {
+		return errProjectMismatch
+	}
+	if job == nil {
 		return errProjectMismatch
 	}
 	if err := requireProjectMatch(ctx, job.ProjectID); err != nil {

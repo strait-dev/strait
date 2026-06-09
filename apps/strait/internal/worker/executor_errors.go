@@ -99,12 +99,19 @@ func isBudgetError(err error) bool {
 // retry attempts without storing the full error string in metadata. Truncates
 // by rune so multi-byte UTF-8 sequences are never split mid-character.
 func errorHash(errMsg string) string {
-	runes := []rune(errMsg)
-	if len(runes) > 200 {
-		runes = runes[:200]
+	end := len(errMsg)
+	runeCount := 0
+	for idx := range errMsg {
+		if runeCount == 200 {
+			end = idx
+			break
+		}
+		runeCount++
 	}
-	h := sha256.Sum256([]byte(string(runes)))
-	return hex.EncodeToString(h[:8])
+	h := sha256.Sum256([]byte(errMsg[:end]))
+	var out [16]byte
+	hex.Encode(out[:], h[:8])
+	return string(out[:])
 }
 
 func errorHashForError(err error) string {
@@ -115,20 +122,14 @@ func errorHashForError(err error) string {
 	return errorHash(err.Error())
 }
 
+// shouldRetryForClass and shouldUseFallbackForClass delegate to the canonical
+// domain.ErrorClassEnum methods so the retry/fallback policy lives in exactly one
+// place. Re-deriving the switch here previously risked silent divergence when a
+// new error class was added on only one side.
 func shouldRetryForClass(errClass string) bool {
-	switch errClass {
-	case domain.ErrorClassClient, domain.ErrorClassAuth, domain.ErrorClassBudget, domain.ErrorClassOOM:
-		return false
-	default:
-		return true
-	}
+	return domain.ErrorClassEnum(errClass).IsRetryable()
 }
 
 func shouldUseFallbackForClass(errClass string) bool {
-	switch errClass {
-	case domain.ErrorClassTransient, domain.ErrorClassRateLimited, domain.ErrorClassConnection, domain.ErrorClassTimeout:
-		return true
-	default:
-		return false
-	}
+	return domain.ErrorClassEnum(errClass).IsTransient()
 }

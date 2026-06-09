@@ -16,19 +16,21 @@ func ApplyOutputTransform(rawOutput json.RawMessage, transformPath string) (json
 		return rawOutput, nil
 	}
 
-	result := gjson.ParseBytes(rawOutput)
-	if !result.Exists() {
-		return nil, fmt.Errorf("output transform: source output is empty or invalid JSON")
-	}
-
-	matched := result.Get(transformPath)
+	matched := gjson.GetBytes(rawOutput, transformPath)
 	if !matched.Exists() {
+		if !gjson.ValidBytes(rawOutput) {
+			return nil, fmt.Errorf("output transform: source output is empty or invalid JSON")
+		}
 		return nil, fmt.Errorf("output transform: path %q not found in output", transformPath)
 	}
 
 	raw := matched.Raw
 	if raw == "" {
 		return nil, fmt.Errorf("output transform: path %q did not extract a value", transformPath)
+	}
+
+	if matched.Index > 0 && matched.Index+len(raw) <= len(rawOutput) {
+		return rawOutput[matched.Index : matched.Index+len(raw)], nil
 	}
 
 	return json.RawMessage(raw), nil

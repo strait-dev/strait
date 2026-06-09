@@ -20,6 +20,34 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
+func workflowApprovalID(stepRunID string) string {
+	return "approval:" + stepRunID
+}
+
+func workflowApprovalEventKey(workflowRunID, stepRef string) string {
+	return "approval:" + workflowRunID + ":" + stepRef
+}
+
+func workflowApprovalEventTriggerID(stepRunID string) string {
+	return "evt:approval:" + stepRunID
+}
+
+func workflowCostGateApprovalID(stepRunID string) string {
+	return "costgate:" + stepRunID
+}
+
+func workflowEventTriggerID(stepRunID string) string {
+	return "evt:" + stepRunID
+}
+
+func workflowSleepTriggerID(stepRunID string) string {
+	return "slp:" + stepRunID
+}
+
+func workflowSleepEventKey(workflowRunID, stepRef string) string {
+	return "sleep:" + workflowRunID + ":" + stepRef
+}
+
 func (e *WorkflowEngine) startStep(
 	ctx context.Context,
 	stepRun *domain.WorkflowStepRun,
@@ -48,7 +76,7 @@ func (e *WorkflowEngine) startStep(
 		recordWorkflowStepTransition(ctx, string(stepRun.Status), string(domain.StepWaiting))
 
 		approval := &domain.WorkflowStepApproval{
-			ID:                fmt.Sprintf("approval:%s", stepRun.ID),
+			ID:                workflowApprovalID(stepRun.ID),
 			WorkflowRunID:     wfRun.ID,
 			WorkflowStepRunID: stepRun.ID,
 			Approvers:         slices.Clone(step.ApprovalApprovers),
@@ -64,7 +92,7 @@ func (e *WorkflowEngine) startStep(
 		}
 
 		// Create a parallel event trigger for unified tracking.
-		eventKey := fmt.Sprintf("approval:%s:%s", wfRun.ID, step.StepRef)
+		eventKey := workflowApprovalEventKey(wfRun.ID, step.StepRef)
 		timeoutSecs := step.ApprovalTimeoutSecs
 		if timeoutSecs <= 0 {
 			timeoutSecs = domain.DefaultEventTimeoutSecs
@@ -74,7 +102,7 @@ func (e *WorkflowEngine) startStep(
 		}
 		expiresAt := now.Add(time.Duration(timeoutSecs) * time.Second)
 		trigger := &domain.EventTrigger{
-			ID:                fmt.Sprintf("evt:approval:%s", stepRun.ID),
+			ID:                workflowApprovalEventTriggerID(stepRun.ID),
 			EventKey:          eventKey,
 			ProjectID:         wfRun.ProjectID,
 			SourceType:        domain.EventSourceWorkflowStep,
@@ -135,7 +163,7 @@ func (e *WorkflowEngine) startStep(
 			expiresAt := now.Add(time.Duration(timeoutSecs) * time.Second)
 
 			approval := &domain.WorkflowStepApproval{
-				ID:                fmt.Sprintf("costgate:%s", stepRun.ID),
+				ID:                workflowCostGateApprovalID(stepRun.ID),
 				WorkflowRunID:     wfRun.ID,
 				WorkflowStepRunID: stepRun.ID,
 				Approvers:         []string{},
@@ -326,7 +354,7 @@ func (e *WorkflowEngine) startWaitForEventStep(
 	expiresAt := now.Add(time.Duration(timeoutSecs) * time.Second)
 
 	trigger := &domain.EventTrigger{
-		ID:                fmt.Sprintf("evt:%s", stepRun.ID),
+		ID:                workflowEventTriggerID(stepRun.ID),
 		EventKey:          renderedKey,
 		ProjectID:         wfRun.ProjectID,
 		SourceType:        domain.EventSourceWorkflowStep,
@@ -399,8 +427,8 @@ func (e *WorkflowEngine) startSleepStep(
 	expiresAt := now.Add(time.Duration(durationSecs) * time.Second)
 
 	trigger := &domain.EventTrigger{
-		ID:                fmt.Sprintf("slp:%s", stepRun.ID),
-		EventKey:          fmt.Sprintf("sleep:%s:%s", wfRun.ID, step.StepRef),
+		ID:                workflowSleepTriggerID(stepRun.ID),
+		EventKey:          workflowSleepEventKey(wfRun.ID, step.StepRef),
 		ProjectID:         wfRun.ProjectID,
 		SourceType:        domain.EventSourceWorkflowStep,
 		WorkflowRunID:     wfRun.ID,

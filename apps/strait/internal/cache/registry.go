@@ -76,12 +76,22 @@ func (r *Registry) Origin() string {
 }
 
 func (r *Registry) Register(namespace string, handler NamespaceHandler) {
-	if r == nil || namespace == "" || handler == nil {
+	if !r.canRegister(namespace, handler) {
 		return
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.handlers[namespace] = handler
+}
+
+func (r *Registry) canRegister(namespace string, handler NamespaceHandler) bool {
+	if r == nil {
+		return false
+	}
+	if namespace == "" {
+		return false
+	}
+	return handler != nil
 }
 
 func (r *Registry) RegisteredNamespaces() []string {
@@ -225,7 +235,7 @@ func (h TierHandler[K, V]) InvalidateCacheKey(ctx context.Context, key string, v
 }
 
 func (h TierHandler[K, V]) ApplyCacheUpdate(ctx context.Context, key string, _ int64, payload json.RawMessage) {
-	if h.Tier == nil || h.Parse == nil || len(payload) == 0 {
+	if !h.canApplyUpdate(payload) {
 		return
 	}
 	parsed, ok := h.Parse(key)
@@ -238,6 +248,16 @@ func (h TierHandler[K, V]) ApplyCacheUpdate(ctx context.Context, key string, _ i
 		return
 	}
 	h.Tier.applyUpdate(ctx, parsed, entry)
+}
+
+func (h TierHandler[K, V]) canApplyUpdate(payload json.RawMessage) bool {
+	if h.Tier == nil {
+		return false
+	}
+	if h.Parse == nil {
+		return false
+	}
+	return len(payload) > 0
 }
 
 func newOriginID() string {

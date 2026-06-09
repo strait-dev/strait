@@ -26,7 +26,12 @@ import (
 // string when no specific resource id is available).
 func (s *Server) emitInternalSecretBypassAudit(ctx context.Context, gate, handler, resourceType, resourceID string) {
 	caller := bypassCallerLabel(ctx)
-	s.emitAuditEvent(ctx, domain.AuditActionInternalSecretBypass, resourceType, resourceID, map[string]any{
+	// Use the async emitter: it runs on a background context with retries and a
+	// dead-letter fallback. The previous synchronous emit forwarded the live
+	// request context, so a client disconnect or transient DB error silently
+	// dropped this security-relevant audit row — exactly the forensic trail this
+	// helper exists to guarantee.
+	s.emitAuditEventAsync(ctx, domain.AuditActionInternalSecretBypass, resourceType, resourceID, map[string]any{
 		"gate":    gate,
 		"caller":  caller,
 		"handler": handler,
@@ -55,20 +60,19 @@ func (s *Server) emitInternalSecretBypassAuditIfProjectless(ctx context.Context,
 }
 
 // bypassCallerLabel returns the most specific identity available for an
-// internal-secret bypass. Order of preference:
+// internal-secret bypass. By contract this is only called once the caller has
+// crossed the internal-secret guard with an empty project context, so exactly
+// two outcomes are reachable:
 //  1. The authenticated actor id (user or api-key) when present.
-//  2. "api-key:<project_id>" when an API-key project is in context.
-//  3. "internal_secret" when only the X-Internal-Secret marker is set.
-//  4. "unknown" — the leaked-secret scenario where no signal exists.
+//  2. "internal_secret" — only the X-Internal-Secret marker is set.
+//
+// The previously documented "api-key:<project_id>" and "unknown" branches were
+// unreachable: every call site requires projectIDFromContext == "" and
+// isInternalCaller == true, so a non-empty project id or a non-internal caller
+// never reaches here.
 func bypassCallerLabel(ctx context.Context) string {
 	if id := actorFromContext(ctx); id != "" {
 		return id
 	}
-	if pid := projectIDFromContext(ctx); pid != "" {
-		return "api-key:" + pid
-	}
-	if isInternalCaller(ctx) {
-		return "internal_secret"
-	}
-	return "unknown"
+	return "internal_secret"
 }

@@ -3,15 +3,26 @@ package api
 import (
 	"context"
 	"encoding/json"
-	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"time"
 
 	"strait/internal/domain"
 
 	"github.com/go-chi/chi/v5"
 )
+
+var eventTriggerStatusFramePrefix = sseDataFramePrefix("status")
+
+func writeEventTriggerStatusFrame(w io.Writer, msg []byte) error {
+	return writeSSEDataFrame(w, eventTriggerStatusFramePrefix, msg)
+}
+
+func writeEventTriggerKeepaliveFrame(w io.Writer) error {
+	return writeSSEKeepaliveFrame(w)
+}
 
 // handleEventTriggerStream streams SSE updates for a specific event trigger.
 // Subscribes to the trigger-specific channel ("event_trigger:{id}") which receives
@@ -83,7 +94,7 @@ func (s *Server) handleEventTriggerStream(w http.ResponseWriter, r *http.Request
 	defer cancel()
 
 	// Subscribe to the trigger-specific channel (same pattern as run:{runID}).
-	channel := fmt.Sprintf("event_trigger:%s", trigger.ID)
+	channel := eventTriggerChannel(trigger.ID)
 	sub, err := s.pubsub.Subscribe(ctx, channel)
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "failed to subscribe")
@@ -122,7 +133,7 @@ func (s *Server) handleEventTriggerStream(w http.ResponseWriter, r *http.Request
 
 	// Send initial state.
 	if data, err := json.Marshal(trigger); err == nil {
-		fmt.Fprintf(w, "event: status\ndata: %s\n\n", data)
+		_ = writeEventTriggerStatusFrame(w, data)
 		flusher.Flush()
 	}
 
@@ -145,15 +156,17 @@ func (s *Server) handleEventTriggerStream(w http.ResponseWriter, r *http.Request
 			if !ok {
 				continue
 			}
-			fmt.Fprintf(w, "event: status\ndata: %s\n\n", msg)
+			if err := writeEventTriggerStatusFrame(w, stripSSENewlines(msg)); err != nil {
+				return
+			}
 			flusher.Flush()
 
 			// Close stream when trigger reaches terminal state.
-			if envelope.Status != "" && envelope.Status != domain.EventTriggerStatusWaiting {
+			if eventTriggerStreamStatusCloses(envelope.Status) {
 				return
 			}
 		case <-ticker.C:
-			if _, err := fmt.Fprintf(w, ": keepalive\n\n"); err != nil {
+			if err := writeEventTriggerKeepaliveFrame(w); err != nil {
 				return
 			}
 			flusher.Flush()
@@ -176,7 +189,7 @@ func (s *Server) writeTerminalTriggerSSE(w http.ResponseWriter, trigger *domain.
 	w.WriteHeader(http.StatusOK)
 
 	if data, err := json.Marshal(trigger); err == nil {
-		fmt.Fprintf(w, "event: status\ndata: %s\n\n", data)
+		_ = writeEventTriggerStatusFrame(w, data)
 	}
 	flusher.Flush()
 }
@@ -212,6 +225,10 @@ func eventTriggerStreamEnvelopeAllowed(ctx context.Context, trigger *domain.Even
 	return envelope, true
 }
 
+func eventTriggerStreamStatusCloses(status string) bool {
+	return status != "" && status != domain.EventTriggerStatusWaiting
+}
+
 // publishTriggerStatusChange publishes a status change to the trigger-specific
 // Redis pubsub channel for real-time SSE delivery. Non-fatal on error.
 func (s *Server) publishTriggerStatusChange(ctx context.Context, trigger *domain.EventTrigger) {
@@ -219,24 +236,61 @@ func (s *Server) publishTriggerStatusChange(ctx context.Context, trigger *domain
 		return
 	}
 
-	payload, err := json.Marshal(map[string]any{
-		"id":             trigger.ID,
-		"event_key":      trigger.EventKey,
-		"status":         trigger.Status,
-		"project_id":     trigger.ProjectID,
-		"environment_id": trigger.EnvironmentID,
-		"source_type":    trigger.SourceType,
-		"received_at":    trigger.ReceivedAt,
-		"error":          trigger.Error,
-		"timestamp":      time.Now().UTC(),
-	})
+	payload, err := marshalTriggerStatusChangePayload(trigger, time.Now().UTC())
 	if err != nil {
 		slog.Warn("failed to marshal trigger status payload", "trigger_id", trigger.ID, "error", err)
 		return
 	}
 
-	channel := fmt.Sprintf("event_trigger:%s", trigger.ID)
+	channel := eventTriggerChannel(trigger.ID)
 	if err := s.pubsub.Publish(ctx, channel, payload); err != nil {
 		slog.Warn("failed to publish trigger status change", "trigger_id", trigger.ID, "channel", channel, "error", err)
 	}
+}
+
+func eventTriggerChannel(triggerID string) string {
+	return "event_trigger:" + triggerID
+}
+
+func marshalTriggerStatusChangePayload(trigger *domain.EventTrigger, timestamp time.Time) ([]byte, error) {
+	out := make([]byte, 0, 192+
+		len(trigger.ID)+
+		len(trigger.EventKey)+
+		len(trigger.Status)+
+		len(trigger.ProjectID)+
+		len(trigger.EnvironmentID)+
+		len(trigger.SourceType)+
+		len(trigger.Error),
+	)
+	out = append(out, `{"id":`...)
+	out = strconv.AppendQuote(out, trigger.ID)
+	out = append(out, `,"event_key":`...)
+	out = strconv.AppendQuote(out, trigger.EventKey)
+	out = append(out, `,"status":`...)
+	out = strconv.AppendQuote(out, trigger.Status)
+	out = append(out, `,"project_id":`...)
+	out = strconv.AppendQuote(out, trigger.ProjectID)
+	out = append(out, `,"environment_id":`...)
+	out = strconv.AppendQuote(out, trigger.EnvironmentID)
+	out = append(out, `,"source_type":`...)
+	out = strconv.AppendQuote(out, trigger.SourceType)
+	out = append(out, `,"received_at":`...)
+	if trigger.ReceivedAt == nil {
+		out = append(out, "null"...)
+	} else {
+		out = appendTriggerStatusJSONTime(out, *trigger.ReceivedAt)
+	}
+	out = append(out, `,"error":`...)
+	out = strconv.AppendQuote(out, trigger.Error)
+	out = append(out, `,"timestamp":`...)
+	out = appendTriggerStatusJSONTime(out, timestamp)
+	out = append(out, '}')
+	return out, nil
+}
+
+func appendTriggerStatusJSONTime(out []byte, timestamp time.Time) []byte {
+	out = append(out, '"')
+	out = timestamp.AppendFormat(out, time.RFC3339Nano)
+	out = append(out, '"')
+	return out
 }

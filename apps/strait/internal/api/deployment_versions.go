@@ -72,7 +72,7 @@ func (s *Server) handleCreateDeploymentVersion(ctx context.Context, input *Creat
 		if err := s.checkFeatureAllowed(ctx, req.ProjectID, billing.FeatureCanaryDeployments, "Canary deployments"); err != nil {
 			return nil, err
 		}
-		if req.CanaryPercent == nil || *req.CanaryPercent < 1 || *req.CanaryPercent > 99 {
+		if !validCanaryPercent(req.CanaryPercent) {
 			return nil, huma.Error400BadRequest("canary strategy requires canary_percent between 1 and 99")
 		}
 	}
@@ -100,6 +100,10 @@ func (s *Server) handleCreateDeploymentVersion(ctx context.Context, input *Creat
 		"strategy":    string(deployment.Strategy),
 	})
 	return &CreateDeploymentVersionOutput{Body: deployment}, nil
+}
+
+func validCanaryPercent(percent *int) bool {
+	return percent != nil && *percent >= 1 && *percent <= 99
 }
 
 type ListDeploymentVersionsInput struct {

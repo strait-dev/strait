@@ -56,11 +56,7 @@ func TestHandleCreateAPIKey_Success(t *testing.T) {
 	require.Equal(t, "CLI key", captured.
 		Name,
 	)
-	require.False(t, len(captured.
-		Scopes) !=
-		1 || captured.
-		Scopes[0] != "jobs:read",
-	)
+	require.Equal(t, []string{"jobs:read"}, captured.Scopes)
 	require.NotEmpty(t, captured.
 		KeyHash,
 	)
@@ -85,8 +81,7 @@ func TestHandleCreateAPIKey_Success(t *testing.T) {
 	)
 	require.Equal(t, "CLI key", resp.
 		Name)
-	require.False(t, len(resp.Scopes) != 1 ||
-		resp.Scopes[0] != "jobs:read")
+	require.Equal(t, []string{"jobs:read"}, resp.Scopes)
 	require.False(t, resp.CreatedAt.
 		IsZero(),
 	)
@@ -117,10 +112,8 @@ func TestHandleCreateAPIKey_WithExpiry(t *testing.T) {
 	require.Equal(t, http.StatusCreated,
 		w.Code,
 	)
-	require.False(t, captured == nil ||
-		captured.
-			ExpiresAt ==
-			nil)
+	require.NotNil(t, captured)
+	require.NotNil(t, captured.ExpiresAt)
 
 	earliest := now.Add(29 * 24 * time.Hour)
 	latest := now.Add(31 * 24 * time.Hour)
@@ -395,6 +388,55 @@ func TestHandleRevokeAPIKey_NotFound(t *testing.T) {
 			Code)
 }
 
+func TestAPIKeyCacheVersionAfterMutation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		currentVersion int64
+		refreshed      *domain.APIKey
+		refreshErr     error
+		want           int64
+	}{
+		{
+			name:           "lookup error uses monotonic fallback",
+			currentVersion: 7,
+			refreshErr:     errors.New("lookup failed"),
+			want:           8,
+		},
+		{
+			name:           "missing refreshed key uses monotonic fallback",
+			currentVersion: 7,
+			want:           8,
+		},
+		{
+			name:           "non-positive refreshed version uses monotonic fallback",
+			currentVersion: 7,
+			refreshed:      &domain.APIKey{CacheVersion: 0},
+			want:           8,
+		},
+		{
+			name:           "positive refreshed version wins",
+			currentVersion: 7,
+			refreshed:      &domain.APIKey{CacheVersion: 12},
+			want:           12,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := apiKeyCacheVersionAfterMutation(
+				tc.currentVersion,
+				tc.refreshed,
+				tc.refreshErr,
+			)
+			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
 func TestGenerateAPIKey_Format(t *testing.T) {
 	t.Parallel()
 	key, err := generateAPIKey()
@@ -428,6 +470,17 @@ func TestHashAPIKey_DifferentKeys(t *testing.T) {
 	h1 := hashAPIKey("strait_" + strings.Repeat("ab", 32))
 	h2 := hashAPIKey("strait_" + strings.Repeat("cd", 32))
 	require.NotEqual(t, h2, h1)
+}
+
+func BenchmarkHashAPIKey(b *testing.B) {
+	key := "strait_" + strings.Repeat("ab", 32)
+
+	b.ReportAllocs()
+	for b.Loop() {
+		if hashAPIKey(key) == "" {
+			b.Fatal("hashAPIKey returned empty hash")
+		}
+	}
 }
 
 func TestAPIKeyAuth_ValidKey(t *testing.T) {
@@ -561,11 +614,8 @@ func TestAPIKeyAuth_ExpiredKey(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.
 		Bytes(), &resp,
 	))
-	require.False(t, resp.Error ==
-		nil || resp.
-		Error.Message !=
-		"api key has expired",
-	)
+	require.NotNil(t, resp.Error)
+	require.Equal(t, "api key has expired", resp.Error.Message)
 }
 
 func TestAPIKeyAuth_RevokedKey(t *testing.T) {
@@ -593,11 +643,8 @@ func TestAPIKeyAuth_RevokedKey(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.
 		Bytes(), &resp,
 	))
-	require.False(t, resp.Error ==
-		nil || resp.
-		Error.Message !=
-		"api key has been revoked",
-	)
+	require.NotNil(t, resp.Error)
+	require.Equal(t, "api key has been revoked", resp.Error.Message)
 }
 
 func TestAPIKeyAuth_InvalidKey(t *testing.T) {

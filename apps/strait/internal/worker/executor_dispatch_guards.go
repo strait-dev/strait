@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"time"
+	"unsafe"
 
 	"strait/internal/domain"
 	"strait/internal/httputil"
@@ -100,6 +101,14 @@ func endpointStateKey(projectID, endpointURL string) string {
 	if projectID == "" {
 		return endpointURL
 	}
-	sum := sha256.Sum256([]byte(endpointURL))
-	return "project:" + projectID + ":endpoint:" + hex.EncodeToString(sum[:])
+	// Sum256 consumes the endpoint URL synchronously and does not retain it.
+	sum := sha256.Sum256(unsafe.Slice(unsafe.StringData(endpointURL), len(endpointURL)))
+	const prefix = "project:"
+	const separator = ":endpoint:"
+	out := make([]byte, len(prefix)+len(projectID)+len(separator)+sha256.Size*2)
+	n := copy(out, prefix)
+	n += copy(out[n:], projectID)
+	n += copy(out[n:], separator)
+	hex.Encode(out[n:], sum[:])
+	return string(out)
 }

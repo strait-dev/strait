@@ -31,7 +31,7 @@ func validConfig() *Config {
 		WorkerDisconnectSweepInterval: 30 * time.Second,
 		WorkerDisconnectAckTimeout:    5 * time.Second,
 		GRPCPubsubStartupTimeout:      30 * time.Second,
-		DatabaseURL:                   "postgres://localhost/test",
+		DatabaseURL:                   "postgres://localhost/test?sslmode=require",
 		RedisURL:                      "redis://localhost:6379",
 		SequinBaseURL:                 "http://localhost:7376",
 		SequinConsumerName:            "strait-cdc",
@@ -41,6 +41,7 @@ func validConfig() *Config {
 		DBMaxConns:                    50,
 		DBMinConns:                    10,
 		SentryEnvironment:             "development",
+		DeploymentEnvironment:         "development",
 		ExecutionTraceMode:            "off",
 		DLQMaxPerJob:                  1000,
 		DLQMaxPerProject:              10000,
@@ -57,7 +58,7 @@ func TestValidate_SequinWebhookSecretRequiredOutsideDevelopment(t *testing.T) {
 	t.Parallel()
 
 	c := validConfig()
-	c.SentryEnvironment = "production"
+	c.DeploymentEnvironment = "production"
 	c.SequinWebhookSecret = ""
 	err := c.Validate()
 	require.Error(t,
@@ -69,6 +70,22 @@ func TestValidate_SequinWebhookSecretRequiredOutsideDevelopment(t *testing.T) {
 	c.SequinWebhookSecret = "sequin-webhook-secret"
 	require.NoError(
 		t, c.Validate())
+}
+
+// TestValidate_SequinWebhookSecretGatesOnDeploymentEnv is the regression guard
+// for keying CDC webhook auth on STRAIT_ENV, not SENTRY_ENVIRONMENT: setting
+// SENTRY_ENVIRONMENT=development must NOT relax the requirement in a production
+// deployment.
+func TestValidate_SequinWebhookSecretGatesOnDeploymentEnv(t *testing.T) {
+	t.Parallel()
+
+	c := validConfig()
+	c.DeploymentEnvironment = "production"
+	c.SentryEnvironment = "development" // observability label must not relax security
+	c.SequinWebhookSecret = ""
+	err := c.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "SEQUIN_WEBHOOK_SECRET")
 }
 
 func TestValidate_RedisURLScheme(t *testing.T) {
@@ -342,11 +359,12 @@ func FuzzValidateNeverPanics(f *testing.F) {
 
 func setRequiredAuditEnv(t *testing.T) {
 	t.Helper()
-	t.Setenv("DATABASE_URL", "postgres://localhost/test")
+	t.Setenv("DATABASE_URL", "postgres://localhost/test?sslmode=require")
 	t.Setenv("REDIS_URL", "redis://localhost:6379")
 	t.Setenv("SEQUIN_BASE_URL", "http://localhost:7376")
 	t.Setenv("SEQUIN_CONSUMER_NAME", "strait-cdc")
 	t.Setenv("SEQUIN_API_TOKEN", "sequin-api-token")
+	t.Setenv("SEQUIN_WEBHOOK_SECRET", "sequin-webhook-secret")
 	t.Setenv("INTERNAL_SECRET", "test-secret-value")
 	t.Setenv("JWT_SIGNING_KEY", "aaaa-test-jwt-signing-key-00000000")
 	t.Setenv("AUDIT_RETENTION_DEFAULT_DAYS", "365")
@@ -552,4 +570,44 @@ func TestValidate_AuditDLQReclaimBatchNegative(t *testing.T) {
 	_, err := Load()
 	require.Error(t,
 		err)
+}
+
+// TestValidateDatabaseSSLMode is the regression guard for the TLS-downgrade
+// finding: outside development, any sslmode that permits an unencrypted
+// connection — including an unset sslmode (libpq defaults to "prefer") — must
+// be rejected, while explicit secure modes are accepted. Development aliases
+// (development, dev, test) stay permissive.
+func TestValidateDatabaseSSLMode(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name        string
+		databaseURL string
+		environment string
+		wantErr     bool
+	}{
+		{"require in prod", "postgres://h/db?sslmode=require", "production", false},
+		{"verify-full in prod", "postgres://h/db?sslmode=verify-full", "production", false},
+		{"disable in prod", "postgres://h/db?sslmode=disable", "production", true},
+		{"prefer in prod", "postgres://h/db?sslmode=prefer", "production", true},
+		{"allow in prod", "postgres://h/db?sslmode=allow", "production", true},
+		{"absent in prod", "postgres://h/db", "production", true},
+		{"absent empty env defaults non-dev", "postgres://h/db", "", true},
+		{"uppercase DISABLE in prod", "postgres://h/db?sslmode=DISABLE", "production", true},
+		{"dsn form require in prod", "host=h dbname=db sslmode=require", "production", false},
+		{"dsn form absent in prod", "host=h dbname=db", "production", true},
+		{"disable in development", "postgres://h/db?sslmode=disable", "development", false},
+		{"absent in dev alias", "postgres://h/db", "dev", false},
+		{"disable in test", "postgres://h/db?sslmode=disable", "test", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := ValidateDatabaseSSLMode(tt.databaseURL, tt.environment)
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
 }

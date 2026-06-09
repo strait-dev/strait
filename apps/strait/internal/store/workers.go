@@ -945,7 +945,7 @@ func (q *Queries) RequeueOpenWorkerTasks(ctx context.Context, workerID, projectI
 }
 
 func buildWorkerTaskResult(status *string, output []byte, errText *string, durationMS *int64, receivedAt *time.Time) *domain.WorkerTaskResult {
-	if status == nil && len(output) == 0 && errText == nil && durationMS == nil && receivedAt == nil {
+	if !hasWorkerTaskResultFields(status, output, errText, durationMS, receivedAt) {
 		return nil
 	}
 	result := &domain.WorkerTaskResult{ReceivedAt: receivedAt}
@@ -962,4 +962,8 @@ func buildWorkerTaskResult(status *string, output []byte, errText *string, durat
 		result.DurationMS = *durationMS
 	}
 	return result
+}
+
+func hasWorkerTaskResultFields(status *string, output []byte, errText *string, durationMS *int64, receivedAt *time.Time) bool {
+	return status != nil || len(output) > 0 || errText != nil || durationMS != nil || receivedAt != nil
 }

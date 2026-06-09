@@ -280,10 +280,19 @@ func validateWorkflowStepFields(step workflowStepRequest, knownRefs map[string]b
 	if len(step.ConcurrencyKey) > 128 {
 		return errors.New("concurrency_key must be at most 128 characters")
 	}
-	if step.ResourceClass != "" && step.ResourceClass != "small" && step.ResourceClass != "medium" && step.ResourceClass != "large" {
+	if !isValidResourceClass(step.ResourceClass) {
 		return errors.New("resource_class must be one of small, medium, large")
 	}
 	return validateWorkflowStepDependencies(step, knownRefs)
+}
+
+func isValidResourceClass(resourceClass string) bool {
+	switch resourceClass {
+	case "", "small", "medium", "large":
+		return true
+	default:
+		return false
+	}
 }
 
 func validateWorkflowStepTypeFields(step workflowStepRequest, stepType domain.WorkflowStepType) error {

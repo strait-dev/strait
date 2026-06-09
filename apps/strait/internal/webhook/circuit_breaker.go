@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strconv"
 	"time"
+	"unsafe"
 
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
@@ -16,6 +17,9 @@ const (
 	defaultWebhookFailureThreshold = 5
 	defaultWebhookFailureWindow    = time.Minute
 	defaultWebhookOpenDuration     = time.Minute
+
+	webhookCircuitFailuresPrefix = "webhook:circuit:failures:"
+	webhookCircuitOpenPrefix     = "webhook:circuit:open:"
 )
 
 type WebhookCircuitBreaker interface {
@@ -75,7 +79,7 @@ func NewRedisWebhookCircuitBreaker(client *redis.Client, enabled bool, opts ...R
 }
 
 func (cb *RedisWebhookCircuitBreaker) CanDeliver(ctx context.Context, url string) (bool, error) {
-	if !cb.enabled || cb.client == nil || url == "" {
+	if !cb.canUseRemoteState(url) {
 		return true, nil
 	}
 
@@ -110,7 +114,7 @@ func (cb *RedisWebhookCircuitBreaker) CanDeliver(ctx context.Context, url string
 }
 
 func (cb *RedisWebhookCircuitBreaker) RecordSuccess(ctx context.Context, url string) {
-	if !cb.enabled || cb.client == nil || url == "" {
+	if !cb.canUseRemoteState(url) {
 		return
 	}
 
@@ -118,7 +122,7 @@ func (cb *RedisWebhookCircuitBreaker) RecordSuccess(ctx context.Context, url str
 }
 
 func (cb *RedisWebhookCircuitBreaker) RecordFailure(ctx context.Context, url string) {
-	if !cb.enabled || cb.client == nil || url == "" {
+	if !cb.canUseRemoteState(url) {
 		return
 	}
 
@@ -132,21 +136,47 @@ func (cb *RedisWebhookCircuitBreaker) RecordFailure(ctx context.Context, url str
 	}).Err()
 	_ = cb.client.Expire(ctx, failureKey, cb.failureWindow).Err()
 
+	// Evict entries older than the failure window before counting, mirroring
+	// CanDeliver. Without this, stale failures still present in the sorted set
+	// (the key TTL is reset on every failure) inflate ZCard and can trip the
+	// breaker open even when recent failures are below the threshold.
+	cutoff := strconv.FormatInt(now.Add(-cb.failureWindow).UnixMilli(), 10)
+	_ = cb.client.ZRemRangeByScore(ctx, failureKey, "-inf", cutoff).Err()
+
 	failures, err := cb.client.ZCard(ctx, failureKey).Result()
 	if err == nil && failures >= int64(cb.failureThreshold) {
 		_ = cb.client.Set(ctx, openKey, "1", cb.openDuration).Err()
 	}
 }
 
+func (cb *RedisWebhookCircuitBreaker) canUseRemoteState(url string) bool {
+	return cb.enabled && cb.client != nil && url != ""
+}
+
 func (cb *RedisWebhookCircuitBreaker) failureKey(url string) string {
-	return "webhook:circuit:failures:" + hashURL(url)
+	var out [len(webhookCircuitFailuresPrefix) + sha256.Size*2]byte
+	copy(out[:], webhookCircuitFailuresPrefix)
+	writeURLHashHex(out[len(webhookCircuitFailuresPrefix):], url)
+	return string(out[:])
 }
 
 func (cb *RedisWebhookCircuitBreaker) openKey(url string) string {
-	return "webhook:circuit:open:" + hashURL(url)
+	var out [len(webhookCircuitOpenPrefix) + sha256.Size*2]byte
+	copy(out[:], webhookCircuitOpenPrefix)
+	writeURLHashHex(out[len(webhookCircuitOpenPrefix):], url)
+	return string(out[:])
 }
 
 func hashURL(url string) string {
-	sum := sha256.Sum256([]byte(url))
-	return hex.EncodeToString(sum[:])
+	// Sum256 consumes the input synchronously and does not retain it, so this
+	// avoids copying the URL string on every circuit-breaker key lookup.
+	sum := sha256.Sum256(unsafe.Slice(unsafe.StringData(url), len(url)))
+	var out [sha256.Size * 2]byte
+	hex.Encode(out[:], sum[:])
+	return string(out[:])
+}
+
+func writeURLHashHex(dst []byte, url string) {
+	sum := sha256.Sum256(unsafe.Slice(unsafe.StringData(url), len(url)))
+	hex.Encode(dst, sum[:])
 }

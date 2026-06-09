@@ -74,22 +74,42 @@ const apiVersion = "v1"
 func requireJSONAccept(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		accept := r.Header.Get("Accept")
-		if accept != "" && accept != "*/*" {
-			ok := false
-			for part := range strings.SplitSeq(accept, ",") {
-				mt := strings.TrimSpace(strings.SplitN(part, ";", 2)[0])
-				if mt == "application/json" || mt == "application/*" || mt == "application/x-ndjson" || mt == "text/csv" || mt == "*/*" {
-					ok = true
-					break
-				}
-			}
-			if !ok {
-				respondError(w, r, http.StatusNotAcceptable, "this API only serves application/json")
-				return
-			}
+		if !acceptsJSONResponse(accept) {
+			respondError(w, r, http.StatusNotAcceptable, "this API only serves application/json")
+			return
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func acceptsJSONResponse(accept string) bool {
+	if acceptsDefaultAPIResponseMediaType(accept) {
+		return true
+	}
+	if accept == "application/json" {
+		return true
+	}
+	for len(accept) > 0 {
+		part := accept
+		if comma := strings.IndexByte(accept, ','); comma >= 0 {
+			part = accept[:comma]
+			accept = accept[comma+1:]
+		} else {
+			accept = ""
+		}
+		if semi := strings.IndexByte(part, ';'); semi >= 0 {
+			part = part[:semi]
+		}
+		switch strings.TrimSpace(part) {
+		case "application/json", "application/*", "application/x-ndjson", "text/csv", "*/*":
+			return true
+		}
+	}
+	return false
+}
+
+func acceptsDefaultAPIResponseMediaType(accept string) bool {
+	return accept == "" || accept == "*/*"
 }
 
 // requireJSONContentType returns 415 Unsupported Media Type if a mutation
@@ -97,12 +117,19 @@ func requireJSONAccept(next http.Handler) http.Handler {
 func requireJSONContentType(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost || r.Method == http.MethodPut || r.Method == http.MethodPatch {
-			if r.ContentLength > 0 || r.Header.Get("Content-Type") != "" {
-				ct := r.Header.Get("Content-Type")
-				mt := strings.TrimSpace(strings.SplitN(ct, ";", 2)[0])
-				if mt != "application/json" {
+			ct := r.Header.Get("Content-Type")
+			if r.ContentLength > 0 || ct != "" {
+				if ct == "" {
 					respondError(w, r, http.StatusUnsupportedMediaType, "Content-Type must be application/json")
 					return
+				}
+				if ct != "application/json" {
+					mt, _, _ := strings.Cut(ct, ";")
+					mt = strings.TrimSpace(mt)
+					if mt != "application/json" {
+						respondError(w, r, http.StatusUnsupportedMediaType, "Content-Type must be application/json")
+						return
+					}
 				}
 			}
 		}
@@ -132,8 +159,15 @@ func realIP(r *http.Request, trustedProxies []net.IPNet) string {
 		// The connecting peer is not a trusted proxy; ignore its XFF.
 		return remote
 	}
-	parts := strings.Split(xff, ",")
-	for _, raw := range slices.Backward(parts) {
+	for len(xff) > 0 {
+		idx := strings.LastIndexByte(xff, ',')
+		raw := xff
+		if idx >= 0 {
+			raw = xff[idx+1:]
+			xff = xff[:idx]
+		} else {
+			xff = ""
+		}
 		candidate := strings.TrimSpace(raw)
 		if candidate == "" {
 			continue
@@ -150,7 +184,7 @@ func realIP(r *http.Request, trustedProxies []net.IPNet) string {
 // from the trusted-proxy-aware client IP, instead of httprate's default which
 // can be spoofed by clients in deployments where the server sees X-Forwarded-For.
 func (s *Server) rateLimitKeyByIP(r *http.Request) (string, error) {
-	return realIP(r, s.trustedProxies), nil
+	return clientIPFromRequest(r, s.trustedProxies), nil
 }
 
 // remoteAddrIP returns the IP portion of r.RemoteAddr, stripping the port if
@@ -161,6 +195,13 @@ func remoteAddrIP(r *http.Request) string {
 		return host
 	}
 	return r.RemoteAddr
+}
+
+func clientIPFromRequest(r *http.Request, trustedProxies []net.IPNet) string {
+	if ip := remoteIPFromContext(r.Context()); ip != "" {
+		return ip
+	}
+	return realIP(r, trustedProxies)
 }
 
 // ipInNets reports whether the IP literal ip belongs to any of the given
@@ -445,7 +486,7 @@ func orgIDFromContext(ctx context.Context) string {
 
 func (s *Server) apiKeyAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		clientIP := realIP(r, s.trustedProxies)
+		clientIP := clientIPFromRequest(r, s.trustedProxies)
 
 		// Check if this IP is locked out from too many failed attempts.
 		if blocked, retryAfter := s.authLimiter.IsBlockedScoped(r.Context(), clientIP, ratelimit.AuthScopeAPIKey); blocked {
@@ -468,7 +509,13 @@ func (s *Server) apiKeyAuth(next http.Handler) http.Handler {
 		keyHash := hashAPIKey(rawKey)
 
 		apiKey, err := s.lookupAPIKeyForAuth(r.Context(), keyHash)
-		if err != nil || apiKey == nil {
+		if err != nil {
+			s.authLimiter.RecordFailureScoped(r.Context(), clientIP, ratelimit.AuthScopeAPIKey)
+			recordAuthDecision(r.Context(), "api_key", "failure")
+			respondError(w, r, http.StatusUnauthorized, "invalid api key")
+			return
+		}
+		if apiKey == nil {
 			s.authLimiter.RecordFailureScoped(r.Context(), clientIP, ratelimit.AuthScopeAPIKey)
 			recordAuthDecision(r.Context(), "api_key", "failure")
 			respondError(w, r, http.StatusUnauthorized, "invalid api key")
@@ -559,11 +606,14 @@ func (s *Server) apiKeyOrSecretAuth(next http.Handler) http.Handler {
 		}
 
 		authHeader := r.Header.Get("Authorization")
-		if strings.HasPrefix(authHeader, "Bearer strait_") {
+		hasAPIKeyBearerToken := strings.HasPrefix(authHeader, "Bearer strait_")
+		if hasAPIKeyBearerToken {
 			s.apiKeyAuth(next).ServeHTTP(w, r)
 			return
 		}
-		if strings.HasPrefix(authHeader, "Bearer ") && s.oidcVerifier != nil && s.oidcVerifier.enabled {
+		hasBearerToken := strings.HasPrefix(authHeader, "Bearer ")
+		oidcEnabled := s.oidcVerifier != nil && s.oidcVerifier.enabled
+		if hasBearerToken && oidcEnabled {
 			s.oidcAuth(next).ServeHTTP(w, r)
 			return
 		}
@@ -574,7 +624,7 @@ func (s *Server) apiKeyOrSecretAuth(next http.Handler) http.Handler {
 
 func (s *Server) oidcAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		clientIP := realIP(r, s.trustedProxies)
+		clientIP := clientIPFromRequest(r, s.trustedProxies)
 
 		if blocked, retryAfter := s.authLimiter.IsBlockedScoped(r.Context(), clientIP, ratelimit.AuthScopeOIDC); blocked {
 			recordAuthDecision(r.Context(), "oidc", "throttled")
@@ -656,7 +706,7 @@ func (s *Server) oidcAuth(next http.Handler) http.Handler {
 
 func (s *Server) internalSecretAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		clientIP := realIP(r, s.trustedProxies)
+		clientIP := clientIPFromRequest(r, s.trustedProxies)
 
 		// Check if this IP is locked out from too many failed attempts.
 		if blocked, retryAfter := s.authLimiter.IsBlockedScoped(r.Context(), clientIP, ratelimit.AuthScopeInternalSecret); blocked {
@@ -1107,13 +1157,25 @@ func (s *Server) resourceTags(ctx context.Context, resourceType, resourceID stri
 	switch resourceType {
 	case "job":
 		job, err := s.store.GetJob(ctx, resourceID)
-		if err != nil || job == nil || len(job.Tags) == 0 {
+		if err != nil {
+			return nil, false
+		}
+		if job == nil {
+			return nil, false
+		}
+		if len(job.Tags) == 0 {
 			return nil, false
 		}
 		return job.Tags, true
 	case "workflow":
 		wf, err := s.store.GetWorkflow(ctx, resourceID)
-		if err != nil || wf == nil || len(wf.Tags) == 0 {
+		if err != nil {
+			return nil, false
+		}
+		if wf == nil {
+			return nil, false
+		}
+		if len(wf.Tags) == 0 {
 			return nil, false
 		}
 		return wf.Tags, true
@@ -1413,13 +1475,10 @@ func (s *Server) planUsageHeaders(next http.Handler) http.Handler {
 		// Only for authenticated API key requests with a resolved project.
 		scopes := scopesFromContext(ctx)
 		projectID := projectIDFromContext(ctx)
+		// Internal-secret callers carry no scopes and are short-circuited here.
+		// (A separate actorType=="internal" guard previously followed this, but no
+		// middleware ever sets that actor type, so it was dead code and removed.)
 		if len(scopes) == 0 || projectID == "" || s.billingEnforcer == nil {
-			next.ServeHTTP(w, r)
-			return
-		}
-
-		// Skip for internal secret requests.
-		if actorType, _ := ctx.Value(ctxActorTypeKey).(string); actorType == "internal" {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -1491,7 +1550,7 @@ func (s *Server) resolveRateLimit(ctx context.Context, r *http.Request, projectI
 
 	// 1. Try API key-level rate limit (from context, no DB hit).
 	if apiKeyID != "" {
-		if apiKey, ok := ctx.Value(ctxAuthKeyObjKey).(*domain.APIKey); ok && apiKey != nil && apiKey.RateLimitRequests > 0 && apiKey.RateLimitWindowSecs > 0 {
+		if apiKey, ok := ctx.Value(ctxAuthKeyObjKey).(*domain.APIKey); ok && apiKeyHasRateLimit(apiKey) {
 			return capResolvedRateLimit(
 				resolvedRateLimit{limit: apiKey.RateLimitRequests, windowSecs: apiKey.RateLimitWindowSecs, key: "rl:apikey:" + apiKeyID},
 				planLimit,
@@ -1502,7 +1561,7 @@ func (s *Server) resolveRateLimit(ctx context.Context, r *http.Request, projectI
 	// 2. Fall back to project quota rate limit.
 	if projectID != "" && s.quotaCache != nil {
 		quota, err := s.quotaCache.Get(ctx, projectID)
-		if err == nil && quota != nil && quota.RateLimitRequests > 0 && quota.RateLimitWindowSecs > 0 {
+		if err == nil && projectQuotaHasRateLimit(quota) {
 			return capResolvedRateLimit(
 				resolvedRateLimit{limit: quota.RateLimitRequests, windowSecs: quota.RateLimitWindowSecs, key: "rl:project:" + projectID},
 				planLimit,
@@ -1530,15 +1589,23 @@ func (s *Server) resolveRateLimit(ctx context.Context, r *http.Request, projectI
 
 	// 6. Fall back to per-IP rate limit when no key/project limits matched.
 	if s.config.RateLimitRequests > 0 {
-		ip := realIP(r, s.trustedProxies)
+		ip := clientIPFromRequest(r, s.trustedProxies)
 		return resolvedRateLimit{limit: s.config.RateLimitRequests, windowSecs: int(time.Minute.Seconds()), key: "rl:ip:" + ip}
 	}
 
 	return resolvedRateLimit{}
 }
 
+func apiKeyHasRateLimit(apiKey *domain.APIKey) bool {
+	return apiKey != nil && apiKey.RateLimitRequests > 0 && apiKey.RateLimitWindowSecs > 0
+}
+
+func projectQuotaHasRateLimit(quota *store.ProjectQuota) bool {
+	return quota != nil && quota.RateLimitRequests > 0 && quota.RateLimitWindowSecs > 0
+}
+
 func capResolvedRateLimit(rl resolvedRateLimit, planLimitPerMinute int) resolvedRateLimit {
-	if planLimitPerMinute <= 0 || rl.limit <= 0 || rl.windowSecs <= 0 {
+	if !canCapResolvedRateLimit(rl, planLimitPerMinute) {
 		return rl
 	}
 	planLimitForWindow := planLimitPerMinute * rl.windowSecs / 60
@@ -1549,6 +1616,10 @@ func capResolvedRateLimit(rl resolvedRateLimit, planLimitPerMinute int) resolved
 		rl.limit = planLimitForWindow
 	}
 	return rl
+}
+
+func canCapResolvedRateLimit(rl resolvedRateLimit, planLimitPerMinute int) bool {
+	return planLimitPerMinute > 0 && rl.limit > 0 && rl.windowSecs > 0
 }
 
 // auditVerifyRateLimit enforces a per-project rate limit on the audit chain
@@ -1654,31 +1725,31 @@ func (s *Server) projectRateLimit(next http.Handler) http.Handler {
 // at runtime. The list intentionally over-redacts — false positives
 // (e.g. an "author" or "design" param) only cost log fidelity, while
 // false negatives leak credentials into logs and traces.
-var sensitiveQueryKeywords = map[string]struct{}{
-	"secret":         {},
-	"password":       {},
-	"token":          {},
-	"key":            {},
-	"auth":           {},
-	"credential":     {},
-	"sig":            {},
-	"jwt":            {},
-	"bearer":         {},
-	"hmac":           {},
-	"nonce":          {},
-	"csrf":           {},
-	"state":          {},
-	"code_verifier":  {},
-	"code_challenge": {},
-	"session":        {},
+var sensitiveQueryKeywords = [...]string{
+	"secret",
+	"password",
+	"token",
+	"key",
+	"auth",
+	"credential",
+	"sig",
+	"jwt",
+	"bearer",
+	"hmac",
+	"nonce",
+	"csrf",
+	"state",
+	"code_verifier",
+	"code_challenge",
+	"session",
 }
 
 // containsSensitiveKeyword reports whether name contains any of the
-// configured credential keywords (case-insensitive). The map iteration
-// order is irrelevant: containment is commutative across keywords.
+// configured credential keywords (case-insensitive). Keyword order is
+// irrelevant: containment is commutative across keywords.
 func containsSensitiveKeyword(name string) bool {
 	lower := strings.ToLower(name)
-	for kw := range sensitiveQueryKeywords {
+	for _, kw := range sensitiveQueryKeywords {
 		if strings.Contains(lower, kw) {
 			return true
 		}

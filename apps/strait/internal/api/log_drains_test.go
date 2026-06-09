@@ -368,17 +368,14 @@ func TestHandleBulkReplayRuns_NilJobReturnsItemFailure(t *testing.T) {
 			}, nil
 		},
 		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
-			require.Equal(t, "job-missing",
-				id)
+			require.Equal(t, "job-missing", id)
 
 			return nil, nil
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{
 		enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
-			require.Fail(t,
-
-				"queue.Enqueue must not be called when replay job is nil")
+			require.Fail(t, "queue.Enqueue must not be called when replay job is nil")
 			return nil
 		},
 	}, nil)
@@ -386,21 +383,18 @@ func TestHandleBulkReplayRuns_NilJobReturnsItemFailure(t *testing.T) {
 	body := `{"run_ids": ["run-1"]}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/bulk-replay", body))
-	require.Equal(t, http.StatusOK,
-		w.Code)
+	require.Equal(t, http.StatusOK, w.Code)
 
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	require.Equal(t, 0, int(resp["replayed"].(float64)))
 
 	results := resp["results"].([]any)
-	require.Len(t,
-		results, 1)
+	require.Len(t, results, 1)
 
 	result := results[0].(map[string]any)
-	require.False(t, result["status"] != "failed" ||
-		result["error"] != "job not found or disabled",
-	)
+	require.Equal(t, "failed", result["status"])
+	require.Equal(t, "job not found or disabled", result["error"])
 }
 
 func TestHandleBulkReplayRuns_EmptyRunIDs(t *testing.T) {

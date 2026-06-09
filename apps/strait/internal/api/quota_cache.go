@@ -87,7 +87,7 @@ func newQuotaCache(
 }
 
 func (c *quotaCache) Stop() {
-	if c == nil || c.inner == nil {
+	if !c.cacheEnabled() {
 		return
 	}
 	c.inner.Stop()
@@ -97,7 +97,7 @@ func (c *quotaCache) Get(ctx context.Context, projectID string) (*store.ProjectQ
 	if c == nil {
 		return nil, nil
 	}
-	if c.disabled || c.inner == nil {
+	if !c.cacheEnabled() {
 		c.misses.Add(cacheMetricsContext, 1)
 		return c.loadFn(ctx, projectID)
 	}
@@ -137,7 +137,7 @@ func (c *quotaCache) InvalidateWithVersion(projectID string, version int64) {
 }
 
 func (c *quotaCache) InvalidateWithVersionContext(ctx context.Context, projectID string, version int64) {
-	if c == nil || c.disabled || c.inner == nil {
+	if !c.cacheEnabled() {
 		return
 	}
 	if ctx == nil {
@@ -151,6 +151,10 @@ func (c *quotaCache) InvalidateWithVersionContext(ctx context.Context, projectID
 		cacheVersionBarrier(version),
 		c.bus,
 	)
+}
+
+func (c *quotaCache) cacheEnabled() bool {
+	return c != nil && !c.disabled && c.inner != nil
 }
 
 func projectQuotaCacheVersion(quota *store.ProjectQuota) int64 {

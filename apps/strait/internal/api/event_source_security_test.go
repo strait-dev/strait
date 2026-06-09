@@ -21,6 +21,7 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/eventfilter"
+	"strait/internal/store"
 )
 
 // TestEventSource_FilterExpressionInjection verifies that SQL-like injection patterns
@@ -251,6 +252,80 @@ func TestEventSource_SignatureVerificationReplay(t *testing.T) {
 	require.NotEqual(t, expectedForB,
 		actualFromHeader,
 	)
+}
+
+// TestEventSource_MissingSignatureHeaderDoesNotLeakName is the regression guard
+// for the header-name disclosure: a 401 for a missing signature header must not
+// echo the configured (privileged) header name to unauthenticated callers.
+func TestEventSource_MissingSignatureHeaderDoesNotLeakName(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		GetEventSourceByNameFunc: func(_ context.Context, projectID, name string) (*domain.EventSource, error) {
+			return &domain.EventSource{
+				ID: "src-leak", ProjectID: projectID, Name: name, Enabled: true,
+				SignatureHeader: "X-Secret-Signing-Header", SignatureAlgorithm: "hmac-sha256",
+				SignatureSecretEnc: []byte("encrypted:secret"),
+			}, nil
+		},
+	}
+	srv := newTestServerWithEncryptor(t, ms, &mockQueue{}, &mockEncryptor{})
+
+	body := `{"source":"sig-source","project_id":"proj-1","payload":{"data":"x"}}`
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/events/dispatch", body))
+
+	require.Equal(t, http.StatusUnauthorized, w.Code)
+	require.NotContains(t, w.Body.String(), "X-Secret-Signing-Header",
+		"401 must not echo the configured signature header name")
+}
+
+// TestEventSource_SignatureReplayReleasedOnDispatchFailure is the regression
+// guard for the replay-guard premature-commit bug: the replay key is claimed
+// before dispatch, so when a dispatch step fails the key must be released, or a
+// retry would be rejected as a replay and the event silently dropped.
+func TestEventSource_SignatureReplayReleasedOnDispatchFailure(t *testing.T) {
+	t.Parallel()
+
+	secret := "replay-secret"
+	payload := `{"data":"test"}`
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte(payload))
+	sig := "sha256=" + hex.EncodeToString(mac.Sum(nil))
+
+	var acquiredKey, deletedKey string
+	ms := &APIStoreMock{
+		GetEventSourceByNameFunc: func(_ context.Context, projectID, name string) (*domain.EventSource, error) {
+			return &domain.EventSource{
+				ID: "src-replay", ProjectID: projectID, Name: name, Enabled: true,
+				SignatureHeader: "X-Custom-Sig", SignatureAlgorithm: "hmac-sha256",
+				SignatureSecretEnc: []byte("encrypted:" + secret),
+			}, nil
+		},
+		TryAcquireIdempotencyKeyFunc: func(_ context.Context, _, key string, _ time.Duration) (string, int, http.Header, []byte, error) {
+			acquiredKey = key
+			return store.IdempotencyAcquired, 0, nil, nil, nil
+		},
+		ListEventSubscriptionsBySourceFunc: func(_ context.Context, _ string) ([]domain.EventSubscription, error) {
+			return nil, errors.New("db down")
+		},
+		DeleteIdempotencyKeyFunc: func(_ context.Context, _, key string) (int64, error) {
+			deletedKey = key
+			return 1, nil
+		},
+	}
+	srv := newTestServerWithEncryptor(t, ms, &mockQueue{}, &mockEncryptor{})
+
+	body := `{"source":"sig-source","project_id":"proj-1","payload":` + payload + `}`
+	req := authedRequest(http.MethodPost, "/v1/events/dispatch", body)
+	req.Header.Set("X-Custom-Sig", sig)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusInternalServerError, w.Code)
+	require.NotEmpty(t, acquiredKey, "replay key should have been claimed")
+	require.Equal(t, acquiredKey, deletedKey,
+		"replay key must be released when dispatch fails so a retry is not blocked")
 }
 
 // TestEventSource_DispatchWithNullPayload verifies dispatching with a null payload

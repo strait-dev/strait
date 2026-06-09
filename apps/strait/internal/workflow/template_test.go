@@ -9,6 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+var stringifyBenchmarkSink string
+
 func TestRenderTemplateVars(t *testing.T) {
 	t.Parallel()
 	t.Run("simple string substitution", func(t *testing.T) {
@@ -233,9 +235,7 @@ func TestRenderTemplateVars(t *testing.T) {
 		items, ok := got["items"].([]any)
 		require.True(t, ok)
 		require.Len(t, items, 3)
-		require.False(t, items[0] != "first" ||
-			items[1] !=
-				"static" || items[2] != "third")
+		require.Equal(t, []any{"first", "static", "third"}, items)
 	})
 
 	t.Run("template in non-string context", func(t *testing.T) {
@@ -253,7 +253,7 @@ func TestRenderTemplateVars(t *testing.T) {
 		items, ok := got["items"].([]any)
 		require.True(t, ok)
 		require.Len(t, items, 3)
-		require.False(t, items[0] != float64(1) || items[1] != "replaced" || items[2] != float64(3))
+		require.Equal(t, []any{float64(1), "replaced", float64(3)}, items)
 	})
 
 	t.Run("empty template marker", func(t *testing.T) {
@@ -374,25 +374,22 @@ func TestResolveVar(t *testing.T) {
 	t.Run("simple key", func(t *testing.T) {
 		t.Parallel()
 		val, ok := resolveVar(vars, "name")
-		require.False(t, !ok ||
-			val != "Alice",
-		)
+		require.True(t, ok)
+		require.Equal(t, "Alice", val)
 	})
 
 	t.Run("nested path", func(t *testing.T) {
 		t.Parallel()
 		val, ok := resolveVar(vars, "user.email")
-		require.False(t, !ok ||
-			val != "alice@example.com",
-		)
+		require.True(t, ok)
+		require.Equal(t, "alice@example.com", val)
 	})
 
 	t.Run("deeply nested path", func(t *testing.T) {
 		t.Parallel()
 		val, ok := resolveVar(vars, "user.address.city")
-		require.False(t, !ok ||
-			val != "SF",
-		)
+		require.True(t, ok)
+		require.Equal(t, "SF", val)
 	})
 
 	t.Run("missing key", func(t *testing.T) {
@@ -454,10 +451,8 @@ func TestStringify(t *testing.T) {
 	t.Run("object", func(t *testing.T) {
 		t.Parallel()
 		s := stringify(map[string]any{"k": "v"})
-		require.False(t, !strings.Contains(
-			s, `"k"`) ||
-
-			!strings.Contains(s, `"v"`))
+		require.Contains(t, s, `"k"`)
+		require.Contains(t, s, `"v"`)
 	})
 }
 
@@ -483,8 +478,8 @@ func TestRenderTemplateVars_RepeatedVariablesPreserveBehavior(t *testing.T) {
 		Unmarshal(result,
 			&got,
 		))
-	require.False(t, got["first"] != "ops@example.com" ||
-		got["second"] != "ops@example.com")
+	require.Equal(t, "ops@example.com", got["first"])
+	require.Equal(t, "ops@example.com", got["second"])
 	require.Equal(t, "ops@example.com/42/{{missing}}/ops@example.com",
 
 		got["message"])
@@ -566,6 +561,25 @@ func BenchmarkRenderTemplateVars(b *testing.B) {
 			_ = renderTemplateVars(payload, vars)
 		}
 	})
+}
+
+func BenchmarkStringify(b *testing.B) {
+	values := map[string]any{
+		"string":           "template-value",
+		"float_integer":    float64(42),
+		"float_fractional": 42.125,
+		"bool":             true,
+		"object":           map[string]any{"ok": true, "count": float64(42)},
+	}
+
+	for name, value := range values {
+		b.Run(name, func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				stringifyBenchmarkSink = stringify(value)
+			}
+		})
+	}
 }
 
 func BenchmarkRenderStringValue(b *testing.B) {

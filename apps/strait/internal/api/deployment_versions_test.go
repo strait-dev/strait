@@ -98,6 +98,36 @@ func TestCreateDeploymentVersion_WithCanaryStrategy(t *testing.T) {
 	require.Equal(t, "canary", response["strategy"])
 }
 
+func TestValidCanaryPercent(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		percent *int
+		want    bool
+	}{
+		{name: "nil", percent: nil, want: false},
+		{name: "zero", percent: intPtr(0), want: false},
+		{name: "one", percent: intPtr(1), want: true},
+		{name: "fifty", percent: intPtr(50), want: true},
+		{name: "ninety nine", percent: intPtr(99), want: true},
+		{name: "hundred", percent: intPtr(100), want: false},
+		{name: "negative", percent: intPtr(-1), want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			require.Equal(t, tt.want, validCanaryPercent(tt.percent))
+		})
+	}
+}
+
+func intPtr(v int) *int {
+	return &v
+}
+
 func TestCreateDeploymentVersion_CanaryRequiresPercent(t *testing.T) {
 	t.Parallel()
 

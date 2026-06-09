@@ -22,7 +22,7 @@ func (e *Executor) resolveJobForRun(ctx context.Context, run *domain.JobRun) (*d
 	if e.jobCache != nil {
 		if cached, err := e.jobCache.Get(ctx, run.JobID); err == nil {
 			current = cloneJob(cached)
-			if current.VersionPolicy == domain.VersionPolicyLatest || current.VersionPolicy == domain.VersionPolicyMinor {
+			if versionPolicyRequiresCurrentJob(current.VersionPolicy) {
 				current = nil
 				bypassCache = true
 			}
@@ -34,6 +34,9 @@ func (e *Executor) resolveJobForRun(ctx context.Context, run *domain.JobRun) (*d
 			job, gerr := e.store.GetJob(loadCtx, jobID)
 			if gerr != nil {
 				return nil, gerr
+			}
+			if job == nil {
+				return nil, store.ErrJobNotFound
 			}
 			return cloneJob(job), nil
 		}
@@ -50,6 +53,9 @@ func (e *Executor) resolveJobForRun(ctx context.Context, run *domain.JobRun) (*d
 			return nil, fmt.Errorf("load current job: %w", err)
 		}
 		current = cloneJob(current)
+		if current == nil {
+			return nil, store.ErrJobNotFound
+		}
 	}
 
 	if current.Version == run.JobVersion {
@@ -95,6 +101,9 @@ func (e *Executor) resolveJobForRun(ctx context.Context, run *domain.JobRun) (*d
 		if err != nil {
 			return nil, err
 		}
+		if job == nil {
+			return nil, store.ErrJobNotFound
+		}
 		return cloneJob(job), nil
 	}
 	if e.jobVersionCache != nil {
@@ -103,15 +112,34 @@ func (e *Executor) resolveJobForRun(ctx context.Context, run *domain.JobRun) (*d
 	return loadVersion(ctx, jobVersionKey{JobID: run.JobID, Version: run.JobVersion})
 }
 
+func versionPolicyRequiresCurrentJob(policy domain.VersionPolicy) bool {
+	switch policy {
+	case domain.VersionPolicyLatest, domain.VersionPolicyMinor:
+		return true
+	default:
+		return false
+	}
+}
+
 func (e *Executor) resolveDispatchJobAndPolicy(ctx context.Context, run *domain.JobRun) (*domain.Job, executionPolicy, bool) {
 	job, err := e.resolveJobForRun(ctx, run)
-	if err != nil || job == nil {
+	if err != nil {
 		e.logger.Error(
 			"job lookup failed",
 			"run_id", run.ID,
 			"job_id", run.JobID,
 			"job_version", run.JobVersion,
 			"error", err,
+		)
+		e.handleSystemFailure(ctx, run, "job not found")
+		return nil, executionPolicy{}, false
+	}
+	if job == nil {
+		e.logger.Error(
+			"job lookup returned nil",
+			"run_id", run.ID,
+			"job_id", run.JobID,
+			"job_version", run.JobVersion,
 		)
 		e.handleSystemFailure(ctx, run, "job not found")
 		return nil, executionPolicy{}, false

@@ -47,9 +47,7 @@ func (s *SlackSender) Send(ctx context.Context, channel *domain.NotificationChan
 		return fmt.Errorf("slack webhook_url rejected: %w", err)
 	}
 
-	body, err := json.Marshal(map[string]any{
-		"text": fmt.Sprintf("[%s] %s", delivery.EventType, string(delivery.Payload)),
-	})
+	body, err := marshalSlackPayload(delivery.EventType, delivery.Payload)
 	if err != nil {
 		return fmt.Errorf("marshal slack payload: %w", err)
 	}

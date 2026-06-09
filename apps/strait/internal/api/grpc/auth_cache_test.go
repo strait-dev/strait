@@ -14,6 +14,50 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestCachedAPIKeyResolver_CacheEnabled(t *testing.T) {
+	t.Parallel()
+
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = rdb.Close() })
+
+	fallback := apiKeyResolverFunc(func(context.Context, string) (*domain.APIKey, error) {
+		return nil, nil
+	})
+	enabled, ok := newCachedAPIKeyResolver(rdb, time.Minute, fallback).(*cachedAPIKeyResolver)
+	require.True(t, ok)
+
+	tests := []struct {
+		name     string
+		resolver *cachedAPIKeyResolver
+		want     bool
+	}{
+		{
+			name:     "nil resolver",
+			resolver: nil,
+			want:     false,
+		},
+		{
+			name:     "missing tier",
+			resolver: &cachedAPIKeyResolver{},
+			want:     false,
+		},
+		{
+			name:     "enabled resolver",
+			resolver: enabled,
+			want:     true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			require.Equal(t, tt.want, tt.resolver.cacheEnabled())
+		})
+	}
+}
+
 func TestCachedAPIKeyResolver_UsesRedisL2AndSanitizesSecrets(t *testing.T) {
 	t.Parallel()
 

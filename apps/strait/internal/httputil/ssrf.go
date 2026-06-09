@@ -42,6 +42,7 @@ func mustParsePrivateRanges() []*net.IPNet {
 		"2001:2::/48",        // benchmarking
 		"2001:10::/28",       // deprecated ORCHID
 		"64:ff9b::/96",       // NAT64 well-known prefix (RFC 6052)
+		"64:ff9b:1::/48",     // NAT64 local-use block (RFC 8215)
 		"2002::/16",          // 6to4 (RFC 3056)
 	}
 	ranges := make([]*net.IPNet, 0, len(cidrs))
@@ -202,6 +203,14 @@ func embeddedIPv4(ip net.IP) net.IP {
 	// NAT64 well-known prefix 64:ff9b:: — embedded IPv4 in the low 32 bits.
 	if ip[0] == 0x00 && ip[1] == 0x64 && ip[2] == 0xff && ip[3] == 0x9b &&
 		ip[4] == 0x00 && ip[5] == 0x00 && ip[6] == 0x00 && ip[7] == 0x00 &&
+		ip[8] == 0x00 && ip[9] == 0x00 && ip[10] == 0x00 && ip[11] == 0x00 {
+		return net.IPv4(ip[12], ip[13], ip[14], ip[15])
+	}
+	// NAT64 local-use prefix 64:ff9b:1::/96 (RFC 8215) — embedded IPv4 in the low
+	// 32 bits. The whole 64:ff9b:1::/48 block is also blocked by privateRanges;
+	// decoding here lets the embedded IPv4 itself be range-checked.
+	if ip[0] == 0x00 && ip[1] == 0x64 && ip[2] == 0xff && ip[3] == 0x9b &&
+		ip[4] == 0x00 && ip[5] == 0x01 && ip[6] == 0x00 && ip[7] == 0x00 &&
 		ip[8] == 0x00 && ip[9] == 0x00 && ip[10] == 0x00 && ip[11] == 0x00 {
 		return net.IPv4(ip[12], ip[13], ip[14], ip[15])
 	}

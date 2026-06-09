@@ -41,9 +41,8 @@ func TestRegistry_StaleDeregisterIsNoop(t *testing.T) {
 
 	// Live replacement must still be present.
 	snap := r.Snapshot()
-	require.False(t, len(snap) != 1 ||
-		snap[0].WorkerID !=
-			"w1")
+	require.Len(t, snap, 1)
+	require.Equal(t, "w1", snap[0].WorkerID)
 
 	// And byAPIKey index must still hold the new entry.
 	r.mu.RLock()

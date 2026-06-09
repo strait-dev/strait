@@ -13,6 +13,7 @@ import (
 	"net"
 	"net/http"
 	"path"
+	"sync"
 	"time"
 
 	"strait/internal/store"
@@ -224,13 +225,15 @@ func (s *Server) idempotencyMiddleware(next http.Handler) http.Handler {
 			// (handler, CompleteIdempotencyKey, or the cleanup paths
 			// themselves). The original panic is re-raised so chi's
 			// recoverer still produces a 500 for the client.
-			cleanupOnce := false
+			// sync.Once rather than a plain bool: the cleanup closure is reachable
+			// from the panic-recovery defer, the overflow branch, and the tx
+			// rollback hook. A plain bool would be a TOCTOU hazard if any of those
+			// ever ran concurrently.
+			var cleanupOnce sync.Once
 			cleanup := func() {
-				if cleanupOnce {
-					return
-				}
-				cleanupOnce = true
-				s.runIdempotencyCleanup(r.Context(), projectID, compositeKey, keyHash)
+				cleanupOnce.Do(func() {
+					s.runIdempotencyCleanup(r.Context(), projectID, compositeKey, keyHash)
+				})
 			}
 			defer func() {
 				if rec := recover(); rec != nil {

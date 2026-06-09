@@ -2,7 +2,7 @@ package worker
 
 import (
 	"context"
-	"fmt"
+	"strconv"
 	"time"
 
 	straitcache "strait/internal/cache"
@@ -83,7 +83,21 @@ func newWorkerJobHealthL2(redis redis.Cmdable) straitcache.L2[jobHealthKey, *sto
 }
 
 func workerJobHealthKeyString(key jobHealthKey) string {
-	return fmt.Sprintf("%s\x00%d", key.JobID, key.Bucket)
+	const maxInt64Digits = 20
+	const sepLen = 1
+	size := len(key.JobID) + sepLen + maxInt64Digits
+	if size <= 64 {
+		var buf [64]byte
+		out := append(buf[:0], key.JobID...)
+		out = append(out, 0)
+		out = strconv.AppendInt(out, key.Bucket, 10)
+		return string(out)
+	}
+	out := make([]byte, 0, size)
+	out = append(out, key.JobID...)
+	out = append(out, 0)
+	out = strconv.AppendInt(out, key.Bucket, 10)
+	return string(out)
 }
 
 func (c *tierJobHealthCache) Key(jobID string, now time.Time) jobHealthKey {

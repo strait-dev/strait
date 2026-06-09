@@ -269,6 +269,22 @@ func TestDispatchHMAC_DifferentInputsDifferentSigs(t *testing.T) {
 	assert.NotEqual(t, s2, s1)
 }
 
+func BenchmarkDispatchHMAC(b *testing.B) {
+	body := []byte(`{"event":"run.assigned","run_id":"run-1","status":"executing"}`)
+	secret := "endpoint-signing-secret"
+	timestamp := "1780839000"
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for range b.N {
+		signature := dispatchHMAC(secret, timestamp, body)
+		if len(signature) == 0 {
+			b.Fatal("dispatchHMAC() returned empty signature")
+		}
+	}
+}
+
 func TestBuildAssignment_RunTokenIncludesAttemptAndAssignment(t *testing.T) {
 	dispatcher := &WorkerDispatcher{jwtSigningKey: "test-jwt-key"}
 	run := &domain.JobRun{ID: "run-1", ProjectID: "proj-1", Attempt: 3}
@@ -395,6 +411,54 @@ func TestTaskResultHelpers_InvalidSuccessOutputBecomesFailure(t *testing.T) {
 	require.Nil(t, TaskResultOutput(result))
 }
 
+func TestTaskResultOutputInvalid(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		status string
+		output []byte
+		want   bool
+	}{
+		{name: "success invalid json", status: "success", output: []byte(`{"ok":`), want: true},
+		{name: "completed invalid json", status: "completed", output: []byte(`{"ok":`), want: true},
+		{name: "failed invalid json", status: "failed", output: []byte(`{"ok":`), want: false},
+		{name: "success empty output", status: "success", output: nil, want: false},
+		{name: "success valid json", status: "success", output: []byte(`{"ok":true}`), want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, tt.want, taskResultOutputInvalid(tt.status, tt.output))
+		})
+	}
+}
+
+func TestTaskResultStatusRequiresJSONOutput(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		status string
+		want   bool
+	}{
+		{name: "success", status: "success", want: true},
+		{name: "completed", status: "completed", want: true},
+		{name: "failed", status: "failed", want: false},
+		{name: "empty", status: "", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, tt.want, taskResultStatusRequiresJSONOutput(tt.status))
+		})
+	}
+}
+
 func TestTaskResultHelpers_UnwrapWorkerTaskResult(t *testing.T) {
 	wrapped := &WorkerTaskResult{
 		TaskID: "task-1",
@@ -414,6 +478,31 @@ func TestTaskResultHelpers_UnwrapWorkerTaskResult(t *testing.T) {
 		require.Failf(t, "test failure",
 
 			"TaskResultOutput() = %s, want output payload", got)
+	}
+}
+
+func TestIsTerminalWorkerTaskCompletionStatus(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		status domain.WorkerTaskStatus
+		want   bool
+	}{
+		{name: "completed", status: domain.WorkerTaskStatusCompleted, want: true},
+		{name: "failed", status: domain.WorkerTaskStatusFailed, want: true},
+		{name: "assigned", status: domain.WorkerTaskStatusAssigned, want: false},
+		{name: "accepted", status: domain.WorkerTaskStatusAccepted, want: false},
+		{name: "result received", status: domain.WorkerTaskStatusResultReceived, want: false},
+		{name: "finalizing", status: domain.WorkerTaskStatusFinalizing, want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, tt.want, isTerminalWorkerTaskCompletionStatus(tt.status))
+		})
 	}
 }
 

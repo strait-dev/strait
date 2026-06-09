@@ -310,16 +310,21 @@ func (q *Queries) UpdateClaimedWebhookDelivery(ctx context.Context, d *domain.We
 	return true, nil
 }
 
-func (q *Queries) GetWebhookDelivery(ctx context.Context, id string) (*domain.WebhookDelivery, error) {
+func (q *Queries) GetWebhookDelivery(ctx context.Context, projectID, id string) (*domain.WebhookDelivery, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetWebhookDelivery")
 	defer span.End()
 
+	// Explicit project scoping (in addition to RLS) per the dual-layer isolation
+	// standard. Deliveries are owned either directly (project_id) or via their job
+	// (job_id -> jobs.project_id), so both ownership paths are checked.
 	query := `SELECT id, run_id, job_id, webhook_url, webhook_retry_policy, status, attempts, max_attempts,
 					 last_status_code, last_error, next_retry_at, delivered_at, created_at, updated_at,
 					 event_trigger_id, subscription_id, payload, webhook_secret, COALESCE(project_id, '')
-			  FROM webhook_deliveries WHERE id = $1`
+			  FROM webhook_deliveries
+			  WHERE id = $1
+			    AND (project_id = $2 OR job_id IN (SELECT id FROM jobs WHERE project_id = $2))`
 
-	d, err := scanWebhookDelivery(q.db.QueryRow(ctx, query, id))
+	d, err := scanWebhookDelivery(q.db.QueryRow(ctx, query, id, projectID))
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, fmt.Errorf("webhook delivery not found")
@@ -649,11 +654,14 @@ func scanWebhookDeliveryWithOrgAndClaim(scanner scanTarget) (*domain.WebhookDeli
 }
 
 // ReplayWebhookDelivery creates a new delivery with the same payload as the original.
-func (q *Queries) ReplayWebhookDelivery(ctx context.Context, id string) (*domain.WebhookDelivery, error) {
+func (q *Queries) ReplayWebhookDelivery(ctx context.Context, projectID, id string) (*domain.WebhookDelivery, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ReplayWebhookDelivery")
 	defer span.End()
 
 	newID := uuid.Must(uuid.NewV7()).String()
+	// The source row is project-scoped (in addition to RLS): both direct
+	// (project_id) and job-based (job_id -> jobs.project_id) ownership are checked
+	// so a delivery id from another tenant cannot be replayed.
 	query := `
 		INSERT INTO webhook_deliveries (
 			id, run_id, job_id, webhook_url, webhook_retry_policy, status, attempts, max_attempts,
@@ -663,11 +671,12 @@ func (q *Queries) ReplayWebhookDelivery(ctx context.Context, id string) (*domain
 		       NOW(), webhook_secret, payload, payload_size_bytes, event_type, event_trigger_id, subscription_id, project_id
 		FROM webhook_deliveries
 		WHERE id = $2
+		  AND (project_id = $3 OR job_id IN (SELECT id FROM jobs WHERE project_id = $3))
 		RETURNING id, run_id, job_id, webhook_url, webhook_retry_policy, status, attempts, max_attempts,
 		          last_status_code, last_error, next_retry_at, delivered_at, created_at, updated_at,
 		          event_trigger_id, subscription_id, payload, webhook_secret, COALESCE(project_id, '')`
 
-	d, err := scanWebhookDelivery(q.db.QueryRow(ctx, query, newID, id))
+	d, err := scanWebhookDelivery(q.db.QueryRow(ctx, query, newID, id, projectID))
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, fmt.Errorf("webhook delivery not found")

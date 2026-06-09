@@ -17,6 +17,30 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestCanContinueSDKParentRun(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		status domain.RunStatus
+		want   bool
+	}{
+		{name: "executing", status: domain.StatusExecuting, want: true},
+		{name: "waiting", status: domain.StatusWaiting, want: true},
+		{name: "queued", status: domain.StatusQueued},
+		{name: "completed", status: domain.StatusCompleted},
+		{name: "failed", status: domain.StatusFailed},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			require.Equal(t, tt.want, canContinueSDKParentRun(tt.status))
+		})
+	}
+}
+
 func TestSDKTerminal_Complete_Success(t *testing.T) {
 	t.Parallel()
 	var updateCalled atomic.Bool

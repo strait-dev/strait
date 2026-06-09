@@ -97,7 +97,7 @@ func (s *Server) handleSetJobEndpoint(ctx context.Context, input *SetJobEndpoint
 		return nil, newValidationError(err)
 	}
 
-	if err := s.validateURL(input.Body.EndpointURL); err != nil {
+	if err := s.validateEndpointURL(input.Body.EndpointURL); err != nil {
 		slog.Warn("endpoint_url failed SSRF validation",
 			"url", httputil.RedactURLForLog(input.Body.EndpointURL),
 			"err", err.Error(),
@@ -107,7 +107,7 @@ func (s *Server) handleSetJobEndpoint(ctx context.Context, input *SetJobEndpoint
 		return nil, huma.Error400BadRequest("endpoint_url failed validation")
 	}
 	if input.Body.FallbackEndpointURL != "" {
-		if err := s.validateURL(input.Body.FallbackEndpointURL); err != nil {
+		if err := s.validateEndpointURL(input.Body.FallbackEndpointURL); err != nil {
 			slog.Warn("fallback_endpoint_url failed SSRF validation",
 				"url", httputil.RedactURLForLog(input.Body.FallbackEndpointURL),
 				"err", err.Error(),
@@ -153,7 +153,7 @@ func (s *Server) handleSetJobEndpoint(ctx context.Context, input *SetJobEndpoint
 		return nil, huma.Error500InternalServerError("failed to encrypt endpoint signing secret")
 	}
 
-	if err := s.store.UpdateJobEndpoint(ctx, input.JobID, input.Body.EndpointURL, input.Body.FallbackEndpointURL, signingSecret); err != nil {
+	if err := s.store.UpdateJobEndpoint(ctx, input.JobID, job.ProjectID, input.Body.EndpointURL, input.Body.FallbackEndpointURL, signingSecret); err != nil {
 		if errors.Is(err, store.ErrJobNotFound) {
 			return nil, huma.Error404NotFound("job not found")
 		}

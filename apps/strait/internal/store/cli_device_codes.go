@@ -16,6 +16,11 @@ import (
 // ErrDeviceCodeNotFound is returned when a device code lookup finds no rows.
 var ErrDeviceCodeNotFound = errors.New("device code not found")
 
+// ErrDeviceCodeExpired is returned by ExchangeDeviceCode when the atomic
+// exchange matched no row specifically because the code expired (rather than
+// having already been exchanged), so callers can report the accurate error.
+var ErrDeviceCodeExpired = errors.New("device code expired")
+
 const encryptedDeviceAPIKeyPrefix = "enc:v1:"
 const hashedDeviceCodePrefix = "sha256:"
 
@@ -218,11 +223,38 @@ func (q *Queries) ExchangeDeviceCode(ctx context.Context, deviceCode string) (st
 	err := q.db.QueryRow(ctx, query, hashDeviceCode(deviceCode)).Scan(&apiKeyID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return "", ErrDeviceCodeNotFound
+			// The atomic UPDATE matched nothing: the code either expired between
+			// the caller's check and now, or was already exchanged/never existed.
+			// Diagnose so the caller can return the accurate error instead of a
+			// misleading "already exchanged".
+			return "", q.classifyFailedDeviceCodeExchange(ctx, deviceCode)
 		}
 		return "", fmt.Errorf("exchange device code: %w", err)
 	}
 	return apiKeyID, nil
+}
+
+// classifyFailedDeviceCodeExchange determines why an exchange UPDATE matched no
+// row: an expired (but still-present) code yields ErrDeviceCodeExpired; anything
+// else (already used, or gone) yields ErrDeviceCodeNotFound.
+func (q *Queries) classifyFailedDeviceCodeExchange(ctx context.Context, deviceCode string) error {
+	var expiresAt time.Time
+	var status string
+	err := q.db.QueryRow(ctx,
+		`SELECT expires_at, status FROM cli_device_codes WHERE device_code = $1`,
+		hashDeviceCode(deviceCode),
+	).Scan(&expiresAt, &status)
+	if err != nil {
+		return ErrDeviceCodeNotFound
+	}
+	if status == "approved" && !time.Now().After(expiresAt) {
+		// Still approved and unexpired: a concurrent exchange won the race.
+		return ErrDeviceCodeNotFound
+	}
+	if time.Now().After(expiresAt) {
+		return ErrDeviceCodeExpired
+	}
+	return ErrDeviceCodeNotFound
 }
 
 func hashDeviceCode(deviceCode string) string {

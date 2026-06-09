@@ -72,3 +72,26 @@ func TestErrorHash_Stable(t *testing.T) {
 	require.Equal(t, second,
 		first)
 }
+
+func BenchmarkErrorHash(b *testing.B) {
+	benchmarks := []struct {
+		name string
+		msg  string
+	}{
+		{name: "ascii_short", msg: "connection refused"},
+		{name: "ascii_long", msg: strings.Repeat("a", 250)},
+		{name: "multibyte_short", msg: strings.Repeat("漢", 100)},
+		{name: "multibyte_long", msg: strings.Repeat("漢", 250)},
+	}
+
+	for _, bm := range benchmarks {
+		b.Run(bm.name, func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				if errorHash(bm.msg) == "" {
+					b.Fatal("errorHash returned empty hash")
+				}
+			}
+		})
+	}
+}

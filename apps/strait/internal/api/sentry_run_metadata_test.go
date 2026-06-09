@@ -27,15 +27,20 @@ func TestSentryRunMetadataCarriesTraceContext(t *testing.T) {
 	got := sentryRunMetadata(ctx, "POST /v1/jobs/{jobID}/trigger", map[string]string{
 		"dependency_key": "dep-1",
 	})
-	require.Equal(t, "dep-1",
-
-		got["dependency_key"])
+	require.Equal(t, "dep-1", got["dependency_key"])
 	require.NotEmpty(t, got[domain.RunMetadataSentryTrace])
 
 	wantTraceparent := "00-" + traceID.String() + "-" + spanID.String() + "-01"
-	require.Equal(t, wantTraceparent,
+	require.Equal(t, wantTraceparent, got[domain.RunMetadataTraceParent])
+	require.True(t, validRunTraceSpanContext(trace.SpanContextFromContext(ctx)))
+}
 
-		got[domain.RunMetadataTraceParent])
+func TestSentryRunMetadataSkipsInvalidTraceContext(t *testing.T) {
+	t.Parallel()
+
+	got := sentryRunMetadata(context.Background(), "POST /v1/jobs/{jobID}/trigger", nil)
+	require.NotContains(t, got, domain.RunMetadataTraceParent)
+	require.False(t, validRunTraceSpanContext(trace.SpanContextFromContext(context.Background())))
 }
 
 func TestApplyRunTraceHeaderMetadataOverridesContextTrace(t *testing.T) {
@@ -52,18 +57,10 @@ func TestApplyRunTraceHeaderMetadataOverridesContextTrace(t *testing.T) {
 		"0123456789abcdef0123456789abcdef-0123456789abcdef-1",
 		"sentry-release=test-release,sentry-public_key=public",
 	)
-	require.Equal(t, "00-abcdef1234567890abcdef1234567890-fedcba0987654321-01",
-
-		got[domain.RunMetadataTraceParent])
-	require.Equal(t, "congo=t61rcWkgMzE",
-
-		got[domain.RunMetadataTraceState])
-	require.Equal(t, "0123456789abcdef0123456789abcdef-0123456789abcdef-1",
-
-		got[domain.RunMetadataSentryTrace])
-	require.Equal(t, "sentry-release=test-release,sentry-public_key=public",
-
-		got[domain.RunMetadataSentryBaggage])
+	require.Equal(t, "00-abcdef1234567890abcdef1234567890-fedcba0987654321-01", got[domain.RunMetadataTraceParent])
+	require.Equal(t, "congo=t61rcWkgMzE", got[domain.RunMetadataTraceState])
+	require.Equal(t, "0123456789abcdef0123456789abcdef-0123456789abcdef-1", got[domain.RunMetadataSentryTrace])
+	require.Equal(t, "sentry-release=test-release,sentry-public_key=public", got[domain.RunMetadataSentryBaggage])
 }
 
 func TestApplyRunTraceHeaderMetadataNoHeadersReturnsSameMap(t *testing.T) {

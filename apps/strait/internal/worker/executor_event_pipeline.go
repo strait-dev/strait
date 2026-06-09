@@ -3,8 +3,8 @@ package worker
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"maps"
+	"strconv"
 	"time"
 
 	"github.com/getsentry/sentry-go"
@@ -87,23 +87,60 @@ func (e *Executor) publishEvent(ctx context.Context, run *domain.JobRun, data ma
 		return
 	}
 
-	event := map[string]any{
-		"type":       "status_change",
-		"run_id":     run.ID,
-		"job_id":     run.JobID,
-		"project_id": run.ProjectID,
-		"timestamp":  time.Now().UTC(),
-	}
-	maps.Copy(event, data)
-
-	payload, err := json.Marshal(event)
+	payload, err := marshalRunStatusChangePayload(run.ID, run.JobID, run.ProjectID, data, time.Now().UTC())
 	if err != nil {
 		e.logger.Error("failed to marshal event", "error", err)
 		return
 	}
 
-	channel := fmt.Sprintf("run:%s", run.ID)
+	channel := runPubSubChannel(run.ID)
 	if err := e.publisher.Publish(ctx, channel, payload); err != nil {
 		e.logger.Error("failed to publish event", "run_id", run.ID, "error", err)
 	}
+}
+
+func marshalRunStatusChangePayload(runID, jobID, projectID string, data map[string]any, timestamp time.Time) ([]byte, error) {
+	if len(data) == 2 {
+		from, fromOK := data["from"].(string)
+		to, toOK := data["to"].(string)
+		if fromOK && toOK {
+			return marshalRunStatusTransitionPayload(runID, jobID, projectID, from, to, timestamp)
+		}
+	}
+
+	event := map[string]any{
+		"type":       "status_change",
+		"run_id":     runID,
+		"job_id":     jobID,
+		"project_id": projectID,
+		"timestamp":  timestamp,
+	}
+	maps.Copy(event, data)
+	return json.Marshal(event)
+}
+
+func marshalRunStatusTransitionPayload(runID, jobID, projectID, from, to string, timestamp time.Time) ([]byte, error) {
+	var timestampBuf [len("2006-01-02T15:04:05.999999999Z07:00")]byte
+	timestampBytes := timestamp.AppendFormat(timestampBuf[:0], time.RFC3339Nano)
+	capacity := len(`{"type":"status_change","run_id":"","job_id":"","project_id":"","from":"","to":"","timestamp":""}`) +
+		len(runID) + len(jobID) + len(projectID) + len(from) + len(to) + len(timestampBytes)
+	out := make([]byte, 0, capacity)
+	out = append(out, `{"type":"status_change","run_id":`...)
+	out = strconv.AppendQuote(out, runID)
+	out = append(out, `,"job_id":`...)
+	out = strconv.AppendQuote(out, jobID)
+	out = append(out, `,"project_id":`...)
+	out = strconv.AppendQuote(out, projectID)
+	out = append(out, `,"from":`...)
+	out = strconv.AppendQuote(out, from)
+	out = append(out, `,"to":`...)
+	out = strconv.AppendQuote(out, to)
+	out = append(out, `,"timestamp":"`...)
+	out = append(out, timestampBytes...)
+	out = append(out, `"}`...)
+	return out, nil
+}
+
+func runPubSubChannel(runID string) string {
+	return "run:" + runID
 }

@@ -374,6 +374,45 @@ func TestWorkerJobVersionKeyString(t *testing.T) {
 	)
 }
 
+func TestWorkerWorkflowStepsKeyString(t *testing.T) {
+	t.Parallel()
+
+	got := workerWorkflowStepsKeyString(workflowStepsVersionKey{WorkflowID: "wf-1", Version: 7})
+	require.Equal(t,
+		"wf-1\x007", got,
+	)
+}
+
+func BenchmarkWorkerVersionedCacheKeyString(b *testing.B) {
+	b.Run("job", func(b *testing.B) {
+		key := jobVersionKey{JobID: "job-version-cache-key", Version: 1_234_567}
+
+		b.ReportAllocs()
+		b.ResetTimer()
+
+		for range b.N {
+			out := workerJobVersionKeyString(key)
+			if out == "" {
+				b.Fatal("workerJobVersionKeyString() returned empty key")
+			}
+		}
+	})
+
+	b.Run("workflow_steps", func(b *testing.B) {
+		key := workflowStepsVersionKey{WorkflowID: "workflow-steps-cache-key", Version: 1_234_567}
+
+		b.ReportAllocs()
+		b.ResetTimer()
+
+		for range b.N {
+			out := workerWorkflowStepsKeyString(key)
+			if out == "" {
+				b.Fatal("workerWorkflowStepsKeyString() returned empty key")
+			}
+		}
+	})
+}
+
 func TestVersionedJobCache_NilCacheUsesLoader(t *testing.T) {
 	t.Parallel()
 
@@ -608,11 +647,9 @@ func TestResolveExecutionPolicy_WarmPathUsesCachedRunVersionAndSteps(t *testing.
 		got, err := exec.resolveExecutionPolicy(t.Context(), run, fallback)
 		require.NoError(
 			t, err)
-		require.False(t,
-			got.maxAttempts !=
-				8 || got.timeoutSecs !=
-				42 || got.
-				retryInitialSecs != 4)
+		require.Equal(t, 8, got.maxAttempts)
+		require.Equal(t, 42, got.timeoutSecs)
+		require.Equal(t, 4, got.retryInitialSecs)
 	}
 	require.EqualValues(t, 2, stepRunCalls.
 		Load())

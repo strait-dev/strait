@@ -30,6 +30,51 @@ func TestHashURL_UsesSHA256Hex(t *testing.T) {
 		64)
 }
 
+func TestCircuitBreakerKeysUseHashedURL(t *testing.T) {
+	t.Parallel()
+
+	raw := "org-1\x00https://hooks.example.com/webhook"
+	cb := &RedisWebhookCircuitBreaker{}
+	hash := hashURL(raw)
+
+	require.Equal(t, webhookCircuitFailuresPrefix+hash, cb.failureKey(raw))
+	require.Equal(t, webhookCircuitOpenPrefix+hash, cb.openKey(raw))
+}
+
+func BenchmarkHashURL(b *testing.B) {
+	raw := "org-1\x00https://hooks.example.com/webhook"
+
+	b.ReportAllocs()
+	for b.Loop() {
+		if hashURL(raw) == "" {
+			b.Fatal("hashURL returned empty hash")
+		}
+	}
+}
+
+func BenchmarkCircuitBreakerKeys(b *testing.B) {
+	cb := &RedisWebhookCircuitBreaker{}
+	raw := "org-1\x00https://hooks.example.com/webhook"
+
+	b.Run("failure", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			if cb.failureKey(raw) == "" {
+				b.Fatal("failureKey returned empty key")
+			}
+		}
+	})
+
+	b.Run("open", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			if cb.openKey(raw) == "" {
+				b.Fatal("openKey returned empty key")
+			}
+		}
+	})
+}
+
 type redisProcessFunc func(ctx context.Context, cmd redis.Cmder) error
 
 type redisMockHook struct {
@@ -215,6 +260,42 @@ func TestRedisWebhookCircuitBreaker_OpensAfterThreshold(t *testing.T) {
 		err)
 	require.False(t,
 		canDeliver)
+}
+
+// TestRedisWebhookCircuitBreaker_RecordFailureEvictsStale is the regression guard
+// for stale-count false positives: RecordFailure must evict failures older than
+// the window before counting, so failures spread across more than one window
+// never accumulate past the threshold and wrongly open the circuit.
+func TestRedisWebhookCircuitBreaker_RecordFailureEvictsStale(t *testing.T) {
+	t.Parallel()
+
+	state := newRedisCircuitState()
+	client := newMockRedisClient(state.process)
+	t.Cleanup(func() { _ = client.Close() })
+
+	now := time.Now()
+	breaker := NewRedisWebhookCircuitBreaker(
+		client,
+		true,
+		WithWebhookCircuitBreakerThreshold(5),
+		WithWebhookCircuitBreakerWindow(time.Minute),
+	)
+	breaker.now = func() time.Time { return now }
+
+	url := "https://example.com/stale-count"
+	for range 4 { // 4 failures within the window, below the threshold of 5
+		breaker.RecordFailure(t.Context(), url)
+	}
+
+	// Advance past the window so the prior 4 failures are stale, then record one
+	// more. Without eviction in RecordFailure, ZCard would see 5 and open the
+	// circuit; with eviction it sees only the 1 recent failure.
+	now = now.Add(2 * time.Minute)
+	breaker.RecordFailure(t.Context(), url)
+
+	canDeliver, err := breaker.CanDeliver(t.Context(), url)
+	require.NoError(t, err)
+	require.True(t, canDeliver, "stale failures must not trip the breaker open")
 }
 
 func TestRedisWebhookCircuitBreaker_RecordSuccessResetsOpenCircuit(t *testing.T) {

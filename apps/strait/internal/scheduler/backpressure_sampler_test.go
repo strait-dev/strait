@@ -26,11 +26,12 @@ func (f *fakeBPSampler) SampleAvailableTokens(_ context.Context, _ int) ([]queue
 
 func TestBackpressureSampler_Disabled(t *testing.T) {
 	t.Parallel()
-	require.Nil(t, NewBackpressureSampler(nil, nil,
-		0, 0))
-	require.Nil(t, NewBackpressureSampler(&fakeBPSampler{},
-		nil,
-		10*time.Second, 0))
+	m, err := queue.Metrics()
+	require.NoError(t, err)
+
+	require.Nil(t, NewBackpressureSampler(nil, m, time.Second, 0))
+	require.Nil(t, NewBackpressureSampler(&fakeBPSampler{}, nil, time.Second, 0))
+	require.Nil(t, NewBackpressureSampler(&fakeBPSampler{}, m, 0, 0))
 }
 
 func TestBackpressureSampler_TickCallsSampler(t *testing.T) {
@@ -40,8 +41,7 @@ func TestBackpressureSampler_TickCallsSampler(t *testing.T) {
 	// from t.Parallel subtests would race with other tests in the package
 	// that read the singleton).
 	m, err := queue.Metrics()
-	require.NoError(t,
-		err)
+	require.NoError(t, err)
 
 	fake := &fakeBPSampler{samples: []queue.TokenSample{
 		{ProjectID: "proj-a", Tokens: 42},
@@ -52,33 +52,25 @@ func TestBackpressureSampler_TickCallsSampler(t *testing.T) {
 
 	s.Tick(context.Background())
 	s.Tick(context.Background())
-	require.EqualValues(t, 2,
-		fake.calls.
-			Load())
+	require.EqualValues(t, 2, fake.calls.Load())
 }
 
 func TestBackpressureSamplerMetricAttributes_DoNotIncludeProjectID(t *testing.T) {
 	t.Parallel()
 	for _, attr := range backpressureMetricAttributes() {
-		require.NotEqual(t,
-			"project_id",
-			string(attr.
-				Key))
+		require.NotEqual(t, "project_id", string(attr.Key))
 	}
 }
 
 func TestBackpressureSampler_TickSwallowsError(t *testing.T) {
 	t.Parallel()
 	m, err := queue.Metrics()
-	require.NoError(t,
-		err)
+	require.NoError(t, err)
 
 	fake := &fakeBPSampler{err: errors.New("boom")}
 	s := NewBackpressureSampler(fake, m, time.Second, 10)
 	s.Tick(context.Background())
-	require.EqualValues(t, 1,
-		fake.calls.
-			Load())
+	require.EqualValues(t, 1, fake.calls.Load())
 
 	// must not panic
 }
@@ -88,8 +80,7 @@ func TestBackpressureSampler_RunHonoursContext(t *testing.T) {
 	defer concWG.Wait()
 	t.Parallel()
 	m, err := queue.Metrics()
-	require.NoError(t,
-		err)
+	require.NoError(t, err)
 
 	fake := &fakeBPSampler{}
 	s := NewBackpressureSampler(fake, m, 5*time.Millisecond, 1)
@@ -103,9 +94,7 @@ func TestBackpressureSampler_RunHonoursContext(t *testing.T) {
 	for fake.calls.Load() == 0 && time.Now().Before(deadline) {
 		time.Sleep(time.Millisecond)
 	}
-	require.NotEqual(t,
-		0, fake.calls.
-			Load())
+	require.NotZero(t, fake.calls.Load())
 
 	cancel()
 	select {

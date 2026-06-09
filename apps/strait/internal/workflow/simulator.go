@@ -84,6 +84,10 @@ func SimulateWorkflow(
 		return nil, fmt.Errorf("workflow has no steps")
 	}
 
+	if stepsFormOrderedLinearChainByRef(steps) {
+		return simulateOrderedLinearWorkflow(steps, req, costEstimates), nil
+	}
+
 	// Build topological order.
 	stepIndex := buildStepIndex(steps)
 	order := buildTopologicalOrderIndexesWithStepIndex(steps, stepIndex)
@@ -159,6 +163,86 @@ func SimulateWorkflow(
 		FailurePaths:      failurePaths,
 		Mode:              req.Mode,
 	}, nil
+}
+
+func simulateOrderedLinearWorkflow(
+	steps []domain.WorkflowStep,
+	req *SimulateRequest,
+	costEstimates map[string]int64,
+) *SimulationResult {
+	plan := make([]SimulatedStep, len(steps))
+	nodes := make([]DAGNode, len(steps))
+	edges := make([]DAGEdge, 0, max(0, len(steps)-1))
+
+	var failurePaths []SimulatedStep
+	var conditionResults map[string]bool
+	var totalCost int64
+	totalDuration := 0
+
+	for i := range steps {
+		step := &steps[i]
+		stepType := string(step.StepType)
+		if stepType == "" {
+			stepType = "job"
+		}
+
+		simStep := SimulatedStep{
+			StepRef:           step.StepRef,
+			StepType:          stepType,
+			Order:             i + 1,
+			ParallelGroup:     i,
+			DependsOn:         step.DependsOn,
+			EstimatedDuration: step.ExpectedDurationSecs,
+		}
+
+		if step.JobID != "" && costEstimates != nil {
+			simStep.EstimatedCost = costEstimates[step.JobID]
+			totalCost += simStep.EstimatedCost
+		}
+
+		if len(step.Condition) > 0 {
+			met := true
+			simStep.ConditionMet = &met
+			if conditionResults == nil {
+				conditionResults = make(map[string]bool)
+			}
+			conditionResults[step.StepRef] = met
+		}
+
+		if step.CompensationJobID != "" {
+			simStep.WouldCompensate = true
+			simStep.CompensationJobID = step.CompensationJobID
+		}
+
+		if req.FailureInjection != nil {
+			if errMsg, injected := req.FailureInjection[step.StepRef]; injected {
+				simStep.InjectedFailure = errMsg
+				failurePaths = append(failurePaths, simStep)
+			}
+		}
+
+		plan[i] = simStep
+		nodes[i] = DAGNode{
+			ID:       step.StepRef,
+			StepRef:  step.StepRef,
+			StepType: stepType,
+			Group:    i,
+		}
+		for _, dep := range step.DependsOn {
+			edges = append(edges, DAGEdge{From: dep, To: step.StepRef})
+		}
+		totalDuration += step.ExpectedDurationSecs
+	}
+
+	return &SimulationResult{
+		ExecutionPlan:     plan,
+		DAG:               SimulationDAG{Nodes: nodes, Edges: edges},
+		EstimatedDuration: totalDuration,
+		EstimatedCost:     totalCost,
+		ConditionResults:  conditionResults,
+		FailurePaths:      failurePaths,
+		Mode:              req.Mode,
+	}
 }
 
 func calculateSimulationTimings(

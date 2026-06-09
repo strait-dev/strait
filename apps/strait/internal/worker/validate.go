@@ -16,7 +16,7 @@ func ValidateEndpointURL(rawURL string, opts ...func(*endpointValidationOpts)) e
 	if err != nil {
 		return fmt.Errorf("invalid URL: %w", err)
 	}
-	if u.Scheme != "http" && u.Scheme != "https" {
+	if !isHTTPScheme(u.Scheme) {
 		return fmt.Errorf("URL must use http or https scheme")
 	}
 	if o.requireTLS && u.Scheme != "https" {
@@ -30,7 +30,7 @@ func ValidateEndpointURL(rawURL string, opts ...func(*endpointValidationOpts)) e
 	host := u.Hostname()
 	ip := net.ParseIP(host)
 	if ip != nil && !o.allowPrivate {
-		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+		if isPrivateOrLinkLocalIP(ip) {
 			return fmt.Errorf("URL must not point to private or loopback addresses")
 		}
 		if isCGNAT(ip) {
@@ -42,6 +42,22 @@ func ValidateEndpointURL(rawURL string, opts ...func(*endpointValidationOpts)) e
 	}
 
 	return nil
+}
+
+func isPrivateOrLinkLocalIP(ip net.IP) bool {
+	return ip.IsLoopback() ||
+		ip.IsPrivate() ||
+		ip.IsLinkLocalUnicast() ||
+		ip.IsLinkLocalMulticast()
+}
+
+func isHTTPScheme(scheme string) bool {
+	switch scheme {
+	case "http", "https":
+		return true
+	default:
+		return false
+	}
 }
 
 // EndpointValidationOpts holds options for endpoint URL validation.

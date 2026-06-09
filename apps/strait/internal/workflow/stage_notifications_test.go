@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"sync"
 	"testing"
+	"time"
 
 	"strait/internal/domain"
 
@@ -217,6 +218,28 @@ func TestStageNotification_InvalidJSON(t *testing.T) {
 		deliveries)
 }
 
+func TestStageNotification_InvalidBoolField(t *testing.T) {
+	t.Parallel()
+	store := &mockStageNotifierStore{
+		channels: []domain.NotificationChannel{{ID: "ch-1"}},
+	}
+	notifier := NewStageNotifier(store, nil)
+
+	step := &domain.WorkflowStep{
+		StepRef:            "charge",
+		StageNotifications: json.RawMessage(`{"on_complete":"true"}`),
+	}
+	stepRun := &domain.WorkflowStepRun{ID: "sr-1"}
+	wfRun := &domain.WorkflowRun{ID: "wfr-1", ProjectID: "proj-1"}
+
+	notifier.NotifyStepTransition(context.Background(), step, stepRun, wfRun, domain.StepCompleted)
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	require.Equal(t, 0, store.listCalls)
+	require.Empty(t, store.deliveries)
+}
+
 func TestStageNotification_NonTerminalStatusSkipsInvalidConfig(t *testing.T) {
 	t.Parallel()
 
@@ -360,5 +383,55 @@ func BenchmarkStageNotification_CompletedNoChannels(b *testing.B) {
 	b.ResetTimer()
 	for range b.N {
 		notifier.NotifyStepTransition(ctx, step, stepRun, wfRun, domain.StepCompleted)
+	}
+}
+
+func TestMarshalStageNotificationPayload(t *testing.T) {
+	t.Parallel()
+
+	triggeredAt := time.Date(2026, 6, 7, 12, 0, 0, 0, time.UTC)
+	payload, err := marshalStageNotificationPayload("wf-1", "wfr-1", "charge", "sr-1", "completed", triggeredAt)
+	require.NoError(t, err)
+
+	var got map[string]any
+	require.NoError(t, json.Unmarshal(payload, &got))
+	assert.Equal(t, "wf-1", got["workflow_id"])
+	assert.Equal(t, "wfr-1", got["workflow_run_id"])
+	assert.Equal(t, "charge", got["step_ref"])
+	assert.Equal(t, "sr-1", got["step_run_id"])
+	assert.Equal(t, "completed", got["status"])
+	assert.Equal(t, triggeredAt.Format(time.RFC3339), got["triggered_at"])
+}
+
+func TestMarshalStageNotificationPayloadEscapesFields(t *testing.T) {
+	t.Parallel()
+
+	triggeredAt := time.Date(2026, 6, 7, 12, 0, 0, 0, time.FixedZone("offset", -3*60*60))
+	payload, err := marshalStageNotificationPayload(
+		"wf-\"1",
+		"wfr-\\1",
+		"charge\n<&>",
+		"sr-1",
+		"completed",
+		triggeredAt,
+	)
+	require.NoError(t, err)
+	require.JSONEq(t, `{"workflow_id":"wf-\"1","workflow_run_id":"wfr-\\1","step_ref":"charge\n<&>","step_run_id":"sr-1","status":"completed","triggered_at":"2026-06-07T12:00:00-03:00"}`, string(payload))
+}
+
+func BenchmarkMarshalStageNotificationPayload(b *testing.B) {
+	triggeredAt := time.Date(2026, 6, 7, 12, 0, 0, 0, time.UTC)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for range b.N {
+		payload, err := marshalStageNotificationPayload("wf-1", "wfr-1", "charge", "sr-1", "completed", triggeredAt)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if len(payload) == 0 {
+			b.Fatal("marshalStageNotificationPayload() returned empty payload")
+		}
 	}
 }

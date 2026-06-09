@@ -29,6 +29,7 @@ var pgQueCandidateRunIDBenchmarkSink string
 var pgQueReadyEmitBatchErrBenchmarkSink error
 var pgQueReadyRunsBenchmarkSink []pgQueReadyRun
 var pgQueSendReadyEventsErrBenchmarkSink error
+var pgQueScanWorkerRoutesBenchmarkSink []domain.JobRun
 var pgQueWorkerRefsBenchmarkSink []domain.WorkerQueueRef
 
 func TestPgQueFinishBatchReservationReopensAfterAckFailure(t *testing.T) {
@@ -297,6 +298,47 @@ func TestPgQueScanWorkerRoutesStopsAtCapacity(t *testing.T) {
 		require.Failf(t, "test failure",
 
 			"scanned routes = %v, want %v", scanned, want)
+	}
+}
+
+func TestPgQueScanWorkerRoutesSingleRouteReturnsBatch(t *testing.T) {
+	q := NewPgQueQueue(&mockDBTX{}, nil, PgQueConfig{})
+	batch := []domain.JobRun{{ID: "run-a"}, {ID: "run-b"}}
+	scans := 0
+
+	claimed, err := q.scanWorkerRoutes([]string{"route-a"}, 2, func(routeKey string, remaining int) ([]domain.JobRun, error) {
+		scans++
+		require.Equal(t, "route-a", routeKey)
+		require.Equal(t, 2, remaining)
+		return batch, nil
+	})
+	require.NoError(t, err)
+	require.Equal(t, 1, scans)
+	require.Equal(t, batch, claimed)
+}
+
+func BenchmarkPgQueScanWorkerRoutesSingleRoute(b *testing.B) {
+	q := NewPgQueQueue(&mockDBTX{}, nil, PgQueConfig{})
+	routes := []string{"route-a"}
+	batch := []domain.JobRun{
+		{ID: "run-a"},
+		{ID: "run-b"},
+		{ID: "run-c"},
+		{ID: "run-d"},
+	}
+
+	b.ReportAllocs()
+	for b.Loop() {
+		claimed, err := q.scanWorkerRoutes(routes, len(batch), func(routeKey string, remaining int) ([]domain.JobRun, error) {
+			if routeKey != "route-a" || remaining != len(batch) {
+				b.Fatalf("scan args = (%q, %d)", routeKey, remaining)
+			}
+			return batch, nil
+		})
+		if err != nil {
+			b.Fatal(err)
+		}
+		pgQueScanWorkerRoutesBenchmarkSink = claimed
 	}
 }
 
@@ -620,7 +662,8 @@ func TestSelectPgQueClaimCandidates(t *testing.T) {
 		{Event: pgQueReadyEvent{RunID: "run-3", Generation: 30}},
 	}
 
-	selection := selectPgQueClaimCandidates(candidates, 2)
+	var buffer pgQueClaimSelectionBuffer
+	selection := selectPgQueClaimCandidates(candidates, 2, &buffer)
 	require.True(
 		t, slices.Equal(selection.RunIDs,
 			[]string{"run-1",
@@ -638,6 +681,21 @@ func TestSelectPgQueClaimCandidates(t *testing.T) {
 	require.Len(t,
 		selection.
 			Candidates, 2)
+}
+
+func TestMarshalPgQueReadyEventEscapesFields(t *testing.T) {
+	want := pgQueReadyEvent{
+		RunID:      "run-\"\\\n\u2603",
+		RouteKey:   "project:env:worker:<queue>&",
+		Generation: 42,
+		Priority:   -3,
+	}
+
+	payload := marshalPgQueReadyEvent(want)
+
+	var got pgQueReadyEvent
+	require.NoError(t, json.Unmarshal(payload, &got))
+	require.Equal(t, want, got)
 }
 
 func TestPgQueCandidateRunIDsPreservesOrder(t *testing.T) {
@@ -716,9 +774,10 @@ func BenchmarkSelectPgQueClaimCandidates(b *testing.B) {
 		{Event: pgQueReadyEvent{RunID: "run-7", Generation: 7}, HasConcurrencyLimit: true},
 		{Event: pgQueReadyEvent{RunID: "run-8", Generation: 8}},
 	}
+	var buffer pgQueClaimSelectionBuffer
 
 	for b.Loop() {
-		pgQueClaimSelectionBenchmarkSink = selectPgQueClaimCandidates(candidates, len(candidates))
+		pgQueClaimSelectionBenchmarkSink = selectPgQueClaimCandidates(candidates, len(candidates), &buffer)
 	}
 }
 
@@ -1558,6 +1617,33 @@ func TestPgQueReadyRunsForEventsFailsWhenWorkerJobMissing(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(
 		t, err.Error(), "missing job job-b")
+}
+
+func TestPgQueReadyRunsForEventsKeepsDistinctWorkerRouteOverrides(t *testing.T) {
+	ctx := context.Background()
+	db := &mockDBTX{
+		queryFn: func(_ context.Context, sql string, _ ...any) (pgx.Rows, error) {
+			require.Contains(t, sql, "FROM jobs")
+			return &pgQueWorkerJobRouteRows{
+				values: []pgQueWorkerJobRouteRow{
+					{jobID: "job-a", queueName: "default", environmentID: "prod"},
+				},
+			}, nil
+		},
+	}
+	q := NewPgQueQueue(db, nil, PgQueConfig{})
+
+	readyRuns, runIDs, err := q.readyRunsForEvents(ctx, db, []*domain.JobRun{
+		{ID: "run-a", JobID: "job-a", ProjectID: "project-a", Status: domain.StatusQueued, ExecutionMode: domain.ExecutionModeWorker},
+		{ID: "run-b", JobID: "job-a", ProjectID: "project-a", Status: domain.StatusQueued, ExecutionMode: domain.ExecutionModeWorker, QueueName: "critical"},
+		{ID: "run-c", JobID: "job-a", ProjectID: "project-a", Status: domain.StatusQueued, ExecutionMode: domain.ExecutionModeWorker},
+	})
+	require.NoError(t, err)
+	require.True(t, slices.Equal(runIDs, []string{"run-a", "run-b", "run-c"}))
+	require.Len(t, readyRuns, 3)
+	require.Equal(t, pgQueWorkerRouteKey("project-a", "default", "prod"), readyRuns[0].routeKey)
+	require.Equal(t, pgQueWorkerRouteKey("project-a", "critical", "prod"), readyRuns[1].routeKey)
+	require.Equal(t, pgQueWorkerRouteKey("project-a", "default", "prod"), readyRuns[2].routeKey)
 }
 
 func TestPgQueSendReadyEventsFailsWhenGenerationMissing(t *testing.T) {

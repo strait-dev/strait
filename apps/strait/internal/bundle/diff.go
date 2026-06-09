@@ -3,7 +3,11 @@ package bundle
 // ComputeDiff compares a bundle against existing resources and produces
 // a list of actions to take during import.
 func ComputeDiff(bundle *Bundle, existingJobSlugs map[string]bool, existingWorkflowSlugs map[string]bool, existingEnvSlugs map[string]bool) []DiffEntry {
-	var entries []DiffEntry
+	resourceCount := len(bundle.Resources.Environments) +
+		len(bundle.Resources.Jobs) +
+		len(bundle.Resources.Workflows) +
+		len(bundle.Resources.WebhookSubscriptions)
+	entries := make([]DiffEntry, 0, resourceCount)
 
 	// Environments first (dependencies for jobs).
 	for _, env := range bundle.Resources.Environments {

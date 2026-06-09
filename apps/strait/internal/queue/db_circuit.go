@@ -122,7 +122,10 @@ func (c *DBCircuit) recordTransitionLocked(from, to DBCircuitState) {
 	}
 	c.state = to
 	qm, err := Metrics()
-	if err != nil || qm == nil || qm.CircuitStateTransitions == nil {
+	if err != nil {
+		return
+	}
+	if qm == nil || qm.CircuitStateTransitions == nil {
 		return
 	}
 	qm.CircuitStateTransitions.Add(context.Background(), 1,

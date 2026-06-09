@@ -178,6 +178,18 @@ func TestNormalizePgQueWorkerQueueRefs(t *testing.T) {
 		slices.Equal(got, want))
 }
 
+func TestNormalizePgQueWorkerQueueRefsSingle(t *testing.T) {
+	t.Parallel()
+
+	refs := []domain.WorkerQueueRef{
+		{ProjectID: "project-a", QueueName: "critical", EnvironmentID: "prod"},
+	}
+
+	got := normalizePgQueWorkerQueueRefs(refs)
+	require.True(t,
+		slices.Equal(got, refs))
+}
+
 func TestEnqueue_SetsDefaults(t *testing.T) {
 	t.Parallel()
 	db := &mockDBTX{

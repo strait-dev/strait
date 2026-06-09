@@ -15,6 +15,27 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestWorkflowStepsVersionKeyString(t *testing.T) {
+	t.Parallel()
+
+	got := workflowStepsVersionKeyString(workflowStepsVersionKey{WorkflowID: "wf-1", Version: 42})
+	require.Equal(t, "wf-1\x0042", got)
+}
+
+func BenchmarkWorkflowStepsVersionKeyString(b *testing.B) {
+	key := workflowStepsVersionKey{WorkflowID: "wf-definition-cache-key", Version: 1_234_567}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for range b.N {
+		out := workflowStepsVersionKeyString(key)
+		if out == "" {
+			b.Fatal("workflowStepsVersionKeyString() returned empty key")
+		}
+	}
+}
+
 func TestWorkflowDefinitionCache_EngineCachesAndClonesSteps(t *testing.T) {
 	t.Parallel()
 
@@ -60,8 +81,8 @@ func TestWorkflowDefinitionCache_EngineCachesAndClonesSteps(t *testing.T) {
 		err)
 	require.EqualValues(t, 1,
 		calls.Load())
-	require.False(t, got[0].DependsOn[0] !=
-		"root" || got[0].ApprovalApprovers[0] != "user-1")
+	require.Equal(t, "root", got[0].DependsOn[0])
+	require.Equal(t, "user-1", got[0].ApprovalApprovers[0])
 
 	byteFieldsWereCloned := string(got[0].Condition) == `{"if":true}` &&
 		string(got[0].Payload) == `{"payload":true}` &&

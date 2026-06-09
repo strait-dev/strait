@@ -2,7 +2,6 @@ package cdc
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -42,15 +41,8 @@ func (h *NotificationTriggerHandler) Handle(ctx context.Context, msg Message) er
 		return nil
 	}
 
-	var record struct {
-		ID        string `json:"id"`
-		JobID     string `json:"job_id"`
-		ProjectID string `json:"project_id"`
-		Status    string `json:"status"`
-		Attempt   int    `json:"attempt"`
-		Error     string `json:"error"`
-	}
-	if err := json.Unmarshal(msg.Record, &record); err != nil {
+	record, err := parseTerminalRunRecord(msg.Record)
+	if err != nil {
 		return fmt.Errorf("notification trigger: unmarshal record: %w", err)
 	}
 
@@ -75,22 +67,30 @@ func (h *NotificationTriggerHandler) Handle(ctx context.Context, msg Message) er
 		return fmt.Errorf("notification trigger: list channels: %w", err)
 	}
 
-	payload, _ := json.Marshal(map[string]any{
-		"event_type": eventType,
-		"run_id":     record.ID,
-		"job_id":     record.JobID,
-		"project_id": record.ProjectID,
-		"status":     record.Status,
-		"attempt":    record.Attempt,
-		"error":      record.Error,
-		"timestamp":  time.Now().UTC(),
-	})
-
-	now := time.Now()
+	var payload []byte
+	var nextRetryAt time.Time
 	var createErrs []error
 	for _, ch := range channels {
 		if !ch.Enabled {
 			continue
+		}
+		if payload == nil {
+			var marshalErr error
+			now := time.Now().UTC()
+			payload, marshalErr = marshalNotificationTriggerPayload(
+				eventType,
+				record.ID,
+				record.JobID,
+				record.ProjectID,
+				record.Status,
+				record.Attempt,
+				record.Error,
+				now,
+			)
+			if marshalErr != nil {
+				return fmt.Errorf("notification trigger: marshal payload: %w", marshalErr)
+			}
+			nextRetryAt = now
 		}
 
 		if createErr := h.store.CreateNotificationDelivery(ctx, &domain.NotificationDelivery{
@@ -100,7 +100,7 @@ func (h *NotificationTriggerHandler) Handle(ctx context.Context, msg Message) er
 			Payload:     payload,
 			Status:      "pending",
 			MaxAttempts: 5,
-			NextRetryAt: &now,
+			NextRetryAt: &nextRetryAt,
 			DedupeKey:   notificationTriggerDedupeKey(record.ID, eventType, ch.ID),
 		}); createErr != nil {
 			h.logger.Warn("cdc notification trigger: failed to create delivery",
@@ -116,5 +116,9 @@ func (h *NotificationTriggerHandler) Handle(ctx context.Context, msg Message) er
 }
 
 func notificationTriggerDedupeKey(runID, eventType, channelID string) string {
-	return fmt.Sprintf("cdc:job_runs:%s:%s:%s", runID, eventType, channelID)
+	return cdcJobRunEventDedupeKey(runID, eventType, channelID)
+}
+
+func marshalNotificationTriggerPayload(eventType, runID, jobID, projectID, status string, attempt int, errMessage string, timestamp time.Time) ([]byte, error) {
+	return marshalTerminalRunPayload(eventType, runID, jobID, projectID, status, attempt, errMessage, timestamp), nil
 }

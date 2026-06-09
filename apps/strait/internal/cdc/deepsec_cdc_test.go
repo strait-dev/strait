@@ -52,8 +52,7 @@ func TestDeepSecConsumerPoll_RunsAdditionalHandlersForPullConsumer(t *testing.T)
 	mu.Lock()
 	defer mu.Unlock()
 	require.Equal(t, 1, sideEffects)
-	require.False(t, len(ackIDs) != 1 ||
-		ackIDs[0] != "a1")
+	require.Equal(t, []string{"a1"}, ackIDs)
 }
 
 func TestDeepSecConsumerPoll_NacksAdditionalHandlerFailure(t *testing.T) {
@@ -94,9 +93,7 @@ func TestDeepSecConsumerPoll_NacksAdditionalHandlerFailure(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 	require.Equal(t, 0, ackCalls)
-	require.False(t, len(nackIDs) != 1 ||
-		nackIDs[0] != "a1",
-	)
+	require.Equal(t, []string{"a1"}, nackIDs)
 }
 
 func TestDeepSecConsumerPoll_BatchAdditionalFailureNacksAfterPublish(t *testing.T) {
@@ -146,9 +143,7 @@ func TestDeepSecConsumerPoll_BatchAdditionalFailureNacksAfterPublish(t *testing.
 	require.Equal(t, 1, pub.
 		batchCalls)
 	require.Equal(t, 0, ackCalls)
-	require.False(t, len(nackIDs) != 1 ||
-		nackIDs[0] != "a1",
-	)
+	require.Equal(t, []string{"a1"}, nackIDs)
 }
 
 func TestDeepSecAnalyticsHandler_AcceptsJSONBTags(t *testing.T) {

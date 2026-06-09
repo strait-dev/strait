@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"math"
 	"net/http"
 	"net/http/httptest"
@@ -79,6 +80,31 @@ func TestResolveSDKCapabilities_LargeVersion(t *testing.T) {
 	require.False(t, !caps.
 		Progress ||
 		!caps.Checkpoint)
+}
+
+func TestIsActiveWorkerTaskAssignmentStatus(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		status domain.WorkerTaskStatus
+		want   bool
+	}{
+		{name: "assigned", status: domain.WorkerTaskStatusAssigned, want: true},
+		{name: "accepted", status: domain.WorkerTaskStatusAccepted, want: true},
+		{name: "result received", status: domain.WorkerTaskStatusResultReceived, want: false},
+		{name: "finalizing", status: domain.WorkerTaskStatusFinalizing, want: false},
+		{name: "completed", status: domain.WorkerTaskStatusCompleted, want: false},
+		{name: "failed", status: domain.WorkerTaskStatusFailed, want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, tt.want, isActiveWorkerTaskAssignmentStatus(tt.status))
+		})
+	}
 }
 
 func FuzzResolveSDKCapabilities(f *testing.F) {
@@ -533,9 +559,10 @@ func TestRunTokenAuth_AssignmentBoundTokenRequiresActiveMatchingWorkerTask(t *te
 	t.Parallel()
 
 	tests := []struct {
-		name string
-		task *domain.WorkerTask
-		want int
+		name    string
+		task    *domain.WorkerTask
+		taskErr error
+		want    int
 	}{
 		{
 			name: "matching assigned task",
@@ -567,6 +594,15 @@ func TestRunTokenAuth_AssignmentBoundTokenRequiresActiveMatchingWorkerTask(t *te
 			},
 			want: http.StatusUnauthorized,
 		},
+		{
+			name:    "lookup error",
+			taskErr: errors.New("worker task lookup failed"),
+			want:    http.StatusUnauthorized,
+		},
+		{
+			name: "missing task",
+			want: http.StatusUnauthorized,
+		},
 	}
 
 	for _, tt := range tests {
@@ -588,6 +624,7 @@ func TestRunTokenAuth_AssignmentBoundTokenRequiresActiveMatchingWorkerTask(t *te
 				attempt:      1,
 				projectID:    "proj-1",
 				task:         tt.task,
+				err:          tt.taskErr,
 			}
 			srv := NewServer(ServerDeps{Config: cfg, Store: ms, Queue: &mockQueue{}})
 			t.Cleanup(srv.Close)

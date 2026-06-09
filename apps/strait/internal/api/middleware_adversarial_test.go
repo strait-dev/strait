@@ -968,6 +968,86 @@ func TestRequireProjectMatch_NoProjectContext(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestResourceTagsLookupOutcomes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		resourceType string
+		job          *domain.Job
+		jobErr       error
+		workflow     *domain.Workflow
+		workflowErr  error
+		wantOK       bool
+		wantTags     map[string]string
+	}{
+		{
+			name:         "job lookup error",
+			resourceType: "job",
+			jobErr:       errors.New("job lookup failed"),
+		},
+		{
+			name:         "job missing",
+			resourceType: "job",
+		},
+		{
+			name:         "job without tags",
+			resourceType: "job",
+			job:          &domain.Job{ID: "job-1"},
+		},
+		{
+			name:         "job with tags",
+			resourceType: "job",
+			job:          &domain.Job{ID: "job-1", Tags: map[string]string{"team": "platform"}},
+			wantOK:       true,
+			wantTags:     map[string]string{"team": "platform"},
+		},
+		{
+			name:         "workflow lookup error",
+			resourceType: "workflow",
+			workflowErr:  errors.New("workflow lookup failed"),
+		},
+		{
+			name:         "workflow missing",
+			resourceType: "workflow",
+		},
+		{
+			name:         "workflow without tags",
+			resourceType: "workflow",
+			workflow:     &domain.Workflow{ID: "wf-1"},
+		},
+		{
+			name:         "workflow with tags",
+			resourceType: "workflow",
+			workflow:     &domain.Workflow{ID: "wf-1", Tags: map[string]string{"service": "billing"}},
+			wantOK:       true,
+			wantTags:     map[string]string{"service": "billing"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			ms := &APIStoreMock{
+				GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+					require.Equal(t, "resource-1", id)
+					return tt.job, tt.jobErr
+				},
+				GetWorkflowFunc: func(_ context.Context, id string) (*domain.Workflow, error) {
+					require.Equal(t, "resource-1", id)
+					return tt.workflow, tt.workflowErr
+				},
+			}
+			srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+			tags, ok := srv.resourceTags(context.Background(), tt.resourceType, "resource-1")
+			require.Equal(t, tt.wantOK, ok)
+			require.Equal(t, tt.wantTags, tags)
+		})
+	}
+}
+
 // ScheduledAt validation via trigger handler
 
 func TestTriggerJob_ScheduledAtInThePast(t *testing.T) {

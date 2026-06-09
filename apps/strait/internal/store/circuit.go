@@ -16,6 +16,10 @@ func (q *Queries) GetEndpointCircuitState(ctx context.Context, endpointURL strin
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetEndpointCircuitState")
 	defer span.End()
 
+	return q.getEndpointCircuitState(ctx, endpointURL)
+}
+
+func (q *Queries) getEndpointCircuitState(ctx context.Context, endpointURL string) (*domain.EndpointCircuitState, error) {
 	const sql = `
 		SELECT endpoint_url, state, consecutive_failures, opened_at, half_open_until, updated_at, created_at
 		FROM endpoint_circuit_state
@@ -46,14 +50,14 @@ func (q *Queries) CanDispatchEndpoint(ctx context.Context, endpointURL string, n
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.CanDispatchEndpoint")
 	defer span.End()
 
-	state, err := q.GetEndpointCircuitState(ctx, endpointURL)
+	state, err := q.getEndpointCircuitState(ctx, endpointURL)
 	if err != nil {
 		return false, nil, err
 	}
 	if state == nil || state.State == domain.CircuitStateClosed {
 		return true, nil, nil
 	}
-	if state.State == domain.CircuitStateOpen && state.HalfOpenUntil != nil && state.HalfOpenUntil.After(now) {
+	if endpointCircuitCoolingDown(state, now) {
 		return false, state.HalfOpenUntil, nil
 	}
 
@@ -111,11 +115,24 @@ func (q *Queries) canDispatchEndpointLocked(ctx context.Context, endpointURL str
 	}
 
 	// If the circuit is still open (half_open_until is in the future), reject.
-	if state.State == domain.CircuitStateOpen && state.HalfOpenUntil != nil && state.HalfOpenUntil.After(now) {
+	if endpointCircuitCoolingDown(&state, now) {
 		return false, state.HalfOpenUntil, nil
 	}
 
 	return true, nil, nil
+}
+
+func endpointCircuitCoolingDown(state *domain.EndpointCircuitState, now time.Time) bool {
+	if state == nil {
+		return false
+	}
+	if state.State != domain.CircuitStateOpen {
+		return false
+	}
+	if state.HalfOpenUntil == nil {
+		return false
+	}
+	return state.HalfOpenUntil.After(now)
 }
 
 func (q *Queries) RecordEndpointCircuitFailure(ctx context.Context, endpointURL string, now time.Time, threshold int, openDuration time.Duration) error {

@@ -9,6 +9,7 @@ import (
 	"errors"
 	"io"
 	"sync"
+	"unsafe"
 )
 
 var (
@@ -83,20 +84,22 @@ func (k *KeyRotator) Encrypt(plaintext []byte) ([]byte, error) {
 
 func (k *KeyRotator) Decrypt(ciphertext []byte) ([]byte, error) {
 	k.mu.RLock()
-	primary := k.primary
-	old := append([]*Encryptor(nil), k.old...)
-	k.mu.RUnlock()
+	defer k.mu.RUnlock()
 
-	if len(ciphertext) < primary.aead.NonceSize() {
+	if len(ciphertext) < k.primary.aead.NonceSize() {
 		return nil, errCiphertextTooShort
 	}
 
-	all := make([]*Encryptor, 0, len(old)+1)
-	all = append(all, primary)
-	all = append(all, old...)
+	plaintext, err := k.primary.Decrypt(ciphertext)
+	if err == nil {
+		return plaintext, nil
+	}
+	if !errors.Is(err, errDecryptFailed) {
+		return nil, err
+	}
 
-	for _, e := range all {
-		plaintext, err := e.Decrypt(ciphertext)
+	for _, e := range k.old {
+		plaintext, err = e.Decrypt(ciphertext)
 		if err == nil {
 			return plaintext, nil
 		}
@@ -104,12 +107,11 @@ func (k *KeyRotator) Decrypt(ciphertext []byte) ([]byte, error) {
 			return nil, err
 		}
 	}
-
 	return nil, errDecryptFailed
 }
 
 func (k *KeyRotator) EncryptString(plaintext string) (string, error) {
-	ciphertext, err := k.Encrypt([]byte(plaintext))
+	ciphertext, err := k.Encrypt(readOnlyStringBytes(plaintext))
 	if err != nil {
 		return "", err
 	}
@@ -164,17 +166,14 @@ func newEncryptorFromBytes(key []byte) (*Encryptor, error) {
 }
 
 func (e *Encryptor) Encrypt(plaintext []byte) ([]byte, error) {
-	nonce := make([]byte, e.aead.NonceSize())
+	nonceSize := e.aead.NonceSize()
+	out := make([]byte, nonceSize, nonceSize+len(plaintext)+e.aead.Overhead())
+	nonce := out[:nonceSize]
 	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
 		return nil, err
 	}
 
-	sealed := e.aead.Seal(nil, nonce, plaintext, nil)
-	out := make([]byte, 0, len(nonce)+len(sealed))
-	out = append(out, nonce...)
-	out = append(out, sealed...)
-
-	return out, nil
+	return e.aead.Seal(out, nonce, plaintext, nil), nil
 }
 
 func (e *Encryptor) Decrypt(ciphertext []byte) ([]byte, error) {
@@ -194,7 +193,7 @@ func (e *Encryptor) Decrypt(ciphertext []byte) ([]byte, error) {
 }
 
 func (e *Encryptor) EncryptString(plaintext string) (string, error) {
-	ciphertext, err := e.Encrypt([]byte(plaintext))
+	ciphertext, err := e.Encrypt(readOnlyStringBytes(plaintext))
 	if err != nil {
 		return "", err
 	}
@@ -214,6 +213,12 @@ func (e *Encryptor) DecryptString(ciphertext string) (string, error) {
 	}
 
 	return string(plaintext), nil
+}
+
+func readOnlyStringBytes(s string) []byte {
+	// AES-GCM consumes plaintext synchronously in Seal and never retains it, so
+	// EncryptString can avoid copying the immutable string into a temporary byte slice.
+	return unsafe.Slice(unsafe.StringData(s), len(s))
 }
 
 func parseKey(key string) ([]byte, error) {

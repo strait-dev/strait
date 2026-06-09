@@ -219,7 +219,7 @@ func (q *Queries) GetAuditEventDeadletter(ctx context.Context, id, projectID str
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetAuditEventDeadletter")
 	defer span.End()
 
-	if id == "" || projectID == "" {
+	if !auditDeadletterScopedIDValid(id, projectID) {
 		return nil, fmt.Errorf("id and project_id are required")
 	}
 
@@ -251,7 +251,7 @@ func (q *Queries) ReplayAuditEventDeadletter(ctx context.Context, id, projectID,
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ReplayAuditEventDeadletter")
 	defer span.End()
 
-	if id == "" || projectID == "" || newEventID == "" {
+	if !auditDeadletterReplayIDsValid(id, projectID, newEventID) {
 		return nil, false, fmt.Errorf("id, project_id, and new_event_id are required")
 	}
 
@@ -334,7 +334,7 @@ func (q *Queries) DeleteAuditEventDeadletter(ctx context.Context, id, projectID 
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeleteAuditEventDeadletter")
 	defer span.End()
 
-	if id == "" || projectID == "" {
+	if !auditDeadletterScopedIDValid(id, projectID) {
 		return fmt.Errorf("id and project_id are required")
 	}
 
@@ -348,6 +348,14 @@ func (q *Queries) DeleteAuditEventDeadletter(ctx context.Context, id, projectID 
 	return nil
 }
 
+func auditDeadletterScopedIDValid(id, projectID string) bool {
+	return id != "" && projectID != ""
+}
+
+func auditDeadletterReplayIDsValid(id, projectID, newEventID string) bool {
+	return auditDeadletterScopedIDValid(id, projectID) && newEventID != ""
+}
+
 // DropAuditEventDeadletterWithAudit atomically records the operator drop in
 // the signed audit chain and removes the deadletter row. The audit insert is
 // deliberately inside the same transaction as the delete so an operator cannot
@@ -356,7 +364,7 @@ func (q *Queries) DropAuditEventDeadletterWithAudit(ctx context.Context, id, pro
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.DropAuditEventDeadletterWithAudit")
 	defer span.End()
 
-	if id == "" || projectID == "" {
+	if !auditDeadletterScopedIDValid(id, projectID) {
 		return false, fmt.Errorf("id and project_id are required")
 	}
 	if auditEvent == nil {

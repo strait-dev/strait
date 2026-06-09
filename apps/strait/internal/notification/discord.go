@@ -47,9 +47,7 @@ func (d *DiscordSender) Send(ctx context.Context, channel *domain.NotificationCh
 		return fmt.Errorf("discord webhook_url rejected: %w", err)
 	}
 
-	body, err := json.Marshal(map[string]any{
-		"content": fmt.Sprintf("[%s] %s", delivery.EventType, string(delivery.Payload)),
-	})
+	body, err := marshalDiscordPayload(delivery.EventType, delivery.Payload)
 	if err != nil {
 		return fmt.Errorf("marshal discord payload: %w", err)
 	}

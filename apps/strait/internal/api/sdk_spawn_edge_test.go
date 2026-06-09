@@ -187,6 +187,50 @@ func TestHandleSDKSpawn_AwaitCompletion_ParentNotExecuting(t *testing.T) {
 	// Should still create the child run, but not transition parent.
 }
 
+func TestHandleSDKSpawn_JobLookupUnavailableReturnsNotFound(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		jobErr error
+	}{
+		{name: "lookup error", jobErr: store.ErrJobNotFound},
+		{name: "missing job"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			ms := &APIStoreMock{
+				GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
+					return &domain.JobRun{ID: id, ProjectID: "proj-1", Status: domain.StatusExecuting}, nil
+				},
+				GetJobBySlugFunc: func(_ context.Context, projectID, slug string) (*domain.Job, error) {
+					require.Equal(t, "proj-1", projectID)
+					require.Equal(t, "child", slug)
+
+					return nil, tt.jobErr
+				},
+			}
+			mq := &mockQueue{
+				enqueueFn: func(context.Context, *domain.JobRun) error {
+					require.Fail(t, "queue.Enqueue must not run when spawn job lookup fails")
+					return nil
+				},
+			}
+			srv := newTestServer(t, ms, mq, nil)
+
+			w := httptest.NewRecorder()
+			r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-parent/spawn", "run-parent",
+				`{"job_slug":"child","project_id":"proj-1"}`)
+
+			srv.ServeHTTP(w, r)
+			require.Equal(t, http.StatusNotFound, w.Code)
+		})
+	}
+}
+
 // Cross-project spawn tests.
 
 func TestHandleSDKSpawn_CrossProject_RequiresTargetKey(t *testing.T) {

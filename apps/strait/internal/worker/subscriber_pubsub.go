@@ -2,8 +2,6 @@ package worker
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 	"log/slog"
 	"time"
 
@@ -23,23 +21,20 @@ func PubSubSubscriber(pub pubsub.Publisher, errorCounter ...metric.Int64Counter)
 			return
 		}
 
-		data := map[string]any{
-			"type":       "status_change",
-			"run_id":     event.Run.ID,
-			"job_id":     event.Run.JobID,
-			"project_id": event.Run.ProjectID,
-			"from":       string(event.FromStatus),
-			"to":         string(event.ToStatus),
-			"timestamp":  time.Now().UTC(),
-		}
-
-		payload, err := json.Marshal(data)
+		payload, err := marshalRunStatusTransitionPayload(
+			event.Run.ID,
+			event.Run.JobID,
+			event.Run.ProjectID,
+			string(event.FromStatus),
+			string(event.ToStatus),
+			time.Now().UTC(),
+		)
 		if err != nil {
 			slog.Error("failed to marshal event for pubsub", "run_id", event.Run.ID, "job_id", event.Run.JobID, "error", err)
 			return
 		}
 
-		channel := fmt.Sprintf("run:%s", event.Run.ID)
+		channel := runPubSubChannel(event.Run.ID)
 		if err := pub.Publish(ctx, channel, payload); err != nil {
 			slog.Error("failed to publish event",
 				"run_id", event.Run.ID,

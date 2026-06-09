@@ -191,6 +191,12 @@ func TestValidateWorkflowTransition_ErrorTypes(t *testing.T) {
 	})
 }
 
+func BenchmarkValidateWorkflowTransition(b *testing.B) {
+	for b.Loop() {
+		_ = ValidateWorkflowTransition(WfStatusRunning, WfStatusCompleted)
+	}
+}
+
 func TestValidateStepTransition_AllValidTransitions(t *testing.T) {
 	t.Parallel()
 	for from, toStatuses := range validStepTransitions {
@@ -317,6 +323,12 @@ func TestValidateStepTransition_ErrorTypes(t *testing.T) {
 			err, &te,
 		)
 	})
+}
+
+func BenchmarkValidateStepTransition(b *testing.B) {
+	for b.Loop() {
+		_ = ValidateStepTransition(StepPending, StepRunning)
+	}
 }
 
 func TestStepRunStatusIsTerminal_AllStatuses(t *testing.T) {

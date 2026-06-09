@@ -115,7 +115,7 @@ type JobStore interface {
 	ListEnvironments(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.Environment, error)
 	UpdateEnvironment(ctx context.Context, env *domain.Environment) error
 	DeleteEnvironment(ctx context.Context, id, projectID string) error
-	GetResolvedEnvironmentVariables(ctx context.Context, id string) (map[string]string, error)
+	GetResolvedEnvironmentVariables(ctx context.Context, projectID, id string) (map[string]string, error)
 	CreateJobSecret(ctx context.Context, secret *domain.JobSecret) error
 	ListJobSecrets(ctx context.Context, projectID, jobID, environment string, limit int, cursor *time.Time) ([]domain.JobSecret, error)
 	GetJobSecret(ctx context.Context, id, projectID string) (*domain.JobSecret, error)
@@ -131,7 +131,7 @@ type JobStore interface {
 	ListAPIKeysExpiringSoon(ctx context.Context, projectID string, withinDays int) ([]domain.APIKey, error)
 	PauseJob(ctx context.Context, id, reason string) error
 	ResumeJob(ctx context.Context, id string) error
-	UpdateJobEndpoint(ctx context.Context, jobID, endpointURL, fallbackURL, signingSecret string) error
+	UpdateJobEndpoint(ctx context.Context, jobID, projectID, endpointURL, fallbackURL, signingSecret string) error
 }
 
 // RunStore keeps the existing API store contract while grouping run-related
@@ -207,11 +207,11 @@ type RunEventStore interface {
 // RunWebhookStore handles webhook subscriptions and delivery retries.
 type RunWebhookStore interface {
 	ListWebhookDeliveries(ctx context.Context, projectID, status string, limit int, cursor *time.Time) ([]domain.WebhookDelivery, error)
-	GetWebhookDelivery(ctx context.Context, id string) (*domain.WebhookDelivery, error)
+	GetWebhookDelivery(ctx context.Context, projectID, id string) (*domain.WebhookDelivery, error)
 	RetryWebhookDelivery(ctx context.Context, id string) (*domain.WebhookDelivery, error)
 	UpdateWebhookDelivery(ctx context.Context, d *domain.WebhookDelivery) error
 	CreateWebhookDelivery(ctx context.Context, d *domain.WebhookDelivery) error
-	ReplayWebhookDelivery(ctx context.Context, id string) (*domain.WebhookDelivery, error)
+	ReplayWebhookDelivery(ctx context.Context, projectID, id string) (*domain.WebhookDelivery, error)
 	CreateWebhookSubscription(ctx context.Context, sub *domain.WebhookSubscription) error
 	ListWebhookSubscriptions(ctx context.Context, projectID string) ([]domain.WebhookSubscription, error)
 	GetWebhookSubscription(ctx context.Context, id string) (*domain.WebhookSubscription, error)
@@ -409,6 +409,7 @@ type AuthStore interface {
 	GetAPIKeyByHash(ctx context.Context, keyHash string) (*domain.APIKey, error)
 	GetAPIKeyByID(ctx context.Context, id string) (*domain.APIKey, error)
 	MarkAPIKeyRotated(ctx context.Context, oldKeyID, newKeyID string, graceExpiresAt time.Time) error
+	CreateRotatedAPIKey(ctx context.Context, oldKeyID string, newKey *domain.APIKey, graceExpiresAt time.Time) error
 	TouchAPIKeyLastUsed(ctx context.Context, id string) error
 	ListRunsByOrg(ctx context.Context, orgID string, limit int, cursor *time.Time) ([]domain.JobRun, error)
 	ListJobsByOrg(ctx context.Context, orgID string, limit int, cursor *time.Time) ([]domain.Job, error)
@@ -895,7 +896,7 @@ func NewServer(deps ServerDeps) *Server {
 		workflowEngine:     deps.WorkflowEngine,
 		txPool:             deps.TxPool,
 		actorSyncer:        deps.ActorSyncer,
-		validate:           validator.New(validator.WithRequiredStructEnabled()),
+		validate:           newRequestValidator(),
 		maxRequestBodySize: maxBody,
 		poolStatter:        deps.PoolStatter,
 		permCache:          newPermissionCache(permCacheTTL(deps.Config), cacheDeps),
@@ -1442,8 +1443,17 @@ func (s *Server) handleOpenAPISpec(w http.ResponseWriter, r *http.Request) {
 }
 
 func acceptsGzip(acceptEncoding string) bool {
+	if acceptEncoding == "" {
+		return false
+	}
+	if acceptEncoding[0] == 'g' {
+		if acceptEncoding == "gzip" || strings.HasPrefix(acceptEncoding, "gzip;") {
+			return true
+		}
+	}
 	for part := range strings.SplitSeq(acceptEncoding, ",") {
-		if strings.EqualFold(strings.TrimSpace(strings.SplitN(part, ";", 2)[0]), "gzip") {
+		mt, _, _ := strings.Cut(part, ";")
+		if strings.EqualFold(strings.TrimSpace(mt), "gzip") {
 			return true
 		}
 	}

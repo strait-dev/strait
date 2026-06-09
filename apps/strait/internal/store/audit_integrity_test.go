@@ -62,6 +62,28 @@ func TestComputeAuditSignature_Deterministic(t *testing.T) {
 	assert.Len(t, sig1, 64)
 }
 
+func BenchmarkComputeAuditSignature(b *testing.B) {
+	key, err := DeriveAuditSigningKey("test-secret-value")
+	require.NoError(b, err)
+	ev := testAuditEvent("ev-1", "proj-1", "trigger")
+	ev.SchemaVersion = domain.AuditEventSchemaVersionCurrent
+	ev.RemoteIP = "198.51.100.42"
+	ev.UserAgent = "strait-benchmark/1.0"
+	ev.RequestID = "req-0123456789abcdef"
+	ev.TraceID = "trace-0123456789abcdef"
+	ev.IsAnchor = false
+	ev.RotationEpoch = 7
+	ev.ShardID = "job"
+
+	b.ReportAllocs()
+	for b.Loop() {
+		sig := ComputeAuditSignature(ev, key)
+		if len(sig) != 64 {
+			b.Fatalf("ComputeAuditSignature() length = %d, want 64", len(sig))
+		}
+	}
+}
+
 func TestComputeAuditSignature_ChangesWithFields(t *testing.T) {
 	t.Parallel()
 

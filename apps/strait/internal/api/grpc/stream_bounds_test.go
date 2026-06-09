@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	workerv1 "strait/internal/api/grpc/proto/workerv1"
+	"strait/internal/domain"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -56,4 +57,28 @@ func TestDeepSecHandleAck_OversizedRunIDRejectedBeforeStore(t *testing.T) {
 		Id: strings.Repeat("r", maxRunIDLen+1),
 	})
 	require.NoError(t, err)
+}
+
+func TestCanAcknowledgeWorkerTaskStatus(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		status domain.WorkerTaskStatus
+		want   bool
+	}{
+		{name: "assigned", status: domain.WorkerTaskStatusAssigned, want: true},
+		{name: "accepted", status: domain.WorkerTaskStatusAccepted, want: false},
+		{name: "result received", status: domain.WorkerTaskStatusResultReceived, want: false},
+		{name: "completed", status: domain.WorkerTaskStatusCompleted, want: false},
+		{name: "failed", status: domain.WorkerTaskStatusFailed, want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, tt.want, canAcknowledgeWorkerTaskStatus(tt.status))
+		})
+	}
 }

@@ -23,6 +23,10 @@ import (
 
 const pprofAuthKind = "profiling"
 
+// maxProfilingRequestsPerMinute caps authenticated profiling requests per client
+// IP so a secret-holder cannot sustain unbounded back-to-back profiles.
+const maxProfilingRequestsPerMinute = 30
+
 type ProfilingHandlerDeps struct {
 	Config      *config.Config
 	RedisClient *redis.Client
@@ -69,7 +73,7 @@ func (s *Server) mountProfilingRoutes(r chi.Router) {
 
 func (s *Server) profilingAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		clientIP := realIP(r, s.trustedProxies)
+		clientIP := clientIPFromRequest(r, s.trustedProxies)
 		if blocked, retryAfter := s.authLimiter.IsBlockedScoped(r.Context(), clientIP, ratelimit.AuthScopeProfiling); blocked {
 			recordAuthDecision(r.Context(), pprofAuthKind, "throttled")
 			recordAuthRateLimitThrottled(r.Context(), pprofAuthKind)
@@ -93,6 +97,24 @@ func (s *Server) profilingAuth(next http.Handler) http.Handler {
 
 		s.authLimiter.ResetScoped(r.Context(), clientIP, ratelimit.AuthScopeProfiling)
 		recordAuthDecision(r.Context(), pprofAuthKind, "success")
+
+		// Throttle authenticated profiling too. Auth-failure lockout does not
+		// bound a secret-holder who issues unbounded back-to-back profiles; the
+		// CPU profiler is a singleton and each profile imposes continuous
+		// overhead, so cap the per-IP request rate as well.
+		if s.rateLimiter != nil {
+			res, rlErr := s.rateLimiter.AllowStrict(r.Context(), "profiling:"+clientIP, maxProfilingRequestsPerMinute, time.Minute)
+			if rlErr != nil {
+				slog.Warn("profiling rate limit check failed; allowing", "error", rlErr)
+			} else if !res.Allowed {
+				recordAuthDecision(r.Context(), pprofAuthKind, "throttled")
+				recordAuthRateLimitThrottled(r.Context(), pprofAuthKind)
+				w.Header().Set("Retry-After", "60")
+				respondError(w, r, http.StatusTooManyRequests, "profiling request rate limit exceeded")
+				return
+			}
+		}
+
 		ctx := context.WithValue(r.Context(), ctxInternalCallerKey, true)
 		s.serveWithSentryScope(next, w, r.WithContext(ctx))
 	})
@@ -105,7 +127,7 @@ func (s *Server) profilingCIDRAllowlist(next http.Handler) http.Handler {
 			return
 		}
 
-		clientIP := realIP(r, s.trustedProxies)
+		clientIP := clientIPFromRequest(r, s.trustedProxies)
 		if !ipInNets(clientIP, s.profilingAllowedCIDRs) {
 			respondError(w, r, http.StatusForbidden, "profiling access denied")
 			return
@@ -139,7 +161,7 @@ func (s *Server) pprofAccessRecorder(next http.Handler) http.Handler {
 			"endpoint", endpoint,
 			"status", status,
 			"duration_ms", time.Since(start).Milliseconds(),
-			"remote_ip", realIP(r, s.trustedProxies),
+			"remote_ip", clientIPFromRequest(r, s.trustedProxies),
 			"request_id", chimw.GetReqID(r.Context()),
 		}
 		if status >= http.StatusBadRequest {
@@ -158,7 +180,7 @@ func (s *Server) pprofProfileStartLogger(next http.Handler) http.Handler {
 			slog.Info("pprof profile started",
 				"method", r.Method,
 				"path", r.URL.Path,
-				"remote_ip", realIP(r, s.trustedProxies),
+				"remote_ip", clientIPFromRequest(r, s.trustedProxies),
 				"request_id", chimw.GetReqID(r.Context()),
 			)
 		}

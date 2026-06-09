@@ -237,47 +237,22 @@ func TestDebouncePoller_FiresDuePending(t *testing.T) {
 	}
 	poller := NewDebouncePoller(ds, q, time.Second)
 	poller.poll(context.Background())
-	require.Len(t, enqueued,
-		1)
+	require.Len(t, enqueued, 1)
 
 	run := enqueued[0]
-	require.Equal(t, "job-1",
-		run.JobID)
-	require.Equal(t, "dp-1",
-		run.ID)
-	require.Equal(t, domain.
-		TriggerDebounce,
-		run.TriggeredBy,
-	)
-	require.Equal(t, 5,
-		run.Priority)
-	require.Equal(t, "user-1",
-		run.CreatedBy,
-	)
-	require.JSONEq(t, `{"action":"reindex"}`,
-
-		string(run.Payload))
-	require.Equal(t, domain.
-		ExecutionModeWorker,
-		run.
-			ExecutionMode,
-	)
-	require.Equal(t, "priority",
-		run.QueueName,
-	)
-	require.False(t, len(ds.claimed) !=
-		1 || ds.claimed[0] !=
-		"dp-1")
-	require.False(t, len(ds.completed) !=
-		1 || ds.
-		completed[0] != "dp-1",
-	)
+	require.Equal(t, "job-1", run.JobID)
+	require.Equal(t, "dp-1", run.ID)
+	require.Equal(t, domain.TriggerDebounce, run.TriggeredBy)
+	require.Equal(t, 5, run.Priority)
+	require.Equal(t, "user-1", run.CreatedBy)
+	require.JSONEq(t, `{"action":"reindex"}`, string(run.Payload))
+	require.Equal(t, domain.ExecutionModeWorker, run.ExecutionMode)
+	require.Equal(t, "priority", run.QueueName)
+	require.Equal(t, []string{"dp-1"}, ds.claimed)
+	require.Equal(t, []string{"dp-1"}, ds.completed)
 	require.Empty(t, ds.restored)
-	require.Equal(t, 1,
-		ds.txCalls)
-	require.False(t, len(ds.txLockIDs) !=
-		1 || ds.
-		txLockIDs[0] != cronAdmissionLockID("proj-1"))
+	require.Equal(t, 1, ds.txCalls)
+	require.Equal(t, []int64{cronAdmissionLockID("proj-1")}, ds.txLockIDs)
 }
 
 func TestDebouncePoller_SkipsDisabledJob(t *testing.T) {
@@ -302,10 +277,8 @@ func TestDebouncePoller_SkipsDisabledJob(t *testing.T) {
 	poller := NewDebouncePoller(ds, q, time.Second)
 	poller.poll(context.Background())
 	require.Empty(t, enqueued)
-	require.Len(t, ds.claimed,
-		1)
-	require.Len(t, ds.completed,
-		1)
+	require.Len(t, ds.claimed, 1)
+	require.Len(t, ds.completed, 1)
 }
 
 func TestDebouncePoller_SkipsPausedJob(t *testing.T) {
@@ -330,10 +303,8 @@ func TestDebouncePoller_SkipsPausedJob(t *testing.T) {
 	poller := NewDebouncePoller(ds, q, time.Second)
 	poller.poll(context.Background())
 	require.Empty(t, enqueued)
-	require.Len(t, ds.claimed,
-		1)
-	require.Len(t, ds.completed,
-		1)
+	require.Len(t, ds.claimed, 1)
+	require.Len(t, ds.completed, 1)
 }
 
 func TestDebouncePoller_UsesPendingIDAsIdempotencyKey(t *testing.T) {
@@ -357,9 +328,7 @@ func TestDebouncePoller_UsesPendingIDAsIdempotencyKey(t *testing.T) {
 	}
 	poller := NewDebouncePoller(ds, q, time.Second)
 	poller.poll(context.Background())
-	require.Equal(t, "debounce:dp-1",
-		key,
-	)
+	require.Equal(t, "debounce:dp-1", key)
 }
 
 func TestDebouncePoller_DeletesPendingWhenRunAlreadyExists(t *testing.T) {
@@ -409,29 +378,15 @@ func TestDebouncePoller_ReschedulesPendingWhenFireTimeProjectQuotaExceeded(t *te
 	}}
 	poller := NewDebouncePoller(ds, q, time.Second)
 	poller.poll(context.Background())
-	require.Equal(t, 0,
-		enqueued)
+	require.Equal(t, 0, enqueued)
 	require.Empty(t, ds.completed)
-	require.False(t, len(ds.rescheduled) !=
-		1 || ds.
-		rescheduled[0].id !=
-		"dp-1",
-	)
-	require.True(t, ds.
-		rescheduled[0].oldFireAt.
-		Equal(originalFireAt),
-	)
-	require.True(t, ds.
-		rescheduled[0].nextFireAt.
-		After(time.
-			Now().UTC()))
-	require.False(t, len(ds.duePending) !=
-		1 || ds.
-		duePending[0].ID !=
-		"dp-1" ||
-		!ds.duePending[0].FireAt.
-			After(time.Now().UTC()),
-	)
+	require.Len(t, ds.rescheduled, 1)
+	require.Equal(t, "dp-1", ds.rescheduled[0].id)
+	require.True(t, ds.rescheduled[0].oldFireAt.Equal(originalFireAt))
+	require.True(t, ds.rescheduled[0].nextFireAt.After(time.Now().UTC()))
+	require.Len(t, ds.duePending, 1)
+	require.Equal(t, "dp-1", ds.duePending[0].ID)
+	require.True(t, ds.duePending[0].FireAt.After(time.Now().UTC()))
 }
 
 func TestDebouncePoller_ReschedulesPendingWhenFireTimeRateLimitExceeded(t *testing.T) {
@@ -462,29 +417,15 @@ func TestDebouncePoller_ReschedulesPendingWhenFireTimeRateLimitExceeded(t *testi
 	}}
 	poller := NewDebouncePoller(ds, q, time.Second)
 	poller.poll(context.Background())
-	require.Equal(t, 0,
-		enqueued)
+	require.Equal(t, 0, enqueued)
 	require.Empty(t, ds.completed)
-	require.False(t, len(ds.rescheduled) !=
-		1 || ds.
-		rescheduled[0].id !=
-		"dp-1",
-	)
-	require.True(t, ds.
-		rescheduled[0].oldFireAt.
-		Equal(originalFireAt),
-	)
-	require.True(t, ds.
-		rescheduled[0].nextFireAt.
-		After(time.
-			Now().UTC()))
-	require.False(t, len(ds.duePending) !=
-		1 || ds.
-		duePending[0].ID !=
-		"dp-1" ||
-		!ds.duePending[0].FireAt.
-			After(time.Now().UTC()),
-	)
+	require.Len(t, ds.rescheduled, 1)
+	require.Equal(t, "dp-1", ds.rescheduled[0].id)
+	require.True(t, ds.rescheduled[0].oldFireAt.Equal(originalFireAt))
+	require.True(t, ds.rescheduled[0].nextFireAt.After(time.Now().UTC()))
+	require.Len(t, ds.duePending, 1)
+	require.Equal(t, "dp-1", ds.duePending[0].ID)
+	require.True(t, ds.duePending[0].FireAt.After(time.Now().UTC()))
 }
 
 func TestDebouncePoller_SkipsPendingExtendedAfterDueList(t *testing.T) {
@@ -505,10 +446,8 @@ func TestDebouncePoller_SkipsPendingExtendedAfterDueList(t *testing.T) {
 		return nil
 	}}
 	poller := NewDebouncePoller(ds, q, time.Second)
-	require.NoError(t,
-		poller.pollLocked(context.Background()))
-	require.Equal(t, 0,
-		enqueued)
+	require.NoError(t, poller.pollLocked(context.Background()))
+	require.Equal(t, 0, enqueued)
 	require.Empty(t, ds.claimed)
 }
 
@@ -536,12 +475,9 @@ func TestDebouncePoller_RestoreDoesNotOverwriteNewerPending(t *testing.T) {
 	poller.poll(context.Background())
 	require.Empty(t, ds.restored)
 	require.Empty(t, ds.completed)
-	require.False(t, len(ds.duePending) !=
-		1 || ds.
-		duePending[0].ID !=
-		"dp-old" ||
-		!ds.duePending[0].FireAt.
-			Equal(future))
+	require.Len(t, ds.duePending, 1)
+	require.Equal(t, "dp-old", ds.duePending[0].ID)
+	require.True(t, ds.duePending[0].FireAt.Equal(future))
 }
 
 func TestDebouncePoller_SkipsWhenLockNotAcquired(t *testing.T) {

@@ -468,10 +468,8 @@ func TestParseBracketParam(t *testing.T) {
 		t.Run(tt.param, func(t *testing.T) {
 			t.Parallel()
 			k, ok := parseBracketParam(tt.param, tt.prefix)
-			assert.False(
-				t, ok != tt.wantOK ||
-					k != tt.
-						wantK)
+			assert.Equal(t, tt.wantOK, ok)
+			assert.Equal(t, tt.wantK, k)
 		})
 	}
 }
@@ -546,10 +544,8 @@ func TestHandleResumeRun_RequeuesRun(t *testing.T) {
 			return &domain.JobRun{ID: id, Status: domain.StatusQueued, ExecutionMode: domain.ExecutionModeHTTP}, nil
 		},
 		UpdateRunStatusFunc: func(_ context.Context, _ string, from, to domain.RunStatus, _ map[string]any) error {
-			require.False(t, from != domain.
-				StatusPaused ||
-				to != domain.StatusQueued,
-			)
+			require.Equal(t, domain.StatusPaused, from)
+			require.Equal(t, domain.StatusQueued, to)
 
 			return nil
 		},
@@ -594,6 +590,30 @@ func TestHandleRestartRun_WrongStatus_Rejected(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 		w.
 			Code)
+}
+
+func TestIsRestartableRunStatus(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		status domain.RunStatus
+		want   bool
+	}{
+		{name: "executing", status: domain.StatusExecuting, want: true},
+		{name: "paused", status: domain.StatusPaused, want: true},
+		{name: "completed", status: domain.StatusCompleted, want: false},
+		{name: "failed", status: domain.StatusFailed, want: false},
+		{name: "queued", status: domain.StatusQueued, want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, tt.want, isRestartableRunStatus(tt.status))
+		})
+	}
 }
 
 func TestHandleResumeRun_NotFound(t *testing.T) {

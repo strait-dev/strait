@@ -12,6 +12,30 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestHasBulkCancelFilter(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		req  BulkCancelAllRequest
+		want bool
+	}{
+		{name: "none"},
+		{name: "job", req: BulkCancelAllRequest{JobID: "job-1"}, want: true},
+		{name: "batch", req: BulkCancelAllRequest{BatchID: "batch-1"}, want: true},
+		{name: "triggered by", req: BulkCancelAllRequest{TriggeredBy: domain.TriggerManual}, want: true},
+		{name: "status", req: BulkCancelAllRequest{Status: domain.StatusQueued}, want: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			require.Equal(t, tt.want, hasBulkCancelFilter(tt.req))
+		})
+	}
+}
+
 func TestHandleBulkCancelAllMapsRequestToStoreFilter(t *testing.T) {
 	t.Parallel()
 

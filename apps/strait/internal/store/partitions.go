@@ -303,6 +303,27 @@ func (q *Queries) DropPartitionWithTimeout(ctx context.Context, partition string
 	if err != nil {
 		return fmt.Errorf("drop partition: invalid name %q: %w", partition, err)
 	}
+
+	// Verify the target is actually a managed history partition before dropping,
+	// mirroring DropPartitionIfEmptyWithTimeout. Without this guard, any identifier
+	// that passes SafeQuoteIdent would be droppable, so a future caller wiring an
+	// untrusted name to this method could drop arbitrary tables.
+	var isKnownChild bool
+	if err := tx.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM pg_inherits i
+			JOIN pg_class c ON c.oid = i.inhrelid
+			JOIN pg_class p ON p.oid = i.inhparent
+			WHERE c.relname = $1
+			  AND p.relname IN ('job_runs', 'enqueue_outbox_history')
+		)`, partition).Scan(&isKnownChild); err != nil {
+		return fmt.Errorf("drop partition verify parent %s: %w", partition, err)
+	}
+	if !isKnownChild {
+		return fmt.Errorf("drop partition %s: not a managed history partition", partition)
+	}
+
 	if _, err := tx.Exec(ctx, "DROP TABLE IF EXISTS "+quoted); err != nil {
 		return fmt.Errorf("drop partition %s: %w", partition, err)
 	}

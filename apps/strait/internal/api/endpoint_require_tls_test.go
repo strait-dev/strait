@@ -83,3 +83,58 @@ func TestCreateJob_EndpointRequireTLS(t *testing.T) {
 			t, created.Load())
 	})
 }
+
+// TestSetJobEndpoint_EndpointRequireTLSAndScoping is the regression guard for the
+// set-endpoint TLS bypass (the dedicated POST /endpoint path must enforce
+// ENDPOINT_REQUIRE_TLS like create/update) and for the dual-layer tenant
+// scoping (UpdateJobEndpoint must be called with the job's project_id).
+func TestSetJobEndpoint_EndpointRequireTLSAndScoping(t *testing.T) {
+	t.Parallel()
+
+	newServer := func(t *testing.T, requireTLS bool, updated *atomic.Bool, gotProject *string) *Server {
+		t.Helper()
+		ms := &APIStoreMock{
+			GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+				return &domain.Job{ID: id, ProjectID: "proj-1"}, nil
+			},
+			UpdateJobEndpointFunc: func(_ context.Context, _, projectID, _, _, _ string) error {
+				updated.Store(true)
+				if gotProject != nil {
+					*gotProject = projectID
+				}
+				return nil
+			},
+		}
+		srv := newTestServerWithEncryptor(t, ms, &mockQueue{}, &mockEncryptor{})
+		srv.config.EndpointRequireTLS = requireTLS
+		return srv
+	}
+
+	post := func(t *testing.T, srv *Server, endpointURL string) *httptest.ResponseRecorder {
+		t.Helper()
+		body := `{"endpoint_url": "` + endpointURL + `"}`
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/jobs/job-1/endpoint", body, "proj-1"))
+		return w
+	}
+
+	t.Run("require tls rejects http on set-endpoint path", func(t *testing.T) {
+		t.Parallel()
+		var updated atomic.Bool
+		srv := newServer(t, true, &updated, nil)
+		w := post(t, srv, "http://example.com/cb")
+		require.GreaterOrEqual(t, w.Code, 400)
+		require.False(t, updated.Load(), "no endpoint write when TLS required and http supplied")
+	})
+
+	t.Run("https accepted and update scoped by project", func(t *testing.T) {
+		t.Parallel()
+		var updated atomic.Bool
+		var gotProject string
+		srv := newServer(t, true, &updated, &gotProject)
+		w := post(t, srv, "https://example.com/cb")
+		require.Equal(t, http.StatusOK, w.Code)
+		require.True(t, updated.Load())
+		require.Equal(t, "proj-1", gotProject, "UpdateJobEndpoint must be scoped to the job's project")
+	})
+}

@@ -70,6 +70,15 @@ func TestRotateWebhookSecret_Success(t *testing.T) {
 	require.True(t, ok)
 
 	requireBase64EncryptedSecretPlaintext(t, enc, rotatedSecret, newSecret)
+
+	// Regression (N7): the response is a concrete typed schema, not an untyped
+	// map, so it round-trips into RotateWebhookSecretResponse with every field set.
+	var typed RotateWebhookSecretResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &typed))
+	require.Equal(t, "sub-1", typed.SubscriptionID)
+	require.Equal(t, newSecret, typed.NewSecret)
+	require.Equal(t, 120, typed.GracePeriodMinutes)
+	require.False(t, typed.GraceExpiresAt.IsZero())
 }
 
 func TestRotateWebhookSecret_DefaultGracePeriod(t *testing.T) {

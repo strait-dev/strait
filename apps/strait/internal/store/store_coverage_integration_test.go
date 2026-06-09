@@ -271,7 +271,7 @@ func TestListWorkflowSnapshotsByWorkflow(t *testing.T) {
 	snap2, err := q.GetOrCreateWorkflowSnapshot(ctx, &wfCopy2, steps)
 	require.NoError(t, err)
 
-	snapshots, err := q.ListWorkflowSnapshotsByWorkflow(ctx, wf.ID, 10)
+	snapshots, err := q.ListWorkflowSnapshotsByWorkflow(ctx, projectID, wf.ID, 10)
 	require.NoError(t, err)
 	require.Len(t, snapshots,
 
@@ -286,7 +286,7 @@ func TestListWorkflowSnapshotsByWorkflow(t *testing.T) {
 	// Newest first.
 
 	// Limit works.
-	limited, err := q.ListWorkflowSnapshotsByWorkflow(ctx, wf.ID, 1)
+	limited, err := q.ListWorkflowSnapshotsByWorkflow(ctx, projectID, wf.ID, 1)
 	require.NoError(t, err)
 	require.Len(t, limited,
 

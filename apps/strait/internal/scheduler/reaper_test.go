@@ -2009,6 +2009,45 @@ func TestReaper_ReapExpiredApprovals_SendsExpiredNotification(t *testing.T) {
 	)
 }
 
+func TestReaper_SendApprovalNotificationSkipsMissingWorkflowRun(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		err  error
+	}{
+		{name: "lookup error", err: errors.New("workflow run lookup failed")},
+		{name: "missing workflow run"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			ms := &mockNotifierReaperStore{
+				getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+					require.Equal(t, "wr-1", id)
+
+					return nil, tt.err
+				},
+				listEnabledNotificationChannelsFn: func(context.Context, string) ([]domain.NotificationChannel, error) {
+					require.Fail(t, "ListEnabledNotificationChannels must not run without a workflow run")
+					return nil, nil
+				},
+				createNotificationDeliveryFn: func(context.Context, *domain.NotificationDelivery) error {
+					require.Fail(t, "CreateNotificationDelivery must not run without a workflow run")
+					return nil
+				},
+			}
+			r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
+
+			r.sendApprovalNotification(context.Background(), "wr-1", domain.NotificationEventApprovalExpired, map[string]any{
+				"approval_id": "appr-1",
+			})
+		})
+	}
+}
+
 func TestReaper_ReapExpiredApprovals_NoNotificationWithoutInterface(t *testing.T) {
 	t.Parallel()
 	approvalReaped := false

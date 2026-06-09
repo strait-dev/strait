@@ -1182,12 +1182,12 @@ func applyScannedJobNullables(job *domain.Job, n scannedJobNullables) (*domain.J
 	if n.maxConcurrencyPerKey != nil {
 		job.MaxConcurrencyPerKey = *n.maxConcurrencyPerKey
 	}
-	if len(n.rateLimitKeysJSON) > 0 && string(n.rateLimitKeysJSON) != "[]" && string(n.rateLimitKeysJSON) != "null" {
+	if hasNonEmptyJSONArray(n.rateLimitKeysJSON) {
 		if err := json.Unmarshal(n.rateLimitKeysJSON, &job.RateLimitKeys); err != nil {
 			return nil, fmt.Errorf("unmarshal rate_limit_keys: %w", err)
 		}
 	}
-	if len(n.defaultRunMetadataJSON) > 0 && string(n.defaultRunMetadataJSON) != "{}" && string(n.defaultRunMetadataJSON) != "null" {
+	if hasNonEmptyJSONObject(n.defaultRunMetadataJSON) {
 		if err := json.Unmarshal(n.defaultRunMetadataJSON, &job.DefaultRunMetadata); err != nil {
 			return nil, fmt.Errorf("unmarshal default_run_metadata: %w", err)
 		}
@@ -1239,6 +1239,22 @@ func applyScannedJobNullables(job *domain.Job, n scannedJobNullables) (*domain.J
 	}
 
 	return job, nil
+}
+
+func hasNonEmptyJSONArray(raw []byte) bool {
+	if len(raw) == 0 {
+		return false
+	}
+	value := string(raw)
+	return value != "[]" && value != "null"
+}
+
+func hasNonEmptyJSONObject(raw []byte) bool {
+	if len(raw) == 0 {
+		return false
+	}
+	value := string(raw)
+	return value != "{}" && value != "null"
 }
 
 func (q *Queries) ListJobsByTag(ctx context.Context, projectID, tagKey, tagValue string, limit int, cursor *time.Time) ([]domain.Job, error) {
@@ -1414,24 +1430,27 @@ func (q *Queries) ResumeJob(ctx context.Context, id string) error {
 // UpdateJobEndpoint persists a new endpoint URL, optional fallback URL, and
 // signing secret for a job. Callers are responsible for SSRF-validating the
 // URLs and generating a fresh signing secret before calling this method.
-func (q *Queries) UpdateJobEndpoint(ctx context.Context, jobID, endpointURL, fallbackURL, signingSecret string) error {
+func (q *Queries) UpdateJobEndpoint(ctx context.Context, jobID, projectID, endpointURL, fallbackURL, signingSecret string) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.UpdateJobEndpoint")
 	defer span.End()
 
+	// project_id is scoped explicitly (in addition to RLS) per the dual-layer
+	// tenant-isolation standard, so the row updated is the job the caller already
+	// fetched and authorized even if the RLS context is ever absent.
 	query := `
 		UPDATE jobs
-		SET endpoint_url            = $2,
-		    fallback_endpoint_url   = $3,
-		    endpoint_signing_secret = $4,
+		SET endpoint_url            = $3,
+		    fallback_endpoint_url   = $4,
+		    endpoint_signing_secret = $5,
 		    updated_at              = NOW()
-		WHERE id = $1`
+		WHERE id = $1 AND project_id = $2`
 
 	var fallback *string
 	if fallbackURL != "" {
 		fallback = &fallbackURL
 	}
 
-	tag, err := q.db.Exec(ctx, query, jobID, endpointURL, fallback, signingSecret)
+	tag, err := q.db.Exec(ctx, query, jobID, projectID, endpointURL, fallback, signingSecret)
 	if err != nil {
 		return fmt.Errorf("update job endpoint: %w", err)
 	}

@@ -180,13 +180,9 @@ func TestRotateAPIKey_MaxLifetime_AutoCapsLegacyNoExpiry(t *testing.T) {
 
 	_, err := srv.handleRotateAPIKey(ctx, &RotateAPIKeyInput{KeyID: "key-old"})
 	require.NoError(t, err)
-	require.False(t, created == nil ||
-		created.
-			ExpiresAt ==
-			nil)
-	require.False(t, created.ExpiresAt.
-		After(time.Now().
-			Add(31*24*time.Hour)))
+	require.NotNil(t, created)
+	require.NotNil(t, created.ExpiresAt)
+	require.LessOrEqual(t, created.ExpiresAt.Unix(), time.Now().Add(31*24*time.Hour).Unix())
 }
 
 func TestRotateAPIKey_NoMaxLifetime_RejectsLegacyNoExpiry(t *testing.T) {

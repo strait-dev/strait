@@ -2,9 +2,8 @@ package api
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 	"log/slog"
+	"strconv"
 	"time"
 
 	"strait/internal/clickhouse"
@@ -18,25 +17,16 @@ func (s *Server) publishWorkflowRunHook(ctx context.Context, run *domain.Workflo
 		return
 	}
 
-	payload, err := json.Marshal(map[string]any{
-		"type":            "workflow_status_change",
-		"workflow_run_id": run.ID,
-		"workflow_id":     run.WorkflowID,
-		"project_id":      run.ProjectID,
-		"from":            string(from),
-		"to":              string(to),
-		"reason":          reason,
-		"timestamp":       time.Now().UTC(),
-	})
+	payload, err := marshalWorkflowRunHookPayload(run, from, to, reason, time.Now().UTC())
 	if err != nil {
 		return
 	}
 
 	if s.pubsub != nil {
-		if err := s.pubsub.Publish(ctx, fmt.Sprintf("workflow-run:%s", run.ID), payload); err != nil {
+		if err := s.pubsub.Publish(ctx, workflowRunChannel(run.ID), payload); err != nil {
 			slog.Warn("failed to publish workflow run hook", "workflow_run_id", run.ID, "error", err)
 		}
-		if err := s.pubsub.Publish(ctx, fmt.Sprintf("workflow:%s:runs", run.WorkflowID), payload); err != nil {
+		if err := s.pubsub.Publish(ctx, workflowRunsChannel(run.WorkflowID), payload); err != nil {
 			slog.Warn("failed to publish workflow hook", "workflow_id", run.WorkflowID, "error", err)
 		}
 	}
@@ -93,7 +83,7 @@ func (s *Server) publishWorkflowRunHook(ctx context.Context, run *domain.Workflo
 			}
 			matched := false
 			for _, et := range sub.EventTypes {
-				if et == eventType || et == "*" {
+				if workflowWebhookEventTypeMatches(et, eventType) {
 					matched = true
 					break
 				}
@@ -119,6 +109,45 @@ func (s *Server) publishWorkflowRunHook(ctx context.Context, run *domain.Workflo
 	})
 }
 
+func marshalWorkflowRunHookPayload(
+	run *domain.WorkflowRun,
+	from, to domain.WorkflowRunStatus,
+	reason string,
+	timestamp time.Time,
+) ([]byte, error) {
+	fromStatus := string(from)
+	toStatus := string(to)
+	var timestampBuf [len("2006-01-02T15:04:05.999999999Z07:00")]byte
+	timestampBytes := timestamp.AppendFormat(timestampBuf[:0], time.RFC3339Nano)
+	capacity := len(`{"type":"workflow_status_change","workflow_run_id":"","workflow_id":"","project_id":"","from":"","to":"","reason":"","timestamp":""}`) +
+		len(run.ID) + len(run.WorkflowID) + len(run.ProjectID) + len(fromStatus) + len(toStatus) + len(reason) + len(timestampBytes)
+	out := make([]byte, 0, capacity)
+	out = append(out, `{"type":"workflow_status_change","workflow_run_id":`...)
+	out = strconv.AppendQuote(out, run.ID)
+	out = append(out, `,"workflow_id":`...)
+	out = strconv.AppendQuote(out, run.WorkflowID)
+	out = append(out, `,"project_id":`...)
+	out = strconv.AppendQuote(out, run.ProjectID)
+	out = append(out, `,"from":`...)
+	out = strconv.AppendQuote(out, fromStatus)
+	out = append(out, `,"to":`...)
+	out = strconv.AppendQuote(out, toStatus)
+	out = append(out, `,"reason":`...)
+	out = strconv.AppendQuote(out, reason)
+	out = append(out, `,"timestamp":"`...)
+	out = append(out, timestampBytes...)
+	out = append(out, `"}`...)
+	return out, nil
+}
+
+func workflowRunChannel(runID string) string {
+	return "workflow-run:" + runID
+}
+
+func workflowRunsChannel(workflowID string) string {
+	return "workflow:" + workflowID + ":runs"
+}
+
 func workflowWebhookEventType(status domain.WorkflowRunStatus) (string, bool) {
 	switch status {
 	case domain.WfStatusCompleted:
@@ -129,4 +158,8 @@ func workflowWebhookEventType(status domain.WorkflowRunStatus) (string, bool) {
 	default:
 		return "", false
 	}
+}
+
+func workflowWebhookEventTypeMatches(candidate, target string) bool {
+	return candidate == target || candidate == "*"
 }

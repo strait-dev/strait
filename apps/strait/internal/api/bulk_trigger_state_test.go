@@ -27,16 +27,15 @@ func TestBulkTriggerStateAppendRunResultsUpdatesCounters(t *testing.T) {
 
 		2)
 
-	if got := state.results[0]; got.ID != "run-existing" || got.Status != string(domain.StatusCompleted) || !got.IdempotencyHit {
-		require.Failf(t, "test failure",
-
-			"existing result = %#v", got)
-	}
-	if got := state.results[1]; got.ID != "run-new" || got.Status != string(domain.StatusQueued) || got.IdempotencyHit {
-		require.Failf(t, "test failure",
-
-			"created result = %#v", got)
-	}
+	require.Equal(t, BulkTriggerResult{
+		ID:             "run-existing",
+		Status:         string(domain.StatusCompleted),
+		IdempotencyHit: true,
+	}, state.results[0])
+	require.Equal(t, BulkTriggerResult{
+		ID:     "run-new",
+		Status: string(domain.StatusQueued),
+	}, state.results[1])
 	require.Equal(t, 1, state.
 		created)
 	require.Equal(t, 1, state.

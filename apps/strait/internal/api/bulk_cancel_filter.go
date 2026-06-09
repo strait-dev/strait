@@ -30,7 +30,7 @@ func (s *Server) handleBulkCancelAll(ctx context.Context, input *BulkCancelAllIn
 	req := input.Body
 	projectID := projectIDFromContext(ctx)
 
-	if req.JobID == "" && req.BatchID == "" && req.TriggeredBy == "" && req.Status == "" {
+	if !hasBulkCancelFilter(req) {
 		return nil, huma.Error400BadRequest("at least one filter is required")
 	}
 	if environmentIDFromContext(ctx) != "" {
@@ -70,4 +70,11 @@ func (s *Server) handleBulkCancelAll(ctx context.Context, input *BulkCancelAllIn
 	})
 
 	return &BulkCancelAllOutput{Body: map[string]any{"canceled": len(ids), "run_ids": ids}}, nil
+}
+
+func hasBulkCancelFilter(req BulkCancelAllRequest) bool {
+	return req.JobID != "" ||
+		req.BatchID != "" ||
+		req.TriggeredBy != "" ||
+		req.Status != ""
 }

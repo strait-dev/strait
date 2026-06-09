@@ -334,6 +334,34 @@ func TestDebugView_LargeOutputPayload(t *testing.T) {
 	)
 }
 
+func TestBuildDebugView_AlignedStepsPreserveMetadataAndDataFlow(t *testing.T) {
+	t.Parallel()
+
+	wfRun := &domain.WorkflowRun{ID: "wfr-1", WorkflowID: "wf-1", Status: domain.WfStatusCompleted}
+	steps := []domain.WorkflowStep{
+		{StepRef: "extract", StepType: "job"},
+		{StepRef: "load", StepType: "workflow", DependsOn: []string{"extract"}},
+	}
+	stepRuns := []domain.WorkflowStepRun{
+		{ID: "sr-extract", StepRef: "extract", Status: domain.StepCompleted, Output: json.RawMessage(`{"rows":10}`)},
+		{ID: "sr-load", StepRef: "load", Status: domain.StepCompleted},
+	}
+
+	view, err := BuildDebugView(wfRun, steps, stepRuns, map[string]int64{"sr-load": 42})
+	require.NoError(t, err)
+	require.Len(t, view.Steps, 2)
+	assert.Equal(t, "workflow", view.Steps[1].StepType)
+	assert.Equal(t, []string{"extract"}, view.Steps[1].DependsOn)
+	assert.EqualValues(t, 42, view.Steps[1].Cost)
+	assert.EqualValues(t, 42, view.TotalCost)
+	require.Len(t, view.DataFlow, 1)
+	assert.Equal(t, DataFlowEdge{
+		FromStepRef: "extract",
+		ToStepRef:   "load",
+		DataSize:    len(stepRuns[0].Output),
+	}, view.DataFlow[0])
+}
+
 func BenchmarkBuildDebugView_DataFlowChain1000(b *testing.B) {
 	wfRun := &domain.WorkflowRun{ID: "wfr-1", WorkflowID: "wf-1", Status: domain.WfStatusCompleted}
 	steps := make([]domain.WorkflowStep, 1000)

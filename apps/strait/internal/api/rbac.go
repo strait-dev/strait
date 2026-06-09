@@ -202,6 +202,9 @@ func (s *Server) listAllProjectRolesForInvalidation(ctx context.Context, project
 		if hasMore {
 			page = roles[:maxPageLimit]
 		}
+		if cursor == nil && !hasMore {
+			return page, nil
+		}
 		out = append(out, page...)
 		if !hasMore {
 			return out, nil
@@ -227,6 +230,9 @@ func (s *Server) listAllProjectMembersForInvalidation(ctx context.Context, proje
 		hasMore := len(members) > maxPageLimit
 		if hasMore {
 			page = members[:maxPageLimit]
+		}
+		if cursor == nil && !hasMore {
+			return page, nil
 		}
 		out = append(out, page...)
 		if !hasMore {
@@ -1030,9 +1036,9 @@ func (s *Server) handleListAuditEvents(ctx context.Context, input *ListAuditEven
 		return nil, err
 	}
 
-	ascending := input.Order == "asc"
-	if input.Order != "" && input.Order != "asc" && input.Order != "desc" {
-		return nil, huma.Error400BadRequest("order must be one of: asc, desc")
+	ascending, err := parseAuditEventOrder(input.Order)
+	if err != nil {
+		return nil, err
 	}
 	limit, cursor, err := parsePaginationFromStrings(input.Limit, input.Cursor)
 	if err != nil {
@@ -1079,6 +1085,17 @@ func (s *Server) handleListAuditEvents(ctx context.Context, input *ListAuditEven
 		"filter_rid":   input.ResourceID,
 	})
 	return &ListAuditEventsOutput{Body: paginatedResult(events, limit, func(ev domain.AuditEvent) string { return ev.CreatedAt.Format(time.RFC3339Nano) })}, nil
+}
+
+func parseAuditEventOrder(order string) (bool, error) {
+	switch order {
+	case "asc":
+		return true, nil
+	case "", "desc":
+		return false, nil
+	default:
+		return false, huma.Error400BadRequest("order must be one of: asc, desc")
+	}
 }
 
 // VerifyAuditChainInput selects between a full scan from the chain head

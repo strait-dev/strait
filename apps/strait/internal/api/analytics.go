@@ -68,3 +68,16 @@ func parseCostTimeRangeTyped(fromStr, toStr string) (time.Time, time.Time, error
 	}
 	return from, to, nil
 }
+
+func normalizeAnalyticsBucket(bucket string) (string, error) {
+	if bucket == "" {
+		return "day", nil
+	}
+
+	switch bucket {
+	case "hour", "day":
+		return bucket, nil
+	default:
+		return "", huma.Error400BadRequest("bucket must be 'hour' or 'day'")
+	}
+}

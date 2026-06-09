@@ -74,6 +74,34 @@ func signWebhookBody(secret string, body []byte) string {
 	return "sha256=" + hex.EncodeToString(mac.Sum(nil))
 }
 
+func BenchmarkWebhookReceiverVerifySignature(b *testing.B) {
+	secret := "cdc-webhook-secret"
+	body := []byte(`{"ack_id":"ack-1","record":{"id":"run-1","project_id":"project-1","status":"completed"},"action":"update","metadata":{"table_name":"job_runs","idempotency_key":"idem-1"}}`)
+	signature := signWebhookBody(secret, body)
+	wr := NewWebhookReceiver(nil, nil, WithWebhookSecret(secret))
+	req := httptest.NewRequest(http.MethodPost, "/internal/cdc/webhook", nil)
+	req.Header.Set("X-Sequin-Signature", signature)
+
+	b.ReportAllocs()
+	for b.Loop() {
+		if !wr.verifySignature(req, body) {
+			b.Fatal("signature rejected")
+		}
+	}
+}
+
+func TestWebhookReceiverVerifySignatureAcceptsUppercaseHex(t *testing.T) {
+	t.Parallel()
+
+	secret := "cdc-webhook-secret"
+	body := []byte(`{"ack_id":"ack-1","action":"update","metadata":{"table_name":"job_runs"}}`)
+	wr := NewWebhookReceiver(nil, nil, WithWebhookSecret(secret))
+	req := httptest.NewRequest(http.MethodPost, "/internal/cdc/webhook", nil)
+	req.Header.Set("X-Sequin-Signature", "sha256="+strings.ToUpper(strings.TrimPrefix(signWebhookBody(secret, body), "sha256=")))
+
+	require.True(t, wr.verifySignature(req, body))
+}
+
 func TestWebhookReceiver_DispatchesByTable(t *testing.T) {
 	t.Parallel()
 	h := &webhookMockHandler{table: "job_runs"}
@@ -467,4 +495,38 @@ func TestDeepSecWebhookReceiver_AdditionalHandlerFailureRetriesDelivery(t *testi
 		StatusInternalServerError,
 		rr.Code,
 	)
+}
+
+// TestDeepSecWebhookReceiver_AdditionalHandlerFailureReleasesDedupe is the
+// regression guard for the dedupe-retry-defeat bug: when an additional handler
+// fails, the dedupe claim must be released so Sequin's redelivery is processed
+// rather than silently suppressed (which would permanently drop the side
+// effect). Uses a non-zero dedupe TTL so the claim is real.
+func TestDeepSecWebhookReceiver_AdditionalHandlerFailureReleasesDedupe(t *testing.T) {
+	t.Parallel()
+	primary := &webhookMockHandler{table: "job_runs"}
+	sideEffect := &webhookMockHandler{table: "job_runs", err: errors.New("audit write failed")}
+	wr := NewWebhookReceiver(nil, nil, WithWebhookDedupeTTL(time.Hour))
+	wr.RegisterHandler(primary)
+	wr.RegisterAdditionalHandler(sideEffect)
+
+	msg := Message{
+		AckID:    "ack-side-effect",
+		Record:   json.RawMessage(`{"id":"run-1"}`),
+		Action:   ActionUpdate,
+		Metadata: Metadata{TableName: "job_runs", IdempotencyKey: "idem-side-effect"},
+	}
+
+	// First delivery: additional handler fails, Sequin gets a 500.
+	rr := httptest.NewRecorder()
+	wr.ServeHTTP(rr, makeWebhookRequest(msg))
+	require.Equal(t, http.StatusInternalServerError, rr.Code)
+	require.Len(t, sideEffect.handled, 1)
+
+	// Redelivery must NOT be deduped away: the side effect (now recovered) runs.
+	sideEffect.err = nil
+	rr = httptest.NewRecorder()
+	wr.ServeHTTP(rr, makeWebhookRequest(msg))
+	require.Equal(t, http.StatusOK, rr.Code)
+	require.Len(t, sideEffect.handled, 2, "redelivery must reprocess the dropped side effect")
 }

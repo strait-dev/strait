@@ -65,11 +65,19 @@ var (
 )
 
 func workerDisconnectChannel(projectID, workerID string) string {
-	return fmt.Sprintf("worker:disconnect:%s:%s", projectID, workerID)
+	return "worker:disconnect:" + projectID + ":" + workerID
 }
 
 func workerDisconnectAckChannel(projectID, workerID string) string {
-	return fmt.Sprintf("worker:disconnect_ack:%s:%s", projectID, workerID)
+	return "worker:disconnect_ack:" + projectID + ":" + workerID
+}
+
+func apiKeyRevokedChannel(apiKeyID string) string {
+	return "apikey:revoked:" + apiKeyID
+}
+
+func apiKeyExpiresChannel(apiKeyID string) string {
+	return "apikey:expires:" + apiKeyID
 }
 
 func subscribeRequiredWorkerControlChannel(ctx context.Context, pub pubsub.Publisher, channel, purpose string) (*pubsub.Subscription, error) {
@@ -77,10 +85,11 @@ func subscribeRequiredWorkerControlChannel(ctx context.Context, pub pubsub.Publi
 		return nil, status.Errorf(codes.Unavailable, "worker stream %s subscription unavailable", purpose)
 	}
 	sub, err := pub.Subscribe(ctx, channel)
-	if err != nil || sub == nil {
-		if err == nil {
-			err = errors.New("nil subscription")
-		}
+	if err != nil {
+		return nil, status.Errorf(codes.Unavailable, "worker stream %s subscription failed: %v", purpose, err)
+	}
+	if sub == nil {
+		err = errors.New("nil subscription")
 		return nil, status.Errorf(codes.Unavailable, "worker stream %s subscription failed: %v", purpose, err)
 	}
 	return sub, nil
@@ -98,7 +107,7 @@ func (s *workerService) ensureAPIKeyControlSubscriptions(
 		return revokeSub, expireSub, nil
 	}
 	if revokeSub == nil {
-		revokeChannel := fmt.Sprintf("apikey:revoked:%s", apiKeyID)
+		revokeChannel := apiKeyRevokedChannel(apiKeyID)
 		sub, err := subscribeRequiredWorkerControlChannel(ctx, s.pub, revokeChannel, "api key revocation")
 		if err != nil {
 			return nil, expireSub, err
@@ -106,7 +115,7 @@ func (s *workerService) ensureAPIKeyControlSubscriptions(
 		revokeSub = sub
 	}
 	if expireSub == nil {
-		expireChannel := fmt.Sprintf("apikey:expires:%s", apiKeyID)
+		expireChannel := apiKeyExpiresChannel(apiKeyID)
 		sub, err := subscribeRequiredWorkerControlChannel(ctx, s.pub, expireChannel, "api key expiry")
 		if err != nil {
 			return revokeSub, nil, err
@@ -885,10 +894,14 @@ func (s *workerService) handleAck(ctx context.Context, workerID, projectID strin
 	if err != nil {
 		return err
 	}
-	if task == nil || task.Status != domain.WorkerTaskStatusAssigned {
+	if task == nil || !canAcknowledgeWorkerTaskStatus(task.Status) {
 		return nil
 	}
 	return s.queries.UpdateWorkerTaskStatus(ctx, task.ID, domain.WorkerTaskStatusAccepted)
+}
+
+func canAcknowledgeWorkerTaskStatus(status domain.WorkerTaskStatus) bool {
+	return status == domain.WorkerTaskStatusAssigned
 }
 
 // handleHeartbeat is a no-op on the DB. last_seen_at is refreshed by the
@@ -1106,7 +1119,7 @@ func (s *workerService) handleTaskResult(ctx context.Context, workerID, projectI
 		Status string `json:"status"`
 	}
 	payload, _ := json.Marshal(runResultEvent{RunID: tr.RunId, Status: string(newStatus)})
-	if err := s.pub.Publish(ctx, fmt.Sprintf("run:%s", tr.RunId), payload); err != nil {
+	if err := s.pub.Publish(ctx, grpcRunPubSubChannel(tr.RunId), payload); err != nil {
 		slog.Warn("grpc task result: publish failed", "run_id", tr.RunId, "error", err)
 	}
 
@@ -1119,6 +1132,33 @@ func (s *workerService) handleTaskResult(ctx context.Context, workerID, projectI
 // via worker_tasks (the same row written by WorkerDispatch). Without this
 // check, a worker authenticated to project A could publish forged log lines
 // to any run in any project — visible via the SSE log stream.
+// allowedWorkerLogLevels is the set of log levels a worker may report. Anything
+// else is normalized to "info".
+var allowedWorkerLogLevels = map[string]struct{}{
+	"trace": {}, "debug": {}, "info": {}, "warn": {}, "warning": {}, "error": {}, "fatal": {},
+}
+
+func normalizeWorkerLogLevel(level string) string {
+	l := strings.ToLower(strings.TrimSpace(level))
+	if _, ok := allowedWorkerLogLevels[l]; ok {
+		return l
+	}
+	return "info"
+}
+
+// sanitizeWorkerLogTimestamp returns the worker-provided millisecond timestamp
+// when it is within a plausible window of now, otherwise the server's current
+// time. Bounds reject non-positive, far-future, and stale/replayed timestamps.
+func sanitizeWorkerLogTimestamp(tsMillis int64, now time.Time) int64 {
+	const maxFutureSkewMs = int64(24 * 60 * 60 * 1000)   // 1 day
+	const maxPastAgeMs = int64(30 * 24 * 60 * 60 * 1000) // 30 days
+	nowMs := now.UnixMilli()
+	if tsMillis <= 0 || tsMillis > nowMs+maxFutureSkewMs || tsMillis < nowMs-maxPastAgeMs {
+		return nowMs
+	}
+	return tsMillis
+}
+
 func (s *workerService) handleLogLine(ctx context.Context, workerID, projectID string, ll *workerv1.LogLine) error {
 	if ll == nil || ll.RunId == "" {
 		return nil
@@ -1147,6 +1187,10 @@ func (s *workerService) handleLogLine(ctx context.Context, workerID, projectID s
 	if len(level) > maxLogLevelBytes {
 		level = level[:maxLogLevelBytes]
 	}
+	// Worker-supplied level is free-form over the wire; normalize it to a known
+	// allowlist so a hostile worker cannot inject arbitrary level strings that
+	// downstream SSE consumers might mis-render or use to spoof severity.
+	level = normalizeWorkerLogLevel(level)
 	type logLineEvent struct {
 		RunID     string `json:"run_id"`
 		Level     string `json:"level"`
@@ -1154,16 +1198,27 @@ func (s *workerService) handleLogLine(ctx context.Context, workerID, projectID s
 		Timestamp int64  `json:"timestamp_unix_ms"`
 	}
 	payload, _ := json.Marshal(logLineEvent{
-		RunID:     ll.RunId,
-		Level:     level,
-		Message:   msg,
-		Timestamp: ll.TimestampUnixMs,
+		RunID:   ll.RunId,
+		Level:   level,
+		Message: msg,
+		// timestamp_unix_ms is fully worker-controlled; clamp implausible values
+		// (non-positive, far-future, or stale/replayed) to server time so they
+		// cannot corrupt downstream ordering.
+		Timestamp: sanitizeWorkerLogTimestamp(ll.TimestampUnixMs, time.Now()),
 	})
-	channel := fmt.Sprintf("worker:log:%s", ll.RunId)
+	channel := grpcWorkerLogChannel(ll.RunId)
 	if err := s.pub.Publish(ctx, channel, payload); err != nil {
 		slog.Warn("grpc log line publish failed", "run_id", ll.RunId, "error", err)
 	}
 	return nil
+}
+
+func grpcRunPubSubChannel(runID string) string {
+	return "run:" + runID
+}
+
+func grpcWorkerLogChannel(runID string) string {
+	return "worker:log:" + runID
 }
 
 // reconcileInFlightTasks handles runs that the worker was executing at the time

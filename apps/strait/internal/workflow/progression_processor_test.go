@@ -23,6 +23,19 @@ func TestWorkflowProgression_GroupEventsByWorkflow(t *testing.T) {
 		1)
 }
 
+func TestWorkflowProgression_GroupEventsByWorkflowSingleWorkflow(t *testing.T) {
+	events := []store.WorkflowProgressionEvent{
+		{ID: 1, WorkflowRunID: "wf-a", StepRunID: "step-a"},
+		{ID: 2, WorkflowRunID: "wf-a", StepRunID: "step-b"},
+		{ID: 3, WorkflowRunID: "wf-a", StepRunID: "step-c"},
+	}
+
+	grouped := groupProgressionEventsByWorkflow(events)
+
+	require.Len(t, grouped, 1)
+	require.Equal(t, events, grouped["wf-a"])
+}
+
 type fakeProgressionEventStore struct {
 	events    []store.WorkflowProgressionEvent
 	processed []int64
@@ -124,11 +137,7 @@ func TestWorkflowProgression_ProcessOnceBatchesWorkflowContextLoad(t *testing.T)
 		incrementBatchCalls,
 	)
 
-	if got := eventStore.processed; len(got) != 2 || got[0] != 1 || got[1] != 2 {
-		require.Failf(t, "test failure",
-
-			"processed events = %v, want [1 2]", got)
-	}
+	require.Equal(t, []int64{1, 2}, eventStore.processed)
 	require.Empty(t, eventStore.
 		released)
 }

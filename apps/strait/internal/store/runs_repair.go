@@ -35,12 +35,13 @@ func (q *Queries) CountDuplicateHistoryRuns(ctx context.Context) (int64, error) 
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.CountDuplicateHistoryRuns")
 	defer span.End()
 
+	// Count all duplicates, not a bounded sample: the previous LIMIT 10000 inside
+	// the subquery silently saturated the result at 10 000, so an operator could
+	// not tell 10 000 orphans from hundreds of thousands and would under-size the
+	// subsequent repair.
 	query := `
-		SELECT COUNT(*) FROM (
-			SELECT 1 FROM job_runs jr
-			INNER JOIN job_runs_history jrh ON jr.id = jrh.id
-			LIMIT 10000
-		) bounded`
+		SELECT COUNT(*) FROM job_runs jr
+		INNER JOIN job_runs_history jrh ON jr.id = jrh.id`
 
 	var count int64
 	if err := q.db.QueryRow(ctx, query).Scan(&count); err != nil {

@@ -2,7 +2,10 @@ package api
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -13,6 +16,34 @@ import (
 
 	"github.com/stretchr/testify/require"
 )
+
+func TestEventSourceSignatureReplayKey(t *testing.T) {
+	t.Parallel()
+
+	sourceID := "src-1"
+	algorithm := "hmac-sha256"
+	sigHeader := "sha256=abcdef"
+	sum := sha256.Sum256([]byte("event-source-signature:" + sourceID + ":" + algorithm + ":" + sigHeader))
+	want := "event-source-signature:" + hex.EncodeToString(sum[:])
+
+	require.Equal(t, want, eventSourceSignatureReplayKey(sourceID, algorithm, sigHeader))
+}
+
+func BenchmarkEventSourceSignatureReplayKey(b *testing.B) {
+	sourceID := "src_0123456789abcdef"
+	algorithm := "hmac-sha256"
+	sigHeader := "sha256=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for range b.N {
+		key := eventSourceSignatureReplayKey(sourceID, algorithm, sigHeader)
+		if key == "" {
+			b.Fatal("eventSourceSignatureReplayKey() returned empty key")
+		}
+	}
+}
 
 // handleCreateEventSource.
 
@@ -370,6 +401,63 @@ func TestHandleDispatchEvent_Success(t *testing.T) {
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	require.Equal(t, 1, int(resp["dispatched"].(float64)))
+}
+
+func TestHandleDispatchEvent_TargetJobUnavailableSkipsDispatch(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		job    *domain.Job
+		jobErr error
+	}{
+		{name: "lookup error", jobErr: errors.New("lookup failed")},
+		{name: "missing job"},
+		{name: "disabled job", job: &domain.Job{ID: "job-1", ProjectID: "proj-1", Enabled: false}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			ms := &APIStoreMock{
+				GetEventSourceByNameFunc: func(_ context.Context, projectID, name string) (*domain.EventSource, error) {
+					return &domain.EventSource{
+						ID: "src-1", ProjectID: projectID, Name: name, Enabled: true,
+					}, nil
+				},
+				ListEventSubscriptionsBySourceFunc: func(_ context.Context, sourceID string) ([]domain.EventSubscription, error) {
+					return []domain.EventSubscription{
+						{
+							ID: "sub-1", SourceID: sourceID, TargetType: "job", TargetID: "job-1",
+							FilterExpr: json.RawMessage(`{"eq":[["type","deploy"]]}`), Enabled: true,
+						},
+					}, nil
+				},
+				GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+					require.Equal(t, "job-1", id)
+
+					return tt.job, tt.jobErr
+				},
+			}
+			mq := &mockQueue{
+				enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
+					require.Fail(t, "queue.Enqueue must not be called when target job is unavailable")
+					return nil
+				},
+			}
+			srv := newTestServer(t, ms, mq, nil)
+
+			body := `{"source":"my-source","project_id":"proj-1","payload":{"type":"deploy"}}`
+			w := httptest.NewRecorder()
+			srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/events/dispatch", body))
+			require.Equal(t, http.StatusOK, w.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+			require.Equal(t, 0, int(resp["dispatched"].(float64)))
+		})
+	}
 }
 
 func TestHandleDispatchEvent_SourceNotFound(t *testing.T) {

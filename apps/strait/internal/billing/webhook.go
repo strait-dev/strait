@@ -18,7 +18,6 @@ import (
 	"strait/internal/clickhouse"
 	"strait/internal/domain"
 
-	"github.com/sourcegraph/conc"
 	"github.com/stripe/stripe-go/v82"
 	stripeWebhook "github.com/stripe/stripe-go/v82/webhook"
 )
@@ -328,10 +327,25 @@ func NewWebhookHandler(store Store, mapping *StripeMapping, secret string, logge
 	return h
 }
 
+// goAsync runs fn in a detached background goroutine with panic recovery. These
+// are fire-and-forget side effects (transactional emails) that must not block or
+// fail the webhook response. Recovering and logging the panic here is important:
+// the previous conc.WaitGroup-without-Wait() pattern silently swallowed any panic
+// because the stored panic was never re-raised.
+func (h *WebhookHandler) goAsync(fn func()) {
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				h.logger.Error("panic in async billing webhook task", "panic", r)
+			}
+		}()
+		fn()
+	}()
+}
+
 // StartReplayCleanup periodically removes stale replay cache entries.
 func (h *WebhookHandler) StartReplayCleanup(ctx context.Context) {
-	var wg conc.WaitGroup
-	wg.Go(func() {
+	h.goAsync(func() {
 		ticker := time.NewTicker(5 * time.Minute)
 		defer ticker.Stop()
 		for {
@@ -705,8 +719,7 @@ func (h *WebhookHandler) handleSubscriptionCreated(ctx context.Context, data jso
 	if h.welcomeEmail != nil && tier != domain.PlanFree {
 		if isValidEmail(customerEmail) {
 			welcomeFn := h.welcomeEmail
-			var wg conc.WaitGroup
-			wg.Go(func() {
+			h.goAsync(func() {
 				emailCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 				defer cancel()
 				if err := welcomeFn(emailCtx, orgID, tier, customerEmail); err != nil {
@@ -962,8 +975,7 @@ func (h *WebhookHandler) sendPlanChangedEmailAsync(ctx context.Context, orgID st
 	}
 
 	emails, _ := h.store.ListOrgAdminEmails(ctx, orgID)
-	var wg conc.WaitGroup
-	wg.Go(func() {
+	h.goAsync(func() {
 		emailCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		h.billingEmails.SendPlanChanged(emailCtx, emails, oldTier, newTier)
@@ -1278,8 +1290,7 @@ func (h *WebhookHandler) handlePaymentFailed(ctx context.Context, data json.RawM
 		adminEmails, _ := h.store.ListOrgAdminEmails(ctx, orgID)
 		localGraceEnd := graceEnd
 		planTier := existing.PlanTier
-		var wg conc.WaitGroup
-		wg.Go(func() {
+		h.goAsync(func() {
 			emailCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 			h.billingEmails.SendPaymentFailed(emailCtx, adminEmails, planTier, localGraceEnd)
@@ -1452,8 +1463,7 @@ func (h *WebhookHandler) handleTrialWillEnd(ctx context.Context, data json.RawMe
 		adminEmails, _ := h.store.ListOrgAdminEmails(ctx, orgID)
 		localEnd := trialEndStr
 		localDays := daysRemaining
-		var wg conc.WaitGroup
-		wg.Go(func() {
+		h.goAsync(func() {
 			emailCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 			h.billingEmails.SendTrialEndingSoon(emailCtx, adminEmails, localEnd, localDays)
@@ -1492,8 +1502,7 @@ func (h *WebhookHandler) handleChargeDisputeCreated(ctx context.Context, data js
 	if h.billingEmails != nil {
 		adminEmails, _ := h.store.ListOrgAdminEmails(ctx, orgID)
 		localAmount := amountStr
-		var wg conc.WaitGroup
-		wg.Go(func() {
+		h.goAsync(func() {
 			emailCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 			h.billingEmails.SendDisputeAlert(emailCtx, adminEmails, localAmount)
@@ -1575,8 +1584,7 @@ func (h *WebhookHandler) handleInvoiceUpcoming(ctx context.Context, data json.Ra
 		adminEmails, _ := h.store.ListOrgAdminEmails(ctx, orgID)
 		localAmount := amountDue
 		localDate := dueDate
-		var wg conc.WaitGroup
-		wg.Go(func() {
+		h.goAsync(func() {
 			emailCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 			h.billingEmails.SendInvoiceUpcoming(emailCtx, adminEmails, localAmount, localDate)
@@ -1707,8 +1715,7 @@ func (h *WebhookHandler) maybeSendHTTPJobsDowngradeWarning(ctx context.Context, 
 
 	localEnd := periodEndStr
 	localCount := httpCount
-	var wg conc.WaitGroup
-	wg.Go(func() {
+	h.goAsync(func() {
 		emailCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		h.billingEmails.SendDowngradeHTTPJobsWarning(emailCtx, adminEmails, localEnd, localCount)

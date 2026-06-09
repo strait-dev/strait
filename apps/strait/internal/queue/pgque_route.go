@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unsafe"
 
 	"strait/internal/domain"
 	"strait/internal/store"
@@ -21,7 +22,9 @@ const (
 )
 
 func pgQueQueueName(routeKey string) string {
-	sum := sha256.Sum256([]byte(routeKey))
+	// Sum256 consumes the route key synchronously and never retains it, so this
+	// avoids copying long worker route keys before hashing them.
+	sum := sha256.Sum256(unsafe.Slice(unsafe.StringData(routeKey), len(routeKey)))
 	var queueName [len(pgQueQueuePrefix) + 32]byte
 	copy(queueName[:], pgQueQueuePrefix)
 	hex.Encode(queueName[len(pgQueQueuePrefix):], sum[:16])
@@ -36,12 +39,16 @@ func pgQueRouteKeyForRun(run *domain.JobRun) string {
 }
 
 func pgQueWorkerRouteKey(projectID, queueName, environmentID string) string {
-	return strings.Join([]string{
-		"worker",
-		projectID,
-		runQueueName(queueName),
-		environmentID,
-	}, ":")
+	queueName = runQueueName(queueName)
+	var b strings.Builder
+	b.Grow(len("worker::") + len(projectID) + len(queueName) + len(environmentID))
+	b.WriteString("worker:")
+	b.WriteString(projectID)
+	b.WriteByte(':')
+	b.WriteString(queueName)
+	b.WriteByte(':')
+	b.WriteString(environmentID)
+	return b.String()
 }
 
 func pgQueWorkerRoutePrefix(routeKey string) string {
@@ -91,8 +98,7 @@ func normalizePgQueWorkerQueueRefs(refs []domain.WorkerQueueRef) []domain.Worker
 		if ref.ProjectID == "" || ref.QueueName == "" {
 			return nil
 		}
-		ref.QueueName = runQueueName(ref.QueueName)
-		return []domain.WorkerQueueRef{ref}
+		return refs
 	}
 	normalized := make([]domain.WorkerQueueRef, 0, len(refs))
 	var seen map[domain.WorkerQueueRef]struct{}
@@ -265,6 +271,36 @@ func (q *PgQueQueue) routeKeyForRun(ctx context.Context, db store.DBTX, run *dom
 type pgQueWorkerJobRoute struct {
 	queueName     string
 	environmentID string
+}
+
+func (q *PgQueQueue) workerJobRoute(ctx context.Context, db store.DBTX, jobID string) (pgQueWorkerJobRoute, bool, error) {
+	rows, err := db.Query(ctx, `
+		SELECT id,
+		       COALESCE(NULLIF(queue_name, ''), 'default'),
+		       COALESCE(environment_id, '')
+		FROM jobs
+		WHERE id = $1`, jobID)
+	if err != nil {
+		return pgQueWorkerJobRoute{}, false, fmt.Errorf("pgque worker route lookup: %w", err)
+	}
+	defer rows.Close()
+
+	if !rows.Next() {
+		if err := rows.Err(); err != nil {
+			return pgQueWorkerJobRoute{}, false, fmt.Errorf("pgque worker route rows: %w", err)
+		}
+		return pgQueWorkerJobRoute{}, false, nil
+	}
+
+	var gotJobID string
+	var route pgQueWorkerJobRoute
+	if err := rows.Scan(&gotJobID, &route.queueName, &route.environmentID); err != nil {
+		return pgQueWorkerJobRoute{}, false, fmt.Errorf("pgque worker route scan: %w", err)
+	}
+	if err := rows.Err(); err != nil {
+		return pgQueWorkerJobRoute{}, false, fmt.Errorf("pgque worker route rows: %w", err)
+	}
+	return route, true, nil
 }
 
 func (q *PgQueQueue) workerJobRoutes(ctx context.Context, db store.DBTX, jobIDs []string) (map[string]pgQueWorkerJobRoute, error) {

@@ -29,12 +29,9 @@ func (s *Server) handleJobHistory(ctx context.Context, input *JobHistoryInput) (
 	if err != nil {
 		return nil, err
 	}
-	bucket := input.Bucket
-	if bucket == "" {
-		bucket = "day"
-	}
-	if bucket != "hour" && bucket != "day" {
-		return nil, huma.Error400BadRequest("bucket must be 'hour' or 'day'")
+	bucket, err := normalizeAnalyticsBucket(input.Bucket)
+	if err != nil {
+		return nil, err
 	}
 	span.SetAttributes(attribute.String("job_id", input.JobID), attribute.String("from", from.Format(time.RFC3339)), attribute.String("to", to.Format(time.RFC3339)), attribute.String("bucket", bucket))
 	result, rErr := s.analytics().GetJobHistory(ctx, projectID, input.JobID, from, to, bucket)

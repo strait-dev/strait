@@ -2,14 +2,14 @@ package grpc
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
+	"log/slog"
 	"net"
 	"regexp"
 	"strings"
 	"time"
 
+	"strait/internal/crypto"
 	"strait/internal/domain"
 	"strait/internal/ratelimit"
 	"strait/internal/store"
@@ -86,7 +86,7 @@ func resolveAPIKeyFromContextWithLimitAndResolver(ctx context.Context, resolver 
 
 func grpcPeerIP(ctx context.Context) string {
 	p, ok := peer.FromContext(ctx)
-	if !ok || p == nil || p.Addr == nil {
+	if !grpcPeerHasAddress(ok, p) {
 		return "unknown"
 	}
 	addr := p.Addr.String()
@@ -98,6 +98,10 @@ func grpcPeerIP(ctx context.Context) string {
 		return addr
 	}
 	return "unknown"
+}
+
+func grpcPeerHasAddress(ok bool, p *peer.Peer) bool {
+	return ok && p != nil && p.Addr != nil
 }
 
 // resolveAPIKeyFromContext extracts the Bearer token from the gRPC metadata
@@ -136,7 +140,10 @@ func resolveAPIKeyFromContextWithResolver(ctx context.Context, resolver apiKeyRe
 		return nil, status.Error(codes.Unauthenticated, "invalid api key")
 	}
 	apiKey, err := resolver.LookupAPIKeyByHash(ctx, keyHash)
-	if err != nil || apiKey == nil {
+	if err != nil {
+		return nil, status.Error(codes.Unauthenticated, "invalid api key")
+	}
+	if apiKey == nil {
 		return nil, status.Error(codes.Unauthenticated, "invalid api key")
 	}
 
@@ -148,38 +155,63 @@ func resolveAPIKeyFromContextWithResolver(ctx context.Context, resolver apiKeyRe
 }
 
 func validGRPCAPIKeyFormat(rawKey string) bool {
-	if rawKey == "" || len(rawKey) > grpcAPIKeyMaxLength {
+	if !grpcAPIKeyLengthValid(rawKey) {
 		return false
 	}
 	return grpcAPIKeyPattern.MatchString(rawKey)
+}
+
+func grpcAPIKeyLengthValid(rawKey string) bool {
+	return rawKey != "" && len(rawKey) <= grpcAPIKeyMaxLength
 }
 
 func validateWorkerAPIKey(apiKey *domain.APIKey) error {
 	if apiKey == nil {
 		return status.Error(codes.Unauthenticated, "invalid api key")
 	}
-	if apiKey.RevokedAt != nil {
-		return status.Error(codes.Unauthenticated, "api key has been revoked")
+
+	// Lifecycle failures return a single, uniform Unauthenticated message so a
+	// caller holding a revoked/expired/grace-ended key cannot distinguish it from
+	// a never-valid one (which would confirm the key was once real). The specific
+	// reason is logged server-side for operator forensics.
+	now := time.Now()
+	switch {
+	case apiKey.RevokedAt != nil:
+		slog.Warn("grpc worker auth rejected", "reason", "revoked", "api_key_id", apiKey.ID)
+		return status.Error(codes.Unauthenticated, "invalid api key")
+	case apiKey.ExpiresAt != nil && apiKey.ExpiresAt.Before(now):
+		slog.Warn("grpc worker auth rejected", "reason", "expired", "api_key_id", apiKey.ID)
+		return status.Error(codes.Unauthenticated, "invalid api key")
+	case apiKey.GraceExpiresAt != nil && apiKey.GraceExpiresAt.Before(now):
+		slog.Warn("grpc worker auth rejected", "reason", "rotation_grace_ended", "api_key_id", apiKey.ID)
+		return status.Error(codes.Unauthenticated, "invalid api key")
 	}
 
-	now := time.Now()
-	if apiKey.ExpiresAt != nil && apiKey.ExpiresAt.Before(now) {
-		return status.Error(codes.Unauthenticated, "api key has expired")
-	}
-	if apiKey.GraceExpiresAt != nil && apiKey.GraceExpiresAt.Before(now) {
-		return status.Error(codes.Unauthenticated, "api key rotation grace period has ended")
-	}
-	if !domain.HasScope(apiKey.Scopes, domain.ScopeWorkersConnect) {
+	// Worker connection requires the workers:connect scope explicitly. An empty
+	// scope set must NOT pass here: domain.HasScope treats empty scopes as full
+	// access for backward compatibility, so a legacy or misconfigured key with no
+	// scopes would otherwise gain worker access it was never granted.
+	if !apiKeyAllowsWorkerConnections(apiKey) {
 		return status.Error(codes.PermissionDenied, "api key does not allow worker connections")
 	}
 	return nil
 }
 
-// hashGRPCAPIKey returns the SHA-256 hex digest of the raw API key string.
-// This must match the hashing used by the HTTP API layer (api.hashAPIKey).
+func apiKeyAllowsWorkerConnections(apiKey *domain.APIKey) bool {
+	if apiKey == nil {
+		return false
+	}
+	if len(apiKey.Scopes) == 0 {
+		return false
+	}
+	return domain.HasScope(apiKey.Scopes, domain.ScopeWorkersConnect)
+}
+
+// hashGRPCAPIKey returns the SHA-256 hex digest of the raw API key string via
+// the shared crypto.HashAPIKey, so worker-plane hashing cannot diverge from the
+// HTTP API layer.
 func hashGRPCAPIKey(key string) string {
-	h := sha256.Sum256([]byte(key))
-	return hex.EncodeToString(h[:])
+	return crypto.HashAPIKey(key)
 }
 
 // withAPIKeyContext enriches ctx with the resolved API key's project and org IDs.

@@ -39,7 +39,7 @@ func (s *Server) handleSDKResourceSnapshot(ctx context.Context, input *SDKResour
 		return nil, huma.Error500InternalServerError("failed to create resource snapshot")
 	}
 	if req.MemoryLimitMB > 0 && req.MemoryMB > req.MemoryLimitMB*0.9 {
-		data, _ := json.Marshal(map[string]any{"memory_mb": req.MemoryMB, "memory_limit_mb": req.MemoryLimitMB, "usage_percent": req.MemoryMB / req.MemoryLimitMB * 100})
+		data, _ := marshalSDKOOMRiskData(req.MemoryMB, req.MemoryLimitMB)
 		event := &domain.RunEvent{RunID: input.RunID, Type: domain.EventType("resource.oom_risk"), Level: "warn", Message: fmt.Sprintf("memory usage %.0fMB exceeds 90%% of limit %.0fMB", req.MemoryMB, req.MemoryLimitMB), Data: json.RawMessage(data)}
 		if guardedStore, ok := s.store.(activeRunMutationStore); ok {
 			_ = guardedStore.InsertEventForActiveRun(ctx, event, runTokenAttemptFromContext(ctx))

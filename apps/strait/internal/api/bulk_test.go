@@ -61,7 +61,8 @@ func TestHandleBulkTrigger_Success(t *testing.T) {
 		&rawResp))
 
 	rawResults, ok := rawResp["results"].([]any)
-	require.False(t, !ok || len(rawResults) != 3)
+	require.True(t, ok)
+	require.Len(t, rawResults, 3)
 
 	for idx, rawResult := range rawResults {
 		result, ok := rawResult.(map[string]any)

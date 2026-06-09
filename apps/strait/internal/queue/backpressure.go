@@ -126,7 +126,19 @@ func (b *Backpressure) TryConsumeNInTx(ctx context.Context, tx store.DBTX, proje
 // project never gets inserted with a negative or zero-tokens row when
 // the request cannot be satisfied by the default bucket.
 func (b *Backpressure) tryConsumeNOn(ctx context.Context, db store.DBTX, projectID string, n int) error {
-	if b == nil || !b.enabled || projectID == "" || n <= 0 || db == nil {
+	if b == nil {
+		return nil
+	}
+	if !b.enabled {
+		return nil
+	}
+	if projectID == "" {
+		return nil
+	}
+	if n <= 0 {
+		return nil
+	}
+	if db == nil {
 		return nil
 	}
 	ctx, span := otel.Tracer("strait").Start(ctx, "queue.Backpressure.TryConsume")
@@ -190,7 +202,13 @@ type TokenSample struct {
 // most-recently-updated. Used by a scheduler sampler to populate the
 // backpressure_tokens_available gauge. Read-only and index-friendly.
 func (b *Backpressure) SampleAvailableTokens(ctx context.Context, sampleN int) ([]TokenSample, error) {
-	if b == nil || !b.enabled || sampleN <= 0 {
+	if b == nil {
+		return nil, nil
+	}
+	if !b.enabled {
+		return nil, nil
+	}
+	if sampleN <= 0 {
 		return nil, nil
 	}
 	rows, err := b.db.Query(ctx, `

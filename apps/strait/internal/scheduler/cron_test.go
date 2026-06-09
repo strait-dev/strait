@@ -48,6 +48,7 @@ func TestCronFireKey_TruncatesToMinute(t *testing.T) {
 	a := cronFireKey("job", "job-1", time.Date(2026, 5, 16, 7, 35, 1, 0, time.UTC))
 	b := cronFireKey("job", "job-1", time.Date(2026, 5, 16, 7, 35, 59, 0, time.UTC))
 	c := cronFireKey("job", "job-1", time.Date(2026, 5, 16, 7, 36, 0, 0, time.UTC))
+	require.Equal(t, "cron:job:job-1:1778916900", a)
 	require.Equal(t, b,
 		a)
 	require.NotEqual(t,
@@ -1064,5 +1065,19 @@ func BenchmarkCronParse(b *testing.B) {
 	cs := NewCronScheduler(context.Background(), nil, nil, nil)
 	for b.Loop() {
 		_, _ = cs.cron.AddFunc("*/5 * * * *", func() {})
+	}
+}
+
+func BenchmarkCronFireKey(b *testing.B) {
+	now := time.Date(2026, 5, 16, 7, 35, 59, 0, time.UTC)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for range b.N {
+		key := cronFireKey("workflow", "wf_0123456789abcdef", now)
+		if key == "" {
+			b.Fatal("cronFireKey() returned empty key")
+		}
 	}
 }

@@ -59,13 +59,20 @@ type DLQCapEnforcer struct {
 // NewDLQCapEnforcer constructs an enforcer. Invalid policies default to
 // drop_oldest.
 func NewDLQCapEnforcer(s DLQCapStore, cfg DLQCapConfig, logger *slog.Logger) *DLQCapEnforcer {
-	if cfg.Policy != DLQOverflowDropOldest && cfg.Policy != DLQOverflowReject {
-		cfg.Policy = DLQOverflowDropOldest
-	}
+	cfg.Policy = normalizeDLQOverflowPolicy(cfg.Policy)
 	if logger == nil {
 		logger = slog.Default()
 	}
 	return &DLQCapEnforcer{store: s, config: cfg, logger: logger}
+}
+
+func normalizeDLQOverflowPolicy(policy DLQOverflowPolicy) DLQOverflowPolicy {
+	switch policy {
+	case DLQOverflowDropOldest, DLQOverflowReject:
+		return policy
+	default:
+		return DLQOverflowDropOldest
+	}
 }
 
 // OverflowCount returns the number of overflow events observed. For tests.

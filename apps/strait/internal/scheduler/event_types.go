@@ -4,9 +4,13 @@ package scheduler
 // the target. A "*" entry is treated as a wildcard and matches any event.
 func containsEventType(types []string, target string) bool {
 	for _, t := range types {
-		if t == target || t == "*" {
+		if eventTypeMatches(t, target) {
 			return true
 		}
 	}
 	return false
+}
+
+func eventTypeMatches(candidate, target string) bool {
+	return candidate == target || candidate == "*"
 }

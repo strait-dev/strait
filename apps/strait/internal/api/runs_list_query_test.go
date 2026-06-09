@@ -37,35 +37,22 @@ func TestNewListRunsQuery_BuildsFilters(t *testing.T) {
 				"missing status %q in %#v", status, query.statuses)
 		}
 	}
-	require.False(t, query.
-		tagKey !=
-		"team" ||
-		query.
-			tagValue !=
-			"infra")
+	require.Equal(t, "team", query.tagKey)
+	require.Equal(t, "infra", query.tagValue)
 
 	assertStringPtr(t, "triggeredBy", query.triggeredBy, "api")
 	assertStringPtr(t, "batchID", query.batchID, "batch-1")
-	require.False(t, !json.
-		Valid(query.
-			payloadContains,
-		) || string(query.payloadContains) != `{"customer":"acme"}`)
-	require.False(t, query.
-		executionMode ==
-		nil ||
-		*query.
-			executionMode != domain.
-			ExecutionModeWorker,
-	)
+	require.True(t, json.Valid(query.payloadContains))
+	require.JSONEq(t, `{"customer":"acme"}`, string(query.payloadContains))
+	require.NotNil(t, query.executionMode)
+	require.Equal(t, domain.ExecutionModeWorker, *query.executionMode)
 
 	assertStringPtr(t, "errorClass", query.errorClass, "timeout")
 	require.Equal(t, 17,
 		query.limit,
 	)
-	require.False(t, query.
-		cursor ==
-		nil || !query.cursor.
-		Equal(cursor))
+	require.NotNil(t, query.cursor)
+	require.True(t, query.cursor.Equal(cursor))
 }
 
 func TestNewListRunsQuery_MetadataFilters(t *testing.T) {
@@ -88,12 +75,8 @@ func TestNewListRunsQuery_SingleStatus(t *testing.T) {
 	query, err := newListRunsQuery(&ListRunsInput{Status: string(domain.StatusQueued)})
 	require.NoError(t,
 		err)
-	require.False(t, query.
-		statusQuery ==
-		nil ||
-		*query.
-			statusQuery != domain.StatusQueued,
-	)
+	require.NotNil(t, query.statusQuery)
+	require.Equal(t, domain.StatusQueued, *query.statusQuery)
 
 	if _, ok := query.statuses[domain.StatusQueued]; !ok {
 		require.Failf(t, "test failure",
@@ -143,8 +126,6 @@ func TestListRunsQuery_UsesFilteredStorePath(t *testing.T) {
 
 func assertStringPtr(t *testing.T, name string, got *string, want string) {
 	t.Helper()
-	require.False(t, got ==
-		nil ||
-		*got != want,
-	)
+	require.NotNil(t, got, "%s", name)
+	require.Equal(t, want, *got, "%s", name)
 }

@@ -363,6 +363,55 @@ func TestUpdateRunStatus_NormalTransition(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestActiveClaimRunStateShouldRequeue(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		from domain.RunStatus
+		to   domain.RunStatus
+		want bool
+	}{
+		{name: "executing to queued", from: domain.StatusExecuting, to: domain.StatusQueued, want: true},
+		{name: "dequeued to queued", from: domain.StatusDequeued, to: domain.StatusQueued, want: true},
+		{name: "queued to queued", from: domain.StatusQueued, to: domain.StatusQueued, want: false},
+		{name: "executing to completed", from: domain.StatusExecuting, to: domain.StatusCompleted, want: false},
+		{name: "failed to queued", from: domain.StatusFailed, to: domain.StatusQueued, want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			require.Equal(t, tt.want, activeClaimRunStateShouldRequeue(tt.from, tt.to))
+		})
+	}
+}
+
+func TestIsActiveClaimRunStateStatus(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		status domain.RunStatus
+		want   bool
+	}{
+		{name: "executing", status: domain.StatusExecuting, want: true},
+		{name: "dequeued", status: domain.StatusDequeued, want: true},
+		{name: "queued", status: domain.StatusQueued, want: false},
+		{name: "completed", status: domain.StatusCompleted, want: false},
+		{name: "failed", status: domain.StatusFailed, want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			require.Equal(t, tt.want, isActiveClaimRunStateStatus(tt.status))
+		})
+	}
+}
+
 func TestQueueStats_Success(t *testing.T) {
 	t.Parallel()
 	db := &mockDBTX{
@@ -703,6 +752,91 @@ func TestCanDispatchEndpoint_OpenExpiredSlowPathUsesFORUPDATE(t *testing.T) {
 	)
 	assert.Contains(t,
 		queries[1], "FOR UPDATE")
+}
+
+func TestEndpointCircuitCoolingDown(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
+	future := now.Add(time.Minute)
+	past := now.Add(-time.Minute)
+
+	tests := []struct {
+		name  string
+		state *domain.EndpointCircuitState
+		want  bool
+	}{
+		{
+			name: "nil state",
+		},
+		{
+			name:  "closed state",
+			state: &domain.EndpointCircuitState{State: domain.CircuitStateClosed, HalfOpenUntil: &future},
+		},
+		{
+			name:  "open without half open deadline",
+			state: &domain.EndpointCircuitState{State: domain.CircuitStateOpen},
+		},
+		{
+			name:  "open expired deadline",
+			state: &domain.EndpointCircuitState{State: domain.CircuitStateOpen, HalfOpenUntil: &past},
+		},
+		{
+			name:  "open future deadline",
+			state: &domain.EndpointCircuitState{State: domain.CircuitStateOpen, HalfOpenUntil: &future},
+			want:  true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			require.Equal(t, tc.want, endpointCircuitCoolingDown(tc.state, now))
+		})
+	}
+}
+
+func TestScannedJobJSONSentinelHelpers(t *testing.T) {
+	t.Parallel()
+
+	arrayTests := []struct {
+		name string
+		raw  []byte
+		want bool
+	}{
+		{name: "nil"},
+		{name: "empty", raw: []byte{}},
+		{name: "empty array", raw: []byte("[]")},
+		{name: "null array", raw: []byte("null")},
+		{name: "non-empty array", raw: []byte(`["tenant"]`), want: true},
+	}
+	for _, tc := range arrayTests {
+		t.Run("array "+tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			require.Equal(t, tc.want, hasNonEmptyJSONArray(tc.raw))
+		})
+	}
+
+	objectTests := []struct {
+		name string
+		raw  []byte
+		want bool
+	}{
+		{name: "nil"},
+		{name: "empty", raw: []byte{}},
+		{name: "empty object", raw: []byte("{}")},
+		{name: "null object", raw: []byte("null")},
+		{name: "non-empty object", raw: []byte(`{"tenant":"acme"}`), want: true},
+	}
+	for _, tc := range objectTests {
+		t.Run("object "+tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			require.Equal(t, tc.want, hasNonEmptyJSONObject(tc.raw))
+		})
+	}
 }
 
 func BenchmarkCanDispatchEndpoint_ClosedFastPath(b *testing.B) {

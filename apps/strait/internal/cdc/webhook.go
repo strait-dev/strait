@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -13,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"strait/internal/pubsub"
 )
 
 const (
@@ -28,7 +29,7 @@ type WebhookReceiver struct {
 	additionalHandlers map[string][]Handler
 	publisher          EventPublisher
 	logger             *slog.Logger
-	secret             string
+	secretKey          []byte
 	dedupeTTL          time.Duration
 	sharedDedupe       *SharedDedupeStore
 	seenMu             sync.Mutex
@@ -43,7 +44,12 @@ type WebhookReceiverOption func(*WebhookReceiver)
 // deployments can instantiate a receiver without synthetic signatures.
 func WithWebhookSecret(secret string) WebhookReceiverOption {
 	return func(wr *WebhookReceiver) {
-		wr.secret = strings.TrimSpace(secret)
+		secret = strings.TrimSpace(secret)
+		if secret == "" {
+			wr.secretKey = nil
+			return
+		}
+		wr.secretKey = []byte(secret)
 	}
 }
 
@@ -128,6 +134,13 @@ func (wr *WebhookReceiver) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		return
 	}
+	// processed gates the dedupe claim: it is only set true once the primary
+	// AND every additional handler have succeeded. Any earlier failure leaves
+	// processed false so the deferred releaseDedupe runs, freeing the claim and
+	// letting Sequin redeliver. CDC delivery is at-least-once and these handlers
+	// are the same idempotent handlers used by the poll-based consumer, so a
+	// redelivery re-running them is safe; retaining the claim on partial failure
+	// would instead drop the side effect permanently.
 	processed := false
 	defer func() {
 		if !processed {
@@ -144,6 +157,11 @@ func (wr *WebhookReceiver) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Try batch collection if handler supports it and publisher is available.
+	// The Collect result is published only after every additional handler has
+	// also succeeded (below): publishing here would double-emit the pub/sub event
+	// whenever an additional handler fails and Sequin redelivers (the redelivery
+	// re-runs Collect and re-publishes).
+	var pendingPub *pubsub.PubSubMessage
 	if ch, ok := handler.(CollectableHandler); ok && wr.publisher != nil {
 		pubMsg, collectErr := ch.Collect(r.Context(), msg)
 		if collectErr != nil {
@@ -151,11 +169,7 @@ func (wr *WebhookReceiver) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "handler error", http.StatusInternalServerError)
 			return
 		}
-		if pubMsg != nil {
-			if pubErr := wr.publisher.Publish(r.Context(), pubMsg.Channel, pubMsg.Data); pubErr != nil {
-				wr.logger.Error("cdc webhook: publish failed", "table", tableName, "channel", pubMsg.Channel, "error", pubErr)
-			}
-		}
+		pendingPub = pubMsg
 	} else {
 		// Fallback: inline handle.
 		if handleErr := handler.Handle(r.Context(), msg); handleErr != nil {
@@ -164,10 +178,12 @@ func (wr *WebhookReceiver) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	processed = true
 
 	// Run additional handlers (webhook delivery, notifications, audit, etc.).
 	// Always runs regardless of whether the primary handler used Collect or Handle.
+	// processed stays false until this loop completes: an additional-handler
+	// failure must release the dedupe claim so Sequin redelivers, otherwise the
+	// side effect is silently dropped.
 	for _, ah := range wr.additionalHandlers[tableName] {
 		if ahErr := ah.Handle(r.Context(), msg); ahErr != nil {
 			wr.logger.Error("cdc webhook: additional handler failed",
@@ -177,12 +193,20 @@ func (wr *WebhookReceiver) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Publish only after all handlers succeeded, so a redelivery caused by an
+	// additional-handler failure does not emit the pub/sub event twice.
+	if pendingPub != nil {
+		if pubErr := wr.publisher.Publish(r.Context(), pendingPub.Channel, pendingPub.Data); pubErr != nil {
+			wr.logger.Error("cdc webhook: publish failed", "table", tableName, "channel", pendingPub.Channel, "error", pubErr)
+		}
+	}
+
 	processed = true
 	w.WriteHeader(http.StatusOK)
 }
 
 func (wr *WebhookReceiver) verifySignature(r *http.Request, body []byte) bool {
-	if wr.secret == "" {
+	if len(wr.secretKey) == 0 {
 		return true
 	}
 	got := firstHeader(r,
@@ -198,13 +222,44 @@ func (wr *WebhookReceiver) verifySignature(r *http.Request, body []byte) bool {
 	if trimmed, ok := strings.CutPrefix(got, "sha256="); ok {
 		got = trimmed
 	}
-	gotBytes, err := hex.DecodeString(got)
-	if err != nil {
+	var gotBytes [sha256.Size]byte
+	if !decodeHexSHA256String(got, &gotBytes) {
 		return false
 	}
-	mac := hmac.New(sha256.New, []byte(wr.secret))
+	mac := hmac.New(sha256.New, wr.secretKey)
 	_, _ = mac.Write(body)
-	return hmac.Equal(gotBytes, mac.Sum(nil))
+	var expected [sha256.Size]byte
+	return hmac.Equal(gotBytes[:], mac.Sum(expected[:0]))
+}
+
+func decodeHexSHA256String(s string, out *[sha256.Size]byte) bool {
+	if len(s) != sha256.Size*2 {
+		return false
+	}
+	for i := 0; i < sha256.Size; i++ {
+		hi := hexNibble(s[i*2])
+		lo := hexNibble(s[i*2+1])
+		if hi == invalidHexNibble || lo == invalidHexNibble {
+			return false
+		}
+		out[i] = hi<<4 | lo
+	}
+	return true
+}
+
+const invalidHexNibble = 0xff
+
+func hexNibble(c byte) byte {
+	switch {
+	case c >= '0' && c <= '9':
+		return c - '0'
+	case c >= 'a' && c <= 'f':
+		return c - 'a' + 10
+	case c >= 'A' && c <= 'F':
+		return c - 'A' + 10
+	default:
+		return invalidHexNibble
+	}
 }
 
 func firstHeader(r *http.Request, names ...string) string {

@@ -112,17 +112,16 @@ func sdkCapabilitiesFromContext(ctx context.Context) SDKCapabilities {
 }
 
 func sdkCapabilitiesHeader(c SDKCapabilities) string {
-	parts := make([]string, 0, 2)
-	if c.Progress {
-		parts = append(parts, "progress")
-	}
-	if c.Checkpoint {
-		parts = append(parts, "checkpoint")
-	}
-	if len(parts) == 0 {
+	switch {
+	case c.Progress && c.Checkpoint:
+		return "progress,checkpoint"
+	case c.Progress:
+		return "progress"
+	case c.Checkpoint:
+		return "checkpoint"
+	default:
 		return "none"
 	}
-	return strings.Join(parts, ",")
 }
 
 func resolveSDKCapabilities(version string) SDKCapabilities {
@@ -130,8 +129,14 @@ func resolveSDKCapabilities(version string) SDKCapabilities {
 	if version == "" {
 		return SDKCapabilities{}
 	}
+	if len(version) == 1 {
+		return sdkCapabilitiesForOneDigitMajor(version[0])
+	}
+	if version[1] == '.' {
+		return sdkCapabilitiesForOneDigitMajor(version[0])
+	}
 	majorRaw := version
-	if idx := strings.Index(majorRaw, "."); idx >= 0 {
+	if idx := strings.IndexByte(majorRaw, '.'); idx >= 0 {
 		majorRaw = majorRaw[:idx]
 	}
 	major, err := strconv.Atoi(majorRaw)
@@ -139,6 +144,13 @@ func resolveSDKCapabilities(version string) SDKCapabilities {
 		return SDKCapabilities{}
 	}
 	return SDKCapabilities{Progress: true, Checkpoint: true}
+}
+
+func sdkCapabilitiesForOneDigitMajor(major byte) SDKCapabilities {
+	if major >= '2' && major <= '9' {
+		return SDKCapabilities{Progress: true, Checkpoint: true}
+	}
+	return SDKCapabilities{}
 }
 
 func applySDKResponseHeaders(ctx context.Context, w http.ResponseWriter) {
@@ -320,16 +332,28 @@ func (s *Server) verifyRunTokenAssignment(ctx context.Context, runID, projectID,
 		return errors.New("failed to verify run assignment")
 	}
 	task, err := getter.GetWorkerTask(ctx, assignmentID)
-	if err != nil || task == nil {
+	if err != nil {
+		return errors.New("run assignment not found")
+	}
+	if task == nil {
 		return errors.New("run assignment not found")
 	}
 	if task.RunID != runID || task.ProjectID != projectID {
 		return errors.New("run token assignment mismatch")
 	}
-	if task.Status != domain.WorkerTaskStatusAssigned && task.Status != domain.WorkerTaskStatusAccepted {
+	if !isActiveWorkerTaskAssignmentStatus(task.Status) {
 		return errors.New("run assignment is no longer active")
 	}
 	return nil
+}
+
+func isActiveWorkerTaskAssignmentStatus(status domain.WorkerTaskStatus) bool {
+	switch status {
+	case domain.WorkerTaskStatusAssigned, domain.WorkerTaskStatusAccepted:
+		return true
+	default:
+		return false
+	}
 }
 
 type SDKRunIDInput struct {
@@ -400,11 +424,11 @@ func (s *Server) handleSDKLog(ctx context.Context, input *SDKLogInput) (*SDKLogO
 		return nil, huma.Error500InternalServerError("failed to insert event")
 	}
 	if s.pubsub != nil {
-		payload, err := json.Marshal(map[string]any{"type": "event", "event_type": string(eventType), "run_id": runID, "level": req.Level, "message": req.Message, "data": data, "timestamp": time.Now().UTC()})
+		payload, err := marshalSDKRunEventPayload(eventType, runID, req.Level, req.Message, data, time.Now().UTC())
 		if err != nil {
 			slog.Warn("failed to marshal event payload", "run_id", runID, "error", err)
 		} else {
-			if err := s.pubsub.Publish(ctx, fmt.Sprintf("run:%s", runID), payload); err != nil {
+			if err := s.pubsub.Publish(ctx, apiRunPubSubChannel(runID), payload); err != nil {
 				slog.Warn("failed to publish event", "run_id", runID, "error", err)
 			}
 		}
@@ -430,14 +454,7 @@ func (s *Server) handleSDKProgress(ctx context.Context, input *SDKProgressInput)
 	if err := s.validate.Struct(&req); err != nil {
 		return nil, newValidationError(err)
 	}
-	dataMap := map[string]any{"percent": req.Percent}
-	if req.Step != "" {
-		dataMap["step"] = req.Step
-	}
-	if req.ETASeconds > 0 {
-		dataMap["eta_seconds"] = req.ETASeconds
-	}
-	data, err := json.Marshal(dataMap)
+	data, err := marshalSDKProgressData(req.Percent, req.Step, req.ETASeconds)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to marshal progress payload")
 	}
@@ -456,11 +473,11 @@ func (s *Server) handleSDKProgress(ctx context.Context, input *SDKProgressInput)
 		return nil, huma.Error500InternalServerError("failed to insert event")
 	}
 	if s.pubsub != nil {
-		payload, err := json.Marshal(map[string]any{"type": "event", "event_type": string(domain.EventProgress), "run_id": runID, "level": "info", "message": req.Message, "data": dataMap, "timestamp": time.Now().UTC()})
+		payload, err := marshalSDKProgressEventPayload(runID, req.Message, req.Percent, req.Step, req.ETASeconds, time.Now().UTC())
 		if err != nil {
 			slog.Warn("failed to marshal progress payload", "run_id", runID, "error", err)
 		} else {
-			if err := s.pubsub.Publish(ctx, fmt.Sprintf("run:%s", runID), payload); err != nil {
+			if err := s.pubsub.Publish(ctx, apiRunPubSubChannel(runID), payload); err != nil {
 				slog.Warn("failed to publish progress event", "run_id", runID, "error", err)
 			}
 		}

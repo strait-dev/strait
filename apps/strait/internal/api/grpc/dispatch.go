@@ -546,9 +546,14 @@ func (d *WorkerDispatcher) buildAssignment(run *domain.JobRun, job *domain.Job, 
 			},
 		}
 		tok := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-		if signed, err := tok.SignedString([]byte(d.jwtSigningKey)); err == nil {
-			a.RunTokenJwt = signed
+		signed, err := tok.SignedString([]byte(d.jwtSigningKey))
+		if err != nil {
+			// Do not dispatch a worker task with an empty run token: every SDK
+			// callback would 401 and the run would hang in executing. Fail the
+			// assignment so dispatch surfaces the error instead of swallowing it.
+			return nil, fmt.Errorf("sign run token: %w", err)
 		}
+		a.RunTokenJwt = signed
 	}
 
 	// HMAC-SHA256 body+timestamp signing (same algorithm as worker.SignHTTPDispatch
@@ -566,14 +571,22 @@ func (d *WorkerDispatcher) buildAssignment(run *domain.JobRun, job *domain.Job, 
 	return a, nil
 }
 
+var dispatchHMACSeparator = []byte(".")
+
 // dispatchHMAC returns `v1=<hex-sha256>` for the given secret, timestamp, and
 // body. Matches worker.SignHTTPDispatch exactly.
 func dispatchHMAC(secret, timestamp string, body []byte) string {
 	mac := hmac.New(sha256.New, []byte(secret))
 	mac.Write([]byte(timestamp))
-	mac.Write([]byte("."))
+	mac.Write(dispatchHMACSeparator)
 	mac.Write(body)
-	return "v1=" + hex.EncodeToString(mac.Sum(nil))
+
+	var sum [sha256.Size]byte
+	digest := mac.Sum(sum[:0])
+	out := make([]byte, len("v1=")+hex.EncodedLen(len(digest)))
+	copy(out, "v1=")
+	hex.Encode(out[len("v1="):], digest)
+	return string(out)
 }
 
 // TaskResultStatus returns the status string from an opaque TaskResult
@@ -617,7 +630,16 @@ func TaskResultOutput(opaque any) json.RawMessage {
 }
 
 func taskResultOutputInvalid(status string, output []byte) bool {
-	return (status == "success" || status == "completed") && len(output) > 0 && !json.Valid(output)
+	return taskResultStatusRequiresJSONOutput(status) && len(output) > 0 && !json.Valid(output)
+}
+
+func taskResultStatusRequiresJSONOutput(status string) bool {
+	switch status {
+	case "success", "completed":
+		return true
+	default:
+		return false
+	}
 }
 
 func unwrapTaskResult(opaque any) (*workerv1.TaskResult, bool) {
@@ -639,10 +661,19 @@ func (d *WorkerDispatcher) CompleteWorkerTask(ctx context.Context, opaque any, s
 	if !ok || wrapped == nil || wrapped.TaskID == "" || d.queries == nil {
 		return nil
 	}
-	if status != domain.WorkerTaskStatusCompleted && status != domain.WorkerTaskStatusFailed {
+	if !isTerminalWorkerTaskCompletionStatus(status) {
 		return fmt.Errorf("worker dispatch: unsupported terminal worker task status %q", status)
 	}
 	return d.queries.UpdateWorkerTaskStatus(ctx, wrapped.TaskID, status)
+}
+
+func isTerminalWorkerTaskCompletionStatus(status domain.WorkerTaskStatus) bool {
+	switch status {
+	case domain.WorkerTaskStatusCompleted, domain.WorkerTaskStatusFailed:
+		return true
+	default:
+		return false
+	}
 }
 
 // ResultStatus implements worker.WorkerRunDispatcher by delegating to

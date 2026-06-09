@@ -43,7 +43,7 @@ func (s *Server) routes() chi.Router {
 		AllowCredentials: s.config.CORSAllowCredentials,
 		MaxAge:           300,
 	}))
-	r.Use(securityHeaders)
+	r.Use(s.securityHeaders)
 
 	r.Use(chimw.RequestID)
 	r.Use(otelchi.Middleware("strait", otelchi.WithChiRoutes(r)))
@@ -205,6 +205,10 @@ func (s *Server) routes() chi.Router {
 	r.Route("/v1/events/{eventKey}/stream", func(r chi.Router) {
 		r.Use(s.sseTokenAuth)
 		r.Use(s.apiKeyOrSecretAuth)
+		// Stamp the project context so PostgreSQL RLS is active for the
+		// resolveEventTriggerByKey lookups in the handler, matching the other SSE
+		// routes. Without it the stream relied on application-level filtering only.
+		r.Use(s.projectContextMiddleware)
 		r.Use(s.projectRateLimit)
 		r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", s.handleEventTriggerStream)
 	})
@@ -237,8 +241,8 @@ func (s *Server) routes() chi.Router {
 		r.Use(s.apiKeyOrSecretAuth)
 		r.Use(requireJSONAccept)
 		r.Use(requireJSONContentType)
-		r.Use(s.rlsTxMiddleware)
 		r.Use(s.projectRateLimit)
+		r.Use(s.rlsTxMiddleware)
 		r.Use(s.planUsageHeaders)
 		r.Use(chimw.Timeout(requestTimeout))
 		r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/runs", TypedHandler(s, http.StatusOK, s.handleListOrgRuns))
@@ -249,8 +253,8 @@ func (s *Server) routes() chi.Router {
 		r.Use(s.apiKeyOrSecretAuth)
 		r.Use(requireJSONAccept)
 		r.Use(requireJSONContentType)
-		r.Use(s.rlsTxMiddleware)
 		r.Use(s.projectRateLimit)
+		r.Use(s.rlsTxMiddleware)
 		r.Use(s.planUsageHeaders)
 		r.Use(chimw.Timeout(requestTimeout))
 		r.Route("/secrets", func(r chi.Router) {
@@ -434,7 +438,7 @@ func (s *Server) routes() chi.Router {
 			r.With(s.requirePermission(domain.ScopeAPIKeysManage)).Get("/", TypedHandler(s, http.StatusOK, s.handleListAPIKeys))
 			r.With(s.requirePermission(domain.ScopeAPIKeysManage)).Get("/expiring-soon", TypedHandler(s, http.StatusOK, s.handleListExpiringKeys))
 			r.With(s.requirePermission(domain.ScopeAPIKeysManage), rateLimit(10, time.Minute)).Post("/{keyID}/rotate", TypedHandler(s, http.StatusCreated, s.handleRotateAPIKey))
-			r.With(s.requirePermission(domain.ScopeAPIKeysManage)).Delete("/{keyID}", TypedHandler(s, http.StatusOK, s.handleRevokeAPIKey))
+			r.With(s.requirePermission(domain.ScopeAPIKeysManage), rateLimit(10, time.Minute)).Delete("/{keyID}", TypedHandler(s, http.StatusOK, s.handleRevokeAPIKey))
 		})
 
 		r.With(s.requirePermission(domain.ScopeAPIKeysManage)).Post("/cli/device-codes/approve", TypedHandler(s, http.StatusOK, s.handleApproveDeviceCode))
@@ -673,8 +677,8 @@ func (s *Server) routes() chi.Router {
 		r.Route("/admin/outbox", func(r chi.Router) {
 			r.Get("/", TypedHandler(s, http.StatusOK, s.handleAdminListOutbox))
 			r.Get("/{outbox_id}", TypedHandler(s, http.StatusOK, s.handleAdminGetOutbox))
-			r.Post("/{outbox_id}/retry", TypedHandler(s, http.StatusOK, s.handleAdminRetryOutbox))
-			r.Post("/{outbox_id}/purge", TypedHandler(s, http.StatusOK, s.handleAdminPurgeOutbox))
+			r.With(rateLimit(10, time.Minute)).Post("/{outbox_id}/retry", TypedHandler(s, http.StatusOK, s.handleAdminRetryOutbox))
+			r.With(rateLimit(10, time.Minute)).Post("/{outbox_id}/purge", TypedHandler(s, http.StatusOK, s.handleAdminPurgeOutbox))
 		})
 	})
 

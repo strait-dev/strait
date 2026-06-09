@@ -177,9 +177,7 @@ func TestCDC_MessageOrderingGuarantee(t *testing.T) {
 	defer mu.Unlock()
 	require.Len(t,
 		order, 3)
-	require.False(t, order[0] != "a1" ||
-		order[1] != "a2" ||
-		order[2] != "a3")
+	require.Equal(t, []string{"a1", "a2", "a3"}, order)
 }
 
 // TestCDC_DuplicateEvent verifies that the same event delivered twice

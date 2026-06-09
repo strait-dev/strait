@@ -4,62 +4,71 @@ import (
 	"slices"
 	"time"
 
-	"github.com/samber/lo"
-
 	"strait/internal/domain"
 )
 
-type workflowStepRefHeap []string
+type workflowStepIndexHeap struct {
+	indexes []int
+	steps   []domain.WorkflowStep
+}
 
-func (h *workflowStepRefHeap) init() {
-	for i := len(*h)/2 - 1; i >= 0; i-- {
+func (h *workflowStepIndexHeap) init() {
+	for i := len(h.indexes)/2 - 1; i >= 0; i-- {
 		h.siftDown(i)
 	}
 }
 
-func (h *workflowStepRefHeap) push(ref string) {
-	*h = append(*h, ref)
-	h.siftUp(len(*h) - 1)
+func (h *workflowStepIndexHeap) push(stepIdx int) {
+	h.indexes = append(h.indexes, stepIdx)
+	h.siftUp(len(h.indexes) - 1)
 }
 
-func (h *workflowStepRefHeap) pop() string {
-	old := *h
+func (h *workflowStepIndexHeap) pop() int {
+	old := h.indexes
 	n := len(old)
-	ref := old[0]
+	stepIdx := old[0]
 	old[0] = old[n-1]
-	old[n-1] = ""
-	*h = old[:n-1]
+	old[n-1] = 0
+	h.indexes = old[:n-1]
 	h.siftDown(0)
-	return ref
+	return stepIdx
 }
 
-func (h *workflowStepRefHeap) siftUp(i int) {
-	refs := *h
+func (h *workflowStepIndexHeap) len() int {
+	return len(h.indexes)
+}
+
+func (h *workflowStepIndexHeap) less(i, j int) bool {
+	return h.steps[h.indexes[i]].StepRef < h.steps[h.indexes[j]].StepRef
+}
+
+func (h *workflowStepIndexHeap) siftUp(i int) {
+	indexes := h.indexes
 	for i > 0 {
 		parent := (i - 1) / 2
-		if refs[parent] <= refs[i] {
+		if !h.less(i, parent) {
 			return
 		}
-		refs[parent], refs[i] = refs[i], refs[parent]
+		indexes[parent], indexes[i] = indexes[i], indexes[parent]
 		i = parent
 	}
 }
 
-func (h *workflowStepRefHeap) siftDown(i int) {
-	refs := *h
+func (h *workflowStepIndexHeap) siftDown(i int) {
+	indexes := h.indexes
 	for {
 		left := 2*i + 1
-		if left >= len(refs) {
+		if left >= len(indexes) {
 			return
 		}
 		child := left
-		if right := left + 1; right < len(refs) && refs[right] < refs[left] {
+		if right := left + 1; right < len(indexes) && h.less(right, left) {
 			child = right
 		}
-		if refs[i] <= refs[child] {
+		if !h.less(child, i) {
 			return
 		}
-		refs[i], refs[child] = refs[child], refs[i]
+		indexes[i], indexes[child] = indexes[child], indexes[i]
 		i = child
 	}
 }
@@ -69,60 +78,85 @@ func estimateWorkflowCriticalPath(steps []domain.WorkflowStep, runByRef map[stri
 		return nil, 0, 0
 	}
 
-	stepByRef := lo.KeyBy(steps, func(step domain.WorkflowStep) string { return step.StepRef })
-	indegree := make(map[string]int, len(steps))
-	children := make(map[string][]string, len(steps))
-	for _, step := range steps {
-		indegree[step.StepRef] = 0
-		children[step.StepRef] = []string{}
+	stepIndex := make(map[string]int, len(steps))
+	for i, step := range steps {
+		stepIndex[step.StepRef] = i
 	}
-	for _, step := range steps {
+
+	indegree := make([]int, len(steps))
+	childCounts := make([]int, len(steps))
+	totalEdges := 0
+	for stepIdx, step := range steps {
 		for _, dep := range step.DependsOn {
-			if _, ok := indegree[dep]; !ok {
+			depIdx, ok := stepIndex[dep]
+			if !ok {
 				continue
 			}
-			children[dep] = append(children[dep], step.StepRef)
-			indegree[step.StepRef]++
+			childCounts[depIdx]++
+			indegree[stepIdx]++
+			totalEdges++
 		}
 	}
 
-	queue := make(workflowStepRefHeap, 0, len(steps))
-	for ref, degree := range indegree {
+	children := make([][]int, len(steps))
+	edgeStorage := make([]int, totalEdges)
+	offset := 0
+	for i, count := range childCounts {
+		children[i] = edgeStorage[offset : offset : offset+count]
+		offset += count
+	}
+	for stepIdx, step := range steps {
+		for _, dep := range step.DependsOn {
+			depIdx, ok := stepIndex[dep]
+			if !ok {
+				continue
+			}
+			children[depIdx] = append(children[depIdx], stepIdx)
+		}
+	}
+
+	queue := workflowStepIndexHeap{
+		indexes: make([]int, 0, len(steps)),
+		steps:   steps,
+	}
+	for stepIdx, degree := range indegree {
 		if degree == 0 {
-			queue = append(queue, ref)
+			queue.indexes = append(queue.indexes, stepIdx)
 		}
 	}
 	queue.init()
 
-	prev := make(map[string]string, len(steps))
-	longestByRef := make(map[string]int64, len(steps))
-	totalEstimateByRef := make(map[string]int64, len(steps))
-	remainingByRef := make(map[string]int64, len(steps))
-	for len(queue) > 0 {
-		ref := queue.pop()
+	prev := make([]int, len(steps))
+	for i := range prev {
+		prev[i] = -1
+	}
+	longestByStep := make([]int64, len(steps))
+	remainingByStep := make([]int64, len(steps))
+	for queue.len() > 0 {
+		stepIdx := queue.pop()
 
-		step := stepByRef[ref]
-		stepRun := runByRef[ref]
+		step := steps[stepIdx]
+		stepRun := runByRef[step.StepRef]
 		totalEstimateMS, remainingMS := estimateStepTiming(step, stepRun, now)
-		totalEstimateByRef[ref] = totalEstimateMS
-		remainingByRef[ref] = remainingMS
+		remainingByStep[stepIdx] = remainingMS
 
-		bestParentRef := ""
+		bestParentIdx := -1
 		bestParentDistance := int64(0)
 		for _, dep := range step.DependsOn {
-			distance, ok := longestByRef[dep]
+			depIdx, ok := stepIndex[dep]
 			if !ok {
 				continue
 			}
+			distance := longestByStep[depIdx]
 			if distance > bestParentDistance {
 				bestParentDistance = distance
-				bestParentRef = dep
+				bestParentIdx = depIdx
 			}
 		}
-		prev[ref] = bestParentRef
-		longestByRef[ref] = bestParentDistance + totalEstimateMS
+		prev[stepIdx] = bestParentIdx
+		longestByStep[stepIdx] = bestParentDistance + totalEstimateMS
 
-		for _, child := range children[ref] {
+		for _, child := range children[stepIdx] {
 			indegree[child]--
 			if indegree[child] == 0 {
 				queue.push(child)
@@ -130,24 +164,24 @@ func estimateWorkflowCriticalPath(steps []domain.WorkflowStep, runByRef map[stri
 		}
 	}
 
-	pathEnd := ""
+	pathEnd := -1
 	pathDistance := int64(0)
-	for ref, distance := range longestByRef {
-		if distance > pathDistance || (distance == pathDistance && (pathEnd == "" || ref < pathEnd)) {
-			pathEnd = ref
+	for stepIdx, distance := range longestByStep {
+		if distance > pathDistance || (distance == pathDistance && (pathEnd < 0 || steps[stepIdx].StepRef < steps[pathEnd].StepRef)) {
+			pathEnd = stepIdx
 			pathDistance = distance
 		}
 	}
 
 	path := make([]string, 0, len(steps))
-	for ref := pathEnd; ref != ""; ref = prev[ref] {
-		path = append(path, ref)
+	for stepIdx := pathEnd; stepIdx >= 0; stepIdx = prev[stepIdx] {
+		path = append(path, steps[stepIdx].StepRef)
 	}
 	slices.Reverse(path)
 
 	remainingMS := int64(0)
 	for _, ref := range path {
-		remainingMS += remainingByRef[ref]
+		remainingMS += remainingByStep[stepIndex[ref]]
 	}
 	return path, pathDistance, remainingMS
 }

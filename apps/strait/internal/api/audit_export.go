@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
@@ -13,6 +14,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"time"
 	"unicode"
 
@@ -122,12 +124,9 @@ func (s *Server) handleExportAuditEvents(ctx context.Context, input *ExportAudit
 		return nil, huma.Error400BadRequest("export window must not exceed 90 days")
 	}
 
-	format := input.Format
-	if format == "" {
-		format = "json"
-	}
-	if format != "json" && format != "csv" && format != "ndjson" {
-		return nil, huma.Error400BadRequest("format must be one of: json, csv, ndjson")
+	format, err := normalizeExportFormat(input.Format, true, "format must be one of: json, csv, ndjson")
+	if err != nil {
+		return nil, err
 	}
 
 	w := responseWriterFromContext(ctx)
@@ -170,57 +169,68 @@ func (s *Server) handleExportAuditEvents(ctx context.Context, input *ExportAudit
 		mac = hmac.New(sha256.New, signingKey)
 	}
 
-	if signingEnabled {
-		w.Header().Set("Trailer", "X-Audit-Signature")
-	}
-
-	setExportFormatHeaders(w, format)
-
-	var out io.Writer = w
-	if mac != nil {
-		out = io.MultiWriter(w, mac)
-	}
-
-	flusher, canFlush := w.(http.Flusher)
-
 	rowCap := s.resolveExportRowCap(ctx, projectID)
 
-	exported, capped, err := s.streamAuditByFormat(ctx, format, out, flusher, canFlush, projectID, actorID, resourceType, from, to, rowCap)
-
-	if err != nil {
-		// Headers already sent; we cannot surface a new status code or
-		// error envelope to the client. Log with enough context that an
-		// operator can correlate a truncated/garbled payload report with
-		// the server-side failure.
-		slog.Warn("audit export stream error after headers",
-			"err", err,
-			"project_id", projectID,
-			"format", format,
-			"rows_written", exported,
-			"capped", capped)
-	}
-
-	// Set HMAC signature trailer only on a clean stream. A partial
-	// signature over truncated output would mislead consumers into
-	// trusting an incomplete export.
-	if mac != nil && err == nil {
+	if signingEnabled {
+		// Buffer signed exports so the HMAC is delivered as a normal response
+		// header. HTTP trailers — the only standards-compliant way to sign a
+		// streamed body — are silently dropped by buffering reverse proxies
+		// (nginx proxy_buffering on, ALB, CloudFront), which would strip the
+		// integrity signature. This endpoint is admin-only and rate limited, and
+		// exports are bounded by the row cap and 90-day window, so buffering is
+		// acceptable; it also lets a mid-stream failure surface as a real 500
+		// instead of a truncated, wrongly-signed body.
+		var buf bytes.Buffer
+		exported, capped, err := s.streamAuditByFormat(ctx, format, io.MultiWriter(&buf, mac), nil, false, projectID, actorID, resourceType, from, to, rowCap)
+		if err != nil {
+			slog.Warn("audit export generation error",
+				"err", err, "project_id", projectID, "format", format,
+				"rows_written", exported, "capped", capped)
+			return nil, huma.Error500InternalServerError("failed to generate audit export")
+		}
 		sig := hex.EncodeToString(mac.Sum(nil))
 		w.Header().Set("X-Audit-Signature", fmt.Sprintf("sha256=%s", sig))
+		setExportFormatHeaders(w, format)
+		if _, werr := w.Write(buf.Bytes()); werr != nil {
+			slog.Warn("audit export write error", "err", werr, "project_id", projectID)
+		}
+		s.emitExportCappedIfNeeded(ctx, capped, projectID, exported, rowCap)
+		return nil, nil
 	}
 
-	if capped {
-		s.emitAuditEvent(context.WithoutCancel(ctx), domain.AuditActionAuditExportCapped, "audit", projectID, map[string]any{
-			"exported": exported,
-			"cap":      rowCap,
-		})
-		if s.metrics != nil && s.metrics.AuditEventsExportCapped != nil {
-			s.metrics.AuditEventsExportCapped.Add(ctx, 1,
-				metric.WithAttributes(attribute.String("project_id", projectID)))
-		}
+	// Unsigned exports stream directly: there is no integrity header to deliver,
+	// so incremental flushing and lower memory use win.
+	setExportFormatHeaders(w, format)
+	flusher, canFlush := w.(http.Flusher)
+	exported, capped, err := s.streamAuditByFormat(ctx, format, w, flusher, canFlush, projectID, actorID, resourceType, from, to, rowCap)
+	if err != nil {
+		// Headers already sent; we cannot surface a new status code. Log with
+		// enough context to correlate a truncated payload report with the
+		// server-side failure.
+		slog.Warn("audit export stream error after headers",
+			"err", err, "project_id", projectID, "format", format,
+			"rows_written", exported, "capped", capped)
 	}
+	s.emitExportCappedIfNeeded(ctx, capped, projectID, exported, rowCap)
 
 	// Return nil to signal that the response was already written.
 	return nil, nil
+}
+
+// emitExportCappedIfNeeded records the audit-export-capped event and metric when
+// an export hit the row cap.
+func (s *Server) emitExportCappedIfNeeded(ctx context.Context, capped bool, projectID string, exported int, rowCap int64) {
+	if !capped {
+		return
+	}
+	s.emitAuditEvent(context.WithoutCancel(ctx), domain.AuditActionAuditExportCapped, "audit", projectID, map[string]any{
+		"exported": exported,
+		"cap":      rowCap,
+	})
+	if s.metrics != nil && s.metrics.AuditEventsExportCapped != nil {
+		s.metrics.AuditEventsExportCapped.Add(ctx, 1,
+			metric.WithAttributes(attribute.String("project_id", projectID)))
+	}
 }
 
 // setExportFormatHeaders writes Content-Type and Content-Disposition headers
@@ -293,7 +303,7 @@ func (s *Server) streamAuditCSV(ctx context.Context, w io.Writer, flusher http.F
 			sanitizeCSVCell(ev.UserAgent),
 			sanitizeCSVCell(ev.RequestID),
 			sanitizeCSVCell(ev.TraceID),
-			fmt.Sprintf("%d", ev.SchemaVersion),
+			strconv.FormatUint(uint64(ev.SchemaVersion), 10),
 		}
 		if err := cw.Write(record); err != nil {
 			return fmt.Errorf("write csv row: %w", err)
@@ -313,7 +323,7 @@ func (s *Server) streamAuditCSV(ctx context.Context, w io.Writer, flusher http.F
 	}
 	if capped {
 		// Append a CSV sentinel row noting the cap.
-		_ = cw.Write([]string{"_capped", fmt.Sprintf("%d", exported), "", "", "", "", "", "", "", "", "", "", "", ""})
+		_ = cw.Write([]string{"_capped", strconv.Itoa(exported), "", "", "", "", "", "", "", "", "", "", "", ""})
 	}
 
 	cw.Flush()
