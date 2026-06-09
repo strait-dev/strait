@@ -93,7 +93,7 @@ func (s *Server) publishWorkflowRunHook(ctx context.Context, run *domain.Workflo
 			}
 			matched := false
 			for _, et := range sub.EventTypes {
-				if et == eventType || et == "*" {
+				if workflowWebhookEventTypeMatches(et, eventType) {
 					matched = true
 					break
 				}
@@ -129,4 +129,8 @@ func workflowWebhookEventType(status domain.WorkflowRunStatus) (string, bool) {
 	default:
 		return "", false
 	}
+}
+
+func workflowWebhookEventTypeMatches(candidate, target string) bool {
+	return candidate == target || candidate == "*"
 }
