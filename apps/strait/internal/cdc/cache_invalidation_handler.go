@@ -66,7 +66,7 @@ func newCacheInvalidationHandler(
 func (h *cacheInvalidationHandler) Table() string { return h.table }
 
 func (h *cacheInvalidationHandler) Handle(ctx context.Context, msg Message) error {
-	if h == nil || h.bus == nil || h.fn == nil || len(msg.Record) == 0 {
+	if !cacheInvalidationHandlerCanProcess(h, msg) {
 		return nil
 	}
 	var record map[string]any
@@ -82,6 +82,17 @@ func (h *cacheInvalidationHandler) Handle(ctx context.Context, msg Message) erro
 		h.logger.Warn("cdc cache invalidation skipped", "table", h.table, "error", err)
 	}
 	return nil
+}
+
+func cacheInvalidationHandlerCanProcess(h *cacheInvalidationHandler, msg Message) bool {
+	if h == nil {
+		return false
+	}
+
+	hasBus := h.bus != nil
+	hasInvalidationFunc := h.fn != nil
+	hasRecord := len(msg.Record) > 0
+	return hasBus && hasInvalidationFunc && hasRecord
 }
 
 func invalidatePermissionProjectCache(
