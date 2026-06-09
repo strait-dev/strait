@@ -56,7 +56,10 @@ func (s *Server) getRunFromStatusReadModel(ctx context.Context, id string) (*dom
 		return nil, false
 	}
 	got, err := s.runStatusReadModel.Get(ctx, id)
-	if err != nil || got.Value == nil {
+	if err != nil {
+		return nil, false
+	}
+	if got.Value == nil {
 		return nil, false
 	}
 	return got.Value, true
@@ -67,7 +70,10 @@ func (s *Server) getWorkflowRunFromStatusReadModel(ctx context.Context, id strin
 		return nil, false
 	}
 	got, err := s.workflowRunStatusReadModel.Get(ctx, id)
-	if err != nil || got.Value == nil {
+	if err != nil {
+		return nil, false
+	}
+	if got.Value == nil {
 		return nil, false
 	}
 	return got.Value, true
