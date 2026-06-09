@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"time"
 
 	"strait/internal/domain"
@@ -147,7 +148,7 @@ func (s *Server) handleExportRuns(ctx context.Context, input *ExportRunsInput) (
 				finishedAt = run.FinishedAt.Format(time.RFC3339Nano)
 			}
 			return cw.Write([]string{
-				run.ID, run.JobID, string(run.Status), fmt.Sprintf("%d", run.Attempt),
+				run.ID, run.JobID, string(run.Status), strconv.Itoa(run.Attempt),
 				run.TriggeredBy, run.CreatedAt.Format(time.RFC3339Nano),
 				startedAt, finishedAt, run.Error,
 			})
