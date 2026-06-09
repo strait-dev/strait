@@ -320,17 +320,10 @@ func TestResolveAPIKeyFromContextWithLimit_BlockedBeforeStoreLookup(t *testing.T
 	require.Equal(
 		t, codes.ResourceExhausted,
 		s.Code())
-	require.False(
-		t, len(limiter.blockChecks) != 1 ||
-			limiter.
-				blockChecks[0] !=
-				"203.0.113.10",
-	)
-	require.False(
-		t, len(limiter.failures) != 0 ||
-			len(limiter.
-				resets,
-			) != 0)
+	require.Len(t, limiter.blockChecks, 1)
+	require.Equal(t, "203.0.113.10", limiter.blockChecks[0])
+	require.Empty(t, limiter.failures)
+	require.Empty(t, limiter.resets)
 }
 
 func TestResolveAPIKeyFromContextWithLimit_RecordsMalformedAuthFailure(t *testing.T) {
@@ -348,11 +341,8 @@ func TestResolveAPIKeyFromContextWithLimit_RecordsMalformedAuthFailure(t *testin
 	require.Equal(
 		t, codes.Unauthenticated,
 		s.Code())
-	require.False(
-		t, len(limiter.failures) != 1 ||
-			limiter.
-				failures[0] != "198.51.100.7",
-	)
+	require.Len(t, limiter.failures, 1)
+	require.Equal(t, "198.51.100.7", limiter.failures[0])
 	require.Empty(t,
 		limiter.resets)
 }
