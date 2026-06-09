@@ -10,11 +10,14 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+	"strait/internal/telemetry"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/require"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 )
 
 func TestAcquireTriggerAdmissionLocks_UsesRowLocksWithoutAdvisoryLock(t *testing.T) {
@@ -84,16 +87,27 @@ func TestWithTriggerLimitGuard_SetsStatementTimeout(t *testing.T) {
 func TestWithTriggerLimitGuard_NoLimitsSkipsTransaction(t *testing.T) {
 	t.Parallel()
 
+	reader := sdkmetric.NewManualReader()
+	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	t.Cleanup(func() {
+		require.NoError(t, provider.Shutdown(context.Background()))
+	})
+	counter, err := provider.Meter("trigger-admission-test").Int64Counter("strait_trigger_admission_guard_total")
+	require.NoError(t, err)
+
 	tx := &triggerAdmissionTx{}
 	storeMock := &triggerAdmissionStoreMock{
 		APIStoreMock: &APIStoreMock{},
 		tx:           tx,
 	}
-	srv := &Server{store: storeMock}
+	srv := &Server{
+		store:   storeMock,
+		metrics: &telemetry.Metrics{TriggerAdmissionGuard: counter},
+	}
 	job := &domain.Job{ID: "job-1", ProjectID: "project-1"}
 	called := false
 
-	err := srv.withTriggerLimitGuard(context.Background(), job, nil, func(_ context.Context, gotTx store.DBTX) error {
+	err = srv.withTriggerLimitGuard(context.Background(), job, nil, func(_ context.Context, gotTx store.DBTX) error {
 		called = true
 		require.Nil(t, gotTx)
 		return nil
@@ -104,6 +118,7 @@ func TestWithTriggerLimitGuard_NoLimitsSkipsTransaction(t *testing.T) {
 	require.Zero(t, storeMock.txCalls)
 	require.Empty(t, tx.execSQL)
 	require.Empty(t, tx.queryRowSQL)
+	assertTriggerAdmissionGuardMetric(t, reader, "direct")
 }
 
 func TestTriggerAdmissionNeedsTransaction(t *testing.T) {
@@ -302,6 +317,32 @@ func BenchmarkTriggerAdmissionRowLocks(b *testing.B) {
 			b.Fatal(err)
 		}
 	}
+}
+
+func assertTriggerAdmissionGuardMetric(t *testing.T, reader *sdkmetric.ManualReader, path string) {
+	t.Helper()
+
+	var rm metricdata.ResourceMetrics
+	require.NoError(t, reader.Collect(context.Background(), &rm))
+	for _, scope := range rm.ScopeMetrics {
+		for _, metric := range scope.Metrics {
+			if metric.Name != "strait_trigger_admission_guard_total" {
+				continue
+			}
+			sum, ok := metric.Data.(metricdata.Sum[int64])
+			require.Truef(t, ok, "unexpected metric type %T", metric.Data)
+			for _, point := range sum.DataPoints {
+				if point.Value != 1 {
+					continue
+				}
+				got, ok := point.Attributes.Value("path")
+				if ok && got.AsString() == path {
+					return
+				}
+			}
+		}
+	}
+	require.Failf(t, "test failure", "metric path=%q not found in %#v", path, rm.ScopeMetrics)
 }
 
 func BenchmarkWithTriggerLimitGuard(b *testing.B) {

@@ -13,6 +13,8 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/jackc/pgx/v5/pgconn"
+	otelattr "go.opentelemetry.io/otel/attribute"
+	otelmetric "go.opentelemetry.io/otel/metric"
 )
 
 var (
@@ -40,9 +42,11 @@ func (s *Server) withTriggerLimitGuard(ctx context.Context, job *domain.Job, quo
 		return err
 	}
 	if !triggerAdmissionNeedsTransaction(job, quota) {
+		s.recordTriggerAdmissionGuard(ctx, "direct")
 		return fn(ctx, nil)
 	}
 	if txer, ok := s.store.(triggerLimitTransactioner); ok {
+		s.recordTriggerAdmissionGuard(ctx, "transaction")
 		return txer.WithTx(ctx, func(txCtx context.Context, tx store.DBTX) error {
 			if err := setTriggerAdmissionStatementTimeout(txCtx, tx); err != nil {
 				return err
@@ -56,6 +60,7 @@ func (s *Server) withTriggerLimitGuard(ctx context.Context, job *domain.Job, quo
 			return fn(txCtx, tx)
 		})
 	}
+	s.recordTriggerAdmissionGuard(ctx, "fallback")
 	if err := s.checkTriggerLimits(ctx, job, quota); err != nil {
 		return err
 	}
@@ -67,6 +72,13 @@ func triggerAdmissionNeedsTransaction(job *domain.Job, quota *store.ProjectQuota
 		return true
 	}
 	return quota != nil && (quota.MaxQueuedRuns > 0 || quota.MaxExecutingRuns > 0)
+}
+
+func (s *Server) recordTriggerAdmissionGuard(ctx context.Context, path string) {
+	if s.metrics == nil || s.metrics.TriggerAdmissionGuard == nil {
+		return
+	}
+	s.metrics.TriggerAdmissionGuard.Add(ctx, 1, otelmetric.WithAttributes(otelattr.String("path", path)))
 }
 
 func setTriggerAdmissionStatementTimeout(ctx context.Context, tx store.DBTX) error {
