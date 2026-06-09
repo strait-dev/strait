@@ -286,7 +286,10 @@ type RevokeAPIKeyOutput struct{ Body map[string]string }
 
 func (s *Server) handleRevokeAPIKey(ctx context.Context, input *RevokeAPIKeyInput) (*RevokeAPIKeyOutput, error) {
 	key, err := s.store.GetAPIKeyByID(ctx, input.KeyID)
-	if err != nil || key == nil {
+	if err != nil {
+		return nil, huma.Error404NotFound("api key not found")
+	}
+	if key == nil {
 		return nil, huma.Error404NotFound("api key not found")
 	}
 	if err := requireProjectMatch(ctx, key.ProjectID); err != nil {
@@ -345,7 +348,10 @@ func (s *Server) handleRotateAPIKey(ctx context.Context, input *RotateAPIKeyInpu
 		return nil, huma.Error400BadRequest("grace_period_minutes must be <= 10080")
 	}
 	oldKey, err := s.store.GetAPIKeyByID(ctx, input.KeyID)
-	if err != nil || oldKey == nil {
+	if err != nil {
+		return nil, huma.Error404NotFound("api key not found")
+	}
+	if oldKey == nil {
 		return nil, huma.Error404NotFound("api key not found")
 	}
 	if err := requireProjectMatch(ctx, oldKey.ProjectID); err != nil {
