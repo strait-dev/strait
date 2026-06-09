@@ -235,7 +235,10 @@ func (s *Server) handleSDKSpawn(ctx context.Context, input *SDKSpawnInput) (*SDK
 		}
 	}
 	job, err := s.store.GetJobBySlug(ctx, req.ProjectID, req.JobSlug)
-	if err != nil || job == nil {
+	if err != nil {
+		return nil, huma.Error404NotFound("job not found")
+	}
+	if job == nil {
 		return nil, huma.Error404NotFound("job not found")
 	}
 	if isCrossProject {
