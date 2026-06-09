@@ -150,7 +150,7 @@ func (s *Server) validateDryRunProjectQuota(ctx context.Context, job *domain.Job
 }
 
 func (s *Server) validateDryRunJobRateLimit(ctx context.Context, job *domain.Job) error {
-	if job.RateLimitMax <= 0 || job.RateLimitWindowSecs <= 0 {
+	if !jobHasRateLimit(job) {
 		return nil
 	}
 	since := time.Now().Add(-time.Duration(job.RateLimitWindowSecs) * time.Second)

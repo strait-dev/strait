@@ -190,7 +190,7 @@ func (b *bulkTriggerState) checkAdmissionLimits() error {
 			return huma.Error429TooManyRequests("project executing quota exceeded")
 		}
 	}
-	if b.job.RateLimitMax <= 0 || b.job.RateLimitWindowSecs <= 0 {
+	if !jobHasRateLimit(b.job) {
 		return nil
 	}
 	since := time.Now().Add(-time.Duration(b.job.RateLimitWindowSecs) * time.Second)

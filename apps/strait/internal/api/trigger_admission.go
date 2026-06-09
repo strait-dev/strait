@@ -90,7 +90,7 @@ func acquireTriggerAdmissionLocks(ctx context.Context, tx store.DBTX, job *domai
 		return nil
 	}
 	needsProjectLock := quota != nil && (quota.MaxQueuedRuns > 0 || quota.MaxExecutingRuns > 0)
-	needsJobLock := job.RateLimitMax > 0 && job.RateLimitWindowSecs > 0
+	needsJobLock := jobHasRateLimit(job)
 	if !needsProjectLock && !needsJobLock {
 		return nil
 	}
@@ -169,8 +169,12 @@ func (s *Server) checkTriggerLimits(ctx context.Context, job *domain.Job, quota 
 	return s.checkJobRateLimit(ctx, job)
 }
 
+func jobHasRateLimit(job *domain.Job) bool {
+	return job.RateLimitMax > 0 && job.RateLimitWindowSecs > 0
+}
+
 func (s *Server) checkJobRateLimit(ctx context.Context, job *domain.Job) error {
-	if job.RateLimitMax > 0 && job.RateLimitWindowSecs > 0 {
+	if jobHasRateLimit(job) {
 		since := time.Now().Add(-time.Duration(job.RateLimitWindowSecs) * time.Second)
 		runCount, countErr := s.store.CountRunsForJobSince(ctx, job.ID, since)
 		if countErr != nil {
@@ -220,7 +224,7 @@ func checkProjectQuotaInTx(ctx context.Context, tx store.DBTX, job *domain.Job, 
 }
 
 func checkJobRateLimitInTx(ctx context.Context, tx store.DBTX, job *domain.Job) error {
-	if job.RateLimitMax <= 0 || job.RateLimitWindowSecs <= 0 {
+	if !jobHasRateLimit(job) {
 		return nil
 	}
 	since := time.Now().Add(-time.Duration(job.RateLimitWindowSecs) * time.Second)
