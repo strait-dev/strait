@@ -123,10 +123,13 @@ func TestExtractDependencyKey(t *testing.T) {
 		want    string
 	}{
 		{name: "empty", payload: nil, want: ""},
+		{name: "empty object", payload: json.RawMessage(`{}`), want: ""},
 		{name: "invalid", payload: json.RawMessage(`{`), want: ""},
 		{name: "missing", payload: json.RawMessage(`{"ok":true}`), want: ""},
+		{name: "token in value", payload: json.RawMessage(`{"message":"\"dependency_key\""}`), want: ""},
 		{name: "non-string", payload: json.RawMessage(`{"dependency_key":42}`), want: ""},
 		{name: "string", payload: json.RawMessage(`{"dependency_key":"dep-1"}`), want: "dep-1"},
+		{name: "escaped key", payload: json.RawMessage(`{"dependency\u005fkey":"dep-2"}`), want: "dep-2"},
 	}
 
 	for _, tt := range tests {
@@ -174,6 +177,26 @@ func TestTriggerDependenciesSatisfiedSkipsSatisfactionCheckWhenNoDependencies(t 
 	require.True(t, satisfied)
 	require.Equal(t, 1, listCalls)
 	assertTriggerDependencyGateMetric(t, reader, "skipped")
+}
+
+func BenchmarkExtractDependencyKey(b *testing.B) {
+	cases := []struct {
+		name    string
+		payload json.RawMessage
+	}{
+		{name: "missing", payload: json.RawMessage(`{"ok":true,"value":123}`)},
+		{name: "empty_object", payload: json.RawMessage(`{}`)},
+		{name: "present", payload: json.RawMessage(`{"dependency_key":"dep-1","ok":true}`)},
+	}
+
+	for _, tc := range cases {
+		b.Run(tc.name, func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				_ = extractDependencyKey(tc.payload)
+			}
+		})
+	}
 }
 
 func assertTriggerDependencyGateMetric(t *testing.T, reader *sdkmetric.ManualReader, result string) {

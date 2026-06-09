@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -46,6 +47,11 @@ type immediateTriggerRunConfig struct {
 	expiresAt   time.Time
 	status      domain.RunStatus
 }
+
+var (
+	dependencyKeyJSONToken     = []byte(`"dependency_key"`)
+	jsonUnicodeEscapeIndicator = []byte(`\u`)
+)
 
 func (s *Server) newImmediateTriggerRun(
 	ctx context.Context,
@@ -207,6 +213,9 @@ func triggerRunOutput(run *domain.JobRun, payloadHash string, idempotencyHit boo
 
 func extractDependencyKey(payload json.RawMessage) string {
 	if len(payload) == 0 {
+		return ""
+	}
+	if !bytes.Contains(payload, dependencyKeyJSONToken) && !bytes.Contains(payload, jsonUnicodeEscapeIndicator) {
 		return ""
 	}
 	var body map[string]any
