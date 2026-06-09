@@ -88,7 +88,7 @@ func (s *Server) newImmediateTriggerRun(
 		IsRollback:     false,
 		Metadata:       metadata,
 	}
-	run.Metadata = mergeRunMetadata(run.Metadata, job.DefaultRunMetadata)
+	run.Metadata = applyDefaultRunMetadata(run.Metadata, job.DefaultRunMetadata)
 	run.ConcurrencyKey = req.ConcurrencyKey
 	run.Metadata = applyRunTraceHeaderMetadata(
 		run.Metadata,

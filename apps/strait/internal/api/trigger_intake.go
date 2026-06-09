@@ -51,6 +51,24 @@ func mergeRunMetadata(metadata, defaults map[string]string) map[string]string {
 	return merged
 }
 
+func applyDefaultRunMetadata(metadata, defaults map[string]string) map[string]string {
+	if len(defaults) == 0 {
+		if len(metadata) == 0 {
+			return nil
+		}
+		return metadata
+	}
+	if len(metadata) == 0 {
+		return maps.Clone(defaults)
+	}
+	for key, value := range defaults {
+		if _, exists := metadata[key]; !exists {
+			metadata[key] = value
+		}
+	}
+	return metadata
+}
+
 func ensureJobTriggerable(job *domain.Job) error {
 	if !job.Enabled {
 		return huma.Error400BadRequest("job is disabled")

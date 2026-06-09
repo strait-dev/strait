@@ -112,6 +112,28 @@ func TestMergeRunMetadataClonesSingleInput(t *testing.T) {
 	require.Equal(t, "acme", got["tenant"])
 }
 
+func TestApplyDefaultRunMetadataMutatesFreshMetadata(t *testing.T) {
+	t.Parallel()
+
+	metadata := map[string]string{"tenant": "acme"}
+	got := applyDefaultRunMetadata(metadata, map[string]string{"tenant": "default", "region": "eu"})
+	got["added"] = "true"
+
+	require.Equal(t, "acme", got["tenant"])
+	require.Equal(t, "eu", got["region"])
+	require.Equal(t, "true", metadata["added"])
+}
+
+func TestApplyDefaultRunMetadataClonesDefaultsWhenMetadataEmpty(t *testing.T) {
+	t.Parallel()
+
+	defaults := map[string]string{"region": "eu"}
+	got := applyDefaultRunMetadata(nil, defaults)
+	defaults["region"] = "us"
+
+	require.Equal(t, "eu", got["region"])
+}
+
 func TestEnsureJobTriggerableRejectsDisabledJob(t *testing.T) {
 	t.Parallel()
 

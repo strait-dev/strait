@@ -47,7 +47,7 @@ func newBulkTriggerRun(ctx context.Context, request bulkTriggerRunRequest) *doma
 		QueueName:      request.job.Queue,
 		ConcurrencyKey: request.item.ConcurrencyKey,
 	}
-	run.Metadata = mergeRunMetadata(run.Metadata, request.job.DefaultRunMetadata)
+	run.Metadata = applyDefaultRunMetadata(run.Metadata, request.job.DefaultRunMetadata)
 	return run
 }
 

@@ -65,3 +65,13 @@ func TestApplyRunTraceHeaderMetadataOverridesContextTrace(t *testing.T) {
 
 		got[domain.RunMetadataSentryBaggage])
 }
+
+func TestApplyRunTraceHeaderMetadataNoHeadersReturnsSameMap(t *testing.T) {
+	t.Parallel()
+
+	metadata := map[string]string{"route": "trigger"}
+	got := applyRunTraceHeaderMetadata(metadata, "", "", "", "")
+	got["added"] = "true"
+
+	require.Equal(t, "true", metadata["added"])
+}

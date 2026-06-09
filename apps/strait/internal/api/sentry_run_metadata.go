@@ -59,6 +59,9 @@ func validateTriggerTraceHeaders(input *TriggerJobInput) error {
 }
 
 func applyRunTraceHeaderMetadata(metadata map[string]string, traceparent, tracestate, sentryTrace, baggage string) map[string]string {
+	if traceparent == "" && tracestate == "" && sentryTrace == "" && baggage == "" {
+		return metadata
+	}
 	metadata = copyStringMapWithCapacity(metadata, 4)
 	if traceparent != "" {
 		metadata[domain.RunMetadataTraceParent] = truncateTraceHeader(traceparent, maxTraceparentLen)
