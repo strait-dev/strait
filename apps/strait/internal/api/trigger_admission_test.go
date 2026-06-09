@@ -60,14 +60,16 @@ func TestWithTriggerLimitGuard_SetsStatementTimeout(t *testing.T) {
 	t.Parallel()
 
 	tx := &triggerAdmissionTx{}
-	srv := &Server{store: &triggerAdmissionStoreMock{
+	storeMock := &triggerAdmissionStoreMock{
 		APIStoreMock: &APIStoreMock{},
 		tx:           tx,
-	}}
+	}
+	srv := &Server{store: storeMock}
 	job := &domain.Job{ID: "job-1", ProjectID: "project-1"}
+	quota := &store.ProjectQuota{ProjectID: job.ProjectID, MaxQueuedRuns: 100}
 	called := false
 
-	err := srv.withTriggerLimitGuard(context.Background(), job, nil, func(_ context.Context, gotTx store.DBTX) error {
+	err := srv.withTriggerLimitGuard(context.Background(), job, quota, func(_ context.Context, gotTx store.DBTX) error {
 		called = true
 		require.Same(t, tx, gotTx)
 		return nil
@@ -75,7 +77,55 @@ func TestWithTriggerLimitGuard_SetsStatementTimeout(t *testing.T) {
 
 	require.NoError(t, err)
 	require.True(t, called)
+	require.Equal(t, 1, storeMock.txCalls)
 	require.Contains(t, strings.Join(tx.execSQL, "\n"), "SET LOCAL statement_timeout")
+}
+
+func TestWithTriggerLimitGuard_NoLimitsSkipsTransaction(t *testing.T) {
+	t.Parallel()
+
+	tx := &triggerAdmissionTx{}
+	storeMock := &triggerAdmissionStoreMock{
+		APIStoreMock: &APIStoreMock{},
+		tx:           tx,
+	}
+	srv := &Server{store: storeMock}
+	job := &domain.Job{ID: "job-1", ProjectID: "project-1"}
+	called := false
+
+	err := srv.withTriggerLimitGuard(context.Background(), job, nil, func(_ context.Context, gotTx store.DBTX) error {
+		called = true
+		require.Nil(t, gotTx)
+		return nil
+	})
+
+	require.NoError(t, err)
+	require.True(t, called)
+	require.Zero(t, storeMock.txCalls)
+	require.Empty(t, tx.execSQL)
+	require.Empty(t, tx.queryRowSQL)
+}
+
+func TestTriggerAdmissionNeedsTransaction(t *testing.T) {
+	t.Parallel()
+
+	baseJob := &domain.Job{ID: "job-1", ProjectID: "project-1"}
+
+	require.False(t, triggerAdmissionNeedsTransaction(baseJob, nil))
+	require.False(t, triggerAdmissionNeedsTransaction(baseJob, &store.ProjectQuota{
+		ProjectID:            baseJob.ProjectID,
+		MaxDailyCostMicrousd: 100,
+	}))
+	require.True(t, triggerAdmissionNeedsTransaction(baseJob, &store.ProjectQuota{
+		ProjectID:     baseJob.ProjectID,
+		MaxQueuedRuns: 100,
+	}))
+	require.True(t, triggerAdmissionNeedsTransaction(&domain.Job{
+		ID:                  baseJob.ID,
+		ProjectID:           baseJob.ProjectID,
+		RateLimitMax:        10,
+		RateLimitWindowSecs: int(time.Minute.Seconds()),
+	}, nil))
 }
 
 func TestCheckTriggerLimitsInTx_UsesTransactionalCounts(t *testing.T) {
@@ -254,6 +304,44 @@ func BenchmarkTriggerAdmissionRowLocks(b *testing.B) {
 	}
 }
 
+func BenchmarkWithTriggerLimitGuard(b *testing.B) {
+	job := &domain.Job{ID: "job-1", ProjectID: "project-1"}
+
+	b.Run("no_limits", func(b *testing.B) {
+		srv := &Server{store: &triggerAdmissionStoreMock{
+			APIStoreMock: &APIStoreMock{},
+			tx:           &triggerAdmissionTx{},
+		}}
+
+		b.ReportAllocs()
+		for b.Loop() {
+			if err := srv.withTriggerLimitGuard(context.Background(), job, nil, func(context.Context, store.DBTX) error {
+				return nil
+			}); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+
+	b.Run("queued_quota", func(b *testing.B) {
+		tx := &triggerAdmissionTx{counts: map[string]int{"queued": 0}}
+		srv := &Server{store: &triggerAdmissionStoreMock{
+			APIStoreMock: &APIStoreMock{},
+			tx:           tx,
+		}}
+		quota := &store.ProjectQuota{ProjectID: job.ProjectID, MaxQueuedRuns: 100}
+
+		b.ReportAllocs()
+		for b.Loop() {
+			if err := srv.withTriggerLimitGuard(context.Background(), job, quota, func(context.Context, store.DBTX) error {
+				return nil
+			}); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+}
+
 func FuzzTriggerAdmissionQuotaModel(f *testing.F) {
 	f.Add(0, 1, 1)
 	f.Add(1, 1, 1)
@@ -310,10 +398,12 @@ func (e *triggerPriorityAdmissionEnforcer) CheckMaxDispatchPriority(ctx context.
 
 type triggerAdmissionStoreMock struct {
 	*APIStoreMock
-	tx store.DBTX
+	tx      store.DBTX
+	txCalls int
 }
 
 func (m *triggerAdmissionStoreMock) WithTx(ctx context.Context, fn func(context.Context, store.DBTX) error) error {
+	m.txCalls++
 	return fn(ctx, m.tx)
 }
 

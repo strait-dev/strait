@@ -39,6 +39,9 @@ func (s *Server) withTriggerLimitGuard(ctx context.Context, job *domain.Job, quo
 	if err := s.prepareTriggerQueueRoute(ctx, job); err != nil {
 		return err
 	}
+	if !triggerAdmissionNeedsTransaction(job, quota) {
+		return fn(ctx, nil)
+	}
 	if txer, ok := s.store.(triggerLimitTransactioner); ok {
 		return txer.WithTx(ctx, func(txCtx context.Context, tx store.DBTX) error {
 			if err := setTriggerAdmissionStatementTimeout(txCtx, tx); err != nil {
@@ -57,6 +60,13 @@ func (s *Server) withTriggerLimitGuard(ctx context.Context, job *domain.Job, quo
 		return err
 	}
 	return fn(ctx, nil)
+}
+
+func triggerAdmissionNeedsTransaction(job *domain.Job, quota *store.ProjectQuota) bool {
+	if job != nil && job.RateLimitMax > 0 && job.RateLimitWindowSecs > 0 {
+		return true
+	}
+	return quota != nil && (quota.MaxQueuedRuns > 0 || quota.MaxExecutingRuns > 0)
 }
 
 func setTriggerAdmissionStatementTimeout(ctx context.Context, tx store.DBTX) error {
