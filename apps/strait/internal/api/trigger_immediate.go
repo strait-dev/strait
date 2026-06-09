@@ -202,12 +202,19 @@ func (s *Server) emitImmediateTriggerAudit(
 	s.emitAuditEventAsync(auditContextWithProject(ctx, job.ProjectID), domain.AuditActionJobTriggered, "job", job.ID, details)
 }
 
+type triggerRunResponse struct {
+	ID             string           `json:"id"`
+	Status         domain.RunStatus `json:"status"`
+	PayloadHash    string           `json:"payload_hash"`
+	IdempotencyHit bool             `json:"idempotency_hit"`
+}
+
 func triggerRunOutput(run *domain.JobRun, payloadHash string, idempotencyHit bool) *TriggerJobOutput {
-	return &TriggerJobOutput{Body: map[string]any{
-		"id":              run.ID,
-		"status":          run.Status,
-		"payload_hash":    payloadHash,
-		"idempotency_hit": idempotencyHit,
+	return &TriggerJobOutput{Body: triggerRunResponse{
+		ID:             run.ID,
+		Status:         run.Status,
+		PayloadHash:    payloadHash,
+		IdempotencyHit: idempotencyHit,
 	}}
 }
 

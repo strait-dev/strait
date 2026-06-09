@@ -76,17 +76,17 @@ func TestTriggerDedupOutputReturnsExistingRunShape(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, out)
 
-	body, ok := out.Body.(map[string]any)
+	body, ok := out.Body.(triggerRunResponse)
 	require.True(
 		t, ok)
 	require.Equal(t, "run-existing",
-		body["id"])
+		body.ID)
 	require.Equal(t, domain.StatusExecuting,
 
-		body["status"])
+		body.Status)
 	require.Equal(t, "payload-hash",
-		body["payload_hash"])
-	require.Equal(t, false, body["idempotency_hit"])
+		body.PayloadHash)
+	require.False(t, body.IdempotencyHit)
 }
 
 func TestTriggerDedupOutputMapsLookupError(t *testing.T) {
