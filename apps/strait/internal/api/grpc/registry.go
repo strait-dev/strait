@@ -345,13 +345,7 @@ func (r *ConnectionRegistry) ReserveWorkerForQueue(projectID, queue, environment
 func (r *ConnectionRegistry) pickLocked(projectID, queue, environmentID string) *ConnectedWorker {
 	var best *ConnectedWorker
 	for _, w := range r.workers {
-		if w.ProjectID != projectID || w.Status != "active" || w.SlotsAvailable <= 0 {
-			continue
-		}
-		if w.EnvironmentID != "" && w.EnvironmentID != environmentID {
-			continue
-		}
-		if !workerHasQueue(w, queue) {
+		if !canReserveWorkerForQueue(w, projectID, queue, environmentID) {
 			continue
 		}
 		if best == nil || w.SlotsAvailable > best.SlotsAvailable {
@@ -359,6 +353,14 @@ func (r *ConnectionRegistry) pickLocked(projectID, queue, environmentID string) 
 		}
 	}
 	return best
+}
+
+func canReserveWorkerForQueue(w *ConnectedWorker, projectID, queue, environmentID string) bool {
+	return w.ProjectID == projectID &&
+		w.Status == "active" &&
+		w.SlotsAvailable > 0 &&
+		(w.EnvironmentID == "" || w.EnvironmentID == environmentID) &&
+		workerHasQueue(w, queue)
 }
 
 // IncrementProjectSlots increases a worker's available slots by one (called
