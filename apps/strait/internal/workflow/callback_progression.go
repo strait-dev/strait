@@ -557,7 +557,9 @@ func (s *StepCallback) ApproveStep(ctx context.Context, workflowRunID, stepRef, 
 	recordWorkflowDurableWait(ctx, stepRun.StartedAt, now)
 
 	// Sync parallel event trigger (if exists) — non-fatal.
-	if trigger, getErr := s.store.GetEventTriggerByStepRunID(ctx, stepRun.ID); getErr == nil && trigger != nil && trigger.Status == domain.EventTriggerStatusWaiting {
+	trigger, getErr := s.store.GetEventTriggerByStepRunID(ctx, stepRun.ID)
+	triggerWaiting := getErr == nil && trigger != nil && trigger.Status == domain.EventTriggerStatusWaiting
+	if triggerWaiting {
 		if syncErr := s.store.UpdateEventTriggerStatus(ctx, trigger.ID, domain.EventTriggerStatusReceived, nil, &now, ""); syncErr != nil {
 			s.logger.Warn("failed to sync event trigger for approval (non-fatal)", "step_run_id", stepRun.ID, "error", syncErr)
 		}
