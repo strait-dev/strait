@@ -104,11 +104,8 @@ func TestHandleDeleteWorker_HealthyPublishReturns200(t *testing.T) {
 
 	out, err := srv.handleDeleteWorker(ctx, &DeleteWorkerInput{WorkerID: "worker-1"})
 	require.NoError(t, err)
-	require.False(t, out ==
-		nil || out.
-		Body["status"] !=
-		"disconnected",
-	)
+	require.NotNil(t, out)
+	require.Equal(t, "disconnected", out.Body["status"])
 	require.Equal(t, "worker:disconnect:proj-1:worker-1",
 
 		publishedChannel)
