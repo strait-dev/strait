@@ -140,7 +140,10 @@ func resolveAPIKeyFromContextWithResolver(ctx context.Context, resolver apiKeyRe
 		return nil, status.Error(codes.Unauthenticated, "invalid api key")
 	}
 	apiKey, err := resolver.LookupAPIKeyByHash(ctx, keyHash)
-	if err != nil || apiKey == nil {
+	if err != nil {
+		return nil, status.Error(codes.Unauthenticated, "invalid api key")
+	}
+	if apiKey == nil {
 		return nil, status.Error(codes.Unauthenticated, "invalid api key")
 	}
 
