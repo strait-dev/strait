@@ -37,17 +37,15 @@ func TestQuotaCache_HitAndMiss(t *testing.T) {
 	// First call: miss, loads from DB.
 	got, err := c.Get(ctx, "p1")
 	require.NoError(t, err)
-	require.False(t, got == nil ||
-		got.MaxQueuedRuns !=
-			100)
+	require.NotNil(t, got)
+	require.Equal(t, 100, got.MaxQueuedRuns)
 	require.EqualValues(t, 1, calls.Load())
 
 	// Second call: hit, no DB call.
 	got, err = c.Get(ctx, "p1")
 	require.NoError(t, err)
-	require.False(t, got == nil ||
-		got.MaxQueuedRuns !=
-			100)
+	require.NotNil(t, got)
+	require.Equal(t, 100, got.MaxQueuedRuns)
 	require.EqualValues(t, 1, calls.Load())
 }
 
@@ -155,10 +153,8 @@ func TestQuotaCache_SingleflightDedupes(t *testing.T) {
 
 	for i, err := range errs {
 		require.NoError(t, err)
-		require.False(t, results[i] ==
-			nil || results[i].
-			MaxQueuedRuns !=
-			42)
+		require.NotNil(t, results[i])
+		require.Equal(t, 42, results[i].MaxQueuedRuns)
 	}
 }
 
@@ -232,9 +228,8 @@ func TestQuotaCache_PreservesStoreCacheVersionInRedis(t *testing.T) {
 
 	got, err := c.Get(t.Context(), "project-versioned")
 	require.NoError(t, err)
-	require.False(t, got == nil ||
-		got.CacheVersion !=
-			9)
+	require.NotNil(t, got)
+	require.EqualValues(t, 9, got.CacheVersion)
 
 	raw, err := deps.Redis.Get(t.Context(), "strait:cache:"+quotaCacheNamespace+":project-versioned").Bytes()
 	require.NoError(t, err)
