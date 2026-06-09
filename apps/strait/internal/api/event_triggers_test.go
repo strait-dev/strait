@@ -1267,6 +1267,31 @@ func TestHandleSendEvent_GetTriggerStoreError(t *testing.T) {
 }
 
 // SSE stream: full long-poll lifecycle with mock pubsub.
+func TestEventTriggerStreamStatusCloses(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		status string
+		want   bool
+	}{
+		{name: "empty status", status: "", want: false},
+		{name: "waiting", status: domain.EventTriggerStatusWaiting, want: false},
+		{name: "received", status: domain.EventTriggerStatusReceived, want: true},
+		{name: "timed out", status: domain.EventTriggerStatusTimedOut, want: true},
+		{name: "canceled", status: domain.EventTriggerStatusCanceled, want: true},
+		{name: "unknown non-empty", status: "unknown", want: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			require.Equal(t, tt.want, eventTriggerStreamStatusCloses(tt.status))
+		})
+	}
+}
+
 func TestHandleEventTriggerStream_ReceivesMessage(t *testing.T) {
 	t.Parallel()
 

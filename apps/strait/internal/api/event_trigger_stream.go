@@ -151,7 +151,7 @@ func (s *Server) handleEventTriggerStream(w http.ResponseWriter, r *http.Request
 			flusher.Flush()
 
 			// Close stream when trigger reaches terminal state.
-			if envelope.Status != "" && envelope.Status != domain.EventTriggerStatusWaiting {
+			if eventTriggerStreamStatusCloses(envelope.Status) {
 				return
 			}
 		case <-ticker.C:
@@ -212,6 +212,10 @@ func eventTriggerStreamEnvelopeAllowed(ctx context.Context, trigger *domain.Even
 		return envelope, true
 	}
 	return envelope, true
+}
+
+func eventTriggerStreamStatusCloses(status string) bool {
+	return status != "" && status != domain.EventTriggerStatusWaiting
 }
 
 // publishTriggerStatusChange publishes a status change to the trigger-specific
