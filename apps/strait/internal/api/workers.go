@@ -104,7 +104,13 @@ func workerDisconnectAckChannel(projectID, workerID string) string {
 }
 
 func (s *Server) workerDisconnectAckTimeout() time.Duration {
-	if s != nil && s.config != nil && s.config.WorkerDisconnectAckTimeout > 0 {
+	if s == nil {
+		return workerDisconnectAckTimeout
+	}
+	if s.config == nil {
+		return workerDisconnectAckTimeout
+	}
+	if s.config.WorkerDisconnectAckTimeout > 0 {
 		return s.config.WorkerDisconnectAckTimeout
 	}
 	return workerDisconnectAckTimeout

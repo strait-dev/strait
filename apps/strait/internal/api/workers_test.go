@@ -106,15 +106,9 @@ func TestHandleDeleteWorker_HealthyPublishReturns200(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, out)
 	require.Equal(t, "disconnected", out.Body["status"])
-	require.Equal(t, "worker:disconnect:proj-1:worker-1",
-
-		publishedChannel)
-	require.Equal(t, "worker:disconnect_ack:proj-1:worker-1",
-
-		subscribedChannel)
-	require.Equal(t, "worker-1",
-		publishedData,
-	)
+	require.Equal(t, "worker:disconnect:proj-1:worker-1", publishedChannel)
+	require.Equal(t, "worker:disconnect_ack:proj-1:worker-1", subscribedChannel)
+	require.Equal(t, "worker-1", publishedData)
 }
 
 func TestHandleDeleteWorker_AckTimeoutReturns503(t *testing.T) {
@@ -142,13 +136,9 @@ func TestHandleDeleteWorker_AckTimeoutReturns503(t *testing.T) {
 	)
 
 	var statusErr huma.StatusError
-	require.ErrorAs(
-		t, err, &statusErr)
-	require.Equal(t, 503, statusErr.
-		GetStatus())
-	require.Contains(
-		t, err.
-			Error(), "worker_disconnect_pending")
+	require.ErrorAs(t, err, &statusErr)
+	require.Equal(t, 503, statusErr.GetStatus())
+	require.Contains(t, err.Error(), "worker_disconnect_pending")
 }
 
 func TestHandleDeleteWorker_ClosedAckChannelReturns503(t *testing.T) {
@@ -172,10 +162,8 @@ func TestHandleDeleteWorker_ClosedAckChannelReturns503(t *testing.T) {
 	require.Nil(t, out)
 
 	var statusErr huma.StatusError
-	require.ErrorAs(
-		t, err, &statusErr)
-	require.Equal(t, 503, statusErr.
-		GetStatus())
+	require.ErrorAs(t, err, &statusErr)
+	require.Equal(t, 503, statusErr.GetStatus())
 }
 
 func TestHandleDeleteWorker_MismatchedAckReturns503(t *testing.T) {
