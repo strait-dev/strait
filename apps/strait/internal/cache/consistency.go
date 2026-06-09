@@ -67,7 +67,7 @@ func (t *Tier[K, V]) WriteThrough(
 	if err != nil || !ok {
 		return ok, err
 	}
-	if bus != nil && namespace != "" && busKey != "" {
+	if cacheBusPublishConfigured(bus, namespace, busKey) {
 		entry := cacheEntry[V]{Version: version, Value: t.sanitize(value)}
 		if t.negEnabled && t.isNegative(value) {
 			entry.Negative = true
@@ -95,10 +95,20 @@ func (t *Tier[K, V]) InvalidateThrough(
 		return nil
 	}
 	t.applyBarrier(ctx, key, version)
-	if bus != nil && namespace != "" && busKey != "" {
+	if cacheBusPublishConfigured(bus, namespace, busKey) {
 		return bus.PublishInvalidate(ctx, namespace, busKey, version)
 	}
 	return nil
+}
+
+func cacheBusPublishConfigured(bus *Bus, namespace, busKey string) bool {
+	if bus == nil {
+		return false
+	}
+	if namespace == "" {
+		return false
+	}
+	return busKey != ""
 }
 
 func (t *Tier[K, V]) StrongWriteThrough(

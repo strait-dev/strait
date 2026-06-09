@@ -134,6 +134,71 @@ func TestStrictConsistency_WriteThroughCASAndPublishesUpdate(t *testing.T) {
 	}
 }
 
+func TestStrictConsistency_CacheBusPublishConfigured(t *testing.T) {
+	t.Parallel()
+
+	bus := NewBus(newMemoryBusPublisher(), BusConfig{Origin: "node-a"})
+	require.False(t, cacheBusPublishConfigured(nil, "ns", "key"))
+	require.False(t, cacheBusPublishConfigured(bus, "", "key"))
+	require.False(t, cacheBusPublishConfigured(bus, "ns", ""))
+	require.True(t, cacheBusPublishConfigured(bus, "ns", "key"))
+}
+
+func TestStrictConsistency_WriteThroughSkipsPublishWithoutBusMetadata(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		namespace string
+		busKey    string
+	}{
+		{
+			name:      "empty namespace",
+			namespace: "",
+			busKey:    "k",
+		},
+		{
+			name:      "empty bus key",
+			namespace: "ns",
+			busKey:    "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			publisher := newMemoryBusPublisher()
+			bus := NewBus(publisher, BusConfig{Origin: "node-a"})
+			sub, err := publisher.Subscribe(t.Context(), bus.Channel())
+			require.NoError(t, err)
+			defer sub.Close()
+
+			tier := NewTier[string, string](TierConfig[string, string]{
+				Name:        "write_through_no_bus_metadata",
+				L2:          newFakeL2[string, string](),
+				MaximumSize: 10,
+				TTL:         time.Minute,
+			})
+			defer tier.Close()
+
+			ok, err := tier.WriteThrough(t.Context(), "k", "value", 4, bus, tt.namespace, tt.busKey)
+			require.NoError(t, err)
+			require.True(t, ok)
+
+			got, ok := tier.GetIfPresent("k")
+			require.True(t, ok)
+			require.Equal(t, "value", got)
+
+			select {
+			case data := <-sub.Ch:
+				require.Failf(t, "unexpected cachebus publish", "data=%s", string(data))
+			default:
+			}
+		})
+	}
+}
+
 func TestStrictConsistency_ConcurrentVersionedLoadsCoalesce(t *testing.T) {
 	t.Parallel()
 
