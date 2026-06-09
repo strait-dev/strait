@@ -395,6 +395,54 @@ func TestTaskResultHelpers_InvalidSuccessOutputBecomesFailure(t *testing.T) {
 	require.Nil(t, TaskResultOutput(result))
 }
 
+func TestTaskResultOutputInvalid(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		status string
+		output []byte
+		want   bool
+	}{
+		{name: "success invalid json", status: "success", output: []byte(`{"ok":`), want: true},
+		{name: "completed invalid json", status: "completed", output: []byte(`{"ok":`), want: true},
+		{name: "failed invalid json", status: "failed", output: []byte(`{"ok":`), want: false},
+		{name: "success empty output", status: "success", output: nil, want: false},
+		{name: "success valid json", status: "success", output: []byte(`{"ok":true}`), want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, tt.want, taskResultOutputInvalid(tt.status, tt.output))
+		})
+	}
+}
+
+func TestTaskResultStatusRequiresJSONOutput(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		status string
+		want   bool
+	}{
+		{name: "success", status: "success", want: true},
+		{name: "completed", status: "completed", want: true},
+		{name: "failed", status: "failed", want: false},
+		{name: "empty", status: "", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, tt.want, taskResultStatusRequiresJSONOutput(tt.status))
+		})
+	}
+}
+
 func TestTaskResultHelpers_UnwrapWorkerTaskResult(t *testing.T) {
 	wrapped := &WorkerTaskResult{
 		TaskID: "task-1",

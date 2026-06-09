@@ -622,7 +622,16 @@ func TaskResultOutput(opaque any) json.RawMessage {
 }
 
 func taskResultOutputInvalid(status string, output []byte) bool {
-	return (status == "success" || status == "completed") && len(output) > 0 && !json.Valid(output)
+	return taskResultStatusRequiresJSONOutput(status) && len(output) > 0 && !json.Valid(output)
+}
+
+func taskResultStatusRequiresJSONOutput(status string) bool {
+	switch status {
+	case "success", "completed":
+		return true
+	default:
+		return false
+	}
 }
 
 func unwrapTaskResult(opaque any) (*workerv1.TaskResult, bool) {
