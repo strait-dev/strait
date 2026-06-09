@@ -116,12 +116,9 @@ func TestCacheInvalidationHandler_PublishesTargetedInvalidations(t *testing.T) {
 		require.NoError(t, json.Unmarshal(publisher.
 			calls[len(publisher.calls)-1].data,
 			&busMsg))
-		require.False(t, busMsg.Action !=
-			straitcache.
-				BusActionInvalidate || busMsg.Namespace !=
-			tc.namespace ||
-			busMsg.
-				Key != tc.key)
+		require.Equal(t, straitcache.BusActionInvalidate, busMsg.Action)
+		require.Equal(t, tc.namespace, busMsg.Namespace)
+		require.Equal(t, tc.key, busMsg.Key)
 	}
 }
 
