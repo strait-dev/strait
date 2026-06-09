@@ -746,35 +746,35 @@ func (s *Server) requestLogger(next http.Handler) http.Handler {
 			return
 		}
 
-		attrs := []any{
-			"method", r.Method,
-			"path", r.URL.Path,
-			"status", ww.Status(),
-			"duration_ms", time.Since(start).Milliseconds(),
-			"bytes", ww.BytesWritten(),
-			"remote_addr", r.RemoteAddr,
-			"user_agent", r.UserAgent(),
-			"request_id", requestID,
+		attrs := []slog.Attr{
+			slog.String("method", r.Method),
+			slog.String("path", r.URL.Path),
+			slog.Int("status", ww.Status()),
+			slog.Int64("duration_ms", time.Since(start).Milliseconds()),
+			slog.Int("bytes", ww.BytesWritten()),
+			slog.String("remote_addr", r.RemoteAddr),
+			slog.String("user_agent", r.UserAgent()),
+			slog.String("request_id", requestID),
 		}
 
 		// Include sanitized query parameters (omit auth-related keys).
 		if rawQuery := r.URL.RawQuery; rawQuery != "" {
-			attrs = append(attrs, "query", sanitizeQuery(r.URL.Query()))
+			attrs = append(attrs, slog.Any("query", sanitizeQuery(r.URL.Query())))
 		}
 
 		// Include Content-Length when present (useful for POST/PUT sizing).
 		if r.ContentLength > 0 {
-			attrs = append(attrs, "content_length", r.ContentLength)
+			attrs = append(attrs, slog.Int64("content_length", r.ContentLength))
 		}
 
 		// Log at appropriate level based on status code.
 		switch {
 		case status >= 500:
-			slog.Error("request", attrs...)
+			slog.LogAttrs(r.Context(), slog.LevelError, "request", attrs...)
 		case status >= 400:
-			slog.Warn("request", attrs...)
+			slog.LogAttrs(r.Context(), slog.LevelWarn, "request", attrs...)
 		default:
-			slog.Info("request", attrs...)
+			slog.LogAttrs(r.Context(), slog.LevelInfo, "request", attrs...)
 		}
 	})
 }
