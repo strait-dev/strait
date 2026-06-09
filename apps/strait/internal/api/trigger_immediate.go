@@ -188,18 +188,34 @@ func (s *Server) emitImmediateTriggerAudit(
 	idempotencyKey string,
 	waitingRun bool,
 ) {
+	details := immediateTriggerAuditDetails(run, scheduledAt, idempotencyKey, waitingRun)
+	s.emitAuditEventAsync(auditContextWithProject(ctx, job.ProjectID), domain.AuditActionJobTriggered, "job", job.ID, details)
+}
+
+func immediateTriggerAuditDetails(
+	run *domain.JobRun,
+	scheduledAt *time.Time,
+	idempotencyKey string,
+	waitingRun bool,
+) map[string]any {
 	details := map[string]any{
-		"run_id":               run.ID,
-		"scheduled_at":         scheduledAt,
-		"priority":             run.Priority,
-		"idempotency_key_hash": hashIdempotencyKey(idempotencyKey),
-		"tag_keys":             tagKeys(run.Tags),
-		"triggered_by":         run.TriggeredBy,
+		"run_id":       run.ID,
+		"priority":     run.Priority,
+		"triggered_by": run.TriggeredBy,
+	}
+	if scheduledAt != nil {
+		details["scheduled_at"] = scheduledAt
+	}
+	if idempotencyKeyHash := hashIdempotencyKey(idempotencyKey); idempotencyKeyHash != "" {
+		details["idempotency_key_hash"] = idempotencyKeyHash
+	}
+	if keys := tagKeys(run.Tags); len(keys) > 0 {
+		details["tag_keys"] = keys
 	}
 	if waitingRun {
 		details["waiting"] = true
 	}
-	s.emitAuditEventAsync(auditContextWithProject(ctx, job.ProjectID), domain.AuditActionJobTriggered, "job", job.ID, details)
+	return details
 }
 
 type triggerRunResponse struct {

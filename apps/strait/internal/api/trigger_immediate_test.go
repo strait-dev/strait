@@ -141,6 +141,42 @@ func TestExtractDependencyKey(t *testing.T) {
 	}
 }
 
+func TestImmediateTriggerAuditDetailsOmitsEmptyOptionalFields(t *testing.T) {
+	t.Parallel()
+
+	details := immediateTriggerAuditDetails(&domain.JobRun{
+		ID:          "run-1",
+		Priority:    0,
+		TriggeredBy: domain.TriggerManual,
+	}, nil, "", false)
+
+	require.Equal(t, "run-1", details["run_id"])
+	require.Equal(t, domain.TriggerManual, details["triggered_by"])
+	require.NotContains(t, details, "scheduled_at")
+	require.NotContains(t, details, "idempotency_key_hash")
+	require.NotContains(t, details, "tag_keys")
+	require.NotContains(t, details, "waiting")
+}
+
+func TestImmediateTriggerAuditDetailsIncludesOperationalFields(t *testing.T) {
+	t.Parallel()
+
+	scheduledAt := time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
+	details := immediateTriggerAuditDetails(&domain.JobRun{
+		ID:          "run-1",
+		Priority:    5,
+		Tags:        map[string]string{"team": "platform", "env": "prod"},
+		TriggeredBy: domain.TriggerManual,
+	}, &scheduledAt, "idem-123", true)
+
+	require.Equal(t, "run-1", details["run_id"])
+	require.Equal(t, &scheduledAt, details["scheduled_at"])
+	require.Equal(t, 5, details["priority"])
+	require.Equal(t, "f6fdb32bfd0ba473", details["idempotency_key_hash"])
+	require.Equal(t, []string{"env", "team"}, details["tag_keys"])
+	require.Equal(t, true, details["waiting"])
+}
+
 func TestTriggerDependenciesSatisfiedSkipsSatisfactionCheckWhenNoDependencies(t *testing.T) {
 	t.Parallel()
 
