@@ -223,6 +223,47 @@ func TestPermissionCache_ProjectInvalidationClearsRedisL2(t *testing.T) {
 		Exists(t.Context(), indexKey).Val())
 }
 
+func TestPermissionCache_ProjectKeyIndexGuards(t *testing.T) {
+	t.Parallel()
+
+	c := &permissionCache{
+		byProject: make(map[string]map[string]struct{}),
+	}
+
+	assert.False(t, c.canIndexProjectKey("", "key"))
+	assert.False(t, c.canIndexProjectKey("proj", ""))
+	assert.True(t, c.canIndexProjectKey("proj", "key"))
+	assert.False(t, c.canIndexRedisProject("proj"))
+	assert.False(t, c.canIndexRedisProjectKey("proj", "key"))
+
+	var nilCache *permissionCache
+	assert.False(t, nilCache.canIndexProjectKey("proj", "key"))
+	assert.False(t, nilCache.canIndexRedisProject("proj"))
+	assert.False(t, nilCache.canIndexRedisProjectKey("proj", "key"))
+}
+
+func TestPermissionCache_ProjectKeyTrackingSkipsInvalidKeys(t *testing.T) {
+	t.Parallel()
+
+	c := &permissionCache{
+		byProject: make(map[string]map[string]struct{}),
+	}
+
+	c.trackProjectKey(t.Context(), "", "key")
+	c.trackProjectKey(t.Context(), "proj", "")
+	require.Empty(t, c.projectKeys("proj"))
+
+	c.trackProjectKey(t.Context(), "proj", "key")
+	require.Equal(t, []string{"key"}, c.projectKeys("proj"))
+
+	c.untrackProjectKey(t.Context(), "", "key")
+	c.untrackProjectKey(t.Context(), "proj", "")
+	require.Equal(t, []string{"key"}, c.projectKeys("proj"))
+
+	c.untrackProjectKey(t.Context(), "proj", "key")
+	require.Empty(t, c.projectKeys("proj"))
+}
+
 func TestPermissionCache_IsolatesProjects(t *testing.T) {
 	t.Parallel()
 

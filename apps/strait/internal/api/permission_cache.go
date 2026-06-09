@@ -208,7 +208,10 @@ func (c *permissionCache) InvalidateWithVersionContext(ctx context.Context, proj
 }
 
 func (c *permissionCache) InvalidateProject(ctx context.Context, projectID string, version int64) {
-	if !c.cacheEnabled() || projectID == "" {
+	if !c.cacheEnabled() {
+		return
+	}
+	if projectID == "" {
 		return
 	}
 	if ctx == nil {
@@ -230,7 +233,7 @@ func (c *permissionCache) invalidateProjectLocal(ctx context.Context, projectID 
 }
 
 func (c *permissionCache) trackProjectKey(ctx context.Context, projectID, key string) {
-	if c == nil || projectID == "" || key == "" {
+	if !c.canIndexProjectKey(projectID, key) {
 		return
 	}
 	c.mu.Lock()
@@ -246,7 +249,7 @@ func (c *permissionCache) trackProjectKey(ctx context.Context, projectID, key st
 }
 
 func (c *permissionCache) untrackProjectKey(ctx context.Context, projectID, key string) {
-	if c == nil || projectID == "" || key == "" {
+	if !c.canIndexProjectKey(projectID, key) {
 		return
 	}
 	c.mu.Lock()
@@ -282,7 +285,7 @@ func (c *permissionCache) projectKeys(projectID string) []string {
 }
 
 func (c *permissionCache) deleteRedisProjectKeys(ctx context.Context, projectID string) {
-	if c == nil || !redisCmdableReady(c.redis) || projectID == "" {
+	if !c.canIndexRedisProject(projectID) {
 		return
 	}
 	indexKey := c.redisProjectIndexKey(projectID)
@@ -303,17 +306,44 @@ func (c *permissionCache) deleteRedisProjectKeys(ctx context.Context, projectID 
 }
 
 func (c *permissionCache) addRedisProjectKey(ctx context.Context, projectID, key string) {
-	if c == nil || !redisCmdableReady(c.redis) || projectID == "" || key == "" {
+	if !c.canIndexRedisProjectKey(projectID, key) {
 		return
 	}
 	_ = c.redis.SAdd(ctx, c.redisProjectIndexKey(projectID), key).Err()
 }
 
 func (c *permissionCache) removeRedisProjectKey(ctx context.Context, projectID, key string) {
-	if c == nil || !redisCmdableReady(c.redis) || projectID == "" || key == "" {
+	if !c.canIndexRedisProjectKey(projectID, key) {
 		return
 	}
 	_ = c.redis.SRem(ctx, c.redisProjectIndexKey(projectID), key).Err()
+}
+
+func (c *permissionCache) canIndexProjectKey(projectID, key string) bool {
+	if c == nil {
+		return false
+	}
+	if projectID == "" {
+		return false
+	}
+	return key != ""
+}
+
+func (c *permissionCache) canIndexRedisProject(projectID string) bool {
+	if c == nil {
+		return false
+	}
+	if projectID == "" {
+		return false
+	}
+	return redisCmdableReady(c.redis)
+}
+
+func (c *permissionCache) canIndexRedisProjectKey(projectID, key string) bool {
+	if !c.canIndexRedisProject(projectID) {
+		return false
+	}
+	return key != ""
 }
 
 func (c *permissionCache) redisProjectIndexKey(projectID string) string {
