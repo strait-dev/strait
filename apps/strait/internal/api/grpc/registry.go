@@ -96,10 +96,10 @@ func workerRegistryKey(projectID, workerID string) string {
 func (r *ConnectionRegistry) ReservePendingStream(projectID, apiKeyID string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.maxStreamsPerProject > 0 && r.countProjectLocked(projectID)+r.pendingByProject[projectID] >= r.maxStreamsPerProject {
+	if r.projectStreamQuotaReachedLocked(projectID, r.pendingByProject[projectID]) {
 		return fmt.Errorf("%w: project %s has reached %d active streams", ErrWorkerStreamQuotaExceeded, projectID, r.maxStreamsPerProject)
 	}
-	if apiKeyID != "" && r.maxStreamsPerAPIKey > 0 && len(r.byAPIKey[apiKeyID])+r.pendingByAPIKey[apiKeyID] >= r.maxStreamsPerAPIKey {
+	if r.apiKeyStreamQuotaReachedLocked(apiKeyID, r.pendingByAPIKey[apiKeyID]) {
 		return fmt.Errorf("%w: api key %s has reached %d active streams", ErrWorkerStreamQuotaExceeded, apiKeyID, r.maxStreamsPerAPIKey)
 	}
 	r.pendingByProject[projectID]++
@@ -171,10 +171,10 @@ func (r *ConnectionRegistry) Register(w *ConnectedWorker) error {
 			}
 		}
 	}
-	if r.maxStreamsPerProject > 0 && r.countProjectLocked(w.ProjectID) >= r.maxStreamsPerProject {
+	if r.projectStreamQuotaReachedLocked(w.ProjectID, 0) {
 		return fmt.Errorf("%w: project %s has reached %d active streams", ErrWorkerStreamQuotaExceeded, w.ProjectID, r.maxStreamsPerProject)
 	}
-	if w.APIKeyID != "" && r.maxStreamsPerAPIKey > 0 && len(r.byAPIKey[w.APIKeyID]) >= r.maxStreamsPerAPIKey {
+	if r.apiKeyStreamQuotaReachedLocked(w.APIKeyID, 0) {
 		return fmt.Errorf("%w: api key %s has reached %d active streams", ErrWorkerStreamQuotaExceeded, w.APIKeyID, r.maxStreamsPerAPIKey)
 	}
 	w.regToken = r.nextToken.Add(1)
@@ -183,6 +183,14 @@ func (r *ConnectionRegistry) Register(w *ConnectedWorker) error {
 		r.byAPIKey[w.APIKeyID] = append(r.byAPIKey[w.APIKeyID], w)
 	}
 	return nil
+}
+
+func (r *ConnectionRegistry) projectStreamQuotaReachedLocked(projectID string, pending int) bool {
+	return r.maxStreamsPerProject > 0 && r.countProjectLocked(projectID)+pending >= r.maxStreamsPerProject
+}
+
+func (r *ConnectionRegistry) apiKeyStreamQuotaReachedLocked(apiKeyID string, pending int) bool {
+	return apiKeyID != "" && r.maxStreamsPerAPIKey > 0 && len(r.byAPIKey[apiKeyID])+pending >= r.maxStreamsPerAPIKey
 }
 
 func (r *ConnectionRegistry) countProjectLocked(projectID string) int {
