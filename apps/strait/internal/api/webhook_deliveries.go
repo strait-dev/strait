@@ -148,7 +148,7 @@ func (s *Server) handleRetryWebhookDelivery(ctx context.Context, input *RetryWeb
 	if err := s.verifyDeliveryProjectAccess(ctx, d); err != nil {
 		return nil, huma.Error404NotFound("delivery not found")
 	}
-	if d.Status != domain.WebhookStatusFailed && d.Status != domain.WebhookStatusDead {
+	if !isRetriableWebhookDeliveryStatus(d.Status) {
 		return nil, huma.Error409Conflict("only failed or dead deliveries can be retried")
 	}
 	retried, err := s.store.RetryWebhookDelivery(ctx, deliveryID)
@@ -187,6 +187,15 @@ func sanitizeWebhookDeliveryResponsePtr(delivery *domain.WebhookDelivery) *domai
 func sanitizeWebhookDeliveryResponse(delivery domain.WebhookDelivery) domain.WebhookDelivery {
 	delivery.WebhookURL = httputil.RedactURLForLog(delivery.WebhookURL)
 	return delivery
+}
+
+func isRetriableWebhookDeliveryStatus(status string) bool {
+	switch status {
+	case domain.WebhookStatusFailed, domain.WebhookStatusDead:
+		return true
+	default:
+		return false
+	}
 }
 
 // verifyDeliveryProjectAccess checks that the webhook delivery belongs to the
