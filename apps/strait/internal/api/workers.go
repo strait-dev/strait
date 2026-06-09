@@ -75,13 +75,9 @@ func (s *Server) handleGetWorker(ctx context.Context, input *GetWorkerInput) (*G
 		return nil, huma.Error400BadRequest("project_id is required")
 	}
 
-	worker, err := s.store.GetWorker(ctx, input.WorkerID, projectID)
+	worker, err := s.getProjectWorker(ctx, input.WorkerID, projectID)
 	if err != nil {
-		// Return 404 regardless of the error to avoid existence leak across projects.
-		return nil, huma.Error404NotFound("worker not found")
-	}
-	if worker == nil {
-		return nil, huma.Error404NotFound("worker not found")
+		return nil, err
 	}
 
 	return &GetWorkerOutput{Body: worker}, nil
@@ -122,6 +118,18 @@ func retryAfterSeconds(d time.Duration) string {
 	return strconv.Itoa(max(seconds, 1))
 }
 
+func (s *Server) getProjectWorker(ctx context.Context, workerID, projectID string) (*domain.Worker, error) {
+	worker, err := s.store.GetWorker(ctx, workerID, projectID)
+	if err != nil {
+		// Return 404 regardless of the error to avoid existence leak across projects.
+		return nil, huma.Error404NotFound("worker not found")
+	}
+	if worker == nil {
+		return nil, huma.Error404NotFound("worker not found")
+	}
+	return worker, nil
+}
+
 func (s *Server) handleDeleteWorker(ctx context.Context, input *DeleteWorkerInput) (*DeleteWorkerOutput, error) {
 	projectID := projectIDFromContext(ctx)
 	if projectID == "" {
@@ -129,9 +137,9 @@ func (s *Server) handleDeleteWorker(ctx context.Context, input *DeleteWorkerInpu
 	}
 
 	// Verify the worker exists and belongs to this project (404 to avoid existence leak).
-	worker, err := s.store.GetWorker(ctx, input.WorkerID, projectID)
-	if err != nil || worker == nil {
-		return nil, huma.Error404NotFound("worker not found")
+	_, err := s.getProjectWorker(ctx, input.WorkerID, projectID)
+	if err != nil {
+		return nil, err
 	}
 
 	// Publish disconnect signal to the owning replica's subscriber.
@@ -235,9 +243,9 @@ func (s *Server) handleListWorkerTasks(ctx context.Context, input *ListWorkerTas
 	}
 
 	// Confirm worker belongs to this project before exposing tasks.
-	worker, err := s.store.GetWorker(ctx, input.WorkerID, projectID)
-	if err != nil || worker == nil {
-		return nil, huma.Error404NotFound("worker not found")
+	_, err := s.getProjectWorker(ctx, input.WorkerID, projectID)
+	if err != nil {
+		return nil, err
 	}
 
 	limit, offset, err := parseSimplePagination(input.Limit, input.Offset)
