@@ -1482,7 +1482,7 @@ func (s *Server) resolveRateLimit(ctx context.Context, r *http.Request, projectI
 
 	// 1. Try API key-level rate limit (from context, no DB hit).
 	if apiKeyID != "" {
-		if apiKey, ok := ctx.Value(ctxAuthKeyObjKey).(*domain.APIKey); ok && apiKey != nil && apiKey.RateLimitRequests > 0 && apiKey.RateLimitWindowSecs > 0 {
+		if apiKey, ok := ctx.Value(ctxAuthKeyObjKey).(*domain.APIKey); ok && apiKeyHasRateLimit(apiKey) {
 			return capResolvedRateLimit(
 				resolvedRateLimit{limit: apiKey.RateLimitRequests, windowSecs: apiKey.RateLimitWindowSecs, key: "rl:apikey:" + apiKeyID},
 				planLimit,
@@ -1493,7 +1493,7 @@ func (s *Server) resolveRateLimit(ctx context.Context, r *http.Request, projectI
 	// 2. Fall back to project quota rate limit.
 	if projectID != "" && s.quotaCache != nil {
 		quota, err := s.quotaCache.Get(ctx, projectID)
-		if err == nil && quota != nil && quota.RateLimitRequests > 0 && quota.RateLimitWindowSecs > 0 {
+		if err == nil && projectQuotaHasRateLimit(quota) {
 			return capResolvedRateLimit(
 				resolvedRateLimit{limit: quota.RateLimitRequests, windowSecs: quota.RateLimitWindowSecs, key: "rl:project:" + projectID},
 				planLimit,
@@ -1528,8 +1528,16 @@ func (s *Server) resolveRateLimit(ctx context.Context, r *http.Request, projectI
 	return resolvedRateLimit{}
 }
 
+func apiKeyHasRateLimit(apiKey *domain.APIKey) bool {
+	return apiKey != nil && apiKey.RateLimitRequests > 0 && apiKey.RateLimitWindowSecs > 0
+}
+
+func projectQuotaHasRateLimit(quota *store.ProjectQuota) bool {
+	return quota != nil && quota.RateLimitRequests > 0 && quota.RateLimitWindowSecs > 0
+}
+
 func capResolvedRateLimit(rl resolvedRateLimit, planLimitPerMinute int) resolvedRateLimit {
-	if planLimitPerMinute <= 0 || rl.limit <= 0 || rl.windowSecs <= 0 {
+	if !canCapResolvedRateLimit(rl, planLimitPerMinute) {
 		return rl
 	}
 	planLimitForWindow := planLimitPerMinute * rl.windowSecs / 60
@@ -1540,6 +1548,10 @@ func capResolvedRateLimit(rl resolvedRateLimit, planLimitPerMinute int) resolved
 		rl.limit = planLimitForWindow
 	}
 	return rl
+}
+
+func canCapResolvedRateLimit(rl resolvedRateLimit, planLimitPerMinute int) bool {
+	return planLimitPerMinute > 0 && rl.limit > 0 && rl.windowSecs > 0
 }
 
 // auditVerifyRateLimit enforces a per-project rate limit on the audit chain
