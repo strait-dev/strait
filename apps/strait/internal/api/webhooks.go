@@ -146,7 +146,13 @@ func (s *Server) handleReplayWebhookDelivery(ctx context.Context, input *ReplayW
 	}
 	if original.JobID != "" {
 		job, jobErr := s.store.GetJob(ctx, original.JobID)
-		if jobErr != nil || job == nil || job.ProjectID != projectIDFromContext(ctx) {
+		if jobErr != nil {
+			return nil, huma.Error404NotFound("webhook delivery not found")
+		}
+		if job == nil {
+			return nil, huma.Error404NotFound("webhook delivery not found")
+		}
+		if job.ProjectID != projectIDFromContext(ctx) {
 			return nil, huma.Error404NotFound("webhook delivery not found")
 		}
 		if err := requireEnvironmentMatch(ctx, job.EnvironmentID); err != nil {
