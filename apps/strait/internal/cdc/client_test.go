@@ -6,7 +6,6 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -123,9 +122,8 @@ func TestClientReceiveServerError(t *testing.T) {
 	client := NewClient(ts.URL, "consumer-err", "token-err")
 	_, err := client.Receive(context.Background(), 1, 1)
 	require.Error(t, err)
-	assert.False(t, !strings.Contains(err.Error(), "status 500") || !strings.Contains(err.
-		Error(), "boom",
-	))
+	assert.Contains(t, err.Error(), "status 500")
+	assert.Contains(t, err.Error(), "boom")
 }
 
 func TestClientReceiveInvalidJSON(t *testing.T) {
@@ -236,7 +234,8 @@ func TestClientAckSuccess(t *testing.T) {
 		assert.NoError(t, json.NewDecoder(r.Body).Decode(&reqBody))
 
 		ackIDs, ok := reqBody["ack_ids"].([]any)
-		assert.False(t, !ok || len(ackIDs) != 2)
+		require.True(t, ok)
+		require.Len(t, ackIDs, 2)
 
 		w.WriteHeader(http.StatusOK)
 	}))
