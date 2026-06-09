@@ -74,17 +74,45 @@ const apiVersion = "v1"
 func requireJSONAccept(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		accept := r.Header.Get("Accept")
-		if accept != "" && accept != "*/*" {
-			ok := false
-			for part := range strings.SplitSeq(accept, ",") {
-				mt := strings.TrimSpace(strings.SplitN(part, ";", 2)[0])
-				if mt == "application/json" || mt == "application/*" || mt == "application/x-ndjson" || mt == "text/csv" || mt == "*/*" {
-					ok = true
-					break
-				}
-			}
-			if !ok {
-				respondError(w, r, http.StatusNotAcceptable, "this API only serves application/json")
+		if !acceptsAPIResponseMediaType(accept) {
+			respondError(w, r, http.StatusNotAcceptable, "this API only serves application/json")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func acceptsAPIResponseMediaType(accept string) bool {
+	if accept == "" || accept == "*/*" {
+		return true
+	}
+	for part := range strings.SplitSeq(accept, ",") {
+		mt := strings.TrimSpace(strings.SplitN(part, ";", 2)[0])
+		if isAPIResponseMediaType(mt) {
+			return true
+		}
+	}
+	return false
+}
+
+func isAPIResponseMediaType(mt string) bool {
+	switch mt {
+	case "application/json", "application/*", "application/x-ndjson", "text/csv", "*/*":
+		return true
+	default:
+		return false
+	}
+}
+
+// requireJSONContentType returns 415 Unsupported Media Type if a mutation
+// request (POST/PUT/PATCH) has a body but the Content-Type is not application/json.
+func requireJSONContentType(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if requiresJSONContentType(r) {
+			ct := r.Header.Get("Content-Type")
+			mt := strings.TrimSpace(strings.SplitN(ct, ";", 2)[0])
+			if mt != "application/json" {
+				respondError(w, r, http.StatusUnsupportedMediaType, "Content-Type must be application/json")
 				return
 			}
 		}
@@ -92,22 +120,20 @@ func requireJSONAccept(next http.Handler) http.Handler {
 	})
 }
 
-// requireJSONContentType returns 415 Unsupported Media Type if a mutation
-// request (POST/PUT/PATCH) has a body but the Content-Type is not application/json.
-func requireJSONContentType(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodPost || r.Method == http.MethodPut || r.Method == http.MethodPatch {
-			if r.ContentLength > 0 || r.Header.Get("Content-Type") != "" {
-				ct := r.Header.Get("Content-Type")
-				mt := strings.TrimSpace(strings.SplitN(ct, ";", 2)[0])
-				if mt != "application/json" {
-					respondError(w, r, http.StatusUnsupportedMediaType, "Content-Type must be application/json")
-					return
-				}
-			}
-		}
-		next.ServeHTTP(w, r)
-	})
+func requiresJSONContentType(r *http.Request) bool {
+	if !isMutationMethod(r.Method) {
+		return false
+	}
+	return r.ContentLength > 0 || r.Header.Get("Content-Type") != ""
+}
+
+func isMutationMethod(method string) bool {
+	switch method {
+	case http.MethodPost, http.MethodPut, http.MethodPatch:
+		return true
+	default:
+		return false
+	}
 }
 
 // realIP extracts the client IP for rate-limit / lockout accounting.
