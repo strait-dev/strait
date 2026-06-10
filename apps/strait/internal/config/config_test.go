@@ -74,7 +74,7 @@ func TestLoad_Defaults(t *testing.T) {
 		{"TriggerRateLimitWindow", cfg.TriggerRateLimitWindow, time.Minute},
 		{"BackpressureEnabled", cfg.BackpressureEnabled, true},
 		{"BackpressureDefaultMaxTokens", cfg.BackpressureDefaultMaxTokens, 1000},
-		{"BackpressureDefaultRefillPerSec", cfg.BackpressureDefaultRefillPerSec, 100},
+		{"BackpressureDefaultRefillPerSec", cfg.BackpressureDefaultRefillPerSec, 500},
 		{"BackpressureLocalLeaseSize", cfg.BackpressureLocalLeaseSize, 32},
 		{"BackpressureSamplerInterval", cfg.BackpressureSamplerInterval, 15 * time.Second},
 		{"BackpressureSamplerN", cfg.BackpressureSamplerN, 100},

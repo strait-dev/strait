@@ -169,7 +169,7 @@ type Config struct {
 
 	// BackpressureDefaultRefillPerSec controls the steady-state accepted enqueue
 	// rate per project for projects without an explicit project_rate_limits row.
-	BackpressureDefaultRefillPerSec int `env:"BACKPRESSURE_DEFAULT_REFILL_PER_SEC" default:"100"`
+	BackpressureDefaultRefillPerSec int `env:"BACKPRESSURE_DEFAULT_REFILL_PER_SEC" default:"500"`
 
 	// BackpressureLocalLeaseSize controls how many DB-backed project tokens a
 	// process reserves at once before serving single-run admissions from memory.
