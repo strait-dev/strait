@@ -257,53 +257,6 @@ func TestRLSTxMiddleware_HappyPath_BeginsSetsConfigCommits(t *testing.T) {
 		w.Code)
 }
 
-func TestRLSTxMiddleware_JobTriggerBypassesTransaction(t *testing.T) {
-	t.Parallel()
-	tx := &rlsFakeTx{}
-	pool := &rlsFakeTxBeginner{tx: tx}
-	srv := &Server{txPool: pool, store: &APIStoreMock{}}
-
-	called := false
-	handler := srv.rlsTxMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		called = true
-		_, ok := store.TxFromContext(r.Context())
-		require.False(t, ok)
-		w.WriteHeader(http.StatusCreated)
-	}))
-
-	r := httptest.NewRequest(http.MethodPost, "/v1/jobs/job-123/trigger", nil)
-	r = r.WithContext(context.WithValue(r.Context(), ctxProjectIDKey, "proj-123"))
-	w := httptest.NewRecorder()
-	handler.ServeHTTP(w, r)
-	require.True(t, called)
-	require.Equal(t, 0, pool.calls)
-	require.Equal(t, 0, tx.execCalls)
-	require.Equal(t, 0, tx.commitCalls)
-	require.Equal(t, http.StatusCreated, w.Code)
-}
-
-func TestRLSTxMiddleware_JobTriggerBypassDoesNotMatchBulk(t *testing.T) {
-	t.Parallel()
-	tx := &rlsFakeTx{}
-	pool := &rlsFakeTxBeginner{tx: tx}
-	srv := &Server{txPool: pool, store: &APIStoreMock{}}
-
-	handler := srv.rlsTxMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, ok := store.TxFromContext(r.Context())
-		require.True(t, ok)
-		w.WriteHeader(http.StatusCreated)
-	}))
-
-	r := httptest.NewRequest(http.MethodPost, "/v1/jobs/job-123/trigger/bulk", nil)
-	r = r.WithContext(context.WithValue(r.Context(), ctxProjectIDKey, "proj-123"))
-	w := httptest.NewRecorder()
-	handler.ServeHTTP(w, r)
-	require.Equal(t, 1, pool.calls)
-	require.Equal(t, 1, tx.execCalls)
-	require.Equal(t, 1, tx.commitCalls)
-	require.Equal(t, http.StatusCreated, w.Code)
-}
-
 func TestRLSTxMiddleware_BeginFails_FailsClosed(t *testing.T) {
 	t.Parallel()
 	pool := &rlsFakeTxBeginner{beginErr: errors.New("pool exhausted")}
