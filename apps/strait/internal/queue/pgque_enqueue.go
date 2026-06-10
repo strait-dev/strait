@@ -17,7 +17,7 @@ func (q *PgQueQueue) Enqueue(ctx context.Context, run *domain.JobRun) error {
 			return err
 		}
 		if ready {
-			if err := q.sendReadyEvent(ctx, q.db, run); err != nil {
+			if err := q.sendInitialReadyEvent(ctx, q.db, run); err != nil {
 				return err
 			}
 		}
@@ -56,7 +56,7 @@ func (q *PgQueQueue) EnqueueInTx(ctx context.Context, tx store.DBTX, run *domain
 	if !ready {
 		return nil
 	}
-	return q.sendReadyEvent(ctx, tx, run)
+	return q.sendInitialReadyEvent(ctx, tx, run)
 }
 
 func (q *PgQueQueue) EnqueueBatch(ctx context.Context, runs []*domain.JobRun) (int64, error) {
@@ -73,7 +73,7 @@ func (q *PgQueQueue) EnqueueBatch(ctx context.Context, runs []*domain.JobRun) (i
 		if err != nil {
 			return 0, err
 		}
-		if err := q.sendReadyEvents(ctx, q.db, runs); err != nil {
+		if err := q.sendInitialReadyEvents(ctx, q.db, runs); err != nil {
 			return 0, err
 		}
 		return inserted, nil
@@ -93,7 +93,7 @@ func (q *PgQueQueue) EnqueueBatch(ctx context.Context, runs []*domain.JobRun) (i
 	if err != nil {
 		return 0, err
 	}
-	if err := q.sendReadyEvents(ctx, tx, runs); err != nil {
+	if err := q.sendInitialReadyEvents(ctx, tx, runs); err != nil {
 		return 0, err
 	}
 	if err := tx.Commit(ctx); err != nil {
