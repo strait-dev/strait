@@ -230,6 +230,66 @@ func TestEnqueue_SetsDefaults(t *testing.T) {
 			IsZero())
 }
 
+func TestEnqueue_NonIdempotentUsesFastInsert(t *testing.T) {
+	t.Parallel()
+
+	var capturedSQL string
+	db := &mockDBTX{
+		queryRowFn: func(_ context.Context, sql string, _ ...any) pgx.Row {
+			capturedSQL = sql
+			return &mockRow{
+				scanFn: func(dest ...any) error {
+					if tp, ok := dest[0].(*time.Time); ok {
+						*tp = time.Now()
+					}
+					return nil
+				},
+			}
+		},
+	}
+
+	q := NewPostgresRunWriter(db)
+	run := &domain.JobRun{
+		JobID:     "job-1",
+		ProjectID: "proj-1",
+	}
+
+	require.NoError(t, q.Enqueue(context.Background(), run))
+	require.NotContains(t, capturedSQL, "idempotency_check")
+	require.NotContains(t, capturedSQL, "WHERE NOT EXISTS")
+	require.Contains(t, capturedSQL, "VALUES")
+}
+
+func TestEnqueue_IdempotentUsesConflictCheck(t *testing.T) {
+	t.Parallel()
+
+	var capturedSQL string
+	db := &mockDBTX{
+		queryRowFn: func(_ context.Context, sql string, _ ...any) pgx.Row {
+			capturedSQL = sql
+			return &mockRow{
+				scanFn: func(dest ...any) error {
+					if tp, ok := dest[0].(*time.Time); ok {
+						*tp = time.Now()
+					}
+					return nil
+				},
+			}
+		},
+	}
+
+	q := NewPostgresRunWriter(db)
+	run := &domain.JobRun{
+		JobID:          "job-1",
+		ProjectID:      "proj-1",
+		IdempotencyKey: "idem-1",
+	}
+
+	require.NoError(t, q.Enqueue(context.Background(), run))
+	require.Contains(t, capturedSQL, "idempotency_check")
+	require.Contains(t, capturedSQL, "WHERE NOT EXISTS")
+}
+
 func TestEnqueue_PreservesExistingValues(t *testing.T) {
 	t.Parallel()
 	db := &mockDBTX{
