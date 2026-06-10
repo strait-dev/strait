@@ -11,5 +11,8 @@ func (s *Server) enqueueTriggerRun(ctx context.Context, tx store.DBTX, run *doma
 	if tx != nil {
 		return s.queue.EnqueueInTx(ctx, tx, run)
 	}
+	if ambientTx, ok := store.TxFromContext(ctx); ok && ambientTx != nil {
+		return s.queue.EnqueueInTx(ctx, ambientTx, run)
+	}
 	return s.queue.Enqueue(ctx, run)
 }

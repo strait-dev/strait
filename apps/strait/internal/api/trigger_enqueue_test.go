@@ -60,6 +60,59 @@ func TestEnqueueTriggerRunUsesTransactionalQueueWithTx(t *testing.T) {
 		enqueueInTxCalls)
 }
 
+func TestEnqueueTriggerRunUsesAmbientRLSTransaction(t *testing.T) {
+	t.Parallel()
+
+	run := &domain.JobRun{ID: "run-ambient-tx"}
+	tx := triggerEnqueueDBTX{}
+	queue := &triggerEnqueueQueue{
+		enqueueFunc: func(context.Context, *domain.JobRun) error {
+			require.Fail(t,
+
+				"Enqueue must not run when an ambient RLS transaction is present")
+			return nil
+		},
+		enqueueInTxFunc: func(_ context.Context, gotTx store.DBTX, got *domain.JobRun) error {
+			require.Equal(t, tx, gotTx)
+			require.Equal(t, run, got)
+
+			return nil
+		},
+	}
+	srv := &Server{queue: queue}
+	ctx := store.ContextWithTx(context.Background(), tx)
+	require.NoError(t, srv.enqueueTriggerRun(ctx, nil, run))
+	require.Equal(t, 1, queue.
+		enqueueInTxCalls)
+}
+
+func TestEnqueueTriggerRunExplicitTxOverridesAmbientRLSTransaction(t *testing.T) {
+	t.Parallel()
+
+	run := &domain.JobRun{ID: "run-explicit-tx"}
+	explicitTx := triggerEnqueueDBTX{name: "explicit"}
+	ambientTx := triggerEnqueueDBTX{name: "ambient"}
+	queue := &triggerEnqueueQueue{
+		enqueueFunc: func(context.Context, *domain.JobRun) error {
+			require.Fail(t,
+
+				"Enqueue must not run with a transaction")
+			return nil
+		},
+		enqueueInTxFunc: func(_ context.Context, gotTx store.DBTX, got *domain.JobRun) error {
+			require.Equal(t, explicitTx, gotTx)
+			require.Equal(t, run, got)
+
+			return nil
+		},
+	}
+	srv := &Server{queue: queue}
+	ctx := store.ContextWithTx(context.Background(), ambientTx)
+	require.NoError(t, srv.enqueueTriggerRun(ctx, explicitTx, run))
+	require.Equal(t, 1, queue.
+		enqueueInTxCalls)
+}
+
 type triggerEnqueueQueue struct {
 	enqueueCalls     int
 	enqueueInTxCalls int
@@ -103,7 +156,10 @@ func (q *triggerEnqueueQueue) DequeueNByProject(context.Context, int, string) ([
 	return nil, nil
 }
 
-type triggerEnqueueDBTX struct{}
+type triggerEnqueueDBTX struct {
+	pgx.Tx
+	name string
+}
 
 func (triggerEnqueueDBTX) Exec(context.Context, string, ...any) (pgconn.CommandTag, error) {
 	return pgconn.CommandTag{}, nil
