@@ -6,6 +6,7 @@ import (
 	"math"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/sourcegraph/conc"
 	"github.com/stretchr/testify/assert"
@@ -15,8 +16,9 @@ import (
 )
 
 type mockHealthScoreStore struct {
-	mu     sync.Mutex
-	scores map[string]*domain.EndpointHealthScore
+	mu          sync.Mutex
+	scores      map[string]*domain.EndpointHealthScore
+	recordCalls int
 }
 
 func newMockHealthScoreStore() *mockHealthScoreStore {
@@ -51,6 +53,7 @@ func (m *mockHealthScoreStore) AtomicRecordHealthResult(
 ) (*domain.EndpointHealthScore, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.recordCalls++
 
 	existing := m.scores[endpointURL]
 	prevSuccess := 1.0
@@ -87,6 +90,12 @@ func (m *mockHealthScoreStore) AtomicRecordHealthResult(
 	cp := *score
 	m.scores[endpointURL] = &cp
 	return score, nil
+}
+
+func (m *mockHealthScoreStore) recordCallCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.recordCalls
 }
 
 func TestEWMA(t *testing.T) {
@@ -335,6 +344,83 @@ func TestHealthScorer_TotalRequestsIncrement(t *testing.T) {
 	assert.EqualValues(t, 10, score.
 		TotalRequests,
 	)
+}
+
+func TestHealthScorer_SamplesRepeatedSuccesses(t *testing.T) {
+	t.Parallel()
+	store := newMockHealthScoreStore()
+	hs := NewHealthScorer(store, WithHealthSuccessSampleInterval(time.Hour))
+	ctx := context.Background()
+	result := DispatchResult{
+		EndpointURL:  "https://sampled.example.com/api",
+		Success:      true,
+		LatencyMs:    50,
+		JobTimeoutMs: 5000,
+	}
+
+	first, err := hs.RecordResult(ctx, result)
+	require.NoError(t, err)
+	require.NotNil(t, first)
+
+	second, err := hs.RecordResult(ctx, result)
+	require.NoError(t, err)
+	require.Nil(t, second)
+	require.Equal(t, 1, store.recordCallCount())
+}
+
+func TestHealthScorer_FailuresBypassSuccessSamplingAndResetGate(t *testing.T) {
+	t.Parallel()
+	store := newMockHealthScoreStore()
+	hs := NewHealthScorer(store, WithHealthSuccessSampleInterval(time.Hour))
+	ctx := context.Background()
+	success := DispatchResult{
+		EndpointURL:  "https://reset.example.com/api",
+		Success:      true,
+		LatencyMs:    50,
+		JobTimeoutMs: 5000,
+	}
+
+	_, err := hs.RecordResult(ctx, success)
+	require.NoError(t, err)
+	skipped, err := hs.RecordResult(ctx, success)
+	require.NoError(t, err)
+	require.Nil(t, skipped)
+
+	_, err = hs.RecordResult(ctx, DispatchResult{
+		EndpointURL:  success.EndpointURL,
+		Success:      false,
+		LatencyMs:    5000,
+		JobTimeoutMs: 5000,
+	})
+	require.NoError(t, err)
+
+	afterFailure, err := hs.RecordResult(ctx, success)
+	require.NoError(t, err)
+	require.NotNil(t, afterFailure)
+	require.Equal(t, 3, store.recordCallCount())
+}
+
+func TestHealthScorer_SamplingIsPerEndpoint(t *testing.T) {
+	t.Parallel()
+	store := newMockHealthScoreStore()
+	hs := NewHealthScorer(store, WithHealthSuccessSampleInterval(time.Hour))
+	ctx := context.Background()
+
+	_, err := hs.RecordResult(ctx, DispatchResult{
+		EndpointURL:  "https://first.example.com/api",
+		Success:      true,
+		LatencyMs:    50,
+		JobTimeoutMs: 5000,
+	})
+	require.NoError(t, err)
+	_, err = hs.RecordResult(ctx, DispatchResult{
+		EndpointURL:  "https://second.example.com/api",
+		Success:      true,
+		LatencyMs:    50,
+		JobTimeoutMs: 5000,
+	})
+	require.NoError(t, err)
+	require.Equal(t, 2, store.recordCallCount())
 }
 
 func TestThrottledConcurrency(t *testing.T) {

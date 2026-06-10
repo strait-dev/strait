@@ -47,28 +47,31 @@ type ExecutorConfig struct {
 	VersionCacheTTL            time.Duration
 	RunVersionCacheTTL         time.Duration
 	JobHealthCacheTTL          time.Duration
-	RedisClient                redis.Cmdable
-	CacheBus                   *straitcache.Bus
-	CacheRegistry              *straitcache.Registry
-	MaxSnoozeCount             int
-	JWTSigningKey              string
-	ExternalAPIURL             string
-	DefaultRegion              string
-	Mode                       string
-	Version                    string
-	Edition                    domain.Edition
-	SentryEnvironment          string
-	BillingEnforcementEnabled  bool
-	StripeWebhookSecret        string
-	WorkflowLookup             WorkflowLookup
-	WorkflowTriggerer          WorkflowTriggerer
-	JobLookup                  JobLookup
-	JobEnqueuer                JobEnqueuer
-	BillingEnforcer            *billing.Enforcer            // Optional: org-level billing enforcement (cloud only).
-	StripeUsageReporter        *billing.StripeUsageReporter // Optional: Stripe usage event reporting (cloud only).
-	RunCostRecorder            *billing.RunCostRecorder     // Optional: flat per-run cost recording (cloud only).
-	DLQCapEnforcer             *DLQCapEnforcer              // Optional: enforces DLQ caps before terminal dead-letter transitions.
-	SecretDecryptor            SecretDecryptor              // Optional: decrypts encrypted endpoint signing secrets.
+
+	EndpointHealthSuccessSampleInterval time.Duration
+
+	RedisClient               redis.Cmdable
+	CacheBus                  *straitcache.Bus
+	CacheRegistry             *straitcache.Registry
+	MaxSnoozeCount            int
+	JWTSigningKey             string
+	ExternalAPIURL            string
+	DefaultRegion             string
+	Mode                      string
+	Version                   string
+	Edition                   domain.Edition
+	SentryEnvironment         string
+	BillingEnforcementEnabled bool
+	StripeWebhookSecret       string
+	WorkflowLookup            WorkflowLookup
+	WorkflowTriggerer         WorkflowTriggerer
+	JobLookup                 JobLookup
+	JobEnqueuer               JobEnqueuer
+	BillingEnforcer           *billing.Enforcer            // Optional: org-level billing enforcement (cloud only).
+	StripeUsageReporter       *billing.StripeUsageReporter // Optional: Stripe usage event reporting (cloud only).
+	RunCostRecorder           *billing.RunCostRecorder     // Optional: flat per-run cost recording (cloud only).
+	DLQCapEnforcer            *DLQCapEnforcer              // Optional: enforces DLQ caps before terminal dead-letter transitions.
+	SecretDecryptor           SecretDecryptor              // Optional: decrypts encrypted endpoint signing secrets.
 	// QueueSnapshotter provides the set of queue names with active workers on
 	// this replica. When set, the poll loop performs a second dequeue pass
 	// for worker-mode runs filtered to those queues.
@@ -205,8 +208,11 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		runCostRecorder:          cfg.RunCostRecorder,
 		dlqCapEnforcer:           cfg.DLQCapEnforcer,
 		secretDecryptor:          cfg.SecretDecryptor,
-		healthScorer:             NewHealthScorer(cfg.Store),
-		drain:                    newDrainController(queueMetrics),
+		healthScorer: NewHealthScorer(
+			cfg.Store,
+			WithHealthSuccessSampleInterval(cfg.EndpointHealthSuccessSampleInterval),
+		),
+		drain: newDrainController(queueMetrics),
 		onCompleteTrigger: NewOnCompleteTrigger(
 			cfg.WorkflowLookup,
 			cfg.WorkflowTriggerer,
