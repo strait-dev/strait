@@ -58,7 +58,7 @@ func (s *Server) routes() chi.Router {
 	r.Use(s.sentryScope)
 	r.Use(chimw.Recoverer)
 	r.Use(apiVersionHeader)
-	if s.poolStatter != nil {
+	if s.poolStatter != nil && !s.config.DBBackpressureDisabled {
 		r.Use(s.dbBackpressure)
 	}
 	requestTimeout := s.config.RequestTimeout

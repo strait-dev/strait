@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"strait/internal/config"
+
 	"github.com/stretchr/testify/require"
 )
 
@@ -264,4 +266,18 @@ func TestShouldApplyDBBackpressure_HighOccupancyShortCircuits(t *testing.T) {
 	require.True(t, srv.shouldApplyDBBackpressure())
 
 	// Sampler is in admit state (no data) but occupancy alone should shed.
+}
+
+func TestShouldApplyDBBackpressure_UsesConfiguredOccupancyThreshold(t *testing.T) {
+	ps := &fakePoolStatter{}
+	ps.setOccupancy(95, 100)
+	srv := &Server{
+		config:      &config.Config{DBBackpressureOccupancyThreshold: 0.98},
+		poolStatter: ps,
+	}
+
+	require.False(t, srv.shouldApplyDBBackpressure())
+
+	ps.setOccupancy(99, 100)
+	require.True(t, srv.shouldApplyDBBackpressure())
 }

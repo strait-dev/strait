@@ -97,6 +97,10 @@ Strait uses a vendored and modified SQL snapshot of [PgQue](https://github.com/N
 | `BACKPRESSURE_ENABLED` | `true` | Enable the per-project enqueue token bucket. Keep enabled unless an upstream limiter enforces equivalent tenant isolation. |
 | `BACKPRESSURE_DEFAULT_MAX_TOKENS` | `1000` | Initial enqueue burst capacity for projects without an explicit project rate-limit row. |
 | `BACKPRESSURE_DEFAULT_REFILL_PER_SEC` | `100` | Steady-state accepted enqueue refill rate per project for projects without an explicit project rate-limit row. |
+| `DB_BACKPRESSURE_DISABLED` | `false` | Disable API database admission backpressure. Use only for controlled capacity tests or when an upstream limiter protects Postgres. |
+| `DB_BACKPRESSURE_SAMPLE_INTERVAL` | `100ms` | Interval for sampling Postgres pool acquire-wait pressure. |
+| `DB_BACKPRESSURE_ACQUIRE_WAIT_THRESHOLD` | `50ms` | Average connection acquire wait that starts database admission shedding. |
+| `DB_BACKPRESSURE_OCCUPANCY_THRESHOLD` | `0.90` | Pool occupancy ratio that starts database admission shedding. |
 
 ## Security
 

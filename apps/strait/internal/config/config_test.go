@@ -65,6 +65,9 @@ func TestLoad_Defaults(t *testing.T) {
 		{"DBMaxConnIdleTime", cfg.DBMaxConnIdleTime, 5 * time.Minute},
 		{"DBHealthCheckPeriod", cfg.DBHealthCheckPeriod, 30 * time.Second},
 		{"DBStatementTimeout", cfg.DBStatementTimeout, 30 * time.Second},
+		{"DBBackpressureSampleInterval", cfg.DBBackpressureSampleInterval, 100 * time.Millisecond},
+		{"DBBackpressureAcquireWaitThreshold", cfg.DBBackpressureAcquireWaitThreshold, 50 * time.Millisecond},
+		{"DBBackpressureOccupancyThreshold", cfg.DBBackpressureOccupancyThreshold, 0.90},
 		{"RateLimitRequests", cfg.RateLimitRequests, 100},
 		{"RateLimitWindow", cfg.RateLimitWindow, time.Minute},
 		{"TriggerRateLimitRequests", cfg.TriggerRateLimitRequests, 10},
@@ -158,6 +161,7 @@ func TestLoad_DefaultBooleans(t *testing.T) {
 		{"DBPgBouncerMode", cfg.DBPgBouncerMode},
 		{"DBPgBouncerPrepared", cfg.DBPgBouncerPrepared},
 		{"DBTraceStatements", cfg.DBTraceStatements},
+		{"DBBackpressureDisabled", cfg.DBBackpressureDisabled},
 		{"WebhookRequireTLS", cfg.WebhookRequireTLS},
 		{"AllowPrivateEndpoints", cfg.AllowPrivateEndpoints},
 		{"GRPCAllowPlaintext", cfg.GRPCAllowPlaintext},
@@ -247,6 +251,10 @@ func TestLoad_OverrideDefaults(t *testing.T) {
 	t.Setenv("ADAPTIVE_CONCURRENCY_MAX", "30")
 	t.Setenv("BACKPRESSURE_DEFAULT_MAX_TOKENS", "4000")
 	t.Setenv("BACKPRESSURE_DEFAULT_REFILL_PER_SEC", "750")
+	t.Setenv("DB_BACKPRESSURE_DISABLED", "true")
+	t.Setenv("DB_BACKPRESSURE_SAMPLE_INTERVAL", "250ms")
+	t.Setenv("DB_BACKPRESSURE_ACQUIRE_WAIT_THRESHOLD", "200ms")
+	t.Setenv("DB_BACKPRESSURE_OCCUPANCY_THRESHOLD", "0.98")
 
 	cfg, err := Load()
 	require.NoError(t, err)
@@ -263,6 +271,10 @@ func TestLoad_OverrideDefaults(t *testing.T) {
 	require.Equal(t, 30, cfg.AdaptiveConcurrencyMax)
 	require.Equal(t, 4000, cfg.BackpressureDefaultMaxTokens)
 	require.Equal(t, 750, cfg.BackpressureDefaultRefillPerSec)
+	require.True(t, cfg.DBBackpressureDisabled)
+	require.Equal(t, 250*time.Millisecond, cfg.DBBackpressureSampleInterval)
+	require.Equal(t, 200*time.Millisecond, cfg.DBBackpressureAcquireWaitThreshold)
+	require.Equal(t, 0.98, cfg.DBBackpressureOccupancyThreshold)
 }
 
 func TestLoad_BackpressureDisabledAllowsZeroBucket(t *testing.T) {
@@ -304,6 +316,27 @@ func TestLoad_BackpressureValidation(t *testing.T) {
 				"BACKPRESSURE_DEFAULT_REFILL_PER_SEC": "-1",
 			},
 			errorSub: "BACKPRESSURE_DEFAULT_REFILL_PER_SEC must be >= 0",
+		},
+		{
+			name: "rejects negative db acquire wait threshold",
+			env: map[string]string{
+				"DB_BACKPRESSURE_ACQUIRE_WAIT_THRESHOLD": "-1ms",
+			},
+			errorSub: "DB_BACKPRESSURE_ACQUIRE_WAIT_THRESHOLD must be >= 0",
+		},
+		{
+			name: "rejects zero db occupancy threshold",
+			env: map[string]string{
+				"DB_BACKPRESSURE_OCCUPANCY_THRESHOLD": "0",
+			},
+			errorSub: "DB_BACKPRESSURE_OCCUPANCY_THRESHOLD must be > 0 and <= 1",
+		},
+		{
+			name: "rejects high db occupancy threshold",
+			env: map[string]string{
+				"DB_BACKPRESSURE_OCCUPANCY_THRESHOLD": "1.1",
+			},
+			errorSub: "DB_BACKPRESSURE_OCCUPANCY_THRESHOLD must be > 0 and <= 1",
 		},
 	}
 

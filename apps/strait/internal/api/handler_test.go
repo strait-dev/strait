@@ -2597,6 +2597,39 @@ func TestDBBackpressure_TriggerRouteShortCircuitsBeforeAuthAndStore(t *testing.T
 	require.Equal(t, ErrorCodeRateLimited, body.Error.Code)
 }
 
+func TestDBBackpressure_DisabledDoesNotShortCircuitTriggerRoute(t *testing.T) {
+	t.Parallel()
+
+	var authLookups atomic.Int32
+	cfg := &config.Config{
+		InternalSecret:         "test-secret-value",
+		MaxBulkTriggerItems:    500,
+		JWTSigningKey:          testJWTSigningKey,
+		DBBackpressureDisabled: true,
+	}
+	srv := NewServer(ServerDeps{
+		Config: cfg,
+		Store: &APIStoreMock{
+			GetAPIKeyByHashFunc: func(context.Context, string) (*domain.APIKey, error) {
+				authLookups.Add(1)
+				return nil, store.ErrAPIKeyNotFound
+			},
+		},
+		Queue:       &mockQueue{},
+		PoolStatter: newMockPoolStatter(24, 25), // would shed if DB backpressure were enabled
+	})
+	t.Cleanup(srv.Close)
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/v1/jobs/job-1/trigger", strings.NewReader(`{}`))
+	r.Header.Set("Authorization", "Bearer strait_test")
+	r.Header.Set("Content-Type", "application/json")
+	srv.ServeHTTP(w, r)
+
+	require.NotEqual(t, http.StatusTooManyRequests, w.Code)
+	require.EqualValues(t, 1, authLookups.Load())
+}
+
 func TestDBBackpressure_AllowsRequestsWhenPoolHealthy(t *testing.T) {
 	t.Parallel()
 

@@ -79,12 +79,16 @@ type Config struct {
 
 	// MVCC horizon guardrails. These prevent stray long transactions
 	// from pinning pg_xmin and blocking autovacuum on hot queue tables.
-	DBIdleInTransactionTimeout time.Duration `env:"DB_IDLE_IN_TRANSACTION_TIMEOUT" default:"30s"`
-	DBLockTimeout              time.Duration `env:"DB_LOCK_TIMEOUT" default:"5s"`
-	DBTransactionTimeout       time.Duration `env:"DB_TRANSACTION_TIMEOUT" default:"60s"`
-	DBLongTxnAlertThreshold    time.Duration `env:"DB_LONG_TXN_ALERT_THRESHOLD" default:"60s"`
-	DBWatchdogInterval         time.Duration `env:"DB_WATCHDOG_INTERVAL" default:"15s"`
-	DBWatchdogEnabled          bool          `env:"DB_WATCHDOG_ENABLED" default:"true"`
+	DBIdleInTransactionTimeout         time.Duration `env:"DB_IDLE_IN_TRANSACTION_TIMEOUT" default:"30s"`
+	DBLockTimeout                      time.Duration `env:"DB_LOCK_TIMEOUT" default:"5s"`
+	DBTransactionTimeout               time.Duration `env:"DB_TRANSACTION_TIMEOUT" default:"60s"`
+	DBLongTxnAlertThreshold            time.Duration `env:"DB_LONG_TXN_ALERT_THRESHOLD" default:"60s"`
+	DBWatchdogInterval                 time.Duration `env:"DB_WATCHDOG_INTERVAL" default:"15s"`
+	DBWatchdogEnabled                  bool          `env:"DB_WATCHDOG_ENABLED" default:"true"`
+	DBBackpressureDisabled             bool          `env:"DB_BACKPRESSURE_DISABLED" default:"false"`
+	DBBackpressureSampleInterval       time.Duration `env:"DB_BACKPRESSURE_SAMPLE_INTERVAL" default:"100ms"`
+	DBBackpressureAcquireWaitThreshold time.Duration `env:"DB_BACKPRESSURE_ACQUIRE_WAIT_THRESHOLD" default:"50ms"`
+	DBBackpressureOccupancyThreshold   float64       `env:"DB_BACKPRESSURE_OCCUPANCY_THRESHOLD" default:"0.90"`
 
 	QueuePgQueMaintenanceInterval time.Duration `env:"QUEUE_PGQUE_MAINTENANCE_INTERVAL" default:"30s"`
 	QueuePgQueRotationPeriod      time.Duration `env:"QUEUE_PGQUE_ROTATION_PERIOD" default:"5m"`

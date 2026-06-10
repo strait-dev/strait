@@ -972,8 +972,12 @@ func NewServer(deps ServerDeps) *Server {
 		srv.auditAsyncBufferSize = auditAsyncBufferSize // fallback to constant default
 	}
 
-	if srv.poolStatter != nil {
-		srv.poolBackpressure = newPoolBackpressureSampler(srv.poolStatter, 0, 0)
+	if srv.poolStatter != nil && !deps.Config.DBBackpressureDisabled {
+		srv.poolBackpressure = newPoolBackpressureSampler(
+			srv.poolStatter,
+			deps.Config.DBBackpressureSampleInterval,
+			deps.Config.DBBackpressureAcquireWaitThreshold,
+		)
 		srv.poolBackpressure.Start()
 	}
 
@@ -1019,7 +1023,14 @@ func (s *Server) dbBackpressure(next http.Handler) http.Handler {
 //     and admit).
 func (s *Server) shouldApplyDBBackpressure() bool {
 	stats := poolBackpressureStats(s.poolStatter)
-	if stats.MaxConns > 0 && stats.AcquiredConns > int32(float64(stats.MaxConns)*0.9) {
+	occupancyThreshold := 0.9
+	if s.config != nil {
+		occupancyThreshold = s.config.DBBackpressureOccupancyThreshold
+	}
+	if occupancyThreshold <= 0 || occupancyThreshold > 1 {
+		occupancyThreshold = 0.9
+	}
+	if stats.MaxConns > 0 && stats.AcquiredConns > int32(float64(stats.MaxConns)*occupancyThreshold) {
 		return true
 	}
 	if s.poolBackpressure != nil && s.poolBackpressure.Shedding() {
