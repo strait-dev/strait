@@ -41,7 +41,6 @@ func newTriggerJobCache(ttl time.Duration, deps ...apiCacheDeps) *triggerJobCach
 		MaximumSize: 10_000,
 		TTL:         ttl,
 		TTLJitter:   0.1,
-		DisableL1:   l2 != nil,
 		DisableL2:   l2 == nil,
 		Clone:       cloneTriggerJob,
 		Sanitize:    cloneTriggerJob,
