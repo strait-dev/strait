@@ -40,6 +40,8 @@ import (
 	chimw "github.com/go-chi/chi/v5/middleware"
 	"github.com/go-playground/validator/v10"
 	"github.com/redis/go-redis/v9"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 
 	scalar "github.com/MarceloPetrucio/go-scalar-api-reference"
 )
@@ -995,7 +997,10 @@ func (s *Server) dbBackpressure(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		if s.shouldApplyDBBackpressure() {
+		if shouldShed, reason := s.dbBackpressureDecision(); shouldShed {
+			if s.metrics != nil && s.metrics.DBBackpressureShed != nil {
+				s.metrics.DBBackpressureShed.Add(r.Context(), 1, metric.WithAttributes(attribute.String("reason", string(reason))))
+			}
 			w.Header().Set("Retry-After", "1")
 			respondError(w, r, http.StatusTooManyRequests, APIError{
 				Code:    ErrorCodeRateLimited,
@@ -1022,6 +1027,19 @@ func (s *Server) dbBackpressure(next http.Handler) http.Handler {
 //     request would see a near-zero delta against the just-updated baseline
 //     and admit).
 func (s *Server) shouldApplyDBBackpressure() bool {
+	shouldShed, _ := s.dbBackpressureDecision()
+	return shouldShed
+}
+
+type dbBackpressureReason string
+
+const (
+	dbBackpressureReasonNone        dbBackpressureReason = ""
+	dbBackpressureReasonOccupancy   dbBackpressureReason = "occupancy"
+	dbBackpressureReasonAcquireWait dbBackpressureReason = "acquire_wait"
+)
+
+func (s *Server) dbBackpressureDecision() (bool, dbBackpressureReason) {
 	stats := poolBackpressureStats(s.poolStatter)
 	occupancyThreshold := 0.9
 	if s.config != nil {
@@ -1031,12 +1049,12 @@ func (s *Server) shouldApplyDBBackpressure() bool {
 		occupancyThreshold = 0.9
 	}
 	if stats.MaxConns > 0 && stats.AcquiredConns > int32(float64(stats.MaxConns)*occupancyThreshold) {
-		return true
+		return true, dbBackpressureReasonOccupancy
 	}
 	if s.poolBackpressure != nil && s.poolBackpressure.Shedding() {
-		return true
+		return true, dbBackpressureReasonAcquireWait
 	}
-	return false
+	return false, dbBackpressureReasonNone
 }
 
 func poolBackpressureStats(ps PoolStatter) PoolBackpressureStats {

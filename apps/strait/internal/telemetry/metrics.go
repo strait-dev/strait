@@ -79,6 +79,7 @@ type Metrics struct {
 	DBPoolIdleConns     metric.Int64ObservableGauge
 	DBPoolAcquiredConns metric.Int64ObservableGauge
 	DBPoolMaxConns      metric.Int64ObservableGauge
+	DBBackpressureShed  metric.Int64Counter
 
 	// HTTP request metrics (otelchi only generates traces, not metrics).
 	HTTPRequestDuration  metric.Float64Histogram
@@ -647,6 +648,14 @@ func initMetricInstruments(meter metric.Meter) (*Metrics, error) {
 	dbPoolIdle, _ := meter.Int64ObservableGauge("strait_db_pool_idle_conns", metric.WithDescription("Idle DB pool connections"))
 	dbPoolAcquired, _ := meter.Int64ObservableGauge("strait_db_pool_acquired_conns", metric.WithDescription("Acquired DB pool connections"))
 	dbPoolMax, _ := meter.Int64ObservableGauge("strait_db_pool_max_conns", metric.WithDescription("Max DB pool connections"))
+	dbBackpressureShed, err := meter.Int64Counter(
+		"strait_db_backpressure_shed_total",
+		metric.WithDescription("Total requests shed by DB admission control, labeled by reason"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("create DB backpressure shed counter: %w", err)
+	}
 
 	httpRequestDuration, _ := meter.Float64Histogram(
 		"strait_http_request_duration_seconds",
@@ -905,6 +914,7 @@ func initMetricInstruments(meter metric.Meter) (*Metrics, error) {
 		DBPoolIdleConns:              dbPoolIdle,
 		DBPoolAcquiredConns:          dbPoolAcquired,
 		DBPoolMaxConns:               dbPoolMax,
+		DBBackpressureShed:           dbBackpressureShed,
 		HTTPRequestDuration:          httpRequestDuration,
 		HTTPInflightRequests:         httpInflightRequests,
 		PprofRequests:                pprofRequests,

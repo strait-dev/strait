@@ -1,14 +1,21 @@
 package api
 
 import (
+	"context"
+	"net/http"
+	"net/http/httptest"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"strait/internal/config"
+	"strait/internal/telemetry"
 
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/attribute"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 )
 
 // fakePoolStatter lets tests drive the sampler with deterministic counters.
@@ -280,4 +287,109 @@ func TestShouldApplyDBBackpressure_UsesConfiguredOccupancyThreshold(t *testing.T
 
 	ps.setOccupancy(99, 100)
 	require.True(t, srv.shouldApplyDBBackpressure())
+}
+
+func TestDBBackpressureMetric_RecordsOccupancyReason(t *testing.T) {
+	t.Parallel()
+
+	metrics, reader := newDBBackpressureMetricsHarness(t)
+	srv := NewServer(ServerDeps{
+		Config: &config.Config{
+			InternalSecret:      "test-secret-value",
+			MaxBulkTriggerItems: 500,
+			JWTSigningKey:       testJWTSigningKey,
+		},
+		Store:       &APIStoreMock{},
+		Queue:       &mockQueue{},
+		Metrics:     metrics,
+		PoolStatter: newMockPoolStatter(24, 25),
+	})
+	t.Cleanup(srv.Close)
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/v1/jobs/job-1/trigger", nil))
+
+	require.Equal(t, http.StatusTooManyRequests, w.Code)
+	require.EqualValues(t, 1, sumDBBackpressureMetric(t, reader, "occupancy"))
+	require.EqualValues(t, 0, sumDBBackpressureMetric(t, reader, "acquire_wait"))
+}
+
+func TestDBBackpressureMetric_RecordsAcquireWaitReason(t *testing.T) {
+	t.Parallel()
+
+	metrics, reader := newDBBackpressureMetricsHarness(t)
+	statter := newMockPoolStatter(2, 25)
+	srv := NewServer(ServerDeps{
+		Config: &config.Config{
+			InternalSecret:      "test-secret-value",
+			MaxBulkTriggerItems: 500,
+			JWTSigningKey:       testJWTSigningKey,
+		},
+		Store:       &APIStoreMock{},
+		Queue:       &mockQueue{},
+		Metrics:     metrics,
+		PoolStatter: statter,
+	})
+	t.Cleanup(srv.Close)
+
+	srv.poolBackpressure.Stop()
+	statter.emptyAcquire.Store(10)
+	statter.emptyAcquireWait.Store(int64(time.Second))
+	srv.poolBackpressure.sampleOnce()
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/v1/jobs/job-1/trigger", nil))
+
+	require.Equal(t, http.StatusTooManyRequests, w.Code)
+	require.EqualValues(t, 0, sumDBBackpressureMetric(t, reader, "occupancy"))
+	require.EqualValues(t, 1, sumDBBackpressureMetric(t, reader, "acquire_wait"))
+}
+
+func newDBBackpressureMetricsHarness(t *testing.T) (*telemetry.Metrics, *sdkmetric.ManualReader) {
+	t.Helper()
+	reader := sdkmetric.NewManualReader()
+	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	meter := provider.Meter("db-backpressure-metrics-harness")
+
+	shed, err := meter.Int64Counter("strait_db_backpressure_shed_total")
+	require.NoError(t, err)
+
+	httpDuration, err := meter.Float64Histogram("strait_http_request_duration_seconds")
+	require.NoError(t, err)
+
+	httpInflight, err := meter.Int64UpDownCounter("strait_http_inflight_requests")
+	require.NoError(t, err)
+
+	return &telemetry.Metrics{
+		DBBackpressureShed:   shed,
+		HTTPRequestDuration:  httpDuration,
+		HTTPInflightRequests: httpInflight,
+	}, reader
+}
+
+func sumDBBackpressureMetric(t *testing.T, reader *sdkmetric.ManualReader, reason string) int64 {
+	t.Helper()
+
+	var rm metricdata.ResourceMetrics
+	require.NoError(t, reader.Collect(context.Background(), &rm))
+
+	var total int64
+	for _, sm := range rm.ScopeMetrics {
+		for _, inst := range sm.Metrics {
+			if inst.Name != "strait_db_backpressure_shed_total" {
+				continue
+			}
+			sum, ok := inst.Data.(metricdata.Sum[int64])
+			if !ok {
+				continue
+			}
+			for _, dp := range sum.DataPoints {
+				v, present := dp.Attributes.Value(attribute.Key("reason"))
+				if present && v.AsString() == reason {
+					total += dp.Value
+				}
+			}
+		}
+	}
+	return total
 }
