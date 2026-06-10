@@ -429,7 +429,7 @@ func (s *Server) persistUpdatedJob(ctx context.Context, job *domain.Job, req Upd
 		}
 		return huma.Error500InternalServerError("failed to update job")
 	}
-	s.invalidateJobCaches(ctx, job.ID, job.CacheVersion)
+	s.invalidateWorkerJobCache(ctx, job.ID, job.CacheVersion)
 
 	s.enqueueJobMetadata(job)
 

@@ -89,7 +89,7 @@ func TestCacheInvalidationHandler_PublishesTargetedInvalidations(t *testing.T) {
 		{
 			table:     "jobs",
 			record:    `{"id":"job-1","cache_version":13}`,
-			namespace: cacheNamespaceAPITriggerJob,
+			namespace: cacheNamespaceWorkerJob,
 			key:       "job-1",
 		},
 		{
@@ -121,35 +121,6 @@ func TestCacheInvalidationHandler_PublishesTargetedInvalidations(t *testing.T) {
 		require.Equal(t, straitcache.BusActionInvalidate, busMsg.Action)
 		require.Equal(t, tc.namespace, busMsg.Namespace)
 		require.Equal(t, tc.key, busMsg.Key)
-	}
-}
-
-func TestCacheInvalidationHandler_PublishesBothJobCacheInvalidations(t *testing.T) {
-	t.Parallel()
-
-	publisher := &cacheInvalidationPublisher{}
-	bus := straitcache.NewBus(publisher, straitcache.BusConfig{Origin: "cdc-test"})
-	h := newCacheInvalidationHandler("jobs", bus, nil, invalidateJobCaches)
-
-	require.NoError(t, h.Handle(t.Context(), Message{
-		Action:   ActionUpdate,
-		Record:   []byte(`{"id":"job-1","cache_version":13}`),
-		Metadata: Metadata{TableName: "jobs"},
-	}))
-	require.Len(t, publisher.calls, 2)
-
-	var got []straitcache.BusMessage
-	for _, call := range publisher.calls {
-		var msg straitcache.BusMessage
-		require.NoError(t, json.Unmarshal(call.data, &msg))
-		got = append(got, msg)
-	}
-	require.Equal(t, cacheNamespaceWorkerJob, got[0].Namespace)
-	require.Equal(t, cacheNamespaceAPITriggerJob, got[1].Namespace)
-	for _, msg := range got {
-		require.Equal(t, straitcache.BusActionInvalidate, msg.Action)
-		require.Equal(t, "job-1", msg.Key)
-		require.EqualValues(t, 13, msg.Version)
 	}
 }
 

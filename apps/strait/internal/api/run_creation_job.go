@@ -26,10 +26,7 @@ func (s *Server) loadRunCreationJob(ctx context.Context, jobID, auditAction, han
 		return nil, huma.Error400BadRequest(err.Error())
 	}
 
-	load := func(loadCtx context.Context, loadJobID string) (*domain.Job, error) {
-		return s.store.GetJob(loadCtx, loadJobID)
-	}
-	job, err := s.triggerJobCache.Get(ctx, jobID, load)
+	job, err := s.store.GetJob(ctx, jobID)
 	if err != nil {
 		if errors.Is(err, store.ErrJobNotFound) {
 			return nil, huma.Error404NotFound("job not found")

@@ -74,9 +74,6 @@ func (s *Server) handlePauseJob(ctx context.Context, input *PauseJobInput) (*Pau
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to get updated job")
 	}
-	if !alreadyPaused {
-		s.invalidateJobCaches(ctx, input.JobID, updated.CacheVersion)
-	}
 
 	return &PauseJobOutput{Body: updated}, nil
 }
@@ -127,9 +124,6 @@ func (s *Server) handleResumeJob(ctx context.Context, input *ResumeJobInput) (*R
 	updated, err := s.store.GetJob(ctx, input.JobID)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to get updated job")
-	}
-	if wasPaused {
-		s.invalidateJobCaches(ctx, input.JobID, updated.CacheVersion)
 	}
 
 	return &ResumeJobOutput{Body: updated}, nil

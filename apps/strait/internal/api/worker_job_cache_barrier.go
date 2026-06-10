@@ -61,16 +61,3 @@ func (s *Server) invalidateWorkerJobCache(ctx context.Context, jobID string, ver
 		_ = s.cacheBus.PublishInvalidate(ctx, workerJobCacheNamespace, jobID, version)
 	}
 }
-
-func (s *Server) invalidateJobCaches(ctx context.Context, jobID string, version int64) {
-	if s == nil || jobID == "" {
-		return
-	}
-	if version <= 0 {
-		version = time.Now().UnixNano()
-	}
-	s.invalidateWorkerJobCache(ctx, jobID, version)
-	if s.triggerJobCache != nil {
-		s.triggerJobCache.Invalidate(ctx, jobID, version)
-	}
-}
