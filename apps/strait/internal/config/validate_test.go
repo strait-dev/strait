@@ -451,7 +451,7 @@ func TestValidate_AuditDefaultsValid(t *testing.T) {
 		365, cfg.AuditRetentionDefaultDays,
 	)
 	assert.Equal(t,
-		4096, cfg.AuditAsyncBufferSize,
+		16384, cfg.AuditAsyncBufferSize,
 	)
 }
 

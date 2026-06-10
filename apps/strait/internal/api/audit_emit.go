@@ -21,7 +21,7 @@ import (
 // auditAsyncBufferSize is the capacity of the buffered audit-event channel.
 // Large enough to absorb bursts on the job trigger hot path; small enough to
 // avoid unbounded memory growth if the DB stalls.
-const auditAsyncBufferSize = 4096
+const auditAsyncBufferSize = 16384
 
 // auditAsyncShutdownTimeout bounds how long Close() waits for the drainer
 // to flush pending events before abandoning them.

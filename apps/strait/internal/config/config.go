@@ -50,7 +50,7 @@ type Config struct {
 	WorkflowRunRetentionDays  int           `env:"WORKFLOW_RUN_RETENTION_DAYS" default:"30"`
 	EventTriggerRetentionDays int           `env:"EVENT_TRIGGER_RETENTION_DAYS"`
 	AuditRetentionDefaultDays int           `env:"AUDIT_RETENTION_DEFAULT_DAYS" default:"365"`
-	AuditAsyncBufferSize      int           `env:"AUDIT_ASYNC_BUFFER_SIZE" default:"4096"`
+	AuditAsyncBufferSize      int           `env:"AUDIT_ASYNC_BUFFER_SIZE" default:"16384"`
 	AuditSIEMEndpoint         string        `env:"AUDIT_SIEM_ENDPOINT"`
 	AuditSIEMAuthToken        string        `env:"AUDIT_SIEM_AUTH_TOKEN"`
 	AuditSIEMBatchSize        int           `env:"AUDIT_SIEM_BATCH_SIZE" default:"100"`

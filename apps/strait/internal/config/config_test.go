@@ -285,7 +285,7 @@ func TestLoad_OverrideDefaults(t *testing.T) {
 	require.True(t, cfg.DBBackpressureDisabled)
 	require.Equal(t, 250*time.Millisecond, cfg.DBBackpressureSampleInterval)
 	require.Equal(t, 200*time.Millisecond, cfg.DBBackpressureAcquireWaitThreshold)
-	require.Equal(t, 0.98, cfg.DBBackpressureOccupancyThreshold)
+	require.InDelta(t, 0.98, cfg.DBBackpressureOccupancyThreshold, 0.0001)
 	require.Equal(t, 3*time.Second, cfg.EndpointGuardCacheTTL)
 	require.Equal(t, 5*time.Second, cfg.EndpointHealthSuccessSampleInterval)
 	require.Equal(t, 7*time.Second, cfg.EndpointCircuitSuccessSampleInterval)

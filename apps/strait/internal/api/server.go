@@ -837,7 +837,7 @@ type ServerDeps struct {
 	Edition              domain.Edition           // Edition controls feature gating (community vs cloud).
 	Version              string                   // Build version (injected via ldflags).
 	CDCWebhookReceiver   http.Handler             // Required in production startup; handles CDC webhook push delivery.
-	AuditAsyncBufferSize int                      // Optional: overrides the audit async channel capacity (default 4096, minimum 256).
+	AuditAsyncBufferSize int                      // Optional: overrides the audit async channel capacity (default 16384, minimum 256).
 	SIEMDrain            *logdrain.AuditSIEMDrain // Optional: forwards successfully persisted audit events to an external SIEM endpoint.
 }
 
