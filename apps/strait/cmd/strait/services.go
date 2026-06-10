@@ -931,15 +931,15 @@ func startWorker(deps workerRuntimeDeps) {
 
 	g.Go(func(ctx context.Context) error {
 		if adaptive != nil {
-			adaptive.Run(ctx, 3*time.Second, func(probeCtx context.Context) (int, float64, error) {
+			adaptive.Run(ctx, 3*time.Second, func(probeCtx context.Context) (int, float64, bool, error) {
 				stats, err := queries.QueueStats(probeCtx)
 				if err != nil {
-					return 0, 0, err
+					return 0, 0, false, err
 				}
 				current := adaptive.CurrentLimit()
 				current = max(current, 1)
 				utilization := float64(p.ActiveCount()) / float64(current)
-				return stats.Queued, utilization, nil
+				return stats.Queued, utilization, workerDBPressure(deps.dbPool, cfg), nil
 			}, slog.Default())
 		}
 		return nil
@@ -984,6 +984,22 @@ func startWorker(deps workerRuntimeDeps) {
 	g.Go(func(ctx context.Context) error {
 		return runWorkerScheduler(ctx, deps)
 	})
+}
+
+func workerDBPressure(dbPool *pgxpool.Pool, cfg *config.Config) bool {
+	if dbPool == nil || cfg == nil || cfg.DBBackpressureDisabled {
+		return false
+	}
+	stat := dbPool.Stat()
+	maxConns := stat.MaxConns()
+	if maxConns <= 0 {
+		return false
+	}
+	threshold := cfg.DBBackpressureOccupancyThreshold
+	if threshold <= 0 || threshold > 1 {
+		threshold = 0.9
+	}
+	return stat.AcquiredConns() >= int32(float64(maxConns)*threshold)
 }
 
 func runWorkerScheduler(ctx context.Context, deps workerRuntimeDeps) error {
