@@ -79,6 +79,30 @@ func TestSuccessfulDispatchSignals_SkipsCircuitSuccessWithoutEndpointOrFallback(
 	)
 }
 
+func TestExecutorCircuitSuccessSampling(t *testing.T) {
+	t.Parallel()
+
+	exec := &Executor{circuitSuccessSampleInterval: time.Hour}
+	now := time.Unix(100, 0)
+
+	require.True(t, exec.shouldRecordCircuitSuccess("endpoint-a", now))
+	require.False(t, exec.shouldRecordCircuitSuccess("endpoint-a", now.Add(time.Second)))
+	require.True(t, exec.shouldRecordCircuitSuccess("endpoint-b", now.Add(time.Second)))
+	require.True(t, exec.shouldRecordCircuitSuccess("endpoint-a", now.Add(time.Hour)))
+}
+
+func TestExecutorCircuitSuccessSampling_ClearResetsEndpoint(t *testing.T) {
+	t.Parallel()
+
+	exec := &Executor{circuitSuccessSampleInterval: time.Hour}
+	now := time.Unix(100, 0)
+
+	require.True(t, exec.shouldRecordCircuitSuccess("endpoint-a", now))
+	require.False(t, exec.shouldRecordCircuitSuccess("endpoint-a", now.Add(time.Second)))
+	exec.clearCircuitSuccessSample("endpoint-a")
+	require.True(t, exec.shouldRecordCircuitSuccess("endpoint-a", now.Add(2*time.Second)))
+}
+
 func TestSuccessfulLatencyAnomaly_RecordsAboveDoubleP95(t *testing.T) {
 	t.Parallel()
 

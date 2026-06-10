@@ -48,7 +48,8 @@ type ExecutorConfig struct {
 	RunVersionCacheTTL         time.Duration
 	JobHealthCacheTTL          time.Duration
 
-	EndpointHealthSuccessSampleInterval time.Duration
+	EndpointHealthSuccessSampleInterval  time.Duration
+	EndpointCircuitSuccessSampleInterval time.Duration
 
 	RedisClient               redis.Cmdable
 	CacheBus                  *straitcache.Bus
@@ -212,7 +213,9 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 			cfg.Store,
 			WithHealthSuccessSampleInterval(cfg.EndpointHealthSuccessSampleInterval),
 		),
-		drain: newDrainController(queueMetrics),
+		circuitSuccessSampleInterval: cfg.EndpointCircuitSuccessSampleInterval,
+		lastCircuitSuccess:           make(map[string]time.Time),
+		drain:                        newDrainController(queueMetrics),
 		onCompleteTrigger: NewOnCompleteTrigger(
 			cfg.WorkflowLookup,
 			cfg.WorkflowTriggerer,

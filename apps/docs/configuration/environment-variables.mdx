@@ -71,6 +71,7 @@ Redis is still required at startup. Cache operations fail open to in-process cac
 | `API_KEY_CACHE_TTL` | `60s` | API key auth cache TTL. Revocation and rotation invalidate immediately; cached values exclude secret material. |
 | `JOB_HEALTH_CACHE_TTL` | `2s` | Short TTL for adaptive job health aggregates used on hot worker paths. |
 | `ENDPOINT_HEALTH_SUCCESS_SAMPLE_INTERVAL` | `1s` | Minimum interval between successful endpoint health writes per worker and endpoint. Failures always write immediately. |
+| `ENDPOINT_CIRCUIT_SUCCESS_SAMPLE_INTERVAL` | `1s` | Minimum interval between successful endpoint circuit writes per worker and endpoint. Failures always write immediately. |
 | `JOB_DEPS_CACHE_TTL` | `5m` | Job dependency list cache TTL. Dependency create and delete invalidate affected entries. |
 | `CACHE_STATUS_READMODEL_TTL` | `5m` | Redis status read-model TTL for job runs and workflow runs. CDC updates use version compare-and-set so status does not move backward. |
 | `CACHE_SHARED_DEDUPE_TTL` | `10m` | Redis duplicate suppression TTL for CDC side effects and Sequin push webhooks. |

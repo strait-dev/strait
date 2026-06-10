@@ -256,7 +256,8 @@ type Config struct {
 	APIKeyCacheTTL             time.Duration `env:"API_KEY_CACHE_TTL" default:"60s"`
 	JobHealthCacheTTL          time.Duration `env:"JOB_HEALTH_CACHE_TTL" default:"2s"`
 
-	EndpointHealthSuccessSampleInterval time.Duration `env:"ENDPOINT_HEALTH_SUCCESS_SAMPLE_INTERVAL" default:"1s"`
+	EndpointHealthSuccessSampleInterval  time.Duration `env:"ENDPOINT_HEALTH_SUCCESS_SAMPLE_INTERVAL" default:"1s"`
+	EndpointCircuitSuccessSampleInterval time.Duration `env:"ENDPOINT_CIRCUIT_SUCCESS_SAMPLE_INTERVAL" default:"1s"`
 
 	// JobHealthStatsCacheTTL is kept as a compatibility alias for the
 	// short-TTL job health stats cache added before the generalized worker

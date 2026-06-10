@@ -1356,7 +1356,8 @@ func buildExecutorConfig(
 		RunVersionCacheTTL:      cfg.RunVersionCacheTTL,
 		JobHealthCacheTTL:       cfg.JobHealthCacheTTL,
 
-		EndpointHealthSuccessSampleInterval: cfg.EndpointHealthSuccessSampleInterval,
+		EndpointHealthSuccessSampleInterval:  cfg.EndpointHealthSuccessSampleInterval,
+		EndpointCircuitSuccessSampleInterval: cfg.EndpointCircuitSuccessSampleInterval,
 
 		RedisClient:               deps.redisClient,
 		CacheRegistry:             deps.cacheRegistry,

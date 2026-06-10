@@ -25,12 +25,15 @@ func (e *Executor) completeRunWithWebhook(ctx context.Context, run *domain.JobRu
 
 func (e *Executor) completeRunWithWebhookOnce(ctx context.Context, run *domain.JobRun, job *domain.Job, completion terminalRunCompletion) error {
 	if e.txPool != nil {
-		return store.WithTx(ctx, e.txPool, func(q *store.Queries) error {
+		endpointKey := endpointStateKey(job.ProjectID, job.EndpointURL)
+		recordEndpointSuccess := completion.recordEndpointSuccess &&
+			e.shouldRecordCircuitSuccess(endpointKey, time.Now())
+		err := store.WithTx(ctx, e.txPool, func(q *store.Queries) error {
 			if err := q.UpdateRunStatus(ctx, run.ID, completion.from, completion.to, completion.fields); err != nil {
 				return err
 			}
-			if completion.recordEndpointSuccess {
-				if err := q.RecordEndpointCircuitSuccess(ctx, endpointStateKey(job.ProjectID, job.EndpointURL)); err != nil {
+			if recordEndpointSuccess {
+				if err := q.RecordEndpointCircuitSuccess(ctx, endpointKey); err != nil {
 					return err
 				}
 			}
@@ -42,6 +45,10 @@ func (e *Executor) completeRunWithWebhookOnce(ctx context.Context, run *domain.J
 			}
 			return e.enqueueRunSubscriptionWebhooks(ctx, q, completion)
 		})
+		if err != nil && recordEndpointSuccess {
+			e.clearCircuitSuccessSample(endpointKey)
+		}
+		return err
 	}
 	if completion.enqueueWebhook {
 		e.logger.Warn("txPool not configured, webhook delivery skipped for completed run",

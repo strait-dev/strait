@@ -511,7 +511,8 @@ func TestWorkerCache_ConstructedFromExecutorConfig(t *testing.T) {
 		RunVersionCacheTTL: 10 * time.Minute,
 		JobHealthCacheTTL:  2 * time.Second,
 
-		EndpointHealthSuccessSampleInterval: time.Second,
+		EndpointHealthSuccessSampleInterval:  time.Second,
+		EndpointCircuitSuccessSampleInterval: 2 * time.Second,
 
 		MaxDequeueBatchSize:      7,
 		DefaultJobMaxConcurrency: 3,
@@ -533,6 +534,7 @@ func TestWorkerCache_ConstructedFromExecutorConfig(t *testing.T) {
 	require.Equal(t, 7, exec.maxDequeueBatchSize)
 	require.Equal(t, 3, exec.defaultJobMaxConcurrency)
 	require.Equal(t, time.Second, exec.healthScorer.successSampleInterval)
+	require.Equal(t, 2*time.Second, exec.circuitSuccessSampleInterval)
 }
 
 func TestWorkerStrongCacheConstructorRegistersRuntimeNamespace(t *testing.T) {

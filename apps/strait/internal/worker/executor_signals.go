@@ -36,8 +36,9 @@ func newSuccessfulDispatchSignals(job *domain.Job, transition successfulRunTrans
 
 func (e *Executor) recordSuccessfulDispatchSignals(ctx context.Context, job *domain.Job, transition successfulRunTransition) {
 	signals := newSuccessfulDispatchSignals(job, transition, e.txPool == nil)
-	if signals.recordCircuitSuccess {
+	if signals.recordCircuitSuccess && e.shouldRecordCircuitSuccess(signals.endpointKey, time.Now()) {
 		if err := e.store.RecordEndpointCircuitSuccess(ctx, signals.endpointKey); err != nil {
+			e.clearCircuitSuccessSample(signals.endpointKey)
 			e.logger.Warn("failed to record circuit breaker success", "endpoint", httputil.RedactURLForLog(signals.endpointURL), "error", err)
 		}
 	}
@@ -116,9 +117,36 @@ func (e *Executor) recordFailedDispatchSignals(ctx context.Context, job *domain.
 	if err := e.store.RecordEndpointCircuitFailure(ctx, signals.endpointKey, signals.circuitFailedAt, e.circuitThreshold, e.circuitOpenFor); err != nil {
 		e.logger.Warn("failed to record circuit breaker "+signals.logName, "endpoint", httputil.RedactURLForLog(signals.endpointURL), "error", err)
 	}
+	e.clearCircuitSuccessSample(signals.endpointKey)
 	if _, hsErr := e.healthScorer.RecordResult(ctx, signals.result); hsErr != nil {
 		e.logger.Warn("failed to record health score "+signals.logName, "endpoint", httputil.RedactURLForLog(signals.endpointURL), "error", hsErr)
 	}
+}
+
+func (e *Executor) shouldRecordCircuitSuccess(endpointKey string, now time.Time) bool {
+	if e == nil || endpointKey == "" || e.circuitSuccessSampleInterval <= 0 {
+		return true
+	}
+	e.circuitSuccessMu.Lock()
+	defer e.circuitSuccessMu.Unlock()
+	if e.lastCircuitSuccess == nil {
+		e.lastCircuitSuccess = make(map[string]time.Time)
+	}
+	last, ok := e.lastCircuitSuccess[endpointKey]
+	if ok && now.Sub(last) < e.circuitSuccessSampleInterval {
+		return false
+	}
+	e.lastCircuitSuccess[endpointKey] = now
+	return true
+}
+
+func (e *Executor) clearCircuitSuccessSample(endpointKey string) {
+	if e == nil || endpointKey == "" || e.circuitSuccessSampleInterval <= 0 {
+		return
+	}
+	e.circuitSuccessMu.Lock()
+	defer e.circuitSuccessMu.Unlock()
+	delete(e.lastCircuitSuccess, endpointKey)
 }
 
 func (k failedDispatchSignalKind) timedOut() bool {
