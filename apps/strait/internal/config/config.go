@@ -254,15 +254,15 @@ type Config struct {
 	VersionCacheTTL            time.Duration `env:"VERSION_CACHE_TTL" default:"30m"`
 	RunVersionCacheTTL         time.Duration `env:"RUN_VERSION_CACHE_TTL" default:"10m"`
 	APIKeyCacheTTL             time.Duration `env:"API_KEY_CACHE_TTL" default:"60s"`
-	JobHealthCacheTTL          time.Duration `env:"JOB_HEALTH_CACHE_TTL" default:"30s"`
+	JobHealthCacheTTL          time.Duration `env:"JOB_HEALTH_CACHE_TTL" default:"5m"`
 
 	EndpointHealthSuccessSampleInterval  time.Duration `env:"ENDPOINT_HEALTH_SUCCESS_SAMPLE_INTERVAL" default:"1s"`
 	EndpointCircuitSuccessSampleInterval time.Duration `env:"ENDPOINT_CIRCUIT_SUCCESS_SAMPLE_INTERVAL" default:"1s"`
 
-	// JobHealthStatsCacheTTL is kept as a compatibility alias for the
-	// short-TTL job health stats cache added before the generalized worker
-	// cache tiers. The executor uses JobHealthCacheTTL.
-	JobHealthStatsCacheTTL time.Duration `env:"JOB_HEALTH_STATS_CACHE_TTL" default:"30s"`
+	// JobHealthStatsCacheTTL is kept as a compatibility alias for the job
+	// health stats cache added before the generalized worker cache tiers. The
+	// executor uses JobHealthCacheTTL.
+	JobHealthStatsCacheTTL time.Duration `env:"JOB_HEALTH_STATS_CACHE_TTL" default:"5m"`
 	JobDepsCacheTTL        time.Duration `env:"JOB_DEPS_CACHE_TTL" default:"5m"`
 	StatusReadModelTTL     time.Duration `env:"CACHE_STATUS_READMODEL_TTL" default:"5m"`
 	SharedDedupeTTL        time.Duration `env:"CACHE_SHARED_DEDUPE_TTL" default:"10m"`
