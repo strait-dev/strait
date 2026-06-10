@@ -26,7 +26,7 @@ func (s *Server) loadRunCreationJob(ctx context.Context, jobID, auditAction, han
 		return nil, huma.Error400BadRequest(err.Error())
 	}
 
-	job, err := s.store.GetJob(ctx, jobID)
+	job, err := s.getRunCreationJob(ctx, jobID)
 	if err != nil {
 		if errors.Is(err, store.ErrJobNotFound) {
 			return nil, huma.Error404NotFound("job not found")
@@ -42,4 +42,11 @@ func (s *Server) loadRunCreationJob(ctx context.Context, jobID, auditAction, han
 	}
 	s.emitInternalSecretBypassAuditIfProjectless(ctx, job.ProjectID, auditAction, handlerName, "job", job.ID)
 	return job, nil
+}
+
+func (s *Server) getRunCreationJob(ctx context.Context, jobID string) (*domain.Job, error) {
+	if s.apiJobCache != nil {
+		return s.apiJobCache.Get(ctx, jobID)
+	}
+	return s.store.GetJob(ctx, jobID)
 }

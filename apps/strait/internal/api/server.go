@@ -638,6 +638,7 @@ type Server struct {
 	permCache                  *permissionCache
 	quotaCache                 *quotaCache
 	apiKeyCache                *apiKeyCache
+	apiJobCache                *apiJobCache
 	jobDependencyCache         *jobDependencyCache
 	cacheBus                   *straitcache.Bus
 	workerJobBarrier           *straitcache.Tier[string, struct{}]
@@ -882,6 +883,10 @@ func NewServer(deps ServerDeps) *Server {
 		Bus:      deps.CacheBus,
 		Registry: deps.CacheRegistry,
 	}
+	var apiJobLoader func(context.Context, string) (*domain.Job, error)
+	if deps.Store != nil {
+		apiJobLoader = deps.Store.GetJob
+	}
 
 	srv := &Server{
 		store:              deps.Store,
@@ -906,6 +911,7 @@ func NewServer(deps ServerDeps) *Server {
 			return deps.Store.GetProjectQuota(ctx, projectID)
 		}, cacheDeps),
 		apiKeyCache:                newAPIKeyCache(apiKeyCacheTTL(deps.Config), cacheDeps),
+		apiJobCache:                newAPIJobCache(apiJobCacheTTL(deps.Config), apiJobLoader, cacheDeps),
 		jobDependencyCache:         newJobDependencyCache(jobDepsCacheTTL(deps.Config), cacheDeps),
 		cacheBus:                   deps.CacheBus,
 		workerJobBarrier:           newWorkerJobBarrier(workerJobBarrierTTL(deps.Config), deps.RedisClient),
@@ -1125,6 +1131,9 @@ func (s *Server) Close() {
 	}
 	if s.apiKeyCache != nil {
 		s.apiKeyCache.Stop()
+	}
+	if s.apiJobCache != nil {
+		s.apiJobCache.Stop()
 	}
 	if s.jobDependencyCache != nil {
 		s.jobDependencyCache.Stop()
