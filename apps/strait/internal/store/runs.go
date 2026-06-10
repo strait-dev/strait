@@ -95,6 +95,10 @@ func (q *Queries) CreateRun(ctx context.Context, run *domain.JobRun) error {
 		dbscan.NilIfEmptyString(run.BatchID),
 		string(execMode),
 		queueName,
+		run.JobEnabled,
+		run.JobPaused,
+		run.JobMaxConcurrency,
+		run.JobMaxConcurrencyPerKey,
 		metadataJSON,
 		run.IsRollback,
 	).Scan(&run.CreatedAt)
@@ -116,7 +120,7 @@ func createRunInsertQuery(withIdempotency bool) string {
 			next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, workflow_step_run_id,
 			debug_mode, continuation_of, lineage_depth,
 			tags, job_version_id, created_by, concurrency_key, batch_id,
-			execution_mode, queue_name, metadata,
+			execution_mode, queue_name, job_enabled, job_paused, job_max_concurrency, job_max_concurrency_per_key, metadata,
 			is_rollback
 		)`
 	const values = `
@@ -125,7 +129,7 @@ func createRunInsertQuery(withIdempotency bool) string {
 			$9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
 			$21, $22, $23,
 			$24::jsonb, $25, $26, $27, $28,
-			$29, $30, $31::jsonb, $32
+			$29, $30, $31, $32, $33, $34, $35::jsonb, $36
 		)
 		RETURNING created_at`
 	if !withIdempotency {
@@ -147,7 +151,7 @@ func createRunInsertQuery(withIdempotency bool) string {
 			$9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
 			$21, $22, $23,
 			$24::jsonb, $25, $26, $27, $28,
-			$29, $30, $31::jsonb, $32
+			$29, $30, $31, $32, $33, $34, $35::jsonb, $36
 		WHERE NOT EXISTS (SELECT 1 FROM idempotency_check)
 		RETURNING created_at`
 }
