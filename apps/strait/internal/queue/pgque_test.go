@@ -1214,6 +1214,76 @@ func TestPgQueSendReadyEventsFetchesGenerationsSetBased(t *testing.T) {
 	})
 }
 
+func TestPgQueSendFreshReadyEventsUsesInitialGenerationWithoutLookup(t *testing.T) {
+	ctx := context.Background()
+	var queryCalls int
+	var queryRowCalls int
+	var sendBatchCalls int
+	var recordCalls int
+	var sentPayloads []string
+
+	db := &mockDBTX{
+		queryFn: func(_ context.Context, sql string, _ ...any) (pgx.Rows, error) {
+			queryCalls++
+			require.Failf(t, "test failure", "unexpected Query SQL = %q", sql)
+			return nil, nil
+		},
+		queryRowFn: func(_ context.Context, sql string, _ ...any) pgx.Row {
+			queryRowCalls++
+			require.Failf(t, "test failure", "unexpected QueryRow SQL = %q", sql)
+			return &mockRow{}
+		},
+		execFn: func(_ context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
+			if strings.Contains(sql, "strait_pgque_ready_events") {
+				recordCalls++
+				require.Len(t, args, 2)
+
+				runIDs, ok := args[0].([]string)
+				require.True(t, ok)
+				generations, ok := args[1].([]int64)
+				require.True(t, ok)
+				require.True(t, slices.Equal(runIDs, []string{"run-a", "run-b"}))
+				require.True(t, slices.Equal(generations, []int64{0, 0}))
+
+				return pgconn.CommandTag{}, nil
+			}
+			require.Contains(t, sql, "pgque.send_batch")
+			sendBatchCalls++
+			payloads, ok := args[2].([]string)
+			require.True(t, ok)
+			sentPayloads = append([]string(nil), payloads...)
+			return pgconn.CommandTag{}, nil
+		},
+	}
+	q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
+	q.routeState(pgQueHTTPRouteKey).configured.Store(true)
+
+	runs := []*domain.JobRun{
+		{ID: "run-a", Status: domain.StatusQueued, Priority: 9},
+		{ID: "run-delayed", Status: domain.StatusDelayed, Priority: 8},
+		{ID: "run-b", Status: domain.StatusQueued, Priority: 7},
+	}
+	require.NoError(t, q.sendFreshReadyEvents(ctx, db, runs))
+	require.Equal(t, 0, queryCalls)
+	require.Equal(t, 0, queryRowCalls)
+	require.Equal(t, 1, sendBatchCalls)
+	require.Equal(t, 1, recordCalls)
+	require.Len(t, sentPayloads, 2)
+
+	assertPgQueReadyEvent(t, sentPayloads[0], pgQueReadyEvent{
+		RunID:      "run-a",
+		RouteKey:   pgQueHTTPRouteKey,
+		Generation: 0,
+		Priority:   9,
+	})
+	assertPgQueReadyEvent(t, sentPayloads[1], pgQueReadyEvent{
+		RunID:      "run-b",
+		RouteKey:   pgQueHTTPRouteKey,
+		Generation: 0,
+		Priority:   7,
+	})
+}
+
 func TestPgQueSendReadyEventsFetchesWorkerRoutesSetBased(t *testing.T) {
 	ctx := context.Background()
 	var jobRouteQueries int
@@ -1591,6 +1661,87 @@ func BenchmarkPgQueReadyRunsForEventsSingleWorkerJob(b *testing.B) {
 			b.Fatal(err)
 		}
 		pgQueReadyRunsBenchmarkSink = readyRuns
+	}
+}
+
+func TestPgQueSendFreshReadyEventsFetchesWorkerRoutesButNotGenerations(t *testing.T) {
+	ctx := context.Background()
+	var jobRouteQueries int
+	var generationQueries int
+	var queryRowCalls int
+	var recordCalls int
+	gotJobIDs := []string{}
+	sentEvents := map[string]pgQueReadyEvent{}
+
+	db := &mockDBTX{
+		queryFn: func(_ context.Context, sql string, args ...any) (pgx.Rows, error) {
+			switch {
+			case strings.Contains(sql, "FROM jobs"):
+				jobRouteQueries++
+				jobIDs, ok := args[0].([]string)
+				require.True(t, ok)
+				gotJobIDs = append([]string(nil), jobIDs...)
+				return &pgQueWorkerJobRouteRows{
+					values: []pgQueWorkerJobRouteRow{
+						{jobID: "job-a", queueName: "default", environmentID: "prod"},
+						{jobID: "job-b", queueName: "bulk"},
+					},
+				}, nil
+			case strings.Contains(sql, "FROM job_run_state"):
+				generationQueries++
+				require.Failf(t, "test failure", "fresh ready events must not query generations: %q", sql)
+				return nil, nil
+			default:
+				require.Failf(t, "test failure", "unexpected Query SQL = %q", sql)
+				return nil, nil
+			}
+		},
+		queryRowFn: func(_ context.Context, sql string, _ ...any) pgx.Row {
+			queryRowCalls++
+			require.Failf(t, "test failure", "unexpected QueryRow SQL = %q", sql)
+			return &mockRow{}
+		},
+		execFn: func(_ context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
+			if strings.Contains(sql, "strait_pgque_ready_events") {
+				recordCalls++
+				return pgconn.CommandTag{}, nil
+			}
+			require.Contains(t, sql, "pgque.send_batch")
+			payloads, ok := args[2].([]string)
+			require.True(t, ok)
+			for _, payload := range payloads {
+				var event pgQueReadyEvent
+				require.NoError(t, json.Unmarshal([]byte(payload), &event))
+				sentEvents[event.RunID] = event
+			}
+			return pgconn.CommandTag{}, nil
+		},
+	}
+	q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
+	q.routeState(pgQueWorkerRouteKey("project-a", "default", "prod")).configured.Store(true)
+	q.routeState(pgQueWorkerRouteKey("project-a", "critical", "prod")).configured.Store(true)
+	q.routeState(pgQueWorkerRouteKey("project-b", "bulk", "")).configured.Store(true)
+
+	runs := []*domain.JobRun{
+		{ID: "run-a", JobID: "job-a", ProjectID: "project-a", Status: domain.StatusQueued, Priority: 9, ExecutionMode: domain.ExecutionModeWorker},
+		{ID: "run-b", JobID: "job-a", ProjectID: "project-a", Status: domain.StatusQueued, Priority: 8, ExecutionMode: domain.ExecutionModeWorker, QueueName: "critical"},
+		{ID: "run-c", JobID: "job-b", ProjectID: "project-b", Status: domain.StatusQueued, Priority: 7, ExecutionMode: domain.ExecutionModeWorker},
+	}
+	require.NoError(t, q.sendFreshReadyEvents(ctx, db, runs))
+	require.Equal(t, 1, jobRouteQueries)
+	require.True(t, slices.Equal(gotJobIDs, []string{"job-a", "job-b"}))
+	require.Equal(t, 0, generationQueries)
+	require.Equal(t, 0, queryRowCalls)
+	require.Equal(t, 1, recordCalls)
+	require.Len(t, sentEvents, 3)
+
+	wantEvents := map[string]pgQueReadyEvent{
+		"run-a": {RunID: "run-a", RouteKey: pgQueWorkerRouteKey("project-a", "default", "prod"), Generation: 0, Priority: 9},
+		"run-b": {RunID: "run-b", RouteKey: pgQueWorkerRouteKey("project-a", "critical", "prod"), Generation: 0, Priority: 8},
+		"run-c": {RunID: "run-c", RouteKey: pgQueWorkerRouteKey("project-b", "bulk", ""), Generation: 0, Priority: 7},
+	}
+	for runID, want := range wantEvents {
+		require.Equal(t, want, sentEvents[runID])
 	}
 }
 
