@@ -27,7 +27,7 @@ func (s *Server) handleDebounceTrigger(ctx context.Context, state *triggerReques
 	if err := s.withTriggerLimitGuard(ctx, job, state.projectQuota, func(guardCtx context.Context, _ store.DBTX) error {
 		return s.store.UpsertDebouncePending(guardCtx, pending)
 	}); err != nil {
-		return nil, true, triggerLimitAPIError(err, "failed to upsert debounce pending")
+		return nil, true, s.triggerLimitAPIError(err, "failed to upsert debounce pending")
 	}
 	s.emitAuditEventAsync(auditContextWithProject(ctx, job.ProjectID), domain.AuditActionJobTriggered, "job", job.ID, map[string]any{
 		"debounced":         true,
@@ -95,7 +95,7 @@ func (s *Server) handleBatchTrigger(ctx context.Context, input *TriggerJobInput,
 		if apiErr := enqueueAPIError(err); apiErr != nil {
 			return nil, true, apiErr
 		}
-		return nil, true, triggerLimitAPIError(err, "failed to insert batch buffer item")
+		return nil, true, s.triggerLimitAPIError(err, "failed to insert batch buffer item")
 	}
 	if batchOutput != nil {
 		s.emitAuditEventAsync(auditContextWithProject(ctx, job.ProjectID), domain.AuditActionJobTriggered, "job", job.ID, map[string]any{

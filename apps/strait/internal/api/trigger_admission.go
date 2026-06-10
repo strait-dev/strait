@@ -349,6 +349,18 @@ func countRunsForJobSince(ctx context.Context, tx store.DBTX, jobID string, sinc
 const triggerLimitFallbackRetryAfterSeconds = 5
 
 func triggerLimitAPIError(err error, fallback string) error {
+	return triggerLimitAPIErrorWithDatabaseAdmission(err, fallback, true)
+}
+
+func (s *Server) triggerLimitAPIError(err error, fallback string) error {
+	databaseAdmission429Enabled := true
+	if s != nil && s.config != nil && s.config.DBBackpressureDisabled {
+		databaseAdmission429Enabled = false
+	}
+	return triggerLimitAPIErrorWithDatabaseAdmission(err, fallback, databaseAdmission429Enabled)
+}
+
+func triggerLimitAPIErrorWithDatabaseAdmission(err error, fallback string, databaseAdmission429Enabled bool) error {
 	var statusErr huma.StatusError
 	if errors.As(err, &statusErr) {
 		return err
@@ -363,6 +375,9 @@ func triggerLimitAPIError(err error, fallback string) error {
 	case errors.Is(err, errTriggerAdmissionContended):
 		return newTriggerLimit429("trigger admission busy")
 	case isRetryableDatabaseAdmissionError(err):
+		if !databaseAdmission429Enabled {
+			return huma.Error500InternalServerError(fallback)
+		}
 		return newDatabaseAdmission429()
 	default:
 		return huma.Error500InternalServerError(fallback)

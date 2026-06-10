@@ -151,7 +151,7 @@ func (s *Server) enqueueImmediateTriggerRun(
 		if apiErr := enqueueAPIError(err); apiErr != nil {
 			return nil, apiErr
 		}
-		return nil, triggerLimitAPIError(err, "failed to enqueue run")
+		return nil, s.triggerLimitAPIError(err, "failed to enqueue run")
 	}
 	return result, nil
 }

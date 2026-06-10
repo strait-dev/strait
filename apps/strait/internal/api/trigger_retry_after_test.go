@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"testing"
 
+	"strait/internal/config"
+
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/stretchr/testify/require"
 )
@@ -107,6 +109,20 @@ func TestTriggerLimitAPIError_RetryableDatabaseErrorBecomes429(t *testing.T) {
 	require.Equal(t, ErrorCodeRateLimited, tae.apiError.Code)
 	require.Equal(t, "1", tae.headers["Retry-After"])
 	require.True(t, slices.Contains(tae.apiError.Details, "retry_after_seconds=1"))
+}
+
+func TestServerTriggerLimitAPIError_DBBackpressureDisabledDoesNotReturn429(t *testing.T) {
+	srv := &Server{config: &config.Config{DBBackpressureDisabled: true}}
+
+	out := srv.triggerLimitAPIError(
+		fmt.Errorf("enqueue run in tx: failed to deallocate cached statement(s): %w", retryableAdmissionErr{}),
+		"failed to enqueue run",
+	)
+
+	var statusErr huma.StatusError
+	require.ErrorAs(t, out, &statusErr)
+	require.Equal(t, http.StatusInternalServerError, statusErr.GetStatus())
+	require.NotContains(t, out.Error(), "database admission control throttled")
 }
 
 // TestNewTriggerLimit429_ResponseShape directly exercises the helper so
