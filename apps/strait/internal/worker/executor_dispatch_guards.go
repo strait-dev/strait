@@ -34,7 +34,7 @@ func (e *Executor) prefetchDispatchGuards(
 	endpointKey := endpointStateKey(job.ProjectID, job.EndpointURL)
 	now := time.Now().UTC()
 	if cached, ok := e.endpointGuardCache.get(endpointKey, now); ok {
-		if policy.timeoutSecs > 0 {
+		if e.shouldLoadAdaptiveTimeoutStats(policy) {
 			cached.adaptiveStats, _ = e.getJobHealthStats(ctx, job.ID, now)
 		}
 		return cached
@@ -52,7 +52,7 @@ func (e *Executor) prefetchDispatchGuards(
 	prefetchWG.Go(func() {
 		result.healthScore, result.healthAllowed, result.healthErr = e.healthScorer.CheckHealth(ctx, endpointKey)
 	})
-	if policy.timeoutSecs > 0 {
+	if e.shouldLoadAdaptiveTimeoutStats(policy) {
 		prefetchWG.Go(func() {
 			result.adaptiveStats, _ = e.getJobHealthStats(ctx, job.ID, now)
 		})
@@ -60,6 +60,10 @@ func (e *Executor) prefetchDispatchGuards(
 	prefetchWG.Wait()
 	e.endpointGuardCache.setAllowed(endpointKey, now, result)
 	return result
+}
+
+func (e *Executor) shouldLoadAdaptiveTimeoutStats(policy executionPolicy) bool {
+	return e != nil && e.adaptiveTimeoutEnabled && policy.timeoutSecs > 0
 }
 
 func (e *Executor) checkEndpointGuards(

@@ -47,6 +47,7 @@ type Executor struct {
 	terminalRetryTimeout         time.Duration
 	terminalRetryInitial         time.Duration
 	terminalRetryMax             time.Duration
+	adaptiveTimeoutEnabled       bool
 	executionTraceMode           executionTraceMode
 	middlewares                  []ExecutionMiddleware
 	subscribers                  []RunEventSubscriber

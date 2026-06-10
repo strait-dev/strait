@@ -91,6 +91,7 @@ func TestLoad_Defaults(t *testing.T) {
 		{"ExecutorHTTPTimeout", cfg.ExecutorHTTPTimeout, 5 * time.Minute},
 		{"ExecutorIdleConnTimeout", cfg.ExecutorIdleConnTimeout, 90 * time.Second},
 		{"ExecutionTraceMode", cfg.ExecutionTraceMode, "off"},
+		{"AdaptiveTimeoutEnabled", cfg.AdaptiveTimeoutEnabled, false},
 		{"WebhookDispatchTimeout", cfg.WebhookDispatchTimeout, 15 * time.Second},
 		{"WebhookMaxAttempts", cfg.WebhookMaxAttempts, 3},
 		{"DefaultJobMaxAttempts", cfg.DefaultJobMaxAttempts, 3},

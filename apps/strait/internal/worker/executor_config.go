@@ -35,6 +35,7 @@ type ExecutorConfig struct {
 	ExecutorHTTPTimeout        time.Duration
 	ExecutorIdleConnTimeout    time.Duration
 	AllowPrivateEndpoints      bool
+	AdaptiveTimeoutEnabled     bool
 	WebhookMaxAttempts         int
 	TerminalRetryTimeout       time.Duration
 	TerminalRetryInitial       time.Duration
@@ -183,6 +184,7 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		terminalRetryTimeout:     resolveTerminalRetryTimeout(cfg.TerminalRetryTimeout),
 		terminalRetryInitial:     terminalRetryInitial,
 		terminalRetryMax:         terminalRetryMax,
+		adaptiveTimeoutEnabled:   cfg.AdaptiveTimeoutEnabled,
 		executionTraceMode:       normalizeExecutionTraceMode(cfg.ExecutionTraceMode),
 		eventCh:                  make(chan runEventEnvelope, resolveEventChannelSize(cfg.EventChannelSize)),
 		eventChannelSize:         resolveEventChannelSize(cfg.EventChannelSize),

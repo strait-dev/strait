@@ -1349,6 +1349,7 @@ func buildExecutorConfig(
 		ExecutorHTTPTimeout:     cfg.ExecutorHTTPTimeout,
 		ExecutorIdleConnTimeout: cfg.ExecutorIdleConnTimeout,
 		ExecutionTraceMode:      cfg.ExecutionTraceMode,
+		AdaptiveTimeoutEnabled:  cfg.AdaptiveTimeoutEnabled,
 		AllowPrivateEndpoints:   cfg.AllowPrivateEndpoints,
 		WebhookMaxAttempts:      cfg.WebhookMaxAttempts,
 		JobCacheTTL:             cfg.JobCacheTTL,

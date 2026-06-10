@@ -76,6 +76,9 @@ func (e *Executor) recordSuccessfulLatencyAnomaly(
 		return
 	}
 	if stats == nil {
+		if e == nil || !e.adaptiveTimeoutEnabled {
+			return
+		}
 		var statsErr error
 		stats, statsErr = e.getJobHealthStats(ctx, job.ID, time.Now())
 		if statsErr != nil {

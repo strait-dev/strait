@@ -197,6 +197,7 @@ type Config struct {
 	ExecutorHTTPTimeout        time.Duration `env:"EXECUTOR_HTTP_TIMEOUT" default:"5m"`
 	ExecutorIdleConnTimeout    time.Duration `env:"EXECUTOR_IDLE_CONN_TIMEOUT" default:"1m30s"`
 	ExecutionTraceMode         string        `env:"EXECUTION_TRACE_MODE" default:"off"`
+	AdaptiveTimeoutEnabled     bool          `env:"ADAPTIVE_TIMEOUT_ENABLED" default:"false"`
 	WebhookDispatchTimeout     time.Duration `env:"WEBHOOK_DISPATCH_TIMEOUT" default:"15s"`
 	WebhookMaxPayloadBytes     int64         `env:"WEBHOOK_MAX_PAYLOAD_BYTES" default:"1048576"`
 	WebhookConcurrency         int           `env:"WEBHOOK_CONCURRENCY" default:"50"`
