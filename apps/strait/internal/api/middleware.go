@@ -1401,26 +1401,7 @@ func bypassRLSTxBuffer(r *http.Request) bool {
 	if r.Method == http.MethodGet && r.URL.Path == "/v1/audit-events/export" {
 		return true
 	}
-	if r.Method != http.MethodPost {
-		return false
-	}
-	if r.URL.Path == "/v1/webhooks/test" {
-		return true
-	}
-	return isJobTriggerPath(r.URL.Path)
-}
-
-func isJobTriggerPath(path string) bool {
-	const prefix = "/v1/jobs/"
-	if !strings.HasPrefix(path, prefix) {
-		return false
-	}
-	rest := strings.TrimPrefix(path, prefix)
-	jobID, suffix, ok := strings.Cut(rest, "/")
-	if !ok || jobID == "" {
-		return false
-	}
-	return suffix == "trigger" || suffix == "trigger/bulk"
+	return r.Method == http.MethodPost && r.URL.Path == "/v1/webhooks/test"
 }
 
 type bufferedResponseWriter struct {
