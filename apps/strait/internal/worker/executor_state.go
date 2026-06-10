@@ -60,6 +60,8 @@ type Executor struct {
 	stepsVersionCache            *tierWorkflowStepsVersionCache
 	jobHealthCache               *tierJobHealthCache
 	endpointGuardCache           *endpointGuardCache
+	dispatchSecretsCache         *executorMetadataCache[[]domain.JobSecret]
+	webhookSubscriptionsCache    *executorMetadataCache[[]domain.WebhookSubscription]
 	memoryPressureThreshold      float64
 	maxSnoozeCount               int
 	jwtSigningKey                string

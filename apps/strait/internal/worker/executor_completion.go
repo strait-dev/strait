@@ -65,7 +65,7 @@ func (e *Executor) enqueueRunSubscriptionWebhooks(ctx context.Context, q *store.
 	if completion.webhookRun.ProjectID == "" {
 		return nil
 	}
-	subs, err := q.ListWebhookSubscriptions(ctx, completion.webhookRun.ProjectID)
+	subs, err := e.listRunWebhookSubscriptions(ctx, q, completion.webhookRun.ProjectID)
 	if err != nil {
 		return fmt.Errorf("list run webhook subscriptions: %w", err)
 	}
@@ -96,6 +96,25 @@ func (e *Executor) enqueueRunSubscriptionWebhooks(ctx context.Context, q *store.
 		}
 	}
 	return nil
+}
+
+func (e *Executor) listRunWebhookSubscriptions(ctx context.Context, q *store.Queries, projectID string) ([]domain.WebhookSubscription, error) {
+	cacheKey := "webhook_subscriptions:" + projectID
+	return e.webhookSubscriptionsCache.Load(ctx, cacheKey, func(loadCtx context.Context) ([]domain.WebhookSubscription, error) {
+		return q.ListWebhookSubscriptions(loadCtx, projectID)
+	})
+}
+
+func cloneWebhookSubscriptions(subs []domain.WebhookSubscription) []domain.WebhookSubscription {
+	if subs == nil {
+		return nil
+	}
+	out := make([]domain.WebhookSubscription, len(subs))
+	for i := range subs {
+		out[i] = subs[i]
+		out[i].EventTypes = append([]string(nil), subs[i].EventTypes...)
+	}
+	return out
 }
 
 func runWebhookEventType(status domain.RunStatus) (string, bool) {
