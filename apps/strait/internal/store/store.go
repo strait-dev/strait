@@ -425,6 +425,7 @@ type Queries struct {
 	secretEncryptionKey     string
 	oldSecretEncryptionKeys []string
 	auditSigningKey         []byte
+	auditSigningKeyCache    *auditSigningKeyCache
 	maxSLOWindowHours       int
 
 	// chDB is an optional *sql.DB connected to ClickHouse. When non-nil,
@@ -452,7 +453,7 @@ type Queries struct {
 }
 
 func New(db DBTX) *Queries {
-	return &Queries{db: db}
+	return &Queries{db: db, auditSigningKeyCache: newAuditSigningKeyCache()}
 }
 
 func (q *Queries) withDB(db DBTX) *Queries {
@@ -461,6 +462,7 @@ func (q *Queries) withDB(db DBTX) *Queries {
 		secretEncryptionKey:      q.secretEncryptionKey,
 		oldSecretEncryptionKeys:  append([]string(nil), q.oldSecretEncryptionKeys...),
 		auditSigningKey:          q.auditSigningKey,
+		auditSigningKeyCache:     q.auditSigningKeyCache,
 		maxSLOWindowHours:        q.maxSLOWindowHours,
 		chDB:                     q.chDB,
 		tombstoneInsertHook:      q.tombstoneInsertHook,
@@ -470,14 +472,17 @@ func (q *Queries) withDB(db DBTX) *Queries {
 
 func (q *Queries) SetSecretEncryptionKey(secretEncryptionKey string) {
 	q.secretEncryptionKey = secretEncryptionKey
+	q.auditSigningKeyCache.Clear()
 }
 
 func (q *Queries) SetOldSecretEncryptionKeys(oldSecretEncryptionKeys []string) {
 	q.oldSecretEncryptionKeys = append([]string(nil), oldSecretEncryptionKeys...)
+	q.auditSigningKeyCache.Clear()
 }
 
 func (q *Queries) SetAuditSigningKey(key []byte) {
 	q.auditSigningKey = key
+	q.auditSigningKeyCache.Clear()
 }
 
 func (q *Queries) SetMaxSLOWindowHours(hours int) {

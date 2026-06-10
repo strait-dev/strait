@@ -399,11 +399,15 @@ func (q *Queries) resolveSigningKeyForEpoch(ctx context.Context, projectID strin
 	if q.secretEncryptionKey == "" {
 		return q.auditSigningKey, nil
 	}
+	if key, ok := q.auditSigningKeyCache.Get(projectID, epoch); ok {
+		return key, nil
+	}
 	stored, err := q.GetAuditSigningKey(ctx, projectID, epoch)
 	if err != nil {
 		return nil, fmt.Errorf("resolve signing key: %w", err)
 	}
 	if stored != nil {
+		q.auditSigningKeyCache.Set(projectID, epoch, stored)
 		return stored, nil
 	}
 	if epoch != 0 {
@@ -453,6 +457,7 @@ func (q *Queries) resolveSigningKeyForEpoch(ctx context.Context, projectID strin
 		// every row we sign here. Refuse instead.
 		return nil, fmt.Errorf("resolve signing key: bootstrap inserted for project %s epoch %d but subsequent read returned nothing; refusing to sign under global key to avoid signer/verifier key divergence", projectID, epoch)
 	}
+	q.auditSigningKeyCache.Set(projectID, epoch, stored)
 	return stored, nil
 }
 
