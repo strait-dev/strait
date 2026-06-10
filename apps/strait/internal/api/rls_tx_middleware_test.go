@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"strait/internal/config"
+	"strait/internal/domain"
+	"strait/internal/store"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -365,6 +367,103 @@ func TestRLSTxMiddleware_WebhookTestBypassesBufferedTransaction(t *testing.T) {
 		w.Body.String())
 	require.EqualValues(t, 0, beginCount.
 		Load())
+}
+
+func TestJobTriggerRouteSkipsOuterRLSTransaction(t *testing.T) {
+	t.Parallel()
+
+	var beginCount atomic.Int32
+	job := testEnabledJob("job-trigger")
+	ms := &APIStoreMock{
+		GetJobFunc: func(context.Context, string) (*domain.Job, error) {
+			return job, nil
+		},
+		GetProjectQuotaFunc: func(context.Context, string) (*store.ProjectQuota, error) {
+			return &store.ProjectQuota{ProjectID: job.ProjectID}, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv.txPool = fakeTxBeginner{
+		beginCount: &beginCount,
+		beginErr:   errors.New("outer RLS tx should not wrap trigger route"),
+	}
+
+	w := httptest.NewRecorder()
+	req := authedProjectRequest(http.MethodPost, "/v1/jobs/job-trigger/trigger", `{"dry_run":true}`, job.ProjectID)
+	srv.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	require.EqualValues(t, 0, beginCount.Load())
+}
+
+func TestJobReadRouteStillUsesOuterRLSTransaction(t *testing.T) {
+	t.Parallel()
+
+	var beginCount atomic.Int32
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
+	srv.txPool = fakeTxBeginner{
+		beginCount: &beginCount,
+		beginErr:   errors.New("force RLS tx failure"),
+	}
+	handler := srv.rlsTxMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/v1/jobs/job-trigger", nil)
+	ctx := context.WithValue(req.Context(), ctxProjectIDKey, "project-1")
+	req = req.WithContext(ctx)
+	handler.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusInternalServerError, w.Code)
+	require.EqualValues(t, 1, beginCount.Load())
+}
+
+func TestJobTriggerRLSBypassPathMatching(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		req  *http.Request
+		want bool
+	}{
+		{
+			name: "single trigger post",
+			req:  httptest.NewRequest(http.MethodPost, "/v1/jobs/job-1/trigger", nil),
+			want: true,
+		},
+		{
+			name: "bulk trigger post",
+			req:  httptest.NewRequest(http.MethodPost, "/v1/jobs/job-1/trigger/bulk", nil),
+			want: true,
+		},
+		{
+			name: "job read",
+			req:  httptest.NewRequest(http.MethodGet, "/v1/jobs/job-1", nil),
+			want: false,
+		},
+		{
+			name: "job dependency write",
+			req:  httptest.NewRequest(http.MethodPost, "/v1/jobs/job-1/dependencies", nil),
+			want: false,
+		},
+		{
+			name: "trigger trailing path",
+			req:  httptest.NewRequest(http.MethodPost, "/v1/jobs/job-1/trigger/extra", nil),
+			want: false,
+		},
+		{
+			name: "empty job id",
+			req:  httptest.NewRequest(http.MethodPost, "/v1/jobs//trigger", nil),
+			want: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tt.want, bypassRLSTxBuffer(tt.req))
+		})
+	}
 }
 
 type fakeTxBeginner struct {
