@@ -47,6 +47,7 @@ type ExecutorConfig struct {
 	VersionCacheTTL            time.Duration
 	RunVersionCacheTTL         time.Duration
 	JobHealthCacheTTL          time.Duration
+	EndpointGuardCacheTTL      time.Duration
 
 	EndpointHealthSuccessSampleInterval  time.Duration
 	EndpointCircuitSuccessSampleInterval time.Duration
@@ -193,6 +194,7 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		runVersionCache:          runVersionCache,
 		stepsVersionCache:        stepsVersionCache,
 		jobHealthCache:           jobHealthCache,
+		endpointGuardCache:       newEndpointGuardCache(cfg.EndpointGuardCacheTTL),
 		memoryPressureThreshold:  cfg.MemoryPressureThresholdPct,
 		maxSnoozeCount:           cfg.MaxSnoozeCount,
 		jwtSigningKey:            cfg.JWTSigningKey,

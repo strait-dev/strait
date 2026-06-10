@@ -45,6 +45,7 @@ type mockExecutorStore struct {
 	getRunFn                 func(ctx context.Context, id string) (*domain.JobRun, error)
 	getProjectQuotaFn        func(ctx context.Context, projectID string) (*orcstore.ProjectQuota, error)
 	insertEventFn            func(ctx context.Context, event *domain.RunEvent) error
+	getEndpointHealthScoreFn func(ctx context.Context, endpointURL string) (*domain.EndpointHealthScore, error)
 
 	mu                 sync.Mutex
 	statusCalls        []statusUpdateCall
@@ -261,7 +262,10 @@ func (m *mockExecutorStore) InsertEvent(ctx context.Context, event *domain.RunEv
 	return m.insertEventFn(ctx, event)
 }
 
-func (m *mockExecutorStore) GetEndpointHealthScore(_ context.Context, _ string) (*domain.EndpointHealthScore, error) {
+func (m *mockExecutorStore) GetEndpointHealthScore(ctx context.Context, endpointURL string) (*domain.EndpointHealthScore, error) {
+	if m.getEndpointHealthScoreFn != nil {
+		return m.getEndpointHealthScoreFn(ctx, endpointURL)
+	}
 	return nil, nil
 }
 

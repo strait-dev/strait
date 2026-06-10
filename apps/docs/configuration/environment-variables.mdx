@@ -70,6 +70,7 @@ Redis is still required at startup. Cache operations fail open to in-process cac
 | `RUN_VERSION_CACHE_TTL` | `10m` | TTL for immutable workflow run version lookups used by worker execution policy resolution. |
 | `API_KEY_CACHE_TTL` | `60s` | API key auth cache TTL. Revocation and rotation invalidate immediately; cached values exclude secret material. |
 | `JOB_HEALTH_CACHE_TTL` | `5m` | TTL for adaptive job health aggregates used on hot worker paths. |
+| `ENDPOINT_GUARD_CACHE_TTL` | `1s` | TTL for worker-local allowed endpoint circuit and health guard decisions. Set `0` to disable. |
 | `ENDPOINT_HEALTH_SUCCESS_SAMPLE_INTERVAL` | `1s` | Minimum interval between successful endpoint health writes per worker and endpoint. Failures always write immediately. |
 | `ENDPOINT_CIRCUIT_SUCCESS_SAMPLE_INTERVAL` | `1s` | Minimum interval between successful endpoint circuit writes per worker and endpoint. Failures always write immediately. |
 | `JOB_DEPS_CACHE_TTL` | `5m` | Job dependency list cache TTL. Dependency create and delete invalidate affected entries. |

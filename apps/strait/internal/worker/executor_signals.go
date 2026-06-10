@@ -113,6 +113,7 @@ func (k failedDispatchSignalKind) logName() string {
 
 func (e *Executor) recordFailedDispatchSignals(ctx context.Context, job *domain.Job, kind failedDispatchSignalKind) {
 	signals := newFailedDispatchSignalPayload(job, kind, time.Now().UTC())
+	e.endpointGuardCache.invalidate(signals.endpointKey)
 
 	if err := e.store.RecordEndpointCircuitFailure(ctx, signals.endpointKey, signals.circuitFailedAt, e.circuitThreshold, e.circuitOpenFor); err != nil {
 		e.logger.Warn("failed to record circuit breaker "+signals.logName, "endpoint", httputil.RedactURLForLog(signals.endpointURL), "error", err)

@@ -58,6 +58,7 @@ type Executor struct {
 	runVersionCache              *tierWorkflowRunVersionCache
 	stepsVersionCache            *tierWorkflowStepsVersionCache
 	jobHealthCache               *tierJobHealthCache
+	endpointGuardCache           *endpointGuardCache
 	memoryPressureThreshold      float64
 	maxSnoozeCount               int
 	jwtSigningKey                string

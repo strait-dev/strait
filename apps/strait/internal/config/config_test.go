@@ -113,6 +113,7 @@ func TestLoad_Defaults(t *testing.T) {
 		{"APIKeyCacheTTL", cfg.APIKeyCacheTTL, time.Minute},
 		{"JobHealthCacheTTL", cfg.JobHealthCacheTTL, 5 * time.Minute},
 		{"JobHealthStatsCacheTTL", cfg.JobHealthStatsCacheTTL, 5 * time.Minute},
+		{"EndpointGuardCacheTTL", cfg.EndpointGuardCacheTTL, time.Second},
 		{"EndpointHealthSuccessSampleInterval", cfg.EndpointHealthSuccessSampleInterval, time.Second},
 		{"EndpointCircuitSuccessSampleInterval", cfg.EndpointCircuitSuccessSampleInterval, time.Second},
 		{"JobDepsCacheTTL", cfg.JobDepsCacheTTL, 5 * time.Minute},
@@ -260,6 +261,7 @@ func TestLoad_OverrideDefaults(t *testing.T) {
 	t.Setenv("DB_BACKPRESSURE_SAMPLE_INTERVAL", "250ms")
 	t.Setenv("DB_BACKPRESSURE_ACQUIRE_WAIT_THRESHOLD", "200ms")
 	t.Setenv("DB_BACKPRESSURE_OCCUPANCY_THRESHOLD", "0.98")
+	t.Setenv("ENDPOINT_GUARD_CACHE_TTL", "3s")
 	t.Setenv("ENDPOINT_HEALTH_SUCCESS_SAMPLE_INTERVAL", "5s")
 	t.Setenv("ENDPOINT_CIRCUIT_SUCCESS_SAMPLE_INTERVAL", "7s")
 
@@ -283,6 +285,7 @@ func TestLoad_OverrideDefaults(t *testing.T) {
 	require.Equal(t, 250*time.Millisecond, cfg.DBBackpressureSampleInterval)
 	require.Equal(t, 200*time.Millisecond, cfg.DBBackpressureAcquireWaitThreshold)
 	require.Equal(t, 0.98, cfg.DBBackpressureOccupancyThreshold)
+	require.Equal(t, 3*time.Second, cfg.EndpointGuardCacheTTL)
 	require.Equal(t, 5*time.Second, cfg.EndpointHealthSuccessSampleInterval)
 	require.Equal(t, 7*time.Second, cfg.EndpointCircuitSuccessSampleInterval)
 }

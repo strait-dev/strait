@@ -1355,6 +1355,7 @@ func buildExecutorConfig(
 		VersionCacheTTL:         cfg.VersionCacheTTL,
 		RunVersionCacheTTL:      cfg.RunVersionCacheTTL,
 		JobHealthCacheTTL:       cfg.JobHealthCacheTTL,
+		EndpointGuardCacheTTL:   cfg.EndpointGuardCacheTTL,
 
 		EndpointHealthSuccessSampleInterval:  cfg.EndpointHealthSuccessSampleInterval,
 		EndpointCircuitSuccessSampleInterval: cfg.EndpointCircuitSuccessSampleInterval,

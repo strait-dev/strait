@@ -32,13 +32,21 @@ func (e *Executor) prefetchDispatchGuards(
 	policy executionPolicy,
 ) dispatchPrefetch {
 	endpointKey := endpointStateKey(job.ProjectID, job.EndpointURL)
+	now := time.Now().UTC()
+	if cached, ok := e.endpointGuardCache.get(endpointKey, now); ok {
+		if policy.timeoutSecs > 0 {
+			cached.adaptiveStats, _ = e.getJobHealthStats(ctx, job.ID, now)
+		}
+		return cached
+	}
+
 	var result dispatchPrefetch
 	var prefetchWG conc.WaitGroup
 	prefetchWG.Go(func() {
 		result.circuitAllowed, result.circuitRetryAt, result.circuitErr = e.store.CanDispatchEndpoint(
 			ctx,
 			endpointKey,
-			time.Now().UTC(),
+			now,
 		)
 	})
 	prefetchWG.Go(func() {
@@ -46,10 +54,11 @@ func (e *Executor) prefetchDispatchGuards(
 	})
 	if policy.timeoutSecs > 0 {
 		prefetchWG.Go(func() {
-			result.adaptiveStats, _ = e.getJobHealthStats(ctx, job.ID, time.Now())
+			result.adaptiveStats, _ = e.getJobHealthStats(ctx, job.ID, now)
 		})
 	}
 	prefetchWG.Wait()
+	e.endpointGuardCache.setAllowed(endpointKey, now, result)
 	return result
 }
 
