@@ -760,9 +760,13 @@ func TestRecordEndpointCircuitSuccess(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, allowed)
 
-	// Calling on a new endpoint should also work (upsert).
+	// Calling on a new endpoint should also work without creating a row. Row
+	// absence is equivalent to a closed circuit and avoids hot success writes.
 	newEndpoint := "https://example.com/circuit-new-" + covID()
 	require.NoError(t, q.RecordEndpointCircuitSuccess(ctx, newEndpoint))
+	state, err := q.GetEndpointCircuitState(ctx, newEndpoint)
+	require.NoError(t, err)
+	require.Nil(t, state)
 
 }
 

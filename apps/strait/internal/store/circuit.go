@@ -187,14 +187,19 @@ func (q *Queries) RecordEndpointCircuitSuccess(ctx context.Context, endpointURL 
 	defer span.End()
 
 	if _, err := q.db.Exec(ctx, `
-		INSERT INTO endpoint_circuit_state (endpoint_url, state, consecutive_failures, opened_at, half_open_until)
-		VALUES ($1, 'closed', 0, NULL, NULL)
-		ON CONFLICT (endpoint_url) DO UPDATE
+		UPDATE endpoint_circuit_state
 		SET state = 'closed',
 			consecutive_failures = 0,
 			opened_at = NULL,
 			half_open_until = NULL,
 			updated_at = NOW()
+		WHERE endpoint_url = $1
+		  AND (
+			state IS DISTINCT FROM 'closed'
+			OR consecutive_failures <> 0
+			OR opened_at IS NOT NULL
+			OR half_open_until IS NOT NULL
+		  )
 	`, endpointURL); err != nil {
 		return fmt.Errorf("record endpoint circuit success: %w", err)
 	}
