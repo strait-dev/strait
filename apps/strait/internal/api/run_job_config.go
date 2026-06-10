@@ -8,10 +8,14 @@ func stampRunJobConfig(run *domain.JobRun, job *domain.Job) {
 	}
 	enabled := job.Enabled
 	paused := job.Paused
-	maxConcurrency := job.MaxConcurrency
-	maxConcurrencyPerKey := job.MaxConcurrencyPerKey
 	run.JobEnabled = &enabled
 	run.JobPaused = &paused
-	run.JobMaxConcurrency = &maxConcurrency
-	run.JobMaxConcurrencyPerKey = &maxConcurrencyPerKey
+	if job.MaxConcurrency > 0 {
+		maxConcurrency := job.MaxConcurrency
+		run.JobMaxConcurrency = &maxConcurrency
+	}
+	if job.MaxConcurrencyPerKey > 0 {
+		maxConcurrencyPerKey := job.MaxConcurrencyPerKey
+		run.JobMaxConcurrencyPerKey = &maxConcurrencyPerKey
+	}
 }
