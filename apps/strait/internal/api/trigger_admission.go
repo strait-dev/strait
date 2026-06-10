@@ -353,11 +353,7 @@ func triggerLimitAPIError(err error, fallback string) error {
 }
 
 func (s *Server) triggerLimitAPIError(err error, fallback string) error {
-	databaseAdmission429Enabled := true
-	if s != nil && s.config != nil && s.config.DBBackpressureDisabled {
-		databaseAdmission429Enabled = false
-	}
-	return triggerLimitAPIErrorWithDatabaseAdmission(err, fallback, databaseAdmission429Enabled)
+	return triggerLimitAPIErrorWithDatabaseAdmission(err, fallback, s.databaseAdmission429Enabled())
 }
 
 func triggerLimitAPIErrorWithDatabaseAdmission(err error, fallback string, databaseAdmission429Enabled bool) error {

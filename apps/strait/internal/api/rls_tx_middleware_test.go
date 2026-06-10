@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"strait/internal/config"
+
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/require"
@@ -119,6 +121,27 @@ func TestRLSTxMiddleware_RetryableBeginFailureReturns429(t *testing.T) {
 	handler.ServeHTTP(w, req)
 	require.Equal(t, http.StatusTooManyRequests, w.Code)
 	require.Equal(t, "1", w.Header().Get("Retry-After"))
+}
+
+func TestRLSTxMiddleware_DBBackpressureDisabledDoesNotReturn429(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
+	srv.config = &config.Config{DBBackpressureDisabled: true}
+	srv.txPool = fakeTxBeginner{
+		beginErr: fmt.Errorf("begin transaction: %w", retryableAdmissionErr{}),
+	}
+	handler := srv.rlsTxMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+	}))
+	req := httptest.NewRequest(http.MethodPost, "/", nil)
+	ctx := context.WithValue(req.Context(), ctxProjectIDKey, "proj-1")
+	req = req.WithContext(ctx)
+
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	require.Equal(t, http.StatusInternalServerError, w.Code)
+	require.Empty(t, w.Header().Get("Retry-After"))
 }
 
 func TestRLSTxMiddleware_CanceledBeginFailureReturns429(t *testing.T) {

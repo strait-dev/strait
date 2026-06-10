@@ -1261,7 +1261,7 @@ func (s *Server) rlsTxMiddleware(next http.Handler) http.Handler {
 		tx, err := s.txPool.Begin(admissionCtx)
 		admissionCancel()
 		if err != nil {
-			if isRetryableDatabaseAdmissionError(err) {
+			if s.databaseAdmission429Enabled() && isRetryableDatabaseAdmissionError(err) {
 				slog.Info("retryable RLS tx begin failure", "project_id", projectID, "error", err)
 				respondDatabaseAdmission429(w, r)
 				return
@@ -1278,7 +1278,7 @@ func (s *Server) rlsTxMiddleware(next http.Handler) http.Handler {
 			if rbErr := tx.Rollback(ctx); rbErr != nil && !errors.Is(rbErr, context.Canceled) {
 				slog.Warn("failed to rollback RLS tx after set_config error", "error", rbErr)
 			}
-			if isRetryableDatabaseAdmissionError(err) {
+			if s.databaseAdmission429Enabled() && isRetryableDatabaseAdmissionError(err) {
 				slog.Info("retryable RLS project context failure", "project_id", projectID, "error", err)
 				respondDatabaseAdmission429(w, r)
 				return
@@ -1329,7 +1329,7 @@ func (s *Server) rlsTxMiddleware(next http.Handler) http.Handler {
 		admissionCancel()
 		if err != nil && !errors.Is(err, context.Canceled) {
 			hooks.runRollback(context.Background())
-			if isRetryableDatabaseAdmissionError(err) {
+			if s.databaseAdmission429Enabled() && isRetryableDatabaseAdmissionError(err) {
 				slog.Info("retryable RLS tx commit failure", "project_id", projectID, "error", err)
 				respondDatabaseAdmission429(w, r)
 				return

@@ -82,6 +82,10 @@ func newDatabaseAdmission429() *typedAPIError {
 	}
 }
 
+func (s *Server) databaseAdmission429Enabled() bool {
+	return s == nil || s.config == nil || !s.config.DBBackpressureDisabled
+}
+
 func respondDatabaseAdmission429(w http.ResponseWriter, r *http.Request) {
 	apiErr := newDatabaseAdmission429()
 	for key, value := range apiErr.headers {
