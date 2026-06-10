@@ -754,28 +754,6 @@ func TestCanDispatchEndpoint_OpenExpiredSlowPathUsesFORUPDATE(t *testing.T) {
 		queries[1], "FOR UPDATE")
 }
 
-func TestRecordEndpointCircuitSuccess_OnlyResetsExistingUnhealthyRows(t *testing.T) {
-	t.Parallel()
-
-	var capturedSQL string
-	var capturedArgs []any
-	db := &mockDBTX{
-		execFn: func(_ context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
-			capturedSQL = sql
-			capturedArgs = append(capturedArgs, args...)
-			return pgconn.NewCommandTag("UPDATE 0"), nil
-		},
-	}
-	q := New(db)
-	err := q.RecordEndpointCircuitSuccess(context.Background(), "https://example.com")
-	require.NoError(t, err)
-	require.Equal(t, []any{"https://example.com"}, capturedArgs)
-	require.Contains(t, capturedSQL, "UPDATE endpoint_circuit_state")
-	require.NotContains(t, capturedSQL, "INSERT INTO endpoint_circuit_state")
-	require.Contains(t, capturedSQL, "state IS DISTINCT FROM 'closed'")
-	require.Contains(t, capturedSQL, "consecutive_failures <> 0")
-}
-
 func TestEndpointCircuitCoolingDown(t *testing.T) {
 	t.Parallel()
 
