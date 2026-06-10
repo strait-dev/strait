@@ -1243,6 +1243,10 @@ func (s *Server) rlsTxMiddleware(next http.Handler) http.Handler {
 		return s.projectContextMiddleware(next)
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if bypassRLSTx(r) {
+			next.ServeHTTP(w, r)
+			return
+		}
 		if bypassRLSTxBuffer(r) {
 			s.projectContextMiddleware(next).ServeHTTP(w, r)
 			return
@@ -1393,6 +1397,25 @@ const maxRLSBufferedResponseBytes = 16 << 20
 const databaseAdmissionOperationTimeout = 250 * time.Millisecond
 
 var errRLSBufferedResponseTooLarge = errors.New("response too large")
+
+func bypassRLSTx(r *http.Request) bool {
+	if r.URL == nil || r.Method != http.MethodPost {
+		return false
+	}
+	// The trigger hot path performs explicit job project/environment checks and
+	// derives run.ProjectID from the loaded job, so it can avoid holding a
+	// request-wide RLS transaction while the queue performs its own DB writes.
+	return isJobTriggerPath(r.URL.Path)
+}
+
+func isJobTriggerPath(p string) bool {
+	parts := strings.Split(strings.Trim(p, "/"), "/")
+	return len(parts) == 4 &&
+		parts[0] == "v1" &&
+		parts[1] == "jobs" &&
+		parts[2] != "" &&
+		parts[3] == "trigger"
+}
 
 func bypassRLSTxBuffer(r *http.Request) bool {
 	if r.URL == nil {
