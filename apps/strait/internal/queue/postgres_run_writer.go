@@ -176,6 +176,10 @@ func (q *PostgresRunWriter) prepareEnqueue(run *domain.JobRun) (string, []any, e
 		dbscan.NilIfEmptyString(run.BatchID),
 		string(execMode),
 		queueName,
+		run.JobEnabled,
+		run.JobPaused,
+		run.JobMaxConcurrency,
+		run.JobMaxConcurrencyPerKey,
 		metadataJSON,
 		run.IsRollback,
 	}
@@ -192,7 +196,7 @@ func enqueueRunInsertSQL(withIdempotency bool) string {
 			next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, workflow_step_run_id,
 			debug_mode, continuation_of, lineage_depth,
 			tags, job_version_id, created_by, concurrency_key, batch_id,
-			execution_mode, queue_name, metadata,
+			execution_mode, queue_name, job_enabled, job_paused, job_max_concurrency, job_max_concurrency_per_key, metadata,
 			is_rollback
 		)
 		VALUES (
@@ -200,8 +204,8 @@ func enqueueRunInsertSQL(withIdempotency bool) string {
 			$9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
 			$21, $22, $23,
 			$24::jsonb, $25, $26, $27, $28,
-			$29, $30, $31::jsonb,
-			$32
+			$29, $30, $31, $32, $33, $34, $35::jsonb,
+			$36
 		)
 		RETURNING created_at`
 	}
@@ -221,7 +225,7 @@ func enqueueRunInsertSQL(withIdempotency bool) string {
 			next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, workflow_step_run_id,
 			debug_mode, continuation_of, lineage_depth,
 			tags, job_version_id, created_by, concurrency_key, batch_id,
-			execution_mode, queue_name, metadata,
+			execution_mode, queue_name, job_enabled, job_paused, job_max_concurrency, job_max_concurrency_per_key, metadata,
 			is_rollback
 		)
 		SELECT
@@ -229,8 +233,8 @@ func enqueueRunInsertSQL(withIdempotency bool) string {
 			$9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
 			$21, $22, $23,
 			$24::jsonb, $25, $26, $27, $28,
-			$29, $30, $31::jsonb,
-			$32
+			$29, $30, $31, $32, $33, $34, $35::jsonb,
+			$36
 		WHERE NOT EXISTS (SELECT 1 FROM idempotency_check)
 		RETURNING created_at`
 }
@@ -371,7 +375,7 @@ var copyFromColumns = []string{
 	"next_retry_at", "expires_at", "parent_run_id", "priority", "idempotency_key",
 	"job_version", "workflow_step_run_id", "debug_mode", "continuation_of",
 	"lineage_depth", "tags", "job_version_id", "created_by", "concurrency_key", "batch_id",
-	"execution_mode", "queue_name", "metadata",
+	"execution_mode", "queue_name", "job_enabled", "job_paused", "job_max_concurrency", "job_max_concurrency_per_key", "metadata",
 	"is_rollback",
 }
 
@@ -502,8 +506,12 @@ func (s *jobRunCopyFromSource) Values() ([]any, error) {
 	values[27] = dbscan.NilIfEmptyString(run.BatchID)
 	values[28] = string(run.ExecutionMode)
 	values[29] = runQueueName(run.QueueName)
-	values[30] = metadataJSON
-	values[31] = run.IsRollback
+	values[30] = run.JobEnabled
+	values[31] = run.JobPaused
+	values[32] = run.JobMaxConcurrency
+	values[33] = run.JobMaxConcurrencyPerKey
+	values[34] = metadataJSON
+	values[35] = run.IsRollback
 	return values, nil
 }
 
