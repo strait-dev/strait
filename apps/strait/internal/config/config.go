@@ -254,7 +254,7 @@ type Config struct {
 	VersionCacheTTL            time.Duration `env:"VERSION_CACHE_TTL" default:"30m"`
 	RunVersionCacheTTL         time.Duration `env:"RUN_VERSION_CACHE_TTL" default:"10m"`
 	APIKeyCacheTTL             time.Duration `env:"API_KEY_CACHE_TTL" default:"60s"`
-	JobHealthCacheTTL          time.Duration `env:"JOB_HEALTH_CACHE_TTL" default:"2s"`
+	JobHealthCacheTTL          time.Duration `env:"JOB_HEALTH_CACHE_TTL" default:"30s"`
 
 	EndpointHealthSuccessSampleInterval  time.Duration `env:"ENDPOINT_HEALTH_SUCCESS_SAMPLE_INTERVAL" default:"1s"`
 	EndpointCircuitSuccessSampleInterval time.Duration `env:"ENDPOINT_CIRCUIT_SUCCESS_SAMPLE_INTERVAL" default:"1s"`

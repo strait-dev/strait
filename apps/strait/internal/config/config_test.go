@@ -111,7 +111,7 @@ func TestLoad_Defaults(t *testing.T) {
 		{"VersionCacheTTL", cfg.VersionCacheTTL, 30 * time.Minute},
 		{"RunVersionCacheTTL", cfg.RunVersionCacheTTL, 10 * time.Minute},
 		{"APIKeyCacheTTL", cfg.APIKeyCacheTTL, time.Minute},
-		{"JobHealthCacheTTL", cfg.JobHealthCacheTTL, 2 * time.Second},
+		{"JobHealthCacheTTL", cfg.JobHealthCacheTTL, 30 * time.Second},
 		{"EndpointHealthSuccessSampleInterval", cfg.EndpointHealthSuccessSampleInterval, time.Second},
 		{"EndpointCircuitSuccessSampleInterval", cfg.EndpointCircuitSuccessSampleInterval, time.Second},
 		{"JobDepsCacheTTL", cfg.JobDepsCacheTTL, 5 * time.Minute},

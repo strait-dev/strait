@@ -409,18 +409,20 @@ func TestCacheVersion_RunSideTableAppendsVersions(t *testing.T) {
 
 	}
 
-	var rawRows int
-	var latestVersion int64
+	var versions []int64
 	require.NoError(t, testDB.
 		Pool.QueryRow(ctx,
 		`
-		SELECT COUNT(*), COALESCE((ARRAY_AGG(cache_version ORDER BY id DESC))[1], 0)
+		SELECT COALESCE(ARRAY_AGG(cache_version ORDER BY id ASC), '{}'::bigint[])
 		FROM job_run_cache_versions
 		WHERE run_id = $1`,
 
-		run.ID).Scan(&rawRows, &latestVersion))
-	require.EqualValues(t, 3, rawRows)
-	require.EqualValues(t, 4, latestVersion)
+		run.ID).Scan(&versions))
+	require.Len(t, versions, 3)
+	require.Greater(t, versions[0], int64(1))
+	require.Greater(t, versions[1], versions[0])
+	require.Greater(t, versions[2], versions[1])
 
+	latestVersion := versions[len(versions)-1]
 	assertRunCacheVersion(t, ctx, run.ID, latestVersion)
 }

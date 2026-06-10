@@ -98,6 +98,57 @@ func TestSentinelErrors_NotEqual(t *testing.T) {
 		ErrOutboxRowNotFound, ErrOutboxRowConflict)
 }
 
+func TestCreateRun_NonIdempotentUsesFastInsert(t *testing.T) {
+	t.Parallel()
+
+	var capturedSQL string
+	db := &mockDBTX{
+		queryRowFn: func(_ context.Context, sql string, _ ...any) pgx.Row {
+			capturedSQL = sql
+			return &mockRow{scanFn: func(dest ...any) error {
+				*(dest[0].(*time.Time)) = time.Now()
+				return nil
+			}}
+		},
+	}
+
+	err := New(db).CreateRun(context.Background(), &domain.JobRun{
+		ID:        "run-1",
+		JobID:     "job-1",
+		ProjectID: "project-1",
+	})
+	require.NoError(t, err)
+	require.NotContains(t, capturedSQL, "idempotency_check")
+	require.NotContains(t, capturedSQL, "job_run_read_state")
+	require.Contains(t, capturedSQL, "VALUES")
+}
+
+func TestCreateRun_IdempotentUsesConflictCheck(t *testing.T) {
+	t.Parallel()
+
+	var capturedSQL string
+	db := &mockDBTX{
+		queryRowFn: func(_ context.Context, sql string, _ ...any) pgx.Row {
+			capturedSQL = sql
+			return &mockRow{scanFn: func(dest ...any) error {
+				*(dest[0].(*time.Time)) = time.Now()
+				return nil
+			}}
+		},
+	}
+
+	err := New(db).CreateRun(context.Background(), &domain.JobRun{
+		ID:             "run-1",
+		JobID:          "job-1",
+		ProjectID:      "project-1",
+		IdempotencyKey: "idem-1",
+	})
+	require.NoError(t, err)
+	require.Contains(t, capturedSQL, "idempotency_check")
+	require.Contains(t, capturedSQL, "job_run_read_state")
+	require.Contains(t, capturedSQL, "WHERE NOT EXISTS")
+}
+
 // mockDBTX implements DBTX for unit testing store queries.
 type mockDBTX struct {
 	execFn     func(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
