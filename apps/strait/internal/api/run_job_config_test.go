@@ -41,7 +41,7 @@ func TestStampRunJobConfigCopiesJobValues(t *testing.T) {
 	require.Equal(t, 3, *run.JobMaxConcurrencyPerKey)
 }
 
-func TestStampRunJobConfigLeavesUnlimitedConcurrencyNil(t *testing.T) {
+func TestStampRunJobConfigStampsUnlimitedConcurrencyAsZero(t *testing.T) {
 	t.Parallel()
 
 	run := &domain.JobRun{}
@@ -55,6 +55,8 @@ func TestStampRunJobConfigLeavesUnlimitedConcurrencyNil(t *testing.T) {
 	require.NotNil(t, run.JobPaused)
 	require.True(t, *run.JobEnabled)
 	require.False(t, *run.JobPaused)
-	require.Nil(t, run.JobMaxConcurrency)
-	require.Nil(t, run.JobMaxConcurrencyPerKey)
+	require.NotNil(t, run.JobMaxConcurrency)
+	require.NotNil(t, run.JobMaxConcurrencyPerKey)
+	require.Equal(t, 0, *run.JobMaxConcurrency)
+	require.Equal(t, 0, *run.JobMaxConcurrencyPerKey)
 }

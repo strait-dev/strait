@@ -430,7 +430,7 @@ func TestCounterReconciler_PropertyRandomOps(t *testing.T) {
 		LEFT JOIN job_run_terminal_state terminal ON terminal.run_id = s.run_id
 		WHERE s.job_id = $1
 		  AND terminal.run_id IS NULL
-		  AND (s.job_max_concurrency IS NOT NULL OR s.job_max_concurrency_per_key IS NOT NULL)
+		  AND (COALESCE(s.job_max_concurrency, 0) > 0 OR COALESCE(s.job_max_concurrency_per_key, 0) > 0)
 	`,
 
 			job.ID).

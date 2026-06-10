@@ -189,7 +189,7 @@ WITH truth AS (
      AND claim.ready_generation = s.ready_generation
     LEFT JOIN job_run_terminal_state terminal ON terminal.run_id = s.run_id
     WHERE terminal.run_id IS NULL
-      AND (s.job_max_concurrency IS NOT NULL OR s.job_max_concurrency_per_key IS NOT NULL)
+      AND (COALESCE(s.job_max_concurrency, 0) > 0 OR COALESCE(s.job_max_concurrency_per_key, 0) > 0)
     GROUP BY s.job_id, COALESCE(s.concurrency_key, '')
 ),
 current AS (

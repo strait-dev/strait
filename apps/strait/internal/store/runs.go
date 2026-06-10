@@ -1579,7 +1579,7 @@ const appendRunTerminalStateQuery = `
 		JOIN inserted i ON i.run_id = s.run_id
 		WHERE s.previous_status IN ('dequeued', 'executing')
 		  AND NOT s.uses_active_claim
-		  AND (s.job_max_concurrency IS NOT NULL OR s.job_max_concurrency_per_key IS NOT NULL)
+		  AND (COALESCE(s.job_max_concurrency, 0) > 0 OR COALESCE(s.job_max_concurrency_per_key, 0) > 0)
 		  AND c.job_id = s.job_id
 		  AND c.concurrency_key = COALESCE(s.concurrency_key, '')
 		  AND c.count <> 0
@@ -1697,7 +1697,7 @@ const appendRunTerminalStateForAttemptQuery = `
 		JOIN inserted i ON i.run_id = s.run_id
 		WHERE s.previous_status IN ('dequeued', 'executing')
 		  AND NOT s.uses_active_claim
-		  AND (s.job_max_concurrency IS NOT NULL OR s.job_max_concurrency_per_key IS NOT NULL)
+		  AND (COALESCE(s.job_max_concurrency, 0) > 0 OR COALESCE(s.job_max_concurrency_per_key, 0) > 0)
 		  AND c.job_id = s.job_id
 		  AND c.concurrency_key = COALESCE(s.concurrency_key, '')
 		  AND c.count <> 0
@@ -2714,7 +2714,7 @@ func (q *Queries) MarkJobRunsPausedByWorkflowRun(ctx context.Context, workflowRu
 			FROM updated u
 			WHERE u.previous_status IN ('dequeued', 'executing')
 			  AND NOT u.uses_active_claim
-			  AND (u.job_max_concurrency IS NOT NULL OR u.job_max_concurrency_per_key IS NOT NULL)
+			  AND (COALESCE(u.job_max_concurrency, 0) > 0 OR COALESCE(u.job_max_concurrency_per_key, 0) > 0)
 			  AND c.job_id = u.job_id
 			  AND c.concurrency_key = u.concurrency_key
 			  AND c.count <> 0
@@ -2966,7 +2966,7 @@ func bulkCancelTerminalQuery(extraJoins, whereClause, orderLimit, selectClause s
 			JOIN inserted i ON i.run_id = s.run_id
 			WHERE s.previous_status IN ('dequeued', 'executing')
 			  AND NOT s.uses_active_claim
-			  AND (s.job_max_concurrency IS NOT NULL OR s.job_max_concurrency_per_key IS NOT NULL)
+			  AND (COALESCE(s.job_max_concurrency, 0) > 0 OR COALESCE(s.job_max_concurrency_per_key, 0) > 0)
 			  AND c.job_id = s.job_id
 			  AND c.concurrency_key = COALESCE(s.concurrency_key, '')
 			  AND c.count <> 0
