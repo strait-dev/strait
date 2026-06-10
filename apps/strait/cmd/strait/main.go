@@ -311,6 +311,7 @@ func runServe(ctx context.Context, modeOverride string) error {
 	bp := queue.NewBackpressure(dbPool, queue.BackpressureConfig{
 		DefaultMaxTokens:    cfg.BackpressureDefaultMaxTokens,
 		DefaultRefillPerSec: cfg.BackpressureDefaultRefillPerSec,
+		LocalLeaseSize:      cfg.BackpressureLocalLeaseSize,
 	}, cfg.BackpressureEnabled)
 	runWriter := queue.NewPostgresRunWriter(
 		dbPool,

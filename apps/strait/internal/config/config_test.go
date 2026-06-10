@@ -75,6 +75,7 @@ func TestLoad_Defaults(t *testing.T) {
 		{"BackpressureEnabled", cfg.BackpressureEnabled, true},
 		{"BackpressureDefaultMaxTokens", cfg.BackpressureDefaultMaxTokens, 1000},
 		{"BackpressureDefaultRefillPerSec", cfg.BackpressureDefaultRefillPerSec, 100},
+		{"BackpressureLocalLeaseSize", cfg.BackpressureLocalLeaseSize, 32},
 		{"BackpressureSamplerInterval", cfg.BackpressureSamplerInterval, 15 * time.Second},
 		{"BackpressureSamplerN", cfg.BackpressureSamplerN, 100},
 		{"RequestTimeout", cfg.RequestTimeout, 30 * time.Second},
@@ -251,6 +252,7 @@ func TestLoad_OverrideDefaults(t *testing.T) {
 	t.Setenv("ADAPTIVE_CONCURRENCY_MAX", "30")
 	t.Setenv("BACKPRESSURE_DEFAULT_MAX_TOKENS", "4000")
 	t.Setenv("BACKPRESSURE_DEFAULT_REFILL_PER_SEC", "750")
+	t.Setenv("BACKPRESSURE_LOCAL_LEASE_SIZE", "64")
 	t.Setenv("DB_BACKPRESSURE_DISABLED", "true")
 	t.Setenv("DB_BACKPRESSURE_SAMPLE_INTERVAL", "250ms")
 	t.Setenv("DB_BACKPRESSURE_ACQUIRE_WAIT_THRESHOLD", "200ms")
@@ -271,6 +273,7 @@ func TestLoad_OverrideDefaults(t *testing.T) {
 	require.Equal(t, 30, cfg.AdaptiveConcurrencyMax)
 	require.Equal(t, 4000, cfg.BackpressureDefaultMaxTokens)
 	require.Equal(t, 750, cfg.BackpressureDefaultRefillPerSec)
+	require.Equal(t, 64, cfg.BackpressureLocalLeaseSize)
 	require.True(t, cfg.DBBackpressureDisabled)
 	require.Equal(t, 250*time.Millisecond, cfg.DBBackpressureSampleInterval)
 	require.Equal(t, 200*time.Millisecond, cfg.DBBackpressureAcquireWaitThreshold)
@@ -316,6 +319,13 @@ func TestLoad_BackpressureValidation(t *testing.T) {
 				"BACKPRESSURE_DEFAULT_REFILL_PER_SEC": "-1",
 			},
 			errorSub: "BACKPRESSURE_DEFAULT_REFILL_PER_SEC must be >= 0",
+		},
+		{
+			name: "rejects zero local lease",
+			env: map[string]string{
+				"BACKPRESSURE_LOCAL_LEASE_SIZE": "0",
+			},
+			errorSub: "BACKPRESSURE_LOCAL_LEASE_SIZE must be >= 1",
 		},
 		{
 			name: "rejects negative db acquire wait threshold",

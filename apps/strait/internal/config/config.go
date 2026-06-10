@@ -171,6 +171,11 @@ type Config struct {
 	// rate per project for projects without an explicit project_rate_limits row.
 	BackpressureDefaultRefillPerSec int `env:"BACKPRESSURE_DEFAULT_REFILL_PER_SEC" default:"100"`
 
+	// BackpressureLocalLeaseSize controls how many DB-backed project tokens a
+	// process reserves at once before serving single-run admissions from memory.
+	// Set to 1 for strict per-trigger DB accounting.
+	BackpressureLocalLeaseSize int `env:"BACKPRESSURE_LOCAL_LEASE_SIZE" default:"32"`
+
 	// BackpressureSamplerN bounds the number of project rate-limit rows
 	// the sampler reads per tick. Larger values give better gauge
 	// coverage on high-tenant deployments at the cost of one extra

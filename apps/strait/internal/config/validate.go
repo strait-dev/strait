@@ -149,6 +149,9 @@ func (c *Config) Validate() error {
 	if c.BackpressureDefaultRefillPerSec < 0 {
 		errs = append(errs, fmt.Errorf("BACKPRESSURE_DEFAULT_REFILL_PER_SEC must be >= 0, got %d", c.BackpressureDefaultRefillPerSec))
 	}
+	if c.BackpressureLocalLeaseSize < 1 {
+		errs = append(errs, fmt.Errorf("BACKPRESSURE_LOCAL_LEASE_SIZE must be >= 1, got %d", c.BackpressureLocalLeaseSize))
+	}
 	if c.BackpressureEnabled && c.BackpressureDefaultMaxTokens == 0 {
 		errs = append(errs, fmt.Errorf("BACKPRESSURE_DEFAULT_MAX_TOKENS must be > 0 when BACKPRESSURE_ENABLED=true"))
 	}

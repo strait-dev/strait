@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"strait/internal/store"
@@ -50,14 +51,17 @@ func AsThrottled(err error) (*ThrottledError, bool) {
 type BackpressureConfig struct {
 	DefaultMaxTokens    int
 	DefaultRefillPerSec int
+	LocalLeaseSize      int
 }
 
 // Backpressure consults the project_rate_limits table to enforce a
 // DB-side token bucket per project.
 type Backpressure struct {
-	db      store.DBTX
-	cfg     BackpressureConfig
-	enabled bool
+	db          store.DBTX
+	cfg         BackpressureConfig
+	enabled     bool
+	mu          sync.Mutex
+	localLeases map[string]int
 }
 
 // NewBackpressure builds a backpressure controller. When enabled is
@@ -80,7 +84,15 @@ func NewBackpressure(db store.DBTX, cfg BackpressureConfig, enabled bool) *Backp
 		cfg.DefaultMaxTokens = 1000
 		cfg.DefaultRefillPerSec = 100
 	}
-	return &Backpressure{db: db, cfg: cfg, enabled: enabled}
+	if cfg.LocalLeaseSize <= 0 {
+		cfg.LocalLeaseSize = 32
+	}
+	return &Backpressure{
+		db:          db,
+		cfg:         cfg,
+		enabled:     enabled,
+		localLeases: make(map[string]int),
+	}
 }
 
 // TryConsume reserves one token from the project's bucket. Returns nil
@@ -141,6 +153,48 @@ func (b *Backpressure) tryConsumeNOn(ctx context.Context, db store.DBTX, project
 	if db == nil {
 		return nil
 	}
+
+	if n == 1 && b.cfg.LocalLeaseSize > 1 {
+		return b.tryConsumeWithLocalLease(ctx, db, projectID)
+	}
+
+	return b.tryConsumeNOnDB(ctx, db, projectID, n)
+}
+
+func (b *Backpressure) tryConsumeWithLocalLease(ctx context.Context, db store.DBTX, projectID string) error {
+	b.mu.Lock()
+	if b.localLeases[projectID] > 0 {
+		b.localLeases[projectID]--
+		b.mu.Unlock()
+		return nil
+	}
+	b.mu.Unlock()
+
+	leaseSize := b.cfg.LocalLeaseSize
+	if b.cfg.DefaultMaxTokens > 0 && leaseSize > b.cfg.DefaultMaxTokens {
+		leaseSize = b.cfg.DefaultMaxTokens
+	}
+	if leaseSize < 1 {
+		leaseSize = 1
+	}
+
+	if err := b.tryConsumeNOnDB(ctx, db, projectID, leaseSize); err != nil {
+		if leaseSize == 1 {
+			return err
+		}
+		// Explicit project buckets may be smaller than the default bucket.
+		// Fall back to a strict one-token consume instead of rejecting useful
+		// capacity just because the configured lease is too large.
+		return b.tryConsumeNOnDB(ctx, db, projectID, 1)
+	}
+
+	b.mu.Lock()
+	b.localLeases[projectID] += leaseSize - 1
+	b.mu.Unlock()
+	return nil
+}
+
+func (b *Backpressure) tryConsumeNOnDB(ctx context.Context, db store.DBTX, projectID string, n int) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "queue.Backpressure.TryConsume")
 	defer span.End()
 
