@@ -24,6 +24,7 @@ func TestAPIStrongCacheConstructorsRegisterRuntimeNamespaces(t *testing.T) {
 		return nil, nil
 	}, deps)
 	_ = newJobDependencyCache(time.Minute, deps)
+	_ = newTriggerJobCache(time.Minute, deps)
 
 	assertRegisteredNamespaces(t, registry, []string{
 		apiKeyAuthCacheNamespace,
@@ -31,6 +32,7 @@ func TestAPIStrongCacheConstructorsRegisterRuntimeNamespaces(t *testing.T) {
 		permissionProjectCacheNamespace,
 		quotaCacheNamespace,
 		jobDependencyCacheNamespace,
+		apiTriggerJobCacheNamespace,
 	})
 }
 

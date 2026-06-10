@@ -169,7 +169,7 @@ func (s *Server) handleCreateJob(ctx context.Context, input *CreateJobInput) (*C
 		}
 		return nil, huma.Error500InternalServerError("failed to create job")
 	}
-	s.invalidateWorkerJobCache(ctx, job.ID, job.CacheVersion)
+	s.invalidateJobCaches(ctx, job.ID, job.CacheVersion)
 
 	s.enqueueJobMetadata(job)
 

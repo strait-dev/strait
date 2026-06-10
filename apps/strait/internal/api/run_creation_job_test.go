@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"strait/internal/domain"
 	"strait/internal/store"
@@ -79,6 +80,99 @@ func TestLoadRunCreationJobReturnsScopedJob(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, want,
 		got)
+}
+
+func TestLoadRunCreationJobUsesTriggerJobCache(t *testing.T) {
+	job := &domain.Job{
+		ID:                "job-1",
+		ProjectID:         "project-1",
+		EnvironmentID:     "env-1",
+		Enabled:           true,
+		Tags:              map[string]string{"stable": "yes"},
+		PayloadSchema:     []byte(`{"type":"object"}`),
+		CacheVersion:      1,
+		ExecutionMode:     domain.ExecutionModeHTTP,
+		EndpointURL:       "https://example.com/job",
+		MaxAttempts:       1,
+		TimeoutSecs:       30,
+		Version:           1,
+		VersionID:         "ver_1",
+		VersionPolicy:     domain.VersionPolicyPin,
+		CronOverlapPolicy: domain.OverlapPolicyAllow,
+	}
+	calls := 0
+	srv := &Server{
+		store: &APIStoreMock{
+			GetJobFunc: func(_ context.Context, jobID string) (*domain.Job, error) {
+				calls++
+				require.Equal(t, job.ID, jobID)
+				return job, nil
+			},
+		},
+		triggerJobCache: newTriggerJobCache(time.Minute),
+	}
+	t.Cleanup(srv.triggerJobCache.Stop)
+	ctx := context.WithValue(context.Background(), ctxProjectIDKey, job.ProjectID)
+	ctx = context.WithValue(ctx, ctxEnvironmentIDKey, job.EnvironmentID)
+
+	got, err := srv.loadRunCreationJob(ctx, job.ID, "test.project_match", "testHandler")
+	require.NoError(t, err)
+	require.Equal(t, "yes", got.Tags["stable"])
+
+	got.Tags["stable"] = "mutated"
+	got.PayloadSchema[0] = '['
+
+	got, err = srv.loadRunCreationJob(ctx, job.ID, "test.project_match", "testHandler")
+	require.NoError(t, err)
+	require.Equal(t, "yes", got.Tags["stable"])
+	require.Equal(t, []byte(`{"type":"object"}`), []byte(got.PayloadSchema))
+	require.Equal(t, 1, calls)
+}
+
+func TestLoadRunCreationJobReloadsAfterTriggerJobCacheInvalidation(t *testing.T) {
+	job := &domain.Job{
+		ID:                "job-1",
+		ProjectID:         "project-1",
+		EnvironmentID:     "env-1",
+		Enabled:           true,
+		CacheVersion:      1,
+		ExecutionMode:     domain.ExecutionModeHTTP,
+		EndpointURL:       "https://example.com/job",
+		MaxAttempts:       1,
+		TimeoutSecs:       30,
+		Version:           1,
+		VersionID:         "ver_1",
+		VersionPolicy:     domain.VersionPolicyPin,
+		CronOverlapPolicy: domain.OverlapPolicyAllow,
+	}
+	calls := 0
+	srv := &Server{
+		store: &APIStoreMock{
+			GetJobFunc: func(_ context.Context, _ string) (*domain.Job, error) {
+				calls++
+				return job, nil
+			},
+		},
+		triggerJobCache: newTriggerJobCache(time.Minute),
+	}
+	t.Cleanup(srv.triggerJobCache.Stop)
+	ctx := context.WithValue(context.Background(), ctxProjectIDKey, job.ProjectID)
+	ctx = context.WithValue(ctx, ctxEnvironmentIDKey, job.EnvironmentID)
+
+	got, err := srv.loadRunCreationJob(ctx, job.ID, "test.project_match", "testHandler")
+	require.NoError(t, err)
+	require.True(t, got.Enabled)
+
+	updated := *job
+	updated.Enabled = false
+	updated.CacheVersion = 2
+	job = &updated
+	srv.invalidateJobCaches(ctx, job.ID, job.CacheVersion)
+
+	got, err = srv.loadRunCreationJob(ctx, job.ID, "test.project_match", "testHandler")
+	require.NoError(t, err)
+	require.False(t, got.Enabled)
+	require.Equal(t, 2, calls)
 }
 
 func assertStatusError(t *testing.T, err error, status int, contains string) {

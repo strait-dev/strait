@@ -17,6 +17,7 @@ const (
 	cacheNamespaceQuota          = "quota"
 	cacheNamespaceBillingOrg     = "billing_org_limits"
 	cacheNamespaceWorkerJob      = "worker_job"
+	cacheNamespaceAPITriggerJob  = "api_trigger_job"
 	cacheNamespaceJobDependency  = "api_job_dependencies"
 	defaultJobDependencyListSize = 1000
 )
@@ -36,7 +37,7 @@ func NewCacheInvalidationHandlers(bus *straitcache.Bus, logger *slog.Logger) []H
 		newCacheInvalidationHandler("tag_policies", bus, logger, invalidatePermissionCache),
 		newCacheInvalidationHandler("project_quotas", bus, logger, invalidateQuotaCache),
 		newCacheInvalidationHandler("organization_subscriptions", bus, logger, invalidateBillingOrgCache),
-		newCacheInvalidationHandler("jobs", bus, logger, invalidateWorkerJobCache),
+		newCacheInvalidationHandler("jobs", bus, logger, invalidateJobCaches),
 		newCacheInvalidationHandler("job_dependencies", bus, logger, invalidateJobDependencyCache),
 	}
 }
@@ -150,6 +151,21 @@ func invalidateWorkerJobCache(ctx context.Context, bus *straitcache.Bus, record 
 		return nil
 	}
 	return bus.PublishInvalidate(ctx, cacheNamespaceWorkerJob, jobID, version)
+}
+
+func invalidateAPITriggerJobCache(ctx context.Context, bus *straitcache.Bus, record map[string]any, version int64) error {
+	jobID := stringField(record, "id")
+	if jobID == "" {
+		return nil
+	}
+	return bus.PublishInvalidate(ctx, cacheNamespaceAPITriggerJob, jobID, version)
+}
+
+func invalidateJobCaches(ctx context.Context, bus *straitcache.Bus, record map[string]any, version int64) error {
+	if err := invalidateWorkerJobCache(ctx, bus, record, version); err != nil {
+		return err
+	}
+	return invalidateAPITriggerJobCache(ctx, bus, record, version)
 }
 
 func invalidateJobDependencyCache(

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 
@@ -201,6 +202,12 @@ func (s *Server) handleBatchEnableJobs(ctx context.Context, input *BatchEnableJo
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to enable jobs")
 	}
+	if updated > 0 {
+		version := time.Now().UnixNano()
+		for _, id := range ids {
+			s.invalidateJobCaches(ctx, id, version)
+		}
+	}
 
 	s.emitAuditEvent(ctx, domain.AuditActionJobBatchEnabled, "job", "", map[string]any{
 		"count":   updated,
@@ -244,6 +251,12 @@ func (s *Server) handleBatchDisableJobs(ctx context.Context, input *BatchDisable
 	updated, err := s.store.BatchUpdateJobsEnabled(ctx, ids, false, projectID)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to disable jobs")
+	}
+	if updated > 0 {
+		version := time.Now().UnixNano()
+		for _, id := range ids {
+			s.invalidateJobCaches(ctx, id, version)
+		}
 	}
 
 	s.emitAuditEvent(ctx, domain.AuditActionJobBatchDisabled, "job", "", map[string]any{

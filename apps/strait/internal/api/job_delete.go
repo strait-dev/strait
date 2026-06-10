@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"log/slog"
-	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 
@@ -41,7 +40,7 @@ func (s *Server) handleDeleteJob(ctx context.Context, input *DeleteJobInput) (*s
 		}
 		return nil, huma.Error500InternalServerError("failed to delete job")
 	}
-	s.invalidateWorkerJobCache(ctx, input.JobID, time.Now().UnixNano())
+	s.invalidateJobCaches(ctx, input.JobID, 0)
 
 	slog.Info("job deleted",
 		"job_id", input.JobID,

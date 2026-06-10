@@ -177,6 +177,7 @@ func (s *Server) handleSetJobEndpoint(ctx context.Context, input *SetJobEndpoint
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to get updated job")
 	}
+	s.invalidateJobCaches(ctx, input.JobID, updated.CacheVersion)
 
 	return &SetJobEndpointOutput{Body: &SetJobEndpointResponse{
 		Job:           updated,
