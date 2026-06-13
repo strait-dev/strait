@@ -46,6 +46,9 @@ func (s *Server) invalidateWorkerJobCache(ctx context.Context, jobID string, ver
 	if version <= 0 {
 		version = time.Now().UnixNano()
 	}
+	if s.apiJobCache != nil {
+		s.apiJobCache.Invalidate(ctx, jobID, version)
+	}
 	if s.workerJobBarrier != nil {
 		_ = s.workerJobBarrier.StrongInvalidate(
 			ctx,

@@ -137,33 +137,7 @@ func (q *PostgresRunWriter) prepareEnqueue(run *domain.JobRun) (string, []any, e
 		}
 	}
 
-	query := `
-		WITH idempotency_check AS (
-			SELECT 1 FROM job_runs
-			WHERE job_id = $2
-			  AND idempotency_key = $18
-			  AND idempotency_key IS NOT NULL
-			  AND status IN ('delayed', 'queued', 'dequeued', 'executing', 'waiting')
-			LIMIT 1
-		)
-		INSERT INTO job_runs (
-			id, job_id, project_id, status, attempt, payload, result, error,
-			triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-			next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, workflow_step_run_id,
-			debug_mode, continuation_of, lineage_depth,
-			tags, job_version_id, created_by, concurrency_key, batch_id,
-			execution_mode, queue_name, metadata,
-			is_rollback
-		)
-		SELECT
-			$1, $2, $3, $4, $5, $6, $7, $8,
-			$9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
-			$21, $22, $23,
-			$24::jsonb, $25, $26, $27, $28,
-			$29, $30, $31::jsonb,
-			$32
-		WHERE NOT EXISTS (SELECT 1 FROM idempotency_check)
-		RETURNING created_at`
+	query := enqueueRunInsertSQL(run.IdempotencyKey != "")
 
 	execMode := run.ExecutionMode
 	if execMode == "" {
@@ -202,11 +176,67 @@ func (q *PostgresRunWriter) prepareEnqueue(run *domain.JobRun) (string, []any, e
 		dbscan.NilIfEmptyString(run.BatchID),
 		string(execMode),
 		queueName,
+		run.JobEnabled,
+		run.JobPaused,
+		run.JobMaxConcurrency,
+		run.JobMaxConcurrencyPerKey,
 		metadataJSON,
 		run.IsRollback,
 	}
 
 	return query, args, nil
+}
+
+func enqueueRunInsertSQL(withIdempotency bool) string {
+	if !withIdempotency {
+		return `
+		INSERT INTO job_runs (
+			id, job_id, project_id, status, attempt, payload, result, error,
+			triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
+			next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, workflow_step_run_id,
+			debug_mode, continuation_of, lineage_depth,
+			tags, job_version_id, created_by, concurrency_key, batch_id,
+			execution_mode, queue_name, job_enabled, job_paused, job_max_concurrency, job_max_concurrency_per_key, metadata,
+			is_rollback
+		)
+		VALUES (
+			$1, $2, $3, $4, $5, $6, $7, $8,
+			$9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
+			$21, $22, $23,
+			$24::jsonb, $25, $26, $27, $28,
+			$29, $30, $31, $32, $33, $34, $35::jsonb,
+			$36
+		)
+		RETURNING created_at`
+	}
+
+	return `
+		WITH idempotency_check AS (
+			SELECT 1 FROM job_runs
+			WHERE job_id = $2
+			  AND idempotency_key = $18
+			  AND idempotency_key IS NOT NULL
+			  AND status IN ('delayed', 'queued', 'dequeued', 'executing', 'waiting')
+			LIMIT 1
+		)
+		INSERT INTO job_runs (
+			id, job_id, project_id, status, attempt, payload, result, error,
+			triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
+			next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, workflow_step_run_id,
+			debug_mode, continuation_of, lineage_depth,
+			tags, job_version_id, created_by, concurrency_key, batch_id,
+			execution_mode, queue_name, job_enabled, job_paused, job_max_concurrency, job_max_concurrency_per_key, metadata,
+			is_rollback
+		)
+		SELECT
+			$1, $2, $3, $4, $5, $6, $7, $8,
+			$9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
+			$21, $22, $23,
+			$24::jsonb, $25, $26, $27, $28,
+			$29, $30, $31, $32, $33, $34, $35::jsonb,
+			$36
+		WHERE NOT EXISTS (SELECT 1 FROM idempotency_check)
+		RETURNING created_at`
 }
 
 // enqueueInManagedTx runs the enqueue inside a transaction when either
@@ -345,7 +375,7 @@ var copyFromColumns = []string{
 	"next_retry_at", "expires_at", "parent_run_id", "priority", "idempotency_key",
 	"job_version", "workflow_step_run_id", "debug_mode", "continuation_of",
 	"lineage_depth", "tags", "job_version_id", "created_by", "concurrency_key", "batch_id",
-	"execution_mode", "queue_name", "metadata",
+	"execution_mode", "queue_name", "job_enabled", "job_paused", "job_max_concurrency", "job_max_concurrency_per_key", "metadata",
 	"is_rollback",
 }
 
@@ -476,8 +506,12 @@ func (s *jobRunCopyFromSource) Values() ([]any, error) {
 	values[27] = dbscan.NilIfEmptyString(run.BatchID)
 	values[28] = string(run.ExecutionMode)
 	values[29] = runQueueName(run.QueueName)
-	values[30] = metadataJSON
-	values[31] = run.IsRollback
+	values[30] = run.JobEnabled
+	values[31] = run.JobPaused
+	values[32] = run.JobMaxConcurrency
+	values[33] = run.JobMaxConcurrencyPerKey
+	values[34] = metadataJSON
+	values[35] = run.IsRollback
 	return values, nil
 }
 

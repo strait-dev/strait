@@ -323,6 +323,64 @@ func TestExecutorDrainsBurstAfterSaturatedBatchCompletes(t *testing.T) {
 	}
 }
 
+func TestExecutorEnqueuesRunCompletedWebhookSubscription(t *testing.T) {
+	ctx := context.Background()
+	env := mustEnv(t)
+	mustCleanEnv(t, ctx)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok": true}`))
+	}))
+	defer srv.Close()
+
+	st := store.New(env.DB.Pool)
+	q := newWorkerQueue(t, env)
+	job := mustCreateJob(t, ctx, st, "project-run-webhook-subscription", srv.URL)
+	sub := &domain.WebhookSubscription{
+		ID:         newID(),
+		ProjectID:  job.ProjectID,
+		WebhookURL: "http://example.com/run-completed",
+		EventTypes: []string{domain.WebhookEventRunCompleted},
+		Active:     true,
+	}
+	require.NoError(t, st.CreateWebhookSubscription(ctx, sub))
+
+	runIDs := enqueueHTTPRuns(t, ctx, q, job, 1)
+	require.NoError(t, q.ForceTick(ctx, "http"))
+
+	wake := make(chan struct{}, 1)
+	exec := newExecutorWithQueue(t, env, q, wake, 1, srv.Client(), time.Hour, 1)
+	execCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		exec.Run(execCtx)
+	}()
+
+	wake <- struct{}{}
+	waitForRunsCompleted(t, ctx, st, runIDs, 10*time.Second)
+
+	deliveries, err := st.ListWebhookDeliveries(ctx, job.ProjectID, "", 10, nil)
+	require.NoError(t, err)
+	require.Len(t, deliveries, 1)
+	require.Equal(t, sub.ID, deliveries[0].SubscriptionID)
+	require.Equal(t, domain.WebhookStatusPending, deliveries[0].Status)
+
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(deliveries[0].Payload, &payload))
+	require.Equal(t, domain.WebhookEventRunCompleted, payload["type"])
+	require.Equal(t, runIDs[0], payload["run_id"])
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		require.Fail(t, "executor did not stop")
+	}
+}
+
 // TestJobExecutionEndToEnd enqueues a job run, starts the executor, and verifies
 // the run reaches "completed" status after the endpoint returns 200.
 func TestJobExecutionEndToEnd(t *testing.T) {

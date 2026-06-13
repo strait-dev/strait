@@ -92,6 +92,30 @@ func TestAdaptiveConcurrency_ScaleUpRespectsMax(t *testing.T) {
 	require.Equal(t, 80, next)
 }
 
+func TestAdaptiveConcurrency_DBPressureScalesDownImmediately(t *testing.T) {
+	t.Parallel()
+
+	a := NewAdaptiveConcurrency(5, 100, 90)
+	next := a.ObserveWithPressure(5000, 0.95, true)
+	require.Equal(t, 60, next)
+}
+
+func TestAdaptiveConcurrency_DBPressureRespectsMin(t *testing.T) {
+	t.Parallel()
+
+	a := NewAdaptiveConcurrency(50, 100, 60)
+	next := a.ObserveWithPressure(5000, 0.95, true)
+	require.Equal(t, 50, next)
+}
+
+func TestAdaptiveConcurrency_DBPressurePreventsScaleUp(t *testing.T) {
+	t.Parallel()
+
+	a := NewAdaptiveConcurrency(5, 100, 40)
+	next := a.ObserveWithPressure(5000, 0.95, true)
+	require.Less(t, next, 40)
+}
+
 func TestAdaptiveConcurrency_NoFlapping(t *testing.T) {
 	t.Parallel()
 

@@ -52,6 +52,8 @@ type Metrics struct {
 	EventTriggersTimedOut    metric.Int64Counter
 	EventTriggerWaitDuration metric.Float64Histogram
 
+	TriggerAdmissionGuard    metric.Int64Counter
+	TriggerDependencyGate    metric.Int64Counter
 	WorkflowDependencyWaits  metric.Int64Counter
 	WorkflowStepWaitDuration metric.Float64Histogram
 	WorkflowStalledRuns      metric.Int64Counter
@@ -77,6 +79,7 @@ type Metrics struct {
 	DBPoolIdleConns     metric.Int64ObservableGauge
 	DBPoolAcquiredConns metric.Int64ObservableGauge
 	DBPoolMaxConns      metric.Int64ObservableGauge
+	DBBackpressureShed  metric.Int64Counter
 
 	// HTTP request metrics (otelchi only generates traces, not metrics).
 	HTTPRequestDuration  metric.Float64Histogram
@@ -513,6 +516,24 @@ func initMetricInstruments(meter metric.Meter) (*Metrics, error) {
 		return nil, fmt.Errorf("create workflow dependency waits counter: %w", err)
 	}
 
+	triggerDependencyGate, err := meter.Int64Counter(
+		"strait_trigger_dependency_gate_total",
+		metric.WithDescription("Total trigger dependency gate decisions, labeled by result"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("create trigger dependency gate counter: %w", err)
+	}
+
+	triggerAdmissionGuard, err := meter.Int64Counter(
+		"strait_trigger_admission_guard_total",
+		metric.WithDescription("Total trigger admission guard decisions, labeled by path"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("create trigger admission guard counter: %w", err)
+	}
+
 	workflowStepWaitDuration, err := meter.Float64Histogram(
 		"strait_workflow_step_wait_duration_seconds",
 		metric.WithDescription("Time a workflow step spent waiting before running"),
@@ -627,6 +648,14 @@ func initMetricInstruments(meter metric.Meter) (*Metrics, error) {
 	dbPoolIdle, _ := meter.Int64ObservableGauge("strait_db_pool_idle_conns", metric.WithDescription("Idle DB pool connections"))
 	dbPoolAcquired, _ := meter.Int64ObservableGauge("strait_db_pool_acquired_conns", metric.WithDescription("Acquired DB pool connections"))
 	dbPoolMax, _ := meter.Int64ObservableGauge("strait_db_pool_max_conns", metric.WithDescription("Max DB pool connections"))
+	dbBackpressureShed, err := meter.Int64Counter(
+		"strait_db_backpressure_shed_total",
+		metric.WithDescription("Total requests shed by DB admission control, labeled by reason"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("create DB backpressure shed counter: %w", err)
+	}
 
 	httpRequestDuration, _ := meter.Float64Histogram(
 		"strait_http_request_duration_seconds",
@@ -865,6 +894,8 @@ func initMetricInstruments(meter metric.Meter) (*Metrics, error) {
 		ChildCancellationsTotal:      childCancellationsTotal,
 		LatencyAnomalies:             latencyAnomalies,
 		SnoozeTotal:                  snoozeTotal,
+		TriggerAdmissionGuard:        triggerAdmissionGuard,
+		TriggerDependencyGate:        triggerDependencyGate,
 		WorkflowDependencyWaits:      workflowDependencyWaits,
 		WorkflowStepWaitDuration:     workflowStepWaitDuration,
 		WorkflowStalledRuns:          workflowStalledRuns,
@@ -883,6 +914,7 @@ func initMetricInstruments(meter metric.Meter) (*Metrics, error) {
 		DBPoolIdleConns:              dbPoolIdle,
 		DBPoolAcquiredConns:          dbPoolAcquired,
 		DBPoolMaxConns:               dbPoolMax,
+		DBBackpressureShed:           dbBackpressureShed,
 		HTTPRequestDuration:          httpRequestDuration,
 		HTTPInflightRequests:         httpInflightRequests,
 		PprofRequests:                pprofRequests,

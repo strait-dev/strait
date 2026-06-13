@@ -386,6 +386,48 @@ func TestSSETokenAuth_ShortLivedJWT_BypassesAPIKeyAuth(t *testing.T) {
 	// Should not be 401 (unauthenticated) -- the SSE token should have authenticated.
 }
 
+func TestSSETokenAuth_ProjectActivityStreamBypassesAPIKeyAuth(t *testing.T) {
+	t.Parallel()
+
+	srv := NewServer(ServerDeps{
+		Config: &config.Config{
+			InternalSecret: "test-secret-value",
+			JWTSigningKey:  testJWTSigningKey,
+		},
+		Store:   &APIStoreMock{},
+		Queue:   &mockQueue{},
+		PubSub:  nil,
+		Edition: domain.EditionCloud,
+	})
+	t.Cleanup(srv.Close)
+
+	claims := SSETokenClaims{
+		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:    sseTokenIssuer,
+			Subject:   "proj-1",
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(5 * time.Minute)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+		},
+		ProjectID: "proj-1",
+		Scopes: []string{
+			domain.ScopeJobsRead,
+			domain.ScopeRunsRead,
+			domain.ScopeWorkflowsRead,
+		},
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	signed, err := token.SignedString([]byte(testJWTSigningKey))
+	require.NoError(t, err)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/projects/proj-1/activity/stream/?token="+signed, nil)
+	req.Header.Set("Accept", "text/event-stream")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusServiceUnavailable, w.Code)
+	require.Contains(t, w.Body.String(), "real-time streaming not available")
+}
+
 func TestSSETokenAuth_RestoresEnvironmentScope(t *testing.T) {
 	t.Parallel()
 

@@ -173,7 +173,7 @@ func (s *Server) handleCreateJob(ctx context.Context, input *CreateJobInput) (*C
 
 	s.enqueueJobMetadata(job)
 
-	s.emitAuditEvent(ctx, domain.AuditActionJobCreated, "job", job.ID, map[string]any{
+	s.emitAuditEvent(auditContextWithProject(ctx, job.ProjectID), domain.AuditActionJobCreated, "job", job.ID, map[string]any{
 		"name":           job.Name,
 		"slug":           job.Slug,
 		"cron":           job.Cron,

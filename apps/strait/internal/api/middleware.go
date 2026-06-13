@@ -796,35 +796,35 @@ func (s *Server) requestLogger(next http.Handler) http.Handler {
 			return
 		}
 
-		attrs := []any{
-			"method", r.Method,
-			"path", r.URL.Path,
-			"status", ww.Status(),
-			"duration_ms", time.Since(start).Milliseconds(),
-			"bytes", ww.BytesWritten(),
-			"remote_addr", r.RemoteAddr,
-			"user_agent", r.UserAgent(),
-			"request_id", requestID,
+		attrs := []slog.Attr{
+			slog.String("method", r.Method),
+			slog.String("path", r.URL.Path),
+			slog.Int("status", ww.Status()),
+			slog.Int64("duration_ms", time.Since(start).Milliseconds()),
+			slog.Int("bytes", ww.BytesWritten()),
+			slog.String("remote_addr", r.RemoteAddr),
+			slog.String("user_agent", r.UserAgent()),
+			slog.String("request_id", requestID),
 		}
 
 		// Include sanitized query parameters (omit auth-related keys).
 		if rawQuery := r.URL.RawQuery; rawQuery != "" {
-			attrs = append(attrs, "query", sanitizeQuery(r.URL.Query()))
+			attrs = append(attrs, slog.Any("query", sanitizeQuery(r.URL.Query())))
 		}
 
 		// Include Content-Length when present (useful for POST/PUT sizing).
 		if r.ContentLength > 0 {
-			attrs = append(attrs, "content_length", r.ContentLength)
+			attrs = append(attrs, slog.Int64("content_length", r.ContentLength))
 		}
 
 		// Log at appropriate level based on status code.
 		switch {
 		case status >= 500:
-			slog.Error("request", attrs...)
+			slog.LogAttrs(r.Context(), slog.LevelError, "request", attrs...)
 		case status >= 400:
-			slog.Warn("request", attrs...)
+			slog.LogAttrs(r.Context(), slog.LevelWarn, "request", attrs...)
 		default:
-			slog.Info("request", attrs...)
+			slog.LogAttrs(r.Context(), slog.LevelInfo, "request", attrs...)
 		}
 	})
 }
@@ -1257,16 +1257,31 @@ func (s *Server) rlsTxMiddleware(next http.Handler) http.Handler {
 		}
 
 		ctx := r.Context()
-		tx, err := s.txPool.Begin(ctx)
+		admissionCtx, admissionCancel := context.WithTimeout(ctx, databaseAdmissionOperationTimeout)
+		tx, err := s.txPool.Begin(admissionCtx)
+		admissionCancel()
 		if err != nil {
+			if s.databaseAdmission429Enabled() && isRetryableDatabaseAdmissionError(err) {
+				slog.Info("retryable RLS tx begin failure", "project_id", projectID, "error", err)
+				respondDatabaseAdmission429(w, r)
+				return
+			}
 			slog.Error("failed to begin RLS tx", "project_id", projectID, "error", err)
 			respondError(w, r, http.StatusInternalServerError, "security context initialization failed")
 			return
 		}
 
-		if _, err := tx.Exec(ctx, "SELECT set_config('app.current_project_id', $1, true)", projectID); err != nil {
+		admissionCtx, admissionCancel = context.WithTimeout(ctx, databaseAdmissionOperationTimeout)
+		_, err = tx.Exec(admissionCtx, "SELECT set_config('app.current_project_id', $1, true)", projectID)
+		admissionCancel()
+		if err != nil {
 			if rbErr := tx.Rollback(ctx); rbErr != nil && !errors.Is(rbErr, context.Canceled) {
 				slog.Warn("failed to rollback RLS tx after set_config error", "error", rbErr)
+			}
+			if s.databaseAdmission429Enabled() && isRetryableDatabaseAdmissionError(err) {
+				slog.Info("retryable RLS project context failure", "project_id", projectID, "error", err)
+				respondDatabaseAdmission429(w, r)
+				return
 			}
 			slog.Error("failed to set RLS project context", "project_id", projectID, "error", err)
 			respondError(w, r, http.StatusInternalServerError, "security context initialization failed")
@@ -1301,9 +1316,25 @@ func (s *Server) rlsTxMiddleware(next http.Handler) http.Handler {
 			respondError(w, r, http.StatusRequestEntityTooLarge, err.Error())
 			return
 		}
-		if err := tx.Commit(ctx); err != nil && !errors.Is(err, context.Canceled) {
-			slog.Warn("failed to commit RLS tx", "project_id", projectID, "error", err)
+		if bw.status >= http.StatusInternalServerError {
+			if rbErr := tx.Rollback(ctx); rbErr != nil && !errors.Is(rbErr, context.Canceled) {
+				slog.Warn("failed to rollback RLS tx after server error response", "error", rbErr)
+			}
 			hooks.runRollback(context.Background())
+			bw.FlushTo(w)
+			return
+		}
+		admissionCtx, admissionCancel = context.WithTimeout(ctx, databaseAdmissionOperationTimeout)
+		err = tx.Commit(admissionCtx)
+		admissionCancel()
+		if err != nil && !errors.Is(err, context.Canceled) {
+			hooks.runRollback(context.Background())
+			if s.databaseAdmission429Enabled() && isRetryableDatabaseAdmissionError(err) {
+				slog.Info("retryable RLS tx commit failure", "project_id", projectID, "error", err)
+				respondDatabaseAdmission429(w, r)
+				return
+			}
+			slog.Warn("failed to commit RLS tx", "project_id", projectID, "error", err)
 			respondError(w, r, http.StatusInternalServerError, "security context commit failed")
 			return
 		}
@@ -1359,6 +1390,7 @@ func (h *txCompletionHooks) runRollback(ctx context.Context) {
 }
 
 const maxRLSBufferedResponseBytes = 16 << 20
+const databaseAdmissionOperationTimeout = 250 * time.Millisecond
 
 var errRLSBufferedResponseTooLarge = errors.New("response too large")
 

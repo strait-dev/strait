@@ -149,6 +149,9 @@ func TestCacheVersion_RunStatusReadReturnsCacheVersion(t *testing.T) {
 	}
 	require.NoError(t, q.CreateRun(ctx,
 		run))
+	_, initialVersion, err := q.GetRunWithCacheVersion(ctx, run.ID)
+	require.NoError(t, err)
+
 	require.NoError(t, q.UpdateRunStatus(ctx, run.
 		ID, domain.
 		StatusQueued,
@@ -159,9 +162,8 @@ func TestCacheVersion_RunStatusReadReturnsCacheVersion(t *testing.T) {
 
 	got, version, err := q.GetRunWithCacheVersion(ctx, run.ID)
 	require.NoError(t, err)
-	require.False(t, got.CacheVersion !=
-		2 || version !=
-		2)
+	require.Equal(t, got.CacheVersion, version)
+	require.Greater(t, version, initialVersion)
 	require.Equal(t, domain.
 		StatusExecuting,
 		got.
@@ -409,18 +411,20 @@ func TestCacheVersion_RunSideTableAppendsVersions(t *testing.T) {
 
 	}
 
-	var rawRows int
-	var latestVersion int64
+	var versions []int64
 	require.NoError(t, testDB.
 		Pool.QueryRow(ctx,
 		`
-		SELECT COUNT(*), COALESCE((ARRAY_AGG(cache_version ORDER BY id DESC))[1], 0)
+		SELECT COALESCE(ARRAY_AGG(cache_version ORDER BY id ASC), '{}'::bigint[])
 		FROM job_run_cache_versions
 		WHERE run_id = $1`,
 
-		run.ID).Scan(&rawRows, &latestVersion))
-	require.EqualValues(t, 3, rawRows)
-	require.EqualValues(t, 4, latestVersion)
+		run.ID).Scan(&versions))
+	require.Len(t, versions, 3)
+	require.Greater(t, versions[0], int64(1))
+	require.Greater(t, versions[1], versions[0])
+	require.Greater(t, versions[2], versions[1])
 
+	latestVersion := versions[len(versions)-1]
 	assertRunCacheVersion(t, ctx, run.ID, latestVersion)
 }

@@ -53,7 +53,7 @@ func (s *Server) handleCreateProject(ctx context.Context, input *CreateProjectIn
 		return nil, err
 	}
 
-	s.emitAuditEvent(ctx, domain.AuditActionProjectCreated, "project", project.ID, map[string]any{
+	s.emitAuditEvent(auditContextWithProject(ctx, project.ID), domain.AuditActionProjectCreated, "project", project.ID, map[string]any{
 		"name":   project.Name,
 		"org_id": project.OrgID,
 	})

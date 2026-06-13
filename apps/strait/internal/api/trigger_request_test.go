@@ -66,6 +66,30 @@ func TestPrepareTriggerRequestBuildsState(t *testing.T) {
 			quota.Timezone)
 }
 
+func TestCanonicalizePayloadFastPathForEmptyObject(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		payload json.RawMessage
+	}{
+		{name: "empty", payload: nil},
+		{name: "literal empty object", payload: json.RawMessage(`{}`)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			canonical, hash, err := canonicalizePayload(tt.payload)
+
+			require.NoError(t, err)
+			require.Equal(t, `{}`, string(canonical))
+			require.Equal(t, canonicalEmptyPayloadHash, hash)
+		})
+	}
+}
+
 func BenchmarkCanonicalizePayload(b *testing.B) {
 	payload := json.RawMessage(`{"z":3,"a":1,"nested":{"b":2,"a":1},"items":[{"id":"run-1","ok":true},{"id":"run-2","ok":false}]}`)
 
@@ -87,7 +111,7 @@ func TestCanonicalizePayloadEmptyUsesDefaultObject(t *testing.T) {
 	canonical, hash, err := canonicalizePayload(nil)
 	require.NoError(t, err)
 	require.JSONEq(t, `{}`, string(canonical))
-	require.Len(t, hash, 64)
+	require.Equal(t, canonicalEmptyPayloadHash, hash)
 }
 
 func TestCanonicalizePayloadSortsNestedObjectKeys(t *testing.T) {

@@ -84,6 +84,7 @@ func (c *Config) Validate() error {
 		"DB_LOCK_TIMEOUT":                  c.DBLockTimeout,
 		"DB_LONG_TXN_ALERT_THRESHOLD":      c.DBLongTxnAlertThreshold,
 		"DB_WATCHDOG_INTERVAL":             c.DBWatchdogInterval,
+		"DB_BACKPRESSURE_SAMPLE_INTERVAL":  c.DBBackpressureSampleInterval,
 		"WORKER_DB_SYNC_INTERVAL":          c.WorkerDBSyncInterval,
 		"WORKER_HEARTBEAT_TIMEOUT":         c.WorkerHeartbeatTimeout,
 		"WORKER_DISCONNECT_SWEEP_INTERVAL": c.WorkerDisconnectSweepInterval,
@@ -135,6 +136,24 @@ func (c *Config) Validate() error {
 	}
 	if c.DBMaxConns < 1 {
 		errs = append(errs, fmt.Errorf("DB_MAX_CONNS must be >= 1, got %d", c.DBMaxConns))
+	}
+	if c.DBBackpressureAcquireWaitThreshold < 0 {
+		errs = append(errs, fmt.Errorf("DB_BACKPRESSURE_ACQUIRE_WAIT_THRESHOLD must be >= 0, got %v", c.DBBackpressureAcquireWaitThreshold))
+	}
+	if c.DBBackpressureOccupancyThreshold <= 0 || c.DBBackpressureOccupancyThreshold > 1 {
+		errs = append(errs, fmt.Errorf("DB_BACKPRESSURE_OCCUPANCY_THRESHOLD must be > 0 and <= 1, got %v", c.DBBackpressureOccupancyThreshold))
+	}
+	if c.BackpressureDefaultMaxTokens < 0 {
+		errs = append(errs, fmt.Errorf("BACKPRESSURE_DEFAULT_MAX_TOKENS must be >= 0, got %d", c.BackpressureDefaultMaxTokens))
+	}
+	if c.BackpressureDefaultRefillPerSec < 0 {
+		errs = append(errs, fmt.Errorf("BACKPRESSURE_DEFAULT_REFILL_PER_SEC must be >= 0, got %d", c.BackpressureDefaultRefillPerSec))
+	}
+	if c.BackpressureLocalLeaseSize < 1 {
+		errs = append(errs, fmt.Errorf("BACKPRESSURE_LOCAL_LEASE_SIZE must be >= 1, got %d", c.BackpressureLocalLeaseSize))
+	}
+	if c.BackpressureEnabled && c.BackpressureDefaultMaxTokens == 0 {
+		errs = append(errs, fmt.Errorf("BACKPRESSURE_DEFAULT_MAX_TOKENS must be > 0 when BACKPRESSURE_ENABLED=true"))
 	}
 	switch strings.ToLower(strings.TrimSpace(c.ExecutionTraceMode)) {
 	case "off", "errors", "full":

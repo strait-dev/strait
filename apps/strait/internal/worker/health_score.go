@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"sync"
+	"time"
 
 	"strait/internal/domain"
 )
@@ -49,18 +51,43 @@ type DispatchResult struct {
 
 // HealthScorer calculates and manages endpoint health scores using EWMA.
 type HealthScorer struct {
-	store HealthScoreStore
+	store                 HealthScoreStore
+	successSampleInterval time.Duration
+	successMu             sync.Mutex
+	lastSuccess           map[string]time.Time
+}
+
+type HealthScorerOption func(*HealthScorer)
+
+func WithHealthSuccessSampleInterval(interval time.Duration) HealthScorerOption {
+	return func(hs *HealthScorer) {
+		if interval > 0 {
+			hs.successSampleInterval = interval
+			hs.lastSuccess = make(map[string]time.Time)
+		}
+	}
 }
 
 // NewHealthScorer creates a new HealthScorer.
-func NewHealthScorer(store HealthScoreStore) *HealthScorer {
-	return &HealthScorer{store: store}
+func NewHealthScorer(store HealthScoreStore, opts ...HealthScorerOption) *HealthScorer {
+	hs := &HealthScorer{store: store}
+	for _, opt := range opts {
+		opt(hs)
+	}
+	return hs
 }
 
 // RecordResult updates the health score for an endpoint based on a dispatch result.
 // It pre-computes the raw signal values in Go and delegates the EWMA computation
 // to an atomic SQL statement that prevents lost updates under concurrent writes.
 func (hs *HealthScorer) RecordResult(ctx context.Context, result DispatchResult) (*domain.EndpointHealthScore, error) {
+	if result.Success && hs.skipSampledSuccess(result.EndpointURL, time.Now()) {
+		return nil, nil
+	}
+	if !result.Success {
+		hs.clearSampledSuccess(result.EndpointURL)
+	}
+
 	successVal := 0.0
 	if result.Success {
 		successVal = 1.0
@@ -90,10 +117,39 @@ func (hs *HealthScorer) RecordResult(ctx context.Context, result DispatchResult)
 		result.LatencyMs,
 	)
 	if err != nil {
+		if result.Success {
+			hs.clearSampledSuccess(result.EndpointURL)
+		}
 		return nil, fmt.Errorf("record health result: %w", err)
 	}
 
 	return score, nil
+}
+
+func (hs *HealthScorer) skipSampledSuccess(endpointURL string, now time.Time) bool {
+	if hs == nil || hs.successSampleInterval <= 0 || endpointURL == "" {
+		return false
+	}
+	hs.successMu.Lock()
+	defer hs.successMu.Unlock()
+	if hs.lastSuccess == nil {
+		hs.lastSuccess = make(map[string]time.Time)
+	}
+	last, ok := hs.lastSuccess[endpointURL]
+	if ok && now.Sub(last) < hs.successSampleInterval {
+		return true
+	}
+	hs.lastSuccess[endpointURL] = now
+	return false
+}
+
+func (hs *HealthScorer) clearSampledSuccess(endpointURL string) {
+	if hs == nil || endpointURL == "" || hs.successSampleInterval <= 0 {
+		return
+	}
+	hs.successMu.Lock()
+	defer hs.successMu.Unlock()
+	delete(hs.lastSuccess, endpointURL)
 }
 
 // CheckHealth retrieves the current health status for an endpoint.

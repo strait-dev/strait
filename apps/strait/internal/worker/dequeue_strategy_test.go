@@ -54,7 +54,7 @@ func (m *mockStrategyQueue) DequeueNForWorkerQueues(_ context.Context, n int, qu
 	if m.workerErr != nil {
 		return nil, m.workerErr
 	}
-	return m.workerRuns, nil
+	return m.workerRuns[:min(n, len(m.workerRuns))], nil
 }
 
 type staticStrategySnapshotter struct {
@@ -63,6 +63,18 @@ type staticStrategySnapshotter struct {
 
 func (s staticStrategySnapshotter) SnapshotWorkerQueues() []domain.WorkerQueueRef {
 	return s.queues
+}
+
+type capacityStrategySnapshotter struct {
+	availability domain.WorkerQueueAvailability
+}
+
+func (s capacityStrategySnapshotter) SnapshotWorkerQueues() []domain.WorkerQueueRef {
+	return s.availability.Queues
+}
+
+func (s capacityStrategySnapshotter) SnapshotWorkerQueueAvailability() domain.WorkerQueueAvailability {
+	return s.availability
 }
 
 func TestPoll_DequeueUsesQueueDequeueN(t *testing.T) {
@@ -122,11 +134,12 @@ func TestDequeueRuns_AppendsWorkerRunsWithRemainingCapacity(t *testing.T) {
 		logger:           slog.Default(),
 	}
 
-	runs, err := exec.dequeueRuns(context.Background(), 3)
+	runs, requested, err := exec.dequeueRuns(context.Background(), 3)
 	require.NoError(
 		t, err)
 	require.Len(t, runs,
 		3)
+	require.Equal(t, 3, requested)
 	require.False(t,
 		runs[0].ID !=
 			"http-1" ||
@@ -155,11 +168,12 @@ func TestDequeueRuns_SkipsWorkerPassWhenHTTPClaimsFillCapacity(t *testing.T) {
 		},
 	}
 
-	runs, err := exec.dequeueRuns(context.Background(), 2)
+	runs, requested, err := exec.dequeueRuns(context.Background(), 2)
 	require.NoError(
 		t, err)
 	require.Len(t, runs,
 		2)
+	require.Equal(t, 2, requested)
 	require.EqualValues(t, 0, q.workerQueueCalled.
 		Load())
 }
@@ -179,13 +193,39 @@ func TestDequeueRuns_WorkerFailureKeepsHTTPClaims(t *testing.T) {
 		},
 	}
 
-	runs, err := exec.dequeueRuns(context.Background(), 2)
+	runs, requested, err := exec.dequeueRuns(context.Background(), 2)
 	require.NoError(
 		t, err)
 	require.False(t,
 		len(runs) !=
 			1 || runs[0].ID != "http-1",
 	)
+	require.Equal(t, 2, requested)
 	require.EqualValues(t, 1, q.workerQueueCalled.
 		Load())
+}
+
+func TestDequeueRuns_CapsWorkerPassToAvailableWorkerSlots(t *testing.T) {
+	t.Parallel()
+
+	workerQueues := []domain.WorkerQueueRef{{ProjectID: "proj-1", QueueName: "default"}}
+	q := &mockStrategyQueue{
+		workerRuns: []domain.JobRun{{ID: "worker-1"}, {ID: "worker-2"}, {ID: "worker-3"}},
+	}
+	exec := &Executor{
+		queue: q,
+		queueSnapshotter: capacityStrategySnapshotter{
+			availability: domain.WorkerQueueAvailability{
+				Queues:         workerQueues,
+				SlotsAvailable: 2,
+			},
+		},
+		logger: slog.Default(),
+	}
+
+	runs, requested, err := exec.dequeueRuns(context.Background(), 10)
+	require.NoError(t, err)
+	require.Len(t, runs, 2)
+	require.Equal(t, 2, requested)
+	require.EqualValues(t, 2, q.workerQueueN.Load())
 }

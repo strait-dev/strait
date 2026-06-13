@@ -763,6 +763,7 @@ func TestDispatch_AdaptiveTimeout_CompletesWithP95Stats(t *testing.T) {
 	}
 
 	exec := newTestExecutor(t, st, &mockExecQueue{}, time.Hour, srv.Client())
+	exec.adaptiveTimeoutEnabled = true
 	run := testRun(1)
 
 	exec.execute(context.Background(), run)

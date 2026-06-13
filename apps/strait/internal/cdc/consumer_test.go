@@ -130,6 +130,48 @@ func TestConsumerPollRoutesByTableAndAcksSuccess(t *testing.T) {
 	assert.Equal(t, 0, nackCalls)
 }
 
+func TestConsumerPollRunsAdditionalOnlyHandler(t *testing.T) {
+	t.Parallel()
+
+	var handled atomic.Int32
+	var mu sync.Mutex
+	var ackIDs []string
+	var nackCalls int
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/http_pull_consumers/additional-only/receive":
+			_, _ = w.Write([]byte(`{"data":[{"ack_id":"a1","record":{"id":"job-1"},"action":"update","metadata":{"table_name":"jobs"}}]}`))
+		case "/api/http_pull_consumers/additional-only/ack":
+			ids := decodeAckIDs(t, r)
+			mu.Lock()
+			ackIDs = append(ackIDs, ids...)
+			mu.Unlock()
+		case "/api/http_pull_consumers/additional-only/nack":
+			nackCalls++
+		default:
+			assert.Failf(t, "test failure", "unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer ts.Close()
+
+	consumer := NewConsumer(NewClient(ts.URL, "additional-only", "token"), ConsumerConfig{ConsumerName: "additional-only", BatchSize: 1, WaitTimeMs: 1}, slog.Default())
+	consumer.RegisterAdditionalHandler(HandlerFunc{
+		TableName: "jobs",
+		Fn: func(context.Context, Message) error {
+			handled.Add(1)
+			return nil
+		},
+	})
+	require.NoError(t, consumer.poll(context.Background()))
+	require.EqualValues(t, 1, handled.Load())
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.Equal(t, []string{"a1"}, ackIDs)
+	require.Equal(t, 0, nackCalls)
+}
+
 func TestConsumerPollHandlerFailureNacks(t *testing.T) {
 	t.Parallel()
 	var mu sync.Mutex

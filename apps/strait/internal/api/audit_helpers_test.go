@@ -47,8 +47,8 @@ func BenchmarkHashIdempotencyKey(b *testing.B) {
 	b.ReportAllocs()
 	for b.Loop() {
 		hash := hashIdempotencyKey(key)
-		if len(hash) != 16 {
-			b.Fatalf("hashIdempotencyKey() length = %d, want 16", len(hash))
+		if len(hash) != 64 {
+			b.Fatalf("hashIdempotencyKey() length = %d, want 64", len(hash))
 		}
 	}
 }

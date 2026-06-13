@@ -62,3 +62,13 @@ func TestApplyRunTraceHeaderMetadataOverridesContextTrace(t *testing.T) {
 	require.Equal(t, "0123456789abcdef0123456789abcdef-0123456789abcdef-1", got[domain.RunMetadataSentryTrace])
 	require.Equal(t, "sentry-release=test-release,sentry-public_key=public", got[domain.RunMetadataSentryBaggage])
 }
+
+func TestApplyRunTraceHeaderMetadataNoHeadersReturnsSameMap(t *testing.T) {
+	t.Parallel()
+
+	metadata := map[string]string{"route": "trigger"}
+	got := applyRunTraceHeaderMetadata(metadata, "", "", "", "")
+	got["added"] = "true"
+
+	require.Equal(t, "true", metadata["added"])
+}

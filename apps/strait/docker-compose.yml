@@ -19,6 +19,8 @@ services:
     build:
       context: ./apps/strait
     image: strait-dev-local:latest
+    environment:
+      STRAIT_ENV: development
 
   strait:
     build:
@@ -28,6 +30,7 @@ services:
       - "8080:8080"
       - "50051:50051"
     environment:
+      STRAIT_ENV: development
       ALLOW_PRIVATE_ENDPOINTS: "true"
       LOG_FORMAT: text
 

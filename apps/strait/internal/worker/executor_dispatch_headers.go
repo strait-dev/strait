@@ -43,12 +43,23 @@ func (e *Executor) dispatchSecrets(ctx context.Context, job *domain.Job) ([]doma
 		return cached, nil
 	}
 
-	secrets, err := e.store.ListJobSecretsByJob(ctx, job.ID, job.EnvironmentID)
+	secrets, err := e.dispatchSecretsCache.Load(ctx, secretsCacheKey, func(loadCtx context.Context) ([]domain.JobSecret, error) {
+		return e.store.ListJobSecretsByJob(loadCtx, job.ID, job.EnvironmentID)
+	})
 	if err != nil {
 		return nil, fmt.Errorf("load job %s secrets: %w", job.ID, err)
 	}
 	dispatchCacheSet(ctx, secretsCacheKey, secrets)
 	return secrets, nil
+}
+
+func cloneJobSecrets(secrets []domain.JobSecret) []domain.JobSecret {
+	if secrets == nil {
+		return nil
+	}
+	out := make([]domain.JobSecret, len(secrets))
+	copy(out, secrets)
+	return out
 }
 
 type dispatchHeaderInputs struct {

@@ -14,6 +14,7 @@ import (
 )
 
 const pgQueSmallReadyWorkerJobSetLimit = 8
+const pgQueInitialReadyGeneration int64 = 0
 
 func (q *PgQueQueue) sendReadyEvent(ctx context.Context, db store.DBTX, run *domain.JobRun) error {
 	routeKey, err := q.routeKeyForRun(ctx, db, run)
@@ -40,6 +41,32 @@ func (q *PgQueQueue) sendReadyEvent(ctx context.Context, db store.DBTX, run *dom
 		return fmt.Errorf("pgque send ready event: %w", err)
 	}
 	if err := q.recordReadyEmitBatch(ctx, db, []string{run.ID}, []int64{generation}); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (q *PgQueQueue) sendFreshReadyEvent(ctx context.Context, db store.DBTX, run *domain.JobRun) error {
+	routeKey, err := q.routeKeyForRun(ctx, db, run)
+	if err != nil {
+		return err
+	}
+	state := q.routeState(routeKey)
+	if !state.configured.Load() {
+		if err := q.ensureRoute(ctx, db, routeKey, state.queueName); err != nil {
+			return err
+		}
+	}
+	payload := marshalPgQueReadyEventText(pgQueReadyEvent{
+		RunID:      run.ID,
+		RouteKey:   routeKey,
+		Generation: pgQueInitialReadyGeneration,
+		Priority:   run.Priority,
+	})
+	if err := q.pgque(db).sendText(ctx, state.queueName, pgQueReadyEventType, payload); err != nil {
+		return fmt.Errorf("pgque send ready event: %w", err)
+	}
+	if err := q.recordReadyEmitBatch(ctx, db, []string{run.ID}, []int64{pgQueInitialReadyGeneration}); err != nil {
 		return err
 	}
 	return nil
@@ -72,6 +99,56 @@ func (q *PgQueQueue) sendReadyEvents(ctx context.Context, db store.DBTX, runs []
 			RunID:      readyRun.run.ID,
 			RouteKey:   readyRun.routeKey,
 			Generation: generation,
+			Priority:   readyRun.run.Priority,
+		})
+		if byRoute != nil {
+			byRoute[readyRun.routeKey] = append(byRoute[readyRun.routeKey], payloadText)
+			continue
+		}
+		if readyRun.routeKey == routeKey {
+			payloads = append(payloads, payloadText)
+			continue
+		}
+		byRoute = make(map[string][]string, len(readyRuns))
+		byRoute[routeKey] = payloads
+		byRoute[readyRun.routeKey] = append(byRoute[readyRun.routeKey], payloadText)
+	}
+	if byRoute == nil {
+		if err := q.sendReadyPayloadBatch(ctx, db, routeKey, payloads); err != nil {
+			return err
+		}
+	} else {
+		for routeKey, payloads := range byRoute {
+			if err := q.sendReadyPayloadBatch(ctx, db, routeKey, payloads); err != nil {
+				return err
+			}
+		}
+	}
+	if err := q.recordReadyEmitBatch(ctx, db, runIDs, readyGenerations); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (q *PgQueQueue) sendFreshReadyEvents(ctx context.Context, db store.DBTX, runs []*domain.JobRun) error {
+	readyRuns, runIDs, err := q.readyRunsForEvents(ctx, db, runs)
+	if err != nil {
+		return err
+	}
+	if len(readyRuns) == 0 {
+		return nil
+	}
+
+	routeKey := readyRuns[0].routeKey
+	payloads := make([]string, 0, len(readyRuns))
+	var byRoute map[string][]string
+	readyGenerations := make([]int64, 0, len(readyRuns))
+	for _, readyRun := range readyRuns {
+		readyGenerations = append(readyGenerations, pgQueInitialReadyGeneration)
+		payloadText := marshalPgQueReadyEventText(pgQueReadyEvent{
+			RunID:      readyRun.run.ID,
+			RouteKey:   readyRun.routeKey,
+			Generation: pgQueInitialReadyGeneration,
 			Priority:   readyRun.run.Priority,
 		})
 		if byRoute != nil {
@@ -434,6 +511,9 @@ func (q *PgQueQueue) ActivateDueRuns(ctx context.Context, limit int) (int64, err
 	}
 
 	if err := q.sendReadyEvents(ctx, tx, runs); err != nil {
+		return 0, err
+	}
+	if err := notifyExecutorQueueWake(ctx, tx, "pgque_activate_due_runs", len(runs)); err != nil {
 		return 0, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -844,6 +924,16 @@ func (q *PgQueQueue) recordReadyEmitBatch(ctx context.Context, db store.DBTX, ru
 		FROM unnest($1::text[], $2::bigint[]) AS input(run_id, ready_generation)
 		ON CONFLICT (run_id, ready_generation) DO NOTHING`, runIDs, readyGenerations); err != nil {
 		return fmt.Errorf("pgque record ready emits: %w", err)
+	}
+	return nil
+}
+
+func notifyExecutorQueueWake(ctx context.Context, db store.DBTX, reason string, count int) error {
+	if count <= 0 {
+		return nil
+	}
+	if _, err := db.Exec(ctx, `SELECT pg_notify($1, $2)`, QueueWakeChannel, fmt.Sprintf("%s:%d", reason, count)); err != nil {
+		return fmt.Errorf("pgque notify executor wake: %w", err)
 	}
 	return nil
 }

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"strait/internal/billing"
+	"strait/internal/config"
 	"strait/internal/domain"
 
 	"github.com/stretchr/testify/assert"
@@ -123,6 +124,40 @@ func TestCheckHTTPModeAllowed_CloudNilEnforcerFailsClosed(t *testing.T) {
 	s := &Server{
 		edition:         domain.EditionCloud,
 		billingEnforcer: nil,
+	}
+
+	err := s.checkHTTPModeAllowed(context.Background(), domain.ExecutionModeHTTP, "proj-1")
+	require.Error(t, err)
+	assert.Contains(t, err.
+		Error(), "billing enforcement unavailable",
+	)
+}
+
+func TestCheckHTTPModeAllowed_CloudDevelopmentNilEnforcerAllowedWhenBillingDisabled(t *testing.T) {
+	t.Parallel()
+
+	s := &Server{
+		edition:         domain.EditionCloud,
+		billingEnforcer: nil,
+		config: &config.Config{
+			SentryEnvironment: "development",
+		},
+	}
+
+	err := s.checkHTTPModeAllowed(context.Background(), domain.ExecutionModeHTTP, "proj-1")
+	require.NoError(t, err)
+}
+
+func TestCheckHTTPModeAllowed_CloudDevelopmentNilEnforcerFailsWhenBillingEnabled(t *testing.T) {
+	t.Parallel()
+
+	s := &Server{
+		edition:         domain.EditionCloud,
+		billingEnforcer: nil,
+		config: &config.Config{
+			SentryEnvironment:         "development",
+			BillingEnforcementEnabled: true,
+		},
 	}
 
 	err := s.checkHTTPModeAllowed(context.Background(), domain.ExecutionModeHTTP, "proj-1")

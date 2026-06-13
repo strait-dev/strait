@@ -55,7 +55,7 @@ func TestLoad_Defaults(t *testing.T) {
 		{"HeartbeatInterval", cfg.HeartbeatInterval, 10 * time.Second},
 		{"ReaperInterval", cfg.ReaperInterval, 30 * time.Second},
 		{"StaleThreshold", cfg.StaleThreshold, 60 * time.Second},
-		{"PollerInterval", cfg.PollerInterval, 5 * time.Second},
+		{"PollerInterval", cfg.PollerInterval, time.Second},
 		{"RunRetentionShort", cfg.RunRetentionShort, 720 * time.Hour},
 		{"RunRetentionLong", cfg.RunRetentionLong, 2160 * time.Hour},
 		{"WorkflowRunRetentionDays", cfg.WorkflowRunRetentionDays, 30},
@@ -65,10 +65,19 @@ func TestLoad_Defaults(t *testing.T) {
 		{"DBMaxConnIdleTime", cfg.DBMaxConnIdleTime, 5 * time.Minute},
 		{"DBHealthCheckPeriod", cfg.DBHealthCheckPeriod, 30 * time.Second},
 		{"DBStatementTimeout", cfg.DBStatementTimeout, 30 * time.Second},
+		{"DBBackpressureSampleInterval", cfg.DBBackpressureSampleInterval, 100 * time.Millisecond},
+		{"DBBackpressureAcquireWaitThreshold", cfg.DBBackpressureAcquireWaitThreshold, 50 * time.Millisecond},
+		{"DBBackpressureOccupancyThreshold", cfg.DBBackpressureOccupancyThreshold, 0.90},
 		{"RateLimitRequests", cfg.RateLimitRequests, 100},
 		{"RateLimitWindow", cfg.RateLimitWindow, time.Minute},
 		{"TriggerRateLimitRequests", cfg.TriggerRateLimitRequests, 10},
 		{"TriggerRateLimitWindow", cfg.TriggerRateLimitWindow, time.Minute},
+		{"BackpressureEnabled", cfg.BackpressureEnabled, true},
+		{"BackpressureDefaultMaxTokens", cfg.BackpressureDefaultMaxTokens, 1000},
+		{"BackpressureDefaultRefillPerSec", cfg.BackpressureDefaultRefillPerSec, 500},
+		{"BackpressureLocalLeaseSize", cfg.BackpressureLocalLeaseSize, 32},
+		{"BackpressureSamplerInterval", cfg.BackpressureSamplerInterval, 15 * time.Second},
+		{"BackpressureSamplerN", cfg.BackpressureSamplerN, 100},
 		{"RequestTimeout", cfg.RequestTimeout, 30 * time.Second},
 		{"MaxRequestBodySize", cfg.MaxRequestBodySize, int64(1 << 20)},
 		{"MaxBulkTriggerItems", cfg.MaxBulkTriggerItems, 500},
@@ -82,6 +91,7 @@ func TestLoad_Defaults(t *testing.T) {
 		{"ExecutorHTTPTimeout", cfg.ExecutorHTTPTimeout, 5 * time.Minute},
 		{"ExecutorIdleConnTimeout", cfg.ExecutorIdleConnTimeout, 90 * time.Second},
 		{"ExecutionTraceMode", cfg.ExecutionTraceMode, "off"},
+		{"AdaptiveTimeoutEnabled", cfg.AdaptiveTimeoutEnabled, false},
 		{"WebhookDispatchTimeout", cfg.WebhookDispatchTimeout, 15 * time.Second},
 		{"WebhookMaxAttempts", cfg.WebhookMaxAttempts, 3},
 		{"DefaultJobMaxAttempts", cfg.DefaultJobMaxAttempts, 3},
@@ -102,7 +112,11 @@ func TestLoad_Defaults(t *testing.T) {
 		{"VersionCacheTTL", cfg.VersionCacheTTL, 30 * time.Minute},
 		{"RunVersionCacheTTL", cfg.RunVersionCacheTTL, 10 * time.Minute},
 		{"APIKeyCacheTTL", cfg.APIKeyCacheTTL, time.Minute},
-		{"JobHealthCacheTTL", cfg.JobHealthCacheTTL, 2 * time.Second},
+		{"JobHealthCacheTTL", cfg.JobHealthCacheTTL, 5 * time.Minute},
+		{"JobHealthStatsCacheTTL", cfg.JobHealthStatsCacheTTL, 5 * time.Minute},
+		{"EndpointGuardCacheTTL", cfg.EndpointGuardCacheTTL, time.Second},
+		{"EndpointHealthSuccessSampleInterval", cfg.EndpointHealthSuccessSampleInterval, time.Second},
+		{"EndpointCircuitSuccessSampleInterval", cfg.EndpointCircuitSuccessSampleInterval, time.Second},
 		{"JobDepsCacheTTL", cfg.JobDepsCacheTTL, 5 * time.Minute},
 		{"StatusReadModelTTL", cfg.StatusReadModelTTL, 5 * time.Minute},
 		{"SharedDedupeTTL", cfg.SharedDedupeTTL, 10 * time.Minute},
@@ -153,6 +167,7 @@ func TestLoad_DefaultBooleans(t *testing.T) {
 		{"DBPgBouncerMode", cfg.DBPgBouncerMode},
 		{"DBPgBouncerPrepared", cfg.DBPgBouncerPrepared},
 		{"DBTraceStatements", cfg.DBTraceStatements},
+		{"DBBackpressureDisabled", cfg.DBBackpressureDisabled},
 		{"WebhookRequireTLS", cfg.WebhookRequireTLS},
 		{"AllowPrivateEndpoints", cfg.AllowPrivateEndpoints},
 		{"GRPCAllowPlaintext", cfg.GRPCAllowPlaintext},
@@ -240,6 +255,16 @@ func TestLoad_OverrideDefaults(t *testing.T) {
 	t.Setenv("INDEX_MAINTENANCE_INTERVAL", "12h")
 	t.Setenv("ADAPTIVE_CONCURRENCY_MIN", "3")
 	t.Setenv("ADAPTIVE_CONCURRENCY_MAX", "30")
+	t.Setenv("BACKPRESSURE_DEFAULT_MAX_TOKENS", "4000")
+	t.Setenv("BACKPRESSURE_DEFAULT_REFILL_PER_SEC", "750")
+	t.Setenv("BACKPRESSURE_LOCAL_LEASE_SIZE", "64")
+	t.Setenv("DB_BACKPRESSURE_DISABLED", "true")
+	t.Setenv("DB_BACKPRESSURE_SAMPLE_INTERVAL", "250ms")
+	t.Setenv("DB_BACKPRESSURE_ACQUIRE_WAIT_THRESHOLD", "200ms")
+	t.Setenv("DB_BACKPRESSURE_OCCUPANCY_THRESHOLD", "0.98")
+	t.Setenv("ENDPOINT_GUARD_CACHE_TTL", "3s")
+	t.Setenv("ENDPOINT_HEALTH_SUCCESS_SAMPLE_INTERVAL", "5s")
+	t.Setenv("ENDPOINT_CIRCUIT_SUCCESS_SAMPLE_INTERVAL", "7s")
 
 	cfg, err := Load()
 	require.NoError(t, err)
@@ -254,6 +279,100 @@ func TestLoad_OverrideDefaults(t *testing.T) {
 	)
 	require.Equal(t, 3, cfg.AdaptiveConcurrencyMin)
 	require.Equal(t, 30, cfg.AdaptiveConcurrencyMax)
+	require.Equal(t, 4000, cfg.BackpressureDefaultMaxTokens)
+	require.Equal(t, 750, cfg.BackpressureDefaultRefillPerSec)
+	require.Equal(t, 64, cfg.BackpressureLocalLeaseSize)
+	require.True(t, cfg.DBBackpressureDisabled)
+	require.Equal(t, 250*time.Millisecond, cfg.DBBackpressureSampleInterval)
+	require.Equal(t, 200*time.Millisecond, cfg.DBBackpressureAcquireWaitThreshold)
+	require.InDelta(t, 0.98, cfg.DBBackpressureOccupancyThreshold, 0.0001)
+	require.Equal(t, 3*time.Second, cfg.EndpointGuardCacheTTL)
+	require.Equal(t, 5*time.Second, cfg.EndpointHealthSuccessSampleInterval)
+	require.Equal(t, 7*time.Second, cfg.EndpointCircuitSuccessSampleInterval)
+}
+
+func TestLoad_BackpressureDisabledAllowsZeroBucket(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("BACKPRESSURE_ENABLED", "false")
+	t.Setenv("BACKPRESSURE_DEFAULT_MAX_TOKENS", "0")
+	t.Setenv("BACKPRESSURE_DEFAULT_REFILL_PER_SEC", "0")
+
+	cfg, err := Load()
+	require.NoError(t, err)
+	require.False(t, cfg.BackpressureEnabled)
+	require.Zero(t, cfg.BackpressureDefaultMaxTokens)
+	require.Zero(t, cfg.BackpressureDefaultRefillPerSec)
+}
+
+func TestLoad_BackpressureValidation(t *testing.T) {
+	tests := []struct {
+		name     string
+		env      map[string]string
+		errorSub string
+	}{
+		{
+			name: "enabled requires positive max tokens",
+			env: map[string]string{
+				"BACKPRESSURE_DEFAULT_MAX_TOKENS": "0",
+			},
+			errorSub: "BACKPRESSURE_DEFAULT_MAX_TOKENS must be > 0",
+		},
+		{
+			name: "rejects negative max tokens",
+			env: map[string]string{
+				"BACKPRESSURE_DEFAULT_MAX_TOKENS": "-1",
+			},
+			errorSub: "BACKPRESSURE_DEFAULT_MAX_TOKENS must be >= 0",
+		},
+		{
+			name: "rejects negative refill",
+			env: map[string]string{
+				"BACKPRESSURE_DEFAULT_REFILL_PER_SEC": "-1",
+			},
+			errorSub: "BACKPRESSURE_DEFAULT_REFILL_PER_SEC must be >= 0",
+		},
+		{
+			name: "rejects zero local lease",
+			env: map[string]string{
+				"BACKPRESSURE_LOCAL_LEASE_SIZE": "0",
+			},
+			errorSub: "BACKPRESSURE_LOCAL_LEASE_SIZE must be >= 1",
+		},
+		{
+			name: "rejects negative db acquire wait threshold",
+			env: map[string]string{
+				"DB_BACKPRESSURE_ACQUIRE_WAIT_THRESHOLD": "-1ms",
+			},
+			errorSub: "DB_BACKPRESSURE_ACQUIRE_WAIT_THRESHOLD must be >= 0",
+		},
+		{
+			name: "rejects zero db occupancy threshold",
+			env: map[string]string{
+				"DB_BACKPRESSURE_OCCUPANCY_THRESHOLD": "0",
+			},
+			errorSub: "DB_BACKPRESSURE_OCCUPANCY_THRESHOLD must be > 0 and <= 1",
+		},
+		{
+			name: "rejects high db occupancy threshold",
+			env: map[string]string{
+				"DB_BACKPRESSURE_OCCUPANCY_THRESHOLD": "1.1",
+			},
+			errorSub: "DB_BACKPRESSURE_OCCUPANCY_THRESHOLD must be > 0 and <= 1",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			setRequiredEnv(t)
+			for key, value := range tt.env {
+				t.Setenv(key, value)
+			}
+
+			_, err := Load()
+			require.Error(t, err)
+			require.Contains(t, err.Error(), tt.errorSub)
+		})
+	}
 }
 
 func TestLoad_EncryptionKeyRotationConfig(t *testing.T) {

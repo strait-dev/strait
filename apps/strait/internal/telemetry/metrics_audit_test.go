@@ -61,7 +61,7 @@ func TestAuditMetrics_Registered(t *testing.T) {
 	capacity, err := meter.Int64ObservableGauge("strait_audit_drainer_queue_capacity")
 	require.NoError(t, err)
 
-	drainer := &stubDrainer{depth: 42, capacity: 4096}
+	drainer := &stubDrainer{depth: 42, capacity: 16384}
 	_, err = meter.RegisterCallback(func(_ context.Context, o metric.Observer) error {
 		o.ObserveInt64(depth, drainer.AuditDrainerQueueDepth())
 		o.ObserveInt64(capacity, drainer.AuditDrainerQueueCapacity())
@@ -87,7 +87,7 @@ func TestAuditMetrics_Registered(t *testing.T) {
 	assert.EqualValues(
 		t, 42, seen["strait_audit_drainer_queue_depth"])
 	assert.EqualValues(
-		t, 4096, seen["strait_audit_drainer_queue_capacity"])
+		t, 16384, seen["strait_audit_drainer_queue_capacity"])
 
 	assert.NotNil(t, m.AuditDrainerQueueDepth)
 	assert.NotNil(t, m.AuditDrainerQueueCapacity)

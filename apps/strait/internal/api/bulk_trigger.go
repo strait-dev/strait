@@ -93,7 +93,7 @@ func (s *Server) handleBulkTriggerJob(ctx context.Context, input *BulkTriggerJob
 		}
 		return state.enqueuePendingRuns()
 	}); err != nil {
-		return nil, triggerLimitAPIError(err, "failed to enqueue bulk trigger")
+		return nil, s.triggerLimitAPIError(err, "failed to enqueue bulk trigger")
 	}
 
 	if err := s.store.FinalizeBatchOperation(ctx, batchID, state.created); err != nil {

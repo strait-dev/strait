@@ -300,7 +300,7 @@ func (q *Queries) RecoverStaleWorkerTasksExceptRefs(ctx context.Context, cutoff 
 				SET count = GREATEST(c.count - 1, 0),
 				    updated_at = NOW()
 				FROM requeued_runs r
-				WHERE (r.job_max_concurrency IS NOT NULL OR r.job_max_concurrency_per_key IS NOT NULL)
+				WHERE (COALESCE(r.job_max_concurrency, 0) > 0 OR COALESCE(r.job_max_concurrency_per_key, 0) > 0)
 				  AND NOT r.uses_active_claim
 				  AND c.job_id = r.job_id
 				  AND c.concurrency_key = r.concurrency_key
@@ -903,7 +903,7 @@ func (q *Queries) RequeueOpenWorkerTasks(ctx context.Context, workerID, projectI
 				SET count = GREATEST(c.count - 1, 0),
 				    updated_at = NOW()
 				FROM requeued_runs r
-				WHERE (r.job_max_concurrency IS NOT NULL OR r.job_max_concurrency_per_key IS NOT NULL)
+				WHERE (COALESCE(r.job_max_concurrency, 0) > 0 OR COALESCE(r.job_max_concurrency_per_key, 0) > 0)
 				  AND NOT r.uses_active_claim
 				  AND c.job_id = r.job_id
 				  AND c.concurrency_key = r.concurrency_key

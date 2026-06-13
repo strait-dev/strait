@@ -261,6 +261,7 @@ func (s *Server) handleSDKSpawn(ctx context.Context, input *SDKSpawnInput) (*SDK
 		}
 	}
 	run := &domain.JobRun{JobID: job.ID, ProjectID: job.ProjectID, Payload: req.Payload, TriggeredBy: domain.TriggerSpawn, ParentRunID: parentRunID}
+	stampRunJobConfig(run, job)
 	if err := s.ensureSDKRunActive(ctx, parentRunID); err != nil {
 		return nil, err
 	}
@@ -374,6 +375,7 @@ func (s *Server) handleSDKContinue(ctx context.Context, input *SDKContinueInput)
 		LineageDepth:   parentRun.LineageDepth + 1,
 		Priority:       parentRun.Priority,
 	}
+	stampRunJobConfig(continuationRun, job)
 	if err := s.ensureSDKRunActive(ctx, parentRunID); err != nil {
 		return nil, err
 	}

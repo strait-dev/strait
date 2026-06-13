@@ -131,7 +131,7 @@ func (s *Server) handleSetJobEndpoint(ctx context.Context, input *SetJobEndpoint
 	if err := requireEnvironmentMatch(ctx, job.EnvironmentID); err != nil {
 		return nil, huma.Error404NotFound("job not found")
 	}
-	s.emitInternalSecretBypassAuditIfProjectless(ctx, "set_job_endpoint.project_match", "handleSetJobEndpoint", "job", job.ID)
+	s.emitInternalSecretBypassAuditIfProjectless(ctx, job.ProjectID, "set_job_endpoint.project_match", "handleSetJobEndpoint", "job", job.ID)
 	if err := s.requireSecretsWriteForSecretBearingEndpointChange(ctx, job, input.Body.EndpointURL, input.Body.FallbackEndpointURL); err != nil {
 		return nil, err
 	}
@@ -225,7 +225,7 @@ func (s *Server) handleVerifyJobEndpoint(ctx context.Context, input *VerifyJobEn
 	if err := requireEnvironmentMatch(ctx, job.EnvironmentID); err != nil {
 		return nil, huma.Error404NotFound("job not found")
 	}
-	s.emitInternalSecretBypassAuditIfProjectless(ctx, "verify_job_endpoint.project_match", "handleVerifyJobEndpoint", "job", job.ID)
+	s.emitInternalSecretBypassAuditIfProjectless(ctx, job.ProjectID, "verify_job_endpoint.project_match", "handleVerifyJobEndpoint", "job", job.ID)
 	if job.EndpointURL == "" {
 		return nil, huma.Error400BadRequest("job has no endpoint_url configured")
 	}

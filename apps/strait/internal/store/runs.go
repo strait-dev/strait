@@ -51,34 +51,7 @@ func (q *Queries) CreateRun(ctx context.Context, run *domain.JobRun) error {
 		}
 	}
 
-	query := `
-		WITH idempotency_check AS (
-			SELECT 1
-			FROM job_runs jr
-			LEFT JOIN job_run_read_state s ON s.run_id = jr.id
-			WHERE jr.job_id = $2
-			  AND jr.idempotency_key = $18
-			  AND jr.idempotency_key IS NOT NULL
-			  AND COALESCE(s.status, jr.status) IN ('delayed', 'queued', 'dequeued', 'executing', 'waiting')
-			LIMIT 1
-		)
-		INSERT INTO job_runs (
-			id, job_id, project_id, status, attempt, payload, result, error,
-			triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-			next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, workflow_step_run_id,
-			debug_mode, continuation_of, lineage_depth,
-			tags, job_version_id, created_by, concurrency_key, batch_id,
-				execution_mode, queue_name, metadata,
-				is_rollback
-			)
-			SELECT
-				$1, $2, $3, $4, $5, $6, $7, $8,
-				$9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
-				$21, $22, $23,
-				$24::jsonb, $25, $26, $27, $28,
-				$29, $30, $31::jsonb, $32
-			WHERE NOT EXISTS (SELECT 1 FROM idempotency_check)
-			RETURNING created_at`
+	query := createRunInsertQuery(run.IdempotencyKey != "")
 
 	execMode := run.ExecutionMode
 	if execMode == "" {
@@ -122,6 +95,10 @@ func (q *Queries) CreateRun(ctx context.Context, run *domain.JobRun) error {
 		dbscan.NilIfEmptyString(run.BatchID),
 		string(execMode),
 		queueName,
+		run.JobEnabled,
+		run.JobPaused,
+		run.JobMaxConcurrency,
+		run.JobMaxConcurrencyPerKey,
 		metadataJSON,
 		run.IsRollback,
 	).Scan(&run.CreatedAt)
@@ -133,6 +110,50 @@ func (q *Queries) CreateRun(ctx context.Context, run *domain.JobRun) error {
 	}
 
 	return nil
+}
+
+func createRunInsertQuery(withIdempotency bool) string {
+	const columns = `
+		INSERT INTO job_runs (
+			id, job_id, project_id, status, attempt, payload, result, error,
+			triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
+			next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, workflow_step_run_id,
+			debug_mode, continuation_of, lineage_depth,
+			tags, job_version_id, created_by, concurrency_key, batch_id,
+			execution_mode, queue_name, job_enabled, job_paused, job_max_concurrency, job_max_concurrency_per_key, metadata,
+			is_rollback
+		)`
+	const values = `
+		VALUES (
+			$1, $2, $3, $4, $5, $6, $7, $8,
+			$9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
+			$21, $22, $23,
+			$24::jsonb, $25, $26, $27, $28,
+			$29, $30, $31, $32, $33, $34, $35::jsonb, $36
+		)
+		RETURNING created_at`
+	if !withIdempotency {
+		return columns + values
+	}
+	return `
+		WITH idempotency_check AS (
+			SELECT 1
+			FROM job_runs jr
+			LEFT JOIN job_run_read_state s ON s.run_id = jr.id
+			WHERE jr.job_id = $2
+			  AND jr.idempotency_key = $18
+			  AND jr.idempotency_key IS NOT NULL
+			  AND COALESCE(s.status, jr.status) IN ('delayed', 'queued', 'dequeued', 'executing', 'waiting')
+			LIMIT 1
+		)` + columns + `
+		SELECT
+			$1, $2, $3, $4, $5, $6, $7, $8,
+			$9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
+			$21, $22, $23,
+			$24::jsonb, $25, $26, $27, $28,
+			$29, $30, $31, $32, $33, $34, $35::jsonb, $36
+		WHERE NOT EXISTS (SELECT 1 FROM idempotency_check)
+		RETURNING created_at`
 }
 
 func (q *Queries) GetRunStatus(ctx context.Context, id string) (domain.RunStatus, error) {
@@ -1558,7 +1579,7 @@ const appendRunTerminalStateQuery = `
 		JOIN inserted i ON i.run_id = s.run_id
 		WHERE s.previous_status IN ('dequeued', 'executing')
 		  AND NOT s.uses_active_claim
-		  AND (s.job_max_concurrency IS NOT NULL OR s.job_max_concurrency_per_key IS NOT NULL)
+		  AND (COALESCE(s.job_max_concurrency, 0) > 0 OR COALESCE(s.job_max_concurrency_per_key, 0) > 0)
 		  AND c.job_id = s.job_id
 		  AND c.concurrency_key = COALESCE(s.concurrency_key, '')
 		  AND c.count <> 0
@@ -1676,7 +1697,7 @@ const appendRunTerminalStateForAttemptQuery = `
 		JOIN inserted i ON i.run_id = s.run_id
 		WHERE s.previous_status IN ('dequeued', 'executing')
 		  AND NOT s.uses_active_claim
-		  AND (s.job_max_concurrency IS NOT NULL OR s.job_max_concurrency_per_key IS NOT NULL)
+		  AND (COALESCE(s.job_max_concurrency, 0) > 0 OR COALESCE(s.job_max_concurrency_per_key, 0) > 0)
 		  AND c.job_id = s.job_id
 		  AND c.concurrency_key = COALESCE(s.concurrency_key, '')
 		  AND c.count <> 0
@@ -2693,7 +2714,7 @@ func (q *Queries) MarkJobRunsPausedByWorkflowRun(ctx context.Context, workflowRu
 			FROM updated u
 			WHERE u.previous_status IN ('dequeued', 'executing')
 			  AND NOT u.uses_active_claim
-			  AND (u.job_max_concurrency IS NOT NULL OR u.job_max_concurrency_per_key IS NOT NULL)
+			  AND (COALESCE(u.job_max_concurrency, 0) > 0 OR COALESCE(u.job_max_concurrency_per_key, 0) > 0)
 			  AND c.job_id = u.job_id
 			  AND c.concurrency_key = u.concurrency_key
 			  AND c.count <> 0
@@ -2945,7 +2966,7 @@ func bulkCancelTerminalQuery(extraJoins, whereClause, orderLimit, selectClause s
 			JOIN inserted i ON i.run_id = s.run_id
 			WHERE s.previous_status IN ('dequeued', 'executing')
 			  AND NOT s.uses_active_claim
-			  AND (s.job_max_concurrency IS NOT NULL OR s.job_max_concurrency_per_key IS NOT NULL)
+			  AND (COALESCE(s.job_max_concurrency, 0) > 0 OR COALESCE(s.job_max_concurrency_per_key, 0) > 0)
 			  AND c.job_id = s.job_id
 			  AND c.concurrency_key = COALESCE(s.concurrency_key, '')
 			  AND c.count <> 0

@@ -316,6 +316,7 @@ func (s *Server) handleReplayRun(ctx context.Context, input *ReplayRunInput) (*R
 		DebugMode:    debugMode,
 		Metadata:     sentryRunMetadata(ctx, "POST /v1/runs/{runID}/replay", nil),
 	}
+	stampRunJobConfig(replayRun, job)
 
 	if err := s.queue.Enqueue(ctx, replayRun); err != nil {
 		if errors.Is(err, domain.ErrIdempotencyConflict) {
@@ -840,6 +841,7 @@ func (s *Server) handleBulkReplayRuns(ctx context.Context, input *BulkReplayRuns
 			ExpiresAt:    &expiresAt,
 			Metadata:     sentryRunMetadata(ctx, "POST /v1/runs/bulk-replay", nil),
 		}
+		stampRunJobConfig(replayRun, job)
 
 		if err := s.queue.Enqueue(ctx, replayRun); err != nil {
 			results = append(results, replayResult{OriginalRunID: runID, Status: "failed", Error: "enqueue failed"})

@@ -33,7 +33,7 @@ func newBatchFlushRun(ctx context.Context, request batchFlushRunRequest) *domain
 		request.input.Baggage,
 	)
 
-	return &domain.JobRun{
+	run := &domain.JobRun{
 		ID:            uuid.Must(uuid.NewV7()).String(),
 		JobID:         request.job.ID,
 		ProjectID:     request.job.ProjectID,
@@ -51,6 +51,8 @@ func newBatchFlushRun(ctx context.Context, request batchFlushRunRequest) *domain
 		IsRollback:    false,
 		Metadata:      metadata,
 	}
+	stampRunJobConfig(run, request.job)
+	return run
 }
 
 func batchFlushPayload(items []domain.BatchBufferItem) (json.RawMessage, error) {

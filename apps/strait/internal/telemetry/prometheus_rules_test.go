@@ -164,6 +164,9 @@ func TestPrometheusRules_RecordingRulesPresent(t *testing.T) {
 		"strait:redis_command_p95_seconds5m":          {},
 		"strait:cdc_shared_dedupe_fallback_rate5m":    {},
 		"strait:billing_quota_block_rate5m":           {},
+		"strait:trigger_admission_direct_ratio5m":     {},
+		"strait:trigger_admission_fallback_rate5m":    {},
+		"strait:trigger_dependency_evaluated_ratio5m": {},
 	}
 
 	got := map[string]string{}

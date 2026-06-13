@@ -299,6 +299,72 @@ func TestEnqueueBatch_TagsSerialized(t *testing.T) {
 	// JSON should contain both keys (order may vary).
 }
 
+func TestPrepareEnqueue_IncludesJobConfigSnapshot(t *testing.T) {
+	t.Parallel()
+
+	enabled := true
+	paused := false
+	maxConcurrency := 12
+	maxConcurrencyPerKey := 3
+	q := NewPostgresRunWriter(&mockNoCopyDB{})
+
+	query, args, err := q.prepareEnqueue(&domain.JobRun{
+		JobID:                   "job-1",
+		ProjectID:               "proj-1",
+		JobEnabled:              &enabled,
+		JobPaused:               &paused,
+		JobMaxConcurrency:       &maxConcurrency,
+		JobMaxConcurrencyPerKey: &maxConcurrencyPerKey,
+	})
+	require.NoError(t, err)
+
+	require.Contains(t, query, "job_enabled, job_paused, job_max_concurrency, job_max_concurrency_per_key")
+	require.Len(t, args, 36)
+	require.Same(t, &enabled, args[30])
+	require.Same(t, &paused, args[31])
+	require.Same(t, &maxConcurrency, args[32])
+	require.Same(t, &maxConcurrencyPerKey, args[33])
+}
+
+func TestEnqueueBatch_JobConfigSnapshotCopied(t *testing.T) {
+	t.Parallel()
+
+	var capturedColumns []string
+	var capturedRows [][]any
+	db := &mockBatchDB{
+		copyFromFn: func(_ context.Context, _ pgx.Identifier, columnNames []string, rowSrc pgx.CopyFromSource) (int64, error) {
+			capturedColumns = slices.Clone(columnNames)
+			for rowSrc.Next() {
+				vals, _ := rowSrc.Values()
+				capturedRows = append(capturedRows, slices.Clone(vals))
+			}
+			return int64(len(capturedRows)), rowSrc.Err()
+		},
+	}
+	q := NewPostgresRunWriter(db)
+	enabled := true
+	paused := false
+	maxConcurrency := 12
+	maxConcurrencyPerKey := 3
+
+	_, err := q.EnqueueBatch(context.Background(), []*domain.JobRun{{
+		JobID:                   "job-1",
+		ProjectID:               "proj-1",
+		JobEnabled:              &enabled,
+		JobPaused:               &paused,
+		JobMaxConcurrency:       &maxConcurrency,
+		JobMaxConcurrencyPerKey: &maxConcurrencyPerKey,
+	}})
+	require.NoError(t, err)
+
+	require.Equal(t, copyFromColumns, capturedColumns)
+	require.Len(t, capturedRows, 1)
+	require.Same(t, &enabled, capturedRows[0][30])
+	require.Same(t, &paused, capturedRows[0][31])
+	require.Same(t, &maxConcurrency, capturedRows[0][32])
+	require.Same(t, &maxConcurrencyPerKey, capturedRows[0][33])
+}
+
 // Adversarial batch tests.
 
 func TestEnqueueBatch_LargeBatch_100Runs(t *testing.T) {

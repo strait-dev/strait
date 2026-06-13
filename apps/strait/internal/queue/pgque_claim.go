@@ -483,8 +483,8 @@ func (q *PgQueQueue) claimRunsWithConcurrency(ctx context.Context, req pgQueClai
 		limited_jobs AS MATERIALIZED (
 			SELECT DISTINCT raw_candidates.job_id
 			FROM raw_candidates
-			WHERE job_max_concurrency IS NOT NULL
-			   OR job_max_concurrency_per_key IS NOT NULL
+			WHERE COALESCE(job_max_concurrency, 0) > 0
+			   OR COALESCE(job_max_concurrency_per_key, 0) > 0
 			ORDER BY raw_candidates.job_id
 		),
 		job_locks AS MATERIALIZED (
@@ -543,9 +543,9 @@ func (q *PgQueQueue) claimRunsWithConcurrency(ctx context.Context, req pgQueClai
 		candidates AS (
 			SELECT *
 			FROM ranked_candidates
-			WHERE (job_max_concurrency IS NULL OR job_rank <= GREATEST(job_max_concurrency - active_count, 0))
+			WHERE (COALESCE(job_max_concurrency, 0) <= 0 OR job_rank <= GREATEST(job_max_concurrency - active_count, 0))
 			  AND (
-			      job_max_concurrency_per_key IS NULL
+			      COALESCE(job_max_concurrency_per_key, 0) <= 0
 			      OR concurrency_key = ''
 			      OR key_rank <= GREATEST(job_max_concurrency_per_key - key_active_count, 0)
 			  )

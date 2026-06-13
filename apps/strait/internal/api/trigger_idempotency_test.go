@@ -101,14 +101,12 @@ func assertIdempotencyResponse(t *testing.T, err *rawStatusError, runID string, 
 		err.
 			status)
 
-	body, ok := err.body.(map[string]any)
+	body, ok := err.body.(triggerIdempotencyResponse)
 	require.True(
 		t, ok)
 	require.Equal(t, runID,
-		body["id"])
+		body.ID)
 	require.Equal(t, status,
-		body["status"])
-	require.Equal(t, true,
-		body["idempotency_hit"],
-	)
+		body.Status)
+	require.True(t, body.IdempotencyHit)
 }
