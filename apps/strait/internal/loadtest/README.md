@@ -2,6 +2,16 @@
 
 Measure Strait's performance limits. Tests progressively increase load to find throughput ceilings, concurrency limits, and stability issues.
 
+## Source Of Truth
+
+| Area | Source |
+|---|---|
+| Make targets | `apps/strait/Makefile` |
+| Test entrypoints | `loadtest_test.go` |
+| Scenarios | `scenarios.go` |
+| Report generation | `report.go` |
+| Results directory | `loadtest-results/` |
+
 ## Quick Start
 
 From `apps/strait/`:

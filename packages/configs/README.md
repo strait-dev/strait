@@ -2,6 +2,10 @@
 
 Shared configuration files for Docker-based Strait deployments (both self-hosted and local dev).
 
+## Source Of Truth
+
+These files are mounted by Compose. Keep operational explanations in [SELFHOST.md](../../SELFHOST.md) and [deployment docs](../../apps/docs/guides/deployment.mdx); keep this README focused on what each file does.
+
 ## Files
 
 | File | Purpose |
@@ -12,7 +16,7 @@ Shared configuration files for Docker-based Strait deployments (both self-hosted
 
 ## Usage
 
-Both files are volume-mounted by Docker Compose:
+These files are volume-mounted by Docker Compose:
 
 - `docker-compose.selfhost.yml` (self-hosted stack)
 - `apps/strait/docker-compose.yml` (local development stack)
@@ -20,3 +24,12 @@ Both files are volume-mounted by Docker Compose:
 
 Referenced by:
 - `SELFHOST.md` (documents the auto-configured CDC setup)
+
+## Validation
+
+After changing Sequin, Postgres, or Prometheus config, run the relevant stack and docs checks:
+
+```bash
+make selfhost
+cd apps/docs && bun run lint
+```

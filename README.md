@@ -2,7 +2,7 @@
 
 <h1 align="center">Strait</h1>
 
-<p align="center"><strong>Open-source job orchestration in a single Go binary.</strong></p>
+<p align="center"><strong>Cloud-first job orchestration with a community self-hosted edition.</strong></p>
 
 <p align="center">
   <a href="https://scorecard.dev/viewer/?uri=github.com/strait-dev/strait"><img src="https://api.scorecard.dev/projects/github.com/strait-dev/strait/badge" alt="OpenSSF Scorecard" /></a>
@@ -10,7 +10,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="License: Apache 2.0" /></a>
 </p>
 
-Strait runs your background jobs and orchestrates multi-step workflows from a single service backed by PostgreSQL, Redis, and Sequin CDC, with no separate message broker to operate.
+Strait runs background jobs and multi-step workflows. Strait Cloud hosts the control plane at `https://api.strait.dev`; your job code stays in your infrastructure. The community edition runs the same orchestration engine as a single Go binary backed by PostgreSQL, Redis, and Sequin CDC.
 
 - **Jobs and runs.** Trigger work over HTTP or a connected worker, then watch each run move from `queued` to `completed`, or to `dead_letter` when its retries run out, in a live dashboard.
 - **Your code, your infrastructure.** Strait never runs your code itself. It reaches the endpoint you expose over HTTP, or a long-lived worker you connect over gRPC, and streams the results back.
@@ -21,13 +21,30 @@ Strait runs your background jobs and orchestrates multi-step workflows from a si
 - **Failure recovery.** Inspect a failed run, fix the cause, and replay it. Dead-letter runs are kept for review instead of silently dropped.
 - **Observability built in.** OpenTelemetry traces, Prometheus metrics, structured logs, and real-time SSE streaming, with optional ClickHouse analytics, audit logs, and log drains.
 - **SDKs and tooling.** Official SDKs for [TypeScript](https://github.com/strait-dev/strait-ts), [Python](https://github.com/strait-dev/strait-python), [Go](https://github.com/strait-dev/strait-go), [Ruby](https://github.com/strait-dev/strait-ruby), and [Rust](https://github.com/strait-dev/strait-rust) with the same feature set on each, plus a [CLI](https://github.com/strait-dev/cli) and an [MCP server](https://github.com/strait-dev/mcp).
-- **One binary, self-host ready.** Strait ships as a single Go binary, and self-hosting uses the shared Compose stack to run the required PostgreSQL, Redis, and Sequin services.
+- **Cloud or community self-hosting.** Start on Strait Cloud for the shortest production path, or run the community stack yourself when you need local evaluation, residency control, or air-gapped operation.
 
 ---
 
-## Get started
+## Get Started
 
-### Self-host with Docker Compose
+### Strait Cloud
+
+Use Strait Cloud when you want the fastest path to a production job. Strait operates the API, scheduler, worker plane, storage, upgrades, and billing controls.
+
+1. Sign in at [app.strait.dev](https://app.strait.dev).
+2. Create an organization and project.
+3. Create a project API key.
+4. Follow the [Cloud quickstart](apps/docs/quickstart.mdx) to create a job and trigger a run.
+
+```bash
+export STRAIT_BASE_URL=https://api.strait.dev
+export STRAIT_API_KEY=strait_replace_with_your_key
+export STRAIT_PROJECT_ID=proj_replace_with_your_project_id
+```
+
+### Community Self-Host
+
+Use community self-hosting when you need local evaluation, compliance controls, residency control, or full ownership of the runtime.
 
 ```bash
 git clone https://github.com/strait-dev/strait.git
@@ -35,11 +52,11 @@ cd strait
 make selfhost
 ```
 
-That starts the Strait API, dashboard, PostgreSQL, Redis, and Sequin on your machine. Open http://localhost:3000, sign up, and create your first job. Everything runs locally, with no Stripe, billing, or third-party accounts involved.
+That starts the Strait API, dashboard, PostgreSQL, Redis, and Sequin on your machine. Open http://localhost:3000, sign up, and create your first job. Everything runs locally, with no Stripe, billing, or hosted Strait account required.
 
 Full walkthrough and hardening guide: [`SELFHOST.md`](SELFHOST.md).
 
-### Or deploy the dashboard separately
+### Deploy The Dashboard Separately
 
 [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fstrait-dev%2Fstrait&project-name=strait-app&repository-name=strait-app&root-directory=apps%2Fapp&install-command=cd+..%2F..+%26%26+bun+install+--frozen-lockfile&build-command=cd+..%2F..+%26%26+cd+apps%2Fapp+%26%26+bun+run+build%3Avercel&env=AUTH_DATABASE_URL%2CBETTER_AUTH_URL%2CBETTER_AUTH_SECRET%2CSTRAIT_API_URL%2COIDC_ISSUER%2COIDC_AUDIENCE%2COIDC_PRIVATE_KEY_PEM)
 
@@ -61,7 +78,7 @@ The dashboard supports a portable Node/Docker target and a managed Vercel target
 | Hosted ClickHouse reporting | | ✓ |
 | SLA + 24/7 support | | ✓ |
 
-Self-host runs the community edition. Billing is compiled out of the dashboard image, so there is no Stripe connection, plan limit, or upgrade screen, and your data and users stay on your infrastructure.
+Cloud is the default hosted product. Community self-hosting runs the open-source edition. Billing is compiled out of the community dashboard image, so there is no Stripe connection, plan limit, or upgrade screen, and your data and users stay on your infrastructure.
 
 ---
 
@@ -69,9 +86,10 @@ Self-host runs the community edition. Billing is compiled out of the dashboard i
 
 | Topic | Link |
 |---|---|
-| Product overview | [`apps/docs/introduction.mdx`](apps/docs/introduction.mdx) |
 | Choose the right path | [`apps/docs/choose-your-path.mdx`](apps/docs/choose-your-path.mdx) |
-| Quickstart | [`apps/docs/quickstart.mdx`](apps/docs/quickstart.mdx) |
+| Cloud quickstart | [`apps/docs/quickstart.mdx`](apps/docs/quickstart.mdx) |
+| Product overview | [`apps/docs/introduction.mdx`](apps/docs/introduction.mdx) |
+| Self-host walkthrough | [`SELFHOST.md`](SELFHOST.md) |
 | Use cases | [`apps/docs/use-cases/background-jobs.mdx`](apps/docs/use-cases/background-jobs.mdx) |
 | Compare Strait | [`apps/docs/compare/message-queues.mdx`](apps/docs/compare/message-queues.mdx) |
 | Architecture | [`apps/docs/architecture.mdx`](apps/docs/architecture.mdx) |
@@ -80,7 +98,6 @@ Self-host runs the community edition. Billing is compiled out of the dashboard i
 | SDK reference | [`apps/docs/sdks/overview.mdx`](apps/docs/sdks/overview.mdx) |
 | Guides | [`apps/docs/guides/production-job.mdx`](apps/docs/guides/production-job.mdx) |
 | Contributor operating guide | [`AGENTS.md`](AGENTS.md) |
-| Self-host walkthrough | [`SELFHOST.md`](SELFHOST.md) |
 
 Dedicated repositories:
 
@@ -123,9 +140,15 @@ bun run build
 
 ---
 
-## Development checks
+## Development Checks
 
-Run OpenAPI route parity before committing docs/API changes:
+Run source-backed documentation checks before committing Markdown changes:
+
+```bash
+bun run --cwd apps/docs lint
+```
+
+Run OpenAPI route parity before committing API changes:
 
 ```bash
 cd apps/strait && go run ./scripts/check-openapi-parity

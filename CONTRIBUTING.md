@@ -42,22 +42,20 @@ cp .env.example .env
 **Go API server:**
 ```bash
 cd apps/strait
-go run ./cmd/strait
+go run ./cmd/strait --mode all
 # API at http://localhost:8080
 # API docs at http://localhost:8080/reference
 ```
 
 **Dashboard (TanStack Start):**
 ```bash
-cd apps/app
-bun dev
+bun run --cwd apps/app dev
 # Dashboard at http://localhost:5173
 ```
 
 **Docs site:**
 ```bash
-cd apps/docs
-bun dev
+bun run --cwd apps/docs dev
 ```
 
 ## Testing
@@ -66,10 +64,10 @@ bun dev
 cd apps/strait
 
 # Unit tests.
-go test ./... -count=1 -timeout=2m
+go test ./...
 
 # Unit tests with race detector.
-go test ./... -race -timeout=5m
+go test -race ./...
 
 # Integration tests (requires running Postgres + Redis via docker compose).
 go test -tags=integration ./...
@@ -96,12 +94,11 @@ lefthook run pre-commit
 Run these when changing `apps/docs`, `README.md`, or other public Markdown:
 
 ```bash
-jq empty apps/docs/docs.json
-bunx mintlify broken-links
+bun run --cwd apps/docs lint
 git diff --check
 ```
 
-`bunx mintlify validate` may fail locally if the remote OpenAPI endpoint rejects unauthenticated requests. Treat MDX parse errors as real issues, but do not block on the known OpenAPI `403`.
+The docs linter checks MDX structure, internal links, anchors, example hosts, billing catalog drift, documented routes, documented environment variables, run states, webhook events, and first-party Markdown links.
 
 ## Markdown scope
 
@@ -122,7 +119,7 @@ test(store): add integration tests for job dependencies
 chore: update dependencies
 ```
 
-Types: `feat`, `fix`, `test`, `chore`, `refactor`, `docs`, `perf`.
+Types: `feat`, `fix`, `docs`, `test`, `refactor`, `perf`, `build`, `ci`, `chore`, `revert`, `style`.
 
 Do not add AI attribution or "Co-Authored-By" lines. Do not skip git hooks (`--no-verify`).
 

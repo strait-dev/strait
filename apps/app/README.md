@@ -2,6 +2,17 @@
 
 Job orchestration management UI built with TanStack Start. Create and monitor jobs, track runs in real time, manage workflows and schedules, configure webhooks, and view logs.
 
+## Source Of Truth
+
+| Area | Source |
+|---|---|
+| Routes | `src/routes/` |
+| API client and server functions | `src/lib/api-client.server.ts`, `src/hooks/api/` |
+| Auth | `src/lib/auth.server.ts` |
+| Status labels and UI constants | `src/lib/status/` |
+| E2E tests | `e2e/` |
+| Customer docs | `../docs/` |
+
 ## Quick Start (local development)
 
 ```bash
@@ -144,6 +155,7 @@ src/
 | `bun run test:watch` | Run tests in watch mode |
 | `bun run typecheck` | TypeScript check (tsgo) |
 | `bun run biome:lint` | Lint with Biome |
+| `bun run e2e:core:local` | Run backend-backed dashboard E2E tests with a managed local backend |
 | `bun run run-all` | Biome fix + format + lint + typecheck |
 | `bun run knip` | Detect unused code and dependencies |
 
@@ -203,3 +215,16 @@ Billing is handled through Stripe. The dashboard includes usage tracking, spendi
 |---|---|---|
 | `@strait/ui` | npm package | Shared component library (Tailwind v4, Base UI) |
 | `@strait/transactional` | `packages/transactional` | Email templates (React Email) |
+
+## Validation
+
+Run focused checks before opening a frontend PR:
+
+```bash
+cd apps/app
+bun run biome:lint
+bun run typecheck
+bun test
+```
+
+Run `bun run e2e:core:local` when touching flows that depend on the Go API.

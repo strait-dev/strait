@@ -13,9 +13,10 @@
 //   8. No orphan pages (every .mdx is referenced in docs.json)
 //   9. Documented HTTP methods resolve against Huma route registration sources
 //  10. Documented env vars, run states, and webhook events match Go sources
+//  11. First-party Markdown links and README commands resolve
 
-import { readdirSync, readFileSync, statSync } from "node:fs";
-import { dirname, join, relative } from "node:path";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { dirname, extname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // ---- regexes (top-level for performance) -----------------------------------
@@ -28,6 +29,7 @@ const NON_SLUG_RE = /[^a-z0-9 -]/g;
 const MULTI_SPACE_RE = / +/g;
 const LEADING_SLASH_RE = /^\//;
 const LINK_RE = /(?:\]\(|href=")(\/[a-zA-Z0-9/_#-]+)/g;
+const MARKDOWN_LINK_RE = /!?\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
 const DOC_HTTP_URL_RE =
   /\b(GET|POST|PUT|PATCH|DELETE)\s+(?:https:\/\/api\.strait\.dev|https:\/\/your-strait-instance|http:\/\/localhost:8080)?(\/(?:v1|sdk\/v1)\/[^\s`'")]+)/g;
 const CURL_METHOD_RE =
@@ -38,6 +40,8 @@ const ENV_TAG_RE = /`env:"([A-Z0-9_]+)"`/g;
 const GO_STRING_CONST_RE =
   /\b([A-Za-z0-9_]+)\s+(?:[A-Za-z0-9_]+)?\s*=\s*"([^"]+)"/g;
 const CODE_TABLE_VALUE_RE = /^`([^`]+)`$/;
+const BUN_RUN_RE = /\bbun run(?: --cwd ([^\s]+))?\s+([a-zA-Z0-9:_-]+)/g;
+const BUN_DIRECT_RE = /\bbun\s+(dev|build|start|test)\b/g;
 
 // ---- config ----------------------------------------------------------------
 const BUZZWORDS = [
@@ -115,6 +119,34 @@ function walk(dir, out = []) {
 }
 const files = walk(DOCS);
 const rel = (p) => relative(DOCS, p);
+const repoRel = (p) => relative(REPO, p);
+
+function walkMarkdown(dir, out = []) {
+  for (const name of readdirSync(dir)) {
+    if (
+      name === "node_modules" ||
+      name === ".git" ||
+      name === ".turbo" ||
+      name === ".next" ||
+      name === "dist" ||
+      name === "build"
+    ) {
+      continue;
+    }
+    const p = join(dir, name);
+    const st = statSync(p);
+    if (st.isDirectory()) {
+      if (name.startsWith(".")) {
+        continue;
+      }
+      walkMarkdown(p, out);
+    } else if (name.endsWith(".md")) {
+      out.push(p);
+    }
+  }
+  return out;
+}
+const firstPartyMarkdownFiles = walkMarkdown(REPO);
 
 // ---- docs.json: all string scalars + route resolution ----------------------
 const docsJson = JSON.parse(readFileSync(join(DOCS, "docs.json"), "utf8"));
@@ -364,6 +396,139 @@ function expectPricingRow(file, rows, name, expected) {
 function expectText(file, text, snippet, label) {
   if (!text.includes(snippet)) {
     err(file, 1, `missing ${label}: '${snippet}'`);
+  }
+}
+
+// ---- first-party Markdown checks ------------------------------------------
+function isExternalLink(target) {
+  return (
+    target.startsWith("http://") ||
+    target.startsWith("https://") ||
+    target.startsWith("mailto:") ||
+    target.startsWith("#")
+  );
+}
+
+function stripLinkTarget(target) {
+  return target.split("#")[0].split("?")[0];
+}
+
+function checkOneMarkdownLink(file, text, target, matchText) {
+  if (isExternalLink(target)) {
+    return;
+  }
+  const withoutAnchor = stripLinkTarget(target);
+  if (!withoutAnchor) {
+    return;
+  }
+  const resolved = resolve(dirname(file), withoutAnchor);
+  if (!(resolved.startsWith(REPO) && existsSync(resolved))) {
+    err(
+      repoRel(file),
+      lineOf(text, matchText),
+      `broken Markdown link '${target}'`
+    );
+    return;
+  }
+  const anchor = target.includes("#") ? target.split("#").at(-1) : "";
+  if (anchor && [".md", ".mdx"].includes(extname(resolved))) {
+    const slugs = headingSlugs(resolved);
+    if (!slugs.has(anchor)) {
+      err(
+        repoRel(file),
+        lineOf(text, matchText),
+        `link '${target}' has no matching heading '#${anchor}'`
+      );
+    }
+  }
+}
+
+function checkFirstPartyMarkdownLinks() {
+  for (const file of firstPartyMarkdownFiles) {
+    if (!existsSync(file)) {
+      err(repoRel(file), 1, "configured Markdown file does not exist");
+      continue;
+    }
+    const text = readFileSync(file, "utf8");
+    for (const match of text.matchAll(MARKDOWN_LINK_RE)) {
+      const target = match[1];
+      checkOneMarkdownLink(file, text, target, match[0]);
+    }
+  }
+}
+
+function nearestPackageJSON(file) {
+  let dir = dirname(file);
+  while (dir.startsWith(REPO)) {
+    const candidate = join(dir, "package.json");
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+    const next = dirname(dir);
+    if (next === dir) {
+      break;
+    }
+    dir = next;
+  }
+  return join(REPO, "package.json");
+}
+
+function packageScripts(packageJSONPath) {
+  const pkg = JSON.parse(readFileSync(packageJSONPath, "utf8"));
+  return new Set(Object.keys(pkg.scripts ?? {}));
+}
+
+function checkBunScript(script, packageJSONPath, file, line) {
+  const scripts = packageScripts(packageJSONPath);
+  if (!scripts.has(script)) {
+    err(
+      repoRel(file),
+      line,
+      `README command references missing script '${script}' in ${repoRel(
+        packageJSONPath
+      )}`
+    );
+  }
+}
+
+function checkReadmeCommands() {
+  for (const file of firstPartyMarkdownFiles.filter(
+    (file) => file.endsWith("README.md") || file.endsWith("CONTRIBUTING.md")
+  )) {
+    if (!existsSync(file)) {
+      continue;
+    }
+    const text = readFileSync(file, "utf8");
+    const fallbackPackageJSON = nearestPackageJSON(file);
+    for (const match of text.matchAll(BUN_RUN_RE)) {
+      const [, cwd, script] = match;
+      const packageJSONPath = cwd
+        ? join(REPO, cwd, "package.json")
+        : fallbackPackageJSON;
+      if (!existsSync(packageJSONPath)) {
+        err(
+          repoRel(file),
+          lineOf(text, match[0]),
+          `README command references missing package.json at ${repoRel(
+            packageJSONPath
+          )}`
+        );
+        continue;
+      }
+      checkBunScript(script, packageJSONPath, file, lineOf(text, match[0]));
+    }
+    for (const match of text.matchAll(BUN_DIRECT_RE)) {
+      const [, script] = match;
+      checkBunScript(script, fallbackPackageJSON, file, lineOf(text, match[0]));
+    }
+  }
+}
+
+function checkAgentDocsSync() {
+  const agents = readFileSync(join(REPO, "AGENTS.md"), "utf8");
+  const claude = readFileSync(join(REPO, "CLAUDE.md"), "utf8");
+  if (agents !== claude) {
+    err("AGENTS.md", 1, "AGENTS.md and CLAUDE.md must stay in sync");
   }
 }
 
@@ -777,10 +942,15 @@ checkDocumentedHttpMethods();
 checkEnvCoverage();
 checkRunStateDocs();
 checkWebhookEventDocs();
+checkFirstPartyMarkdownLinks();
+checkReadmeCommands();
+checkAgentDocsSync();
 
 // ---- report ----------------------------------------------------------------
 if (errors.length === 0) {
-  console.log(`docs-lint: ${files.length} files checked, no problems found`);
+  console.log(
+    `docs-lint: ${files.length} mdx files and ${firstPartyMarkdownFiles.length} markdown files checked, no problems found`
+  );
   process.exit(0);
 }
 errors.sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line);
@@ -788,6 +958,6 @@ for (const e of errors) {
   console.error(`${e.file}:${e.line}  ${e.msg}`);
 }
 console.error(
-  `\ndocs-lint: ${errors.length} problem(s) in ${files.length} files`
+  `\ndocs-lint: ${errors.length} problem(s) in ${files.length} mdx files and ${firstPartyMarkdownFiles.length} markdown files`
 );
 process.exit(1);
