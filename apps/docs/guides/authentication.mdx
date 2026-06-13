@@ -4,7 +4,7 @@ description: "Choose the right auth method for apps, users, and trusted backend 
 icon: "key"
 ---
 
-Strait supports three authentication methods: a server secret for trusted backend access, API keys for applications, and OIDC bearer tokens for user-facing API requests.
+Strait supports three authentication methods: a server secret for trusted backend access, API keys for applications, and OIDC bearer tokens for user-facing API requests. Strait Cloud users normally use project API keys. Self-hosted operators also use the server secret for management actions such as creating the first project.
 
 OIDC bearer-token verification is operator-configured API authentication. It is separate from hosted dashboard SSO/SAML, which is a launch roadmap item and is not included in self-serve cloud plans.
 
@@ -24,7 +24,7 @@ Use the server secret for trusted backend calls. Set it with the `INTERNAL_SECRE
 
 ```bash
 curl -H "Authorization: Bearer $INTERNAL_SECRET" \
-  https://your-strait-instance/v1/jobs
+  "$STRAIT_BASE_URL/v1/jobs"
 ```
 
 The server secret grants full access to all endpoints. Do not use it from browsers or mobile apps.
@@ -36,7 +36,7 @@ curl -H "Authorization: Bearer $INTERNAL_SECRET" \
      -H "X-Project-Id: proj_abc123" \
      -H "X-Actor-Id: user_abc123" \
      -H "X-Actor-Email: alice@example.com" \
-     https://your-strait-instance/v1/jobs
+     "$STRAIT_BASE_URL/v1/jobs"
 ```
 
 When these headers are present, Strait records the actor for audit logging and applies RBAC checks for that user.
@@ -54,8 +54,9 @@ Per-project keys with scoped permissions. Use API keys for external integrations
 ### Creating a Key
 
 ```bash
-curl -X POST https://your-strait-instance/v1/api-keys \
+curl -X POST "$STRAIT_BASE_URL/v1/api-keys" \
   -H "Authorization: Bearer $INTERNAL_SECRET" \
+  -H "Content-Type: application/json" \
   -d '{
     "project_id": "proj_abc123",
     "name": "ci-deploy-key",
@@ -64,7 +65,7 @@ curl -X POST https://your-strait-instance/v1/api-keys \
   }'
 ```
 
-API keys must expire. If the project has a `max_key_lifetime_days` policy, omitted expirations are auto-capped to that policy; otherwise provide a positive `expires_in_days` value. The response includes the raw key once. Store it in your secret manager immediately.
+Set `expires_in_days` for short-lived automation keys. If the project has a `max_key_lifetime_days` policy, omitted expirations are auto-capped to that policy. The response includes the raw key once. Store it in your secret manager immediately.
 
 ```json
 {
@@ -78,7 +79,7 @@ API keys must expire. If the project has a `max_key_lifetime_days` policy, omitt
 
 ```bash
 curl -H "Authorization: Bearer strait_abc123..." \
-  https://your-strait-instance/v1/jobs
+  "$STRAIT_BASE_URL/v1/jobs"
 ```
 
 ### Scope Categories
@@ -102,7 +103,7 @@ Keys with empty scopes (`[]`) retain full access for backwards compatibility wit
 ### Revoking a Key
 
 ```bash
-curl -X DELETE https://your-strait-instance/v1/api-keys/key_abc123 \
+curl -X DELETE "$STRAIT_BASE_URL/v1/api-keys/key_abc123" \
   -H "Authorization: Bearer $INTERNAL_SECRET"
 ```
 
@@ -119,9 +120,10 @@ Rotate keys with a grace period for zero-downtime credential rollovers.
 `POST /v1/api-keys/{keyID}/rotate`
 
 ```bash
-curl -X POST https://your-strait-instance/v1/api-keys/key_abc123/rotate \
+curl -X POST "$STRAIT_BASE_URL/v1/api-keys/key_abc123/rotate" \
   -H "Authorization: Bearer $INTERNAL_SECRET" \
-  -d '{"name": "ci-key-2026-05", "grace_period_seconds": 3600}'
+  -H "Content-Type: application/json" \
+  -d '{ "grace_period_minutes": 60 }'
 ```
 
 ### Grace Period Behavior

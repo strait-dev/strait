@@ -59,7 +59,11 @@ Create a project:
 curl -sS -X POST "$STRAIT_BASE_URL/v1/projects" \
   -H "Authorization: Bearer $INTERNAL_SECRET" \
   -H "Content-Type: application/json" \
-  -d '{ "name": "Local Project", "slug": "local-project" }'
+  -d '{
+    "id": "local-project",
+    "org_id": "local-org",
+    "name": "Local Project"
+  }'
 ```
 
 Export the returned `id` as `STRAIT_PROJECT_ID`, then use the same API commands from the [Quick Start](/quickstart).

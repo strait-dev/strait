@@ -13,6 +13,15 @@ og:image: "/images/og.png"
 
 The Strait API supports four authentication methods depending on the client and use case.
 
+Use these variables in examples:
+
+```bash
+export STRAIT_BASE_URL=https://api.strait.dev
+export STRAIT_API_KEY=strait_replace_with_your_key
+```
+
+Community users set `STRAIT_BASE_URL` to their own Strait URL.
+
 ### Server Secret
 Used for trusted backend calls.
 - **Header**: `X-Internal-Secret: <your-secret>`
@@ -186,18 +195,18 @@ Every error response follows the same shape:
 
 ```bash
 # Runtime graph snapshot
-curl -X GET "https://api.strait.dev/v1/workflow-runs/wr_abc123/graph" \
-  -H "Authorization: Bearer strait_live_abc123"
+curl -X GET "$STRAIT_BASE_URL/v1/workflow-runs/wr_abc123/graph" \
+  -H "Authorization: Bearer $STRAIT_API_KEY"
 ```
 
 ```bash
 # Explain why a step is waiting/skipped
-curl -X GET "https://api.strait.dev/v1/workflow-runs/wr_abc123/explain?step_ref=deploy&decision_type=resource" \
-  -H "Authorization: Bearer strait_live_abc123"
+curl -X GET "$STRAIT_BASE_URL/v1/workflow-runs/wr_abc123/explain?step_ref=deploy&decision_type=resource" \
+  -H "Authorization: Bearer $STRAIT_API_KEY"
 ```
 
 ```bash
 # Replay a failed branch from step 'deploy'
-curl -X POST "https://api.strait.dev/v1/workflow-runs/wr_abc123/steps/deploy/replay-subtree" \
-  -H "Authorization: Bearer strait_live_abc123"
+curl -X POST "$STRAIT_BASE_URL/v1/workflow-runs/wr_abc123/steps/deploy/replay-subtree" \
+  -H "Authorization: Bearer $STRAIT_API_KEY"
 ```
