@@ -149,6 +149,9 @@ func TestCacheVersion_RunStatusReadReturnsCacheVersion(t *testing.T) {
 	}
 	require.NoError(t, q.CreateRun(ctx,
 		run))
+	_, initialVersion, err := q.GetRunWithCacheVersion(ctx, run.ID)
+	require.NoError(t, err)
+
 	require.NoError(t, q.UpdateRunStatus(ctx, run.
 		ID, domain.
 		StatusQueued,
@@ -159,9 +162,8 @@ func TestCacheVersion_RunStatusReadReturnsCacheVersion(t *testing.T) {
 
 	got, version, err := q.GetRunWithCacheVersion(ctx, run.ID)
 	require.NoError(t, err)
-	require.False(t, got.CacheVersion !=
-		2 || version !=
-		2)
+	require.Equal(t, got.CacheVersion, version)
+	require.Greater(t, version, initialVersion)
 	require.Equal(t, domain.
 		StatusExecuting,
 		got.

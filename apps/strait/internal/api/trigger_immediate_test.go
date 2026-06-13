@@ -175,7 +175,7 @@ func TestImmediateTriggerAuditDetailsIncludesOperationalFields(t *testing.T) {
 	require.Equal(t, "run-1", details["run_id"])
 	require.Equal(t, &scheduledAt, details["scheduled_at"])
 	require.Equal(t, 5, details["priority"])
-	require.Equal(t, "f6fdb32bfd0ba473", details["idempotency_key_hash"])
+	require.Equal(t, "f6fdb32bfd0ba4734609b87192840b8609cea6025ab0f2452c950a1416102760", details["idempotency_key_hash"])
 	require.Equal(t, []string{"env", "team"}, details["tag_keys"])
 	require.Equal(t, true, details["waiting"])
 }
@@ -207,7 +207,7 @@ func TestImmediateTriggerAuditDetailsJSONIncludesOperationalFields(t *testing.T)
 		"priority":5,
 		"triggered_by":"manual",
 		"scheduled_at":"2026-06-09T12:00:00Z",
-		"idempotency_key_hash":"f6fdb32bfd0ba473",
+		"idempotency_key_hash":"f6fdb32bfd0ba4734609b87192840b8609cea6025ab0f2452c950a1416102760",
 		"waiting":true
 	}`, string(detailsJSON))
 }

@@ -522,7 +522,7 @@ func TestEnqueue_MetadataJSON_NonEmpty(t *testing.T) {
 	require.NoError(t, q.Enqueue(context.
 		Background(), run))
 
-	metaArg, ok := capturedArgs[30].([]byte)
+	metaArg, ok := capturedArgs[34].([]byte)
 	require.True(t,
 		ok)
 	assert.NotEqual(t, "{}",
@@ -556,7 +556,7 @@ func TestEnqueue_MetadataJSON_Empty(t *testing.T) {
 	require.NoError(t, q.Enqueue(context.
 		Background(), run))
 
-	metaArg, ok := capturedArgs[30].([]byte)
+	metaArg, ok := capturedArgs[34].([]byte)
 	require.True(t,
 		ok)
 	assert.Equal(t,
