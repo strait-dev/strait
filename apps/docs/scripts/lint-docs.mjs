@@ -11,6 +11,8 @@
 //   6. Anchor links resolve to a heading in the target page
 //   7. No de-normalized example hosts
 //   8. No orphan pages (every .mdx is referenced in docs.json)
+//   9. Documented HTTP methods resolve against Huma route registration sources
+//  10. Documented env vars, run states, and webhook events match Go sources
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
@@ -26,6 +28,16 @@ const NON_SLUG_RE = /[^a-z0-9 -]/g;
 const MULTI_SPACE_RE = / +/g;
 const LEADING_SLASH_RE = /^\//;
 const LINK_RE = /(?:\]\(|href=")(\/[a-zA-Z0-9/_#-]+)/g;
+const DOC_HTTP_URL_RE =
+  /\b(GET|POST|PUT|PATCH|DELETE)\s+(?:https:\/\/api\.strait\.dev|https:\/\/your-strait-instance|http:\/\/localhost:8080)?(\/(?:v1|sdk\/v1)\/[^\s`'")]+)/g;
+const CURL_METHOD_RE =
+  /\bcurl(?:\s+-[A-Za-z]+[^\n\\]*)*\s+(?:https:\/\/api\.strait\.dev|https:\/\/your-strait-instance|http:\/\/localhost:8080)(\/(?:v1|sdk\/v1)\/[^\s\\'"]+)/g;
+const CURL_EXPLICIT_METHOD_RE =
+  /\bcurl(?:\s+-[A-Za-z]+[^\n\\]*)*\s+-X\s+(GET|POST|PUT|PATCH|DELETE)\s+(?:https:\/\/api\.strait\.dev|https:\/\/your-strait-instance|http:\/\/localhost:8080)?(\/(?:v1|sdk\/v1)\/[^\s\\'"]+)/g;
+const ENV_TAG_RE = /`env:"([A-Z0-9_]+)"`/g;
+const GO_STRING_CONST_RE =
+  /\b([A-Za-z0-9_]+)\s+(?:[A-Za-z0-9_]+)?\s*=\s*"([^"]+)"/g;
+const CODE_TABLE_VALUE_RE = /^`([^`]+)`$/;
 
 // ---- config ----------------------------------------------------------------
 const BUZZWORDS = [
@@ -59,6 +71,26 @@ const PRICING_CATALOG = JSON.parse(
     join(REPO, "packages", "billing", "catalog", "strait-pricing.json"),
     "utf8"
   )
+);
+const CONFIG_GO = readFileSync(
+  join(REPO, "apps", "strait", "internal", "config", "config.go"),
+  "utf8"
+);
+const HUMA_REGISTRY_GO = readFileSync(
+  join(REPO, "apps", "strait", "internal", "api", "huma_registry.go"),
+  "utf8"
+);
+const HUMA_OPERATIONS_GO = readFileSync(
+  join(REPO, "apps", "strait", "internal", "api", "huma_operations.go"),
+  "utf8"
+);
+const DOMAIN_TYPES_GO = readFileSync(
+  join(REPO, "apps", "strait", "internal", "domain", "types.go"),
+  "utf8"
+);
+const WEBHOOK_SUBSCRIPTIONS_GO = readFileSync(
+  join(REPO, "apps", "strait", "internal", "api", "webhook_subscriptions.go"),
+  "utf8"
 );
 const errors = [];
 const err = (file, line, msg) => {
@@ -335,6 +367,193 @@ function expectText(file, text, snippet, label) {
   }
 }
 
+// ---- source-backed truth checks -------------------------------------------
+function lineOf(text, needle) {
+  const idx = text.indexOf(needle);
+  if (idx === -1) {
+    return 1;
+  }
+  return text.slice(0, idx).split("\n").length;
+}
+
+function stripTrailingPunctuation(path) {
+  return path.replace(/[.,;:]+$/g, "");
+}
+
+function pathPattern(path) {
+  const escaped = path
+    .replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+    .replace(/\\\{[^/]+\\\}/g, "[^/]+");
+  return new RegExp(`^${escaped}$`);
+}
+
+const humaRouteRe =
+  /Method:\s*http\.Method(Get|Post|Put|Patch|Delete),\s*Path:\s*"([^"]+)"/g;
+const openApiRoutes = [...HUMA_REGISTRY_GO.matchAll(humaRouteRe)].map(
+  ([, method, path]) => ({
+    method: method.toUpperCase(),
+    path,
+    pattern: pathPattern(path),
+  })
+);
+openApiRoutes.push(
+  ...[...HUMA_OPERATIONS_GO.matchAll(humaRouteRe)].map(([, method, path]) => ({
+    method: method.toUpperCase(),
+    path,
+    pattern: pathPattern(path),
+  }))
+);
+
+function methodExists(method, path) {
+  const cleanPath = stripTrailingPunctuation(path.split("?")[0]);
+  return openApiRoutes.some(
+    (route) => route.method === method && route.pattern.test(cleanPath)
+  );
+}
+
+function checkDocumentedHttpMethods() {
+  for (const p of files) {
+    const text = readFileSync(p, "utf8");
+    const r = rel(p);
+    for (const match of text.matchAll(DOC_HTTP_URL_RE)) {
+      const [, method, path] = match;
+      if (!methodExists(method, path)) {
+        err(r, lineOf(text, match[0]), `unknown API route '${method} ${path}'`);
+      }
+    }
+    for (const match of text.matchAll(CURL_EXPLICIT_METHOD_RE)) {
+      const [, method, path] = match;
+      if (!methodExists(method, path)) {
+        err(r, lineOf(text, match[0]), `unknown API route '${method} ${path}'`);
+      }
+    }
+    for (const match of text.matchAll(CURL_METHOD_RE)) {
+      if (match[0].includes(" -X ")) {
+        continue;
+      }
+      const [, path] = match;
+      if (!methodExists("GET", path)) {
+        err(r, lineOf(text, match[0]), `unknown API route 'GET ${path}'`);
+      }
+    }
+  }
+}
+
+function checkEnvCoverage() {
+  const envVars = new Set();
+  for (const match of CONFIG_GO.matchAll(ENV_TAG_RE)) {
+    envVars.add(match[1]);
+  }
+  const envDocsFile = "configuration/environment-variables.mdx";
+  const envDocsText = readFileSync(join(DOCS, envDocsFile), "utf8");
+  const envExampleFile = ".env.example";
+  const envExampleText = readFileSync(join(REPO, envExampleFile), "utf8");
+
+  for (const envVar of [...envVars].sort()) {
+    if (!envDocsText.includes(`\`${envVar}\``)) {
+      err(envDocsFile, 1, `missing documented env var '${envVar}'`);
+    }
+    if (!envExampleText.includes(envVar)) {
+      err(envExampleFile, 1, `missing example env var '${envVar}'`);
+    }
+  }
+}
+
+function stringConstMap() {
+  const constants = new Map();
+  for (const match of DOMAIN_TYPES_GO.matchAll(GO_STRING_CONST_RE)) {
+    constants.set(match[1], match[2]);
+  }
+  return constants;
+}
+
+const domainConstants = stringConstMap();
+
+function valuesByConstPrefix(prefix) {
+  return new Set(
+    [...domainConstants.entries()]
+      .filter(([name]) => name.startsWith(prefix))
+      .map(([, value]) => value)
+  );
+}
+
+function tableCodeValues(text) {
+  const values = new Set();
+  for (const cell of parseTableRows(text).keys()) {
+    const m = CODE_TABLE_VALUE_RE.exec(cell);
+    if (m) {
+      values.add(m[1]);
+    }
+  }
+  return values;
+}
+
+function sectionText(text, startHeading, endHeading) {
+  const start = text.indexOf(startHeading);
+  if (start === -1) {
+    return text;
+  }
+  const end = text.indexOf(endHeading, start + startHeading.length);
+  return text.slice(start, end === -1 ? undefined : end);
+}
+
+function checkRunStateDocs() {
+  const file = "concepts/runs.mdx";
+  const text = readFileSync(join(DOCS, file), "utf8");
+  const documented = tableCodeValues(
+    sectionText(text, "## Run States", "## Trigger a Run")
+  );
+  const source = valuesByConstPrefix("Status");
+  for (const status of documented) {
+    if (!source.has(status)) {
+      err(
+        file,
+        lineOf(text, `\`${status}\``),
+        `unknown run status '${status}'`
+      );
+    }
+  }
+  for (const status of [...source].sort()) {
+    if (!documented.has(status)) {
+      err(file, 1, `missing run status '${status}'`);
+    }
+  }
+}
+
+function validWebhookEvents() {
+  const events = new Set();
+  for (const match of WEBHOOK_SUBSCRIPTIONS_GO.matchAll(
+    /domain\.(WebhookEvent[A-Za-z0-9_]+):\s+true/g
+  )) {
+    const value = domainConstants.get(match[1]);
+    if (value) {
+      events.add(value);
+    }
+  }
+  return events;
+}
+
+function checkWebhookEventDocs() {
+  const file = "concepts/webhook-subscriptions.mdx";
+  const text = readFileSync(join(DOCS, file), "utf8");
+  const documented = tableCodeValues(text);
+  const source = validWebhookEvents();
+  for (const event of documented) {
+    if (event.includes(".") && !source.has(event)) {
+      err(
+        file,
+        lineOf(text, `\`${event}\``),
+        `unknown webhook event '${event}'`
+      );
+    }
+  }
+  for (const event of [...source].sort()) {
+    if (!documented.has(event)) {
+      err(file, 1, `missing webhook event '${event}'`);
+    }
+  }
+}
+
 function checkBillingCatalogDocs() {
   const pricingFile = "billing/pricing.mdx";
   const faqFile = "billing/faq.mdx";
@@ -554,6 +773,10 @@ function checkBillingCatalogDocs() {
 }
 
 checkBillingCatalogDocs();
+checkDocumentedHttpMethods();
+checkEnvCoverage();
+checkRunStateDocs();
+checkWebhookEventDocs();
 
 // ---- report ----------------------------------------------------------------
 if (errors.length === 0) {

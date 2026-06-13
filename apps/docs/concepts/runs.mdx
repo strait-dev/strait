@@ -24,13 +24,19 @@ When something fails, Strait retries according to the job policy. If the run sti
 |---|---|
 | `delayed` | The run is scheduled for a future time. |
 | `queued` | The run is waiting to start. |
+| `dequeued` | A worker claimed the run and is preparing execution. |
 | `executing` | Strait is calling your endpoint or connected worker. |
+| `waiting` | The run is paused on a durable wait, such as an external event or workflow dependency. |
 | `completed` | The work finished successfully. |
 | `failed` | The endpoint returned an error and no retry remains. |
 | `timed_out` | The endpoint did not finish before `timeout_secs`. |
+| `crashed` | The worker stopped while executing the run. |
+| `system_failed` | Strait failed the run because of an internal system error. |
 | `canceled` | The run was canceled before completion. |
 | `expired` | The run was not picked up before its TTL. |
 | `dead_letter` | Retries were exhausted. The run can be inspected and replayed. |
+| `replay_staged` | A dead-letter replay is being staged before a new queued attempt is created. |
+| `paused` | The run is paused by an operator or policy. |
 
 ## Trigger a Run
 
