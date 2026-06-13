@@ -32,15 +32,7 @@ Used by the SDK within a job run context to authenticate heartbeats, logs, and c
 
 ## Error Response Format
 
-All API errors follow a standard JSON structure:
-
-```json
-{
-  "error": "Detailed error message",
-  "code": "optional_error_code",
-  "request_id": "req_abc123"
-}
-```
+All API errors use the envelope described in [Error Envelope](#error-envelope). SDKs branch on `error.code`; operators should quote `request_id` when reporting failures.
 
 ## Pagination
 
@@ -90,7 +82,7 @@ Additional endpoint-specific limits:
 |Projects|`/v1/projects`|Create and manage projects and quotas|
 |Environments|`/v1/environments`|Configure per-environment variable overrides|
 |API Keys|`/v1/api-keys`|Create, rotate, and revoke API keys|
-|Webhook Subscriptions|`/v1/webhook-subscriptions`|Manage project-wide webhook subscriptions|
+|Webhook Subscriptions|`/v1/webhooks/subscriptions`|Manage project-wide webhook subscriptions|
 |Audit|`/v1/audit-events`|Query and export audit events|
 |RBAC|`/v1/roles`, `/v1/members`|Manage roles, members, and policies|
 
@@ -163,6 +155,7 @@ Every error response follows the same shape:
 |`enqueue_throttled`|429|Per-job or per-project enqueue throttle exceeded. Retry with backoff.|
 |`internal_error`|500|Unexpected server-side failure. Quote `request_id` when reporting.|
 |`service_unavailable`|503|Dependency degraded or shedding load. Retry with backoff.|
+
 ## Workflow and Dependency Endpoints
 
 ### Planning and Diagnostics

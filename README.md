@@ -39,11 +39,11 @@ That starts the Strait API, dashboard, PostgreSQL, Redis, and Sequin on your mac
 
 Full walkthrough and hardening guide: [`SELFHOST.md`](SELFHOST.md).
 
-### Or deploy the dashboard to your own Cloudflare account
+### Or deploy the dashboard separately
 
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/strait-dev/strait)
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fstrait-dev%2Fstrait&project-name=strait-app&repository-name=strait-app&root-directory=apps%2Fapp&install-command=cd+..%2F..+%26%26+bun+install+--frozen-lockfile&build-command=cd+..%2F..+%26%26+cd+apps%2Fapp+%26%26+bun+run+build%3Avercel&env=AUTH_DATABASE_URL%2CBETTER_AUTH_URL%2CBETTER_AUTH_SECRET%2CSTRAIT_API_URL%2COIDC_ISSUER%2COIDC_AUDIENCE%2COIDC_PRIVATE_KEY_PEM)
 
-Bun monorepos need one manual setting during the Workers Builds import (`Root directory: apps/app` + a custom build command). Full walkthrough: [`apps/app/README.md`](apps/app/README.md#deploy-to-cloudflare).
+The dashboard supports a portable Node/Docker target and a managed Vercel target. Full walkthrough: [`apps/app/README.md`](apps/app/README.md#deploy-to-vercel).
 
 ## What you get
 

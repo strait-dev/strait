@@ -69,10 +69,10 @@ Sleep steps are useful for cooling-off periods, reminders, retry-after windows, 
 
 ## Waiting from a Job
 
-A job can also pause itself with the SDK run endpoint.
+A job can also pause itself with the SDK run endpoint. This endpoint uses the run token Strait sends to the active job handler, not a project API key.
 
 ```bash
-curl -X POST https://strait.dev/sdk/v1/runs/{runID}/wait-for-event \
+curl -X POST https://api.strait.dev/sdk/v1/runs/{runID}/wait-for-event \
   -H "Authorization: Bearer $RUN_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
