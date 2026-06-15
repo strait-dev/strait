@@ -35,7 +35,12 @@
             "groups": [
               {
                 "group": "Getting Started",
-                "pages": ["introduction", "choose-your-path", "quickstart"]
+                "pages": [
+                  "introduction",
+                  "choose-your-path",
+                  "guides/cloud-project-setup",
+                  "quickstart"
+                ]
               },
               {
                 "group": "Use Cases",
@@ -48,15 +53,26 @@
                 ]
               },
               {
-                "group": "Guides",
+                "group": "Build Jobs",
                 "pages": [
                   "guides/production-job",
                   "guides/private-workers",
-                  "guides/handle-failed-runs",
-                  "guides/authentication",
+                  "guides/webhooks-and-events",
+                  "guides/event-triggers",
                   "sdks/typescript-quickstart",
                   "sdks/python-quickstart",
                   "sdks/go-quickstart"
+                ]
+              },
+              {
+                "group": "Operate Production",
+                "pages": [
+                  "guides/inspect-runs",
+                  "guides/handle-failed-runs",
+                  "operations/observability",
+                  "operations/health-readiness",
+                  "guides/troubleshooting",
+                  "concepts/debug-bundles"
                 ]
               },
               {
@@ -121,17 +137,9 @@
                 ]
               },
               {
-                "group": "Operations",
-                "pages": [
-                  "operations/observability",
-                  "operations/health-readiness",
-                  "guides/troubleshooting",
-                  "concepts/debug-bundles"
-                ]
-              },
-              {
                 "group": "Security and Access",
                 "pages": [
+                  "guides/authentication",
                   "guides/security",
                   "guides/sdk-integration",
                   "guides/rbac",
@@ -143,7 +151,12 @@
               },
               {
                 "group": "Self-Hosting",
-                "pages": ["guides/self-hosting", "guides/deployment"]
+                "pages": [
+                  "guides/self-hosting",
+                  "guides/deployment",
+                  "guides/self-host-upgrades",
+                  "guides/self-host-backup-restore"
+                ]
               },
               {
                 "group": "Configuration",

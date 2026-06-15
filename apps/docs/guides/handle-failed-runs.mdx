@@ -6,6 +6,8 @@ icon: "rotate-ccw"
 
 Failed runs are normal. A dependency may be down, a payload may be invalid, or an endpoint may time out. Strait keeps run history within your plan's retention window so you can fix the cause and retry the work.
 
+For the broader run inspection flow, including events, outputs, checkpoints, and live streams, read [Inspect Runs and Logs](/guides/inspect-runs).
+
 ## 1. Find the Run
 
 List recent failed runs:
@@ -74,11 +76,13 @@ curl -X POST https://api.strait.dev/v1/runs/run_abc123/dlq-replay \
 
 For many `dead_letter` runs:
 
+The request body fixture lives at `apps/docs/examples/requests/bulk-dlq-replay.json`.
+
 ```bash
 curl -X POST https://api.strait.dev/v1/runs/bulk-dlq-replay \
   -H "Authorization: Bearer $STRAIT_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{ "run_ids": ["run_abc123", "run_def456"] }'
+  --data @apps/docs/examples/requests/bulk-dlq-replay.json
 ```
 
 ## 5. Prevent the Same Failure
@@ -96,5 +100,6 @@ Common fixes:
 ## Related
 
 - [Runs](/concepts/runs)
+- [Inspect Runs and Logs](/guides/inspect-runs)
 - [Retry Strategies](/concepts/retry-strategies)
 - [Create a Production Job](/guides/production-job)

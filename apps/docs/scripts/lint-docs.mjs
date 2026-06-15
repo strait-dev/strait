@@ -14,6 +14,8 @@
 //   9. Documented HTTP methods resolve against Huma route registration sources
 //  10. Documented env vars, run states, and webhook events match Go sources
 //  11. First-party Markdown links and README commands resolve
+//  12. Request example fixtures are valid JSON, referenced, and match expected fields
+//  13. SDK docs do not claim unverified RubyGems/crates.io package installs
 
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, extname, join, relative, resolve } from "node:path";
@@ -70,6 +72,7 @@ const FORBIDDEN_HOSTS = [
 
 const DOCS = join(dirname(fileURLToPath(import.meta.url)), "..");
 const REPO = join(DOCS, "..", "..");
+const EXAMPLES = join(DOCS, "examples");
 const PRICING_CATALOG = JSON.parse(
   readFileSync(
     join(REPO, "packages", "billing", "catalog", "strait-pricing.json"),
@@ -147,6 +150,23 @@ function walkMarkdown(dir, out = []) {
   return out;
 }
 const firstPartyMarkdownFiles = walkMarkdown(REPO);
+
+function walkByExtension(dir, extension, out = []) {
+  if (!existsSync(dir)) {
+    return out;
+  }
+  for (const name of readdirSync(dir)) {
+    const p = join(dir, name);
+    const st = statSync(p);
+    if (st.isDirectory()) {
+      walkByExtension(p, extension, out);
+    } else if (name.endsWith(extension)) {
+      out.push(p);
+    }
+  }
+  return out;
+}
+const exampleJSONFiles = walkByExtension(EXAMPLES, ".json");
 
 // ---- docs.json: all string scalars + route resolution ----------------------
 const docsJson = JSON.parse(readFileSync(join(DOCS, "docs.json"), "utf8"));
@@ -529,6 +549,151 @@ function checkAgentDocsSync() {
   const claude = readFileSync(join(REPO, "CLAUDE.md"), "utf8");
   if (agents !== claude) {
     err("AGENTS.md", 1, "AGENTS.md and CLAUDE.md must stay in sync");
+  }
+}
+
+// ---- checked examples and SDK truth guards --------------------------------
+const REQUEST_EXAMPLE_REQUIRED_FIELDS = {
+  "requests/create-project.json": ["id", "org_id", "name"],
+  "requests/create-api-key.json": ["project_id", "name", "scopes"],
+  "requests/create-http-job.json": [
+    "project_id",
+    "name",
+    "slug",
+    "execution_mode",
+    "endpoint_url",
+  ],
+  "requests/create-worker-job.json": [
+    "project_id",
+    "name",
+    "slug",
+    "execution_mode",
+    "queue_name",
+  ],
+  "requests/trigger-run.json": ["payload"],
+  "requests/create-webhook-subscription.json": [
+    "project_id",
+    "webhook_url",
+    "event_types",
+  ],
+  "requests/create-event-source.json": [
+    "project_id",
+    "name",
+    "signature_algorithm",
+  ],
+  "requests/dispatch-event.json": ["source", "project_id", "payload"],
+  "requests/bulk-dlq-replay.json": ["run_ids"],
+};
+
+function allDocsText() {
+  return files.map((file) => readFileSync(file, "utf8")).join("\n");
+}
+
+function checkExampleFixtures() {
+  const docsText = allDocsText();
+  for (const file of exampleJSONFiles) {
+    const exampleRel = relative(EXAMPLES, file);
+    const repoPath = repoRel(file);
+    let parsed;
+    try {
+      parsed = JSON.parse(readFileSync(file, "utf8"));
+    } catch (parseErr) {
+      err(repoPath, 1, `invalid JSON example: ${parseErr.message}`);
+      continue;
+    }
+
+    if (!docsText.includes(repoPath)) {
+      err(repoPath, 1, "example fixture is not referenced by any docs page");
+    }
+
+    const required = REQUEST_EXAMPLE_REQUIRED_FIELDS[exampleRel] ?? [];
+    for (const field of required) {
+      if (!(field in parsed)) {
+        err(repoPath, 1, `example fixture missing field '${field}'`);
+      }
+    }
+  }
+
+  for (const expected of Object.keys(REQUEST_EXAMPLE_REQUIRED_FIELDS)) {
+    const expectedPath = join(EXAMPLES, expected);
+    if (!existsSync(expectedPath)) {
+      err(repoRel(expectedPath), 1, "expected request example is missing");
+    }
+  }
+}
+
+function checkCloudTaskRouteCoverage() {
+  const requiredRoutes = [
+    ["POST", "/v1/projects", "guides/cloud-project-setup.mdx"],
+    ["POST", "/v1/api-keys", "guides/cloud-project-setup.mdx"],
+    ["POST", "/v1/jobs", "guides/production-job.mdx"],
+    ["POST", "/v1/jobs/{jobID}/trigger", "guides/production-job.mdx"],
+    ["GET", "/v1/runs/{runID}", "guides/inspect-runs.mdx"],
+    ["GET", "/v1/runs/{runID}/events", "guides/inspect-runs.mdx"],
+    ["GET", "/v1/runs/{runID}/outputs", "guides/inspect-runs.mdx"],
+    ["GET", "/v1/runs/{runID}/checkpoints", "guides/inspect-runs.mdx"],
+    ["POST", "/v1/runs/{runID}/replay", "guides/inspect-runs.mdx"],
+    ["POST", "/v1/webhooks/subscriptions", "guides/webhooks-and-events.mdx"],
+    ["POST", "/v1/webhooks/test", "guides/webhooks-and-events.mdx"],
+    ["POST", "/v1/event-sources", "guides/webhooks-and-events.mdx"],
+    [
+      "POST",
+      "/v1/event-sources/{sourceID}/subscribe",
+      "guides/webhooks-and-events.mdx",
+    ],
+    ["POST", "/v1/events/dispatch", "guides/webhooks-and-events.mdx"],
+  ];
+
+  for (const [method, route, file] of requiredRoutes) {
+    if (!methodExists(method, route)) {
+      err(file, 1, `required task route is not registered: ${method} ${route}`);
+      continue;
+    }
+    const text = readFileSync(join(DOCS, file), "utf8");
+    const docsRoute = route
+      .replace("{jobID}", "$STRAIT_JOB_ID")
+      .replace("{runID}", "$STRAIT_RUN_ID")
+      .replace("{sourceID}", "$STRAIT_EVENT_SOURCE_ID");
+    if (!(text.includes(route) || text.includes(docsRoute))) {
+      err(file, 1, `missing task route example '${method} ${route}'`);
+    }
+  }
+}
+
+function checkSDKTruthClaims() {
+  const overview = readFileSync(join(DOCS, "sdks/overview.mdx"), "utf8");
+  const ruby = readFileSync(join(DOCS, "sdks/ruby.mdx"), "utf8");
+  const rust = readFileSync(join(DOCS, "sdks/rust.mdx"), "utf8");
+  const checked = [
+    ["sdks/overview.mdx", overview],
+    ["sdks/ruby.mdx", ruby],
+    ["sdks/rust.mdx", rust],
+  ];
+  for (const [file, text] of checked) {
+    for (const phrase of [
+      "gem install strait",
+      'gem "strait"',
+      "cargo add strait",
+      "strait = {",
+    ]) {
+      if (text.includes(phrase)) {
+        err(file, lineOf(text, phrase), `unverified SDK install '${phrase}'`);
+      }
+    }
+  }
+  for (const file of [
+    "sdks/typescript.mdx",
+    "sdks/python.mdx",
+    "sdks/go.mdx",
+  ]) {
+    const text = readFileSync(join(DOCS, file), "utf8");
+    if (text.includes("full API coverage")) {
+      err(
+        file,
+        lineOf(text, "full API coverage"),
+        "unverified SDK completeness claim"
+      );
+    }
   }
 }
 
@@ -945,11 +1110,14 @@ checkWebhookEventDocs();
 checkFirstPartyMarkdownLinks();
 checkReadmeCommands();
 checkAgentDocsSync();
+checkExampleFixtures();
+checkCloudTaskRouteCoverage();
+checkSDKTruthClaims();
 
 // ---- report ----------------------------------------------------------------
 if (errors.length === 0) {
   console.log(
-    `docs-lint: ${files.length} mdx files and ${firstPartyMarkdownFiles.length} markdown files checked, no problems found`
+    `docs-lint: ${files.length} mdx files, ${firstPartyMarkdownFiles.length} markdown files, and ${exampleJSONFiles.length} examples checked, no problems found`
   );
   process.exit(0);
 }
@@ -958,6 +1126,6 @@ for (const e of errors) {
   console.error(`${e.file}:${e.line}  ${e.msg}`);
 }
 console.error(
-  `\ndocs-lint: ${errors.length} problem(s) in ${files.length} mdx files and ${firstPartyMarkdownFiles.length} markdown files`
+  `\ndocs-lint: ${errors.length} problem(s) in ${files.length} mdx files, ${firstPartyMarkdownFiles.length} markdown files, and ${exampleJSONFiles.length} examples`
 );
 process.exit(1);

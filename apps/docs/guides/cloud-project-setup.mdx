@@ -1,0 +1,106 @@
+---
+title: "Set Up a Cloud Project"
+description: "Create a Strait Cloud project, issue an API key, and export the variables used by the docs."
+icon: "folder-plus"
+---
+
+Use this guide when you are starting a new Strait Cloud project or preparing a CI environment.
+
+The dashboard is the normal path for Cloud users. The API path is included for automation and mirrors the same project and API key resources.
+
+## Prerequisites
+
+- A Strait Cloud account at [app.strait.dev](https://app.strait.dev)
+- An organization in Strait Cloud
+- `curl`
+- `jq`
+
+## 1. Create the Project
+
+In the dashboard:
+
+1. Open [app.strait.dev](https://app.strait.dev).
+2. Select the organization.
+3. Open **Projects**.
+4. Select **Create project**.
+5. Copy the project ID.
+
+For automation, use the project creation API with an internal-secret credential. The request body fixture lives at `apps/docs/examples/requests/create-project.json`.
+
+```bash
+curl -sS -X POST "https://api.strait.dev/v1/projects" \
+  -H "X-Internal-Secret: $STRAIT_INTERNAL_SECRET" \
+  -H "Content-Type: application/json" \
+  --data @apps/docs/examples/requests/create-project.json | jq
+```
+
+Cloud dashboard users usually do not need the internal-secret path.
+
+## 2. Create an API Key
+
+In the dashboard:
+
+1. Open the project.
+2. Open **Settings**.
+3. Open **API keys**.
+4. Select **Create API key**.
+5. Choose the smallest scopes your service needs.
+6. Copy the key. Strait shows the key value only once.
+
+For automation, use `POST /v1/api-keys`. The request body fixture lives at `apps/docs/examples/requests/create-api-key.json`.
+
+```bash
+curl -sS -X POST "https://api.strait.dev/v1/api-keys" \
+  -H "Authorization: Bearer $STRAIT_API_KEY" \
+  -H "Content-Type: application/json" \
+  --data @apps/docs/examples/requests/create-api-key.json | jq
+```
+
+Create short-lived keys for CI and production deploy systems. Rotate keys before `expires_at`.
+
+## 3. Export Connection Variables
+
+Every task guide uses the same variables:
+
+```bash
+export STRAIT_BASE_URL=https://api.strait.dev
+export STRAIT_API_KEY=strait_replace_with_your_key
+export STRAIT_PROJECT_ID=proj_replace_with_your_project_id
+```
+
+Check the API:
+
+```bash
+curl -sS "$STRAIT_BASE_URL/health" | jq
+```
+
+Expected Cloud response:
+
+```json
+{
+  "status": "ok",
+  "edition": "cloud"
+}
+```
+
+## 4. Choose Key Scopes
+
+Start with the narrowest set that can perform the task.
+
+| Task | Typical scopes |
+|---|---|
+| Trigger jobs | `jobs:read`, `runs:write` |
+| Create and update jobs | `jobs:read`, `jobs:write` |
+| Inspect runs | `runs:read` |
+| Replay runs | `runs:read`, `runs:write` |
+| Manage webhooks | `webhooks:read`, `webhooks:write` |
+| Manage event sources | `events:read`, `events:write` |
+
+If a request returns `403 Forbidden`, check both the project ID and the key scopes.
+
+## Next
+
+- [Quick Start](/quickstart)
+- [Create a Production Job](/guides/production-job)
+- [Inspect Runs and Logs](/guides/inspect-runs)
+- [Create Webhooks and Event Sources](/guides/webhooks-and-events)

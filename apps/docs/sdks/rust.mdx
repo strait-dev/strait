@@ -1,445 +1,58 @@
 ---
 title: "Rust"
-description: "Rust SDK with async client, authoring DSL, composition helpers, and typed error handling. Requires Rust 1.94+ and Tokio."
+description: "Rust SDK status, source repository, and current integration guidance."
 icon: "rust"
 og:image: "/images/og.png"
 ---
 
-The Rust SDK (`strait`) provides a fully async client built on Tokio, a code-first authoring DSL for jobs and workflows, composition helpers for retries and orchestration, and typed error handling via `StraitError`.
+The Rust SDK repository is [strait-dev/strait-rust](https://github.com/strait-dev/strait-rust).
 
-## Installation
+Do not add a `strait` crate from crates.io for Strait Cloud. As of the last verification for these docs, crates.io does not publish a Strait Cloud crate named `strait`.
 
-Add `strait` to your `Cargo.toml`:
+## Current Status
 
-```toml
-[dependencies]
-strait = { version = "0.1", features = ["rustls-tls"] }
-tokio = { version = "1", features = ["full"] }
-```
+| Item | Status |
+|---|---|
+| Source repository | Available |
+| crates.io package | Not published as `strait` |
+| Recommended production path | Use the REST API or another verified SDK |
 
-**Minimum supported Rust version:** 1.94+
+## Use the REST API From Rust
 
-The SDK requires a Tokio async runtime. All client methods are `async` and return `Result<T, StraitError>`.
-
-## Quick Start
+Until a Strait-owned crate is published and verified, call the REST API directly.
 
 ```rust
-use strait::prelude::*;
+use reqwest::Client;
+use serde_json::json;
 
 #[tokio::main]
-async fn main() -> Result<(), StraitError> {
-    let client = StraitClient::builder()
-        .base_url("https://api.strait.dev")
-        .api_key("strait_...")
-        .build()?;
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let base_url = std::env::var("STRAIT_BASE_URL")
+        .unwrap_or_else(|_| "https://api.strait.dev".to_string());
+    let api_key = std::env::var("STRAIT_API_KEY")?;
 
-    // Create a job
-    let job = client.jobs().create(CreateJobRequest {
-        project_id: "proj_abc123".into(),
-        name: "Send welcome email".into(),
-        slug: "send-welcome-email".into(),
-        endpoint_url: "https://worker.example/jobs/welcome".into(),
-        ..Default::default()
-    }).await?;
+    let response = Client::new()
+        .post(format!("{base_url}/v1/jobs/send-welcome-email/trigger"))
+        .bearer_auth(api_key)
+        .json(&json!({
+            "payload": {
+                "user_id": "user_abc123",
+                "email": "customer@example.com"
+            }
+        }))
+        .send()
+        .await?
+        .error_for_status()?;
 
-    // Trigger a run
-    let run = client.jobs().trigger(&job.id, TriggerJobRequest {
-        payload: serde_json::json!({ "user_id": "user_abc123" }),
-        ..Default::default()
-    }).await?;
+    let run: serde_json::Value = response.json().await?;
+    println!("{} {}", run["id"], run["status"]);
 
-    println!("Run started: {}", run.id);
     Ok(())
 }
 ```
 
-## Configuration
-
-### Builder pattern (recommended)
-
-```rust
-let client = StraitClient::builder()
-    .base_url("https://api.strait.dev")
-    .api_key("strait_...")
-    .timeout(Duration::from_secs(30))
-    .build()?;
-```
-
-### From environment variables
-
-```rust
-// Reads STRAIT_BASE_URL, STRAIT_API_KEY, STRAIT_AUTH_TYPE, STRAIT_TIMEOUT_MS
-let client = StraitClient::from_env()?;
-```
-
-### From `strait.json`
-
-```rust
-let client = StraitClient::from_config_file("./strait.json")?;
-```
-
-See [Configuration](/sdks/configuration) for the `strait.json` schema and options.
-
-## Feature Flags
-
-Enable features in your `Cargo.toml` based on what you need:
-
-```toml
-[dependencies]
-strait = { version = "0.1", features = ["rustls-tls", "tracing", "stream"] }
-```
-
-| Feature | Default | Description |
-|---|---|---|
-| `native-tls` | Yes | TLS via the platform's native library (OpenSSL on Linux, Secure Transport on macOS) |
-| `rustls-tls` | No | Pure-Rust TLS via rustls. Use this for fully static builds or cross-compilation. |
-| `tracing` | No | Integrates with the `tracing` crate. Emits spans for every API call with method, URL, status, and duration. |
-| `stream` | No | Enables `StreamExt`-based pagination and real-time event streaming. |
-| `validation` | No | Compile-time validation of authoring DSL definitions (job schemas, workflow dependencies). |
-
-<Note>
-  `native-tls` and `rustls-tls` are mutually exclusive. If both are enabled, `rustls-tls` takes precedence.
-</Note>
-
-## Authoring DSL
-
-The authoring DSL lets you define jobs and workflows as Rust code, then register and trigger them through the client.
-
-### Defining jobs
-
-```rust
-use strait::authoring::*;
-
-let sync_inventory = define_job! {
-    name: "Sync Inventory",
-    slug: "sync-inventory",
-    project_id: "proj_abc123",
-    endpoint_url: "https://worker.example/jobs/sync",
-    max_concurrency: 5,
-    max_attempts: 5,
-    retry_strategy: RetryStrategy::Exponential,
-    timeout_secs: 300,
-
-    run: |payload: serde_json::Value, ctx: RunContext| async move {
-        ctx.logger.info("Starting sync", &payload);
-        ctx.report_progress(0.5).await?;
-        let count = fetch_inventory(&payload["sku"]).await?;
-        Ok(serde_json::json!({ "synced": true, "count": count }))
-    },
-
-    on_success: |output| async move {
-        println!("Synced {} items", output["count"]);
-        Ok(())
-    },
-
-    on_failure: |error| async move {
-        alert_oncall(&error).await;
-        Ok(())
-    },
-};
-
-// Register and trigger
-sync_inventory.register(&client).await?;
-let run = sync_inventory.trigger(&client, json!({ "sku": "ABC-123" })).await?;
-let completed = sync_inventory.trigger_and_wait(&client, json!({ "sku": "ABC-123" })).await?;
-```
-
-The `RunContext` provides:
-
-| Method | Description |
-|---|---|
-| `ctx.logger` | Structured logger scoped to the current run |
-| `ctx.report_progress(f64)` | Report progress (0.0 to 1.0) |
-| `ctx.checkpoint(value)` | Save a checkpoint for resume after failure |
-| `ctx.get_checkpoint()` | Retrieve the last saved checkpoint |
-| `ctx.run_id()` | The current run ID |
-| `ctx.attempt()` | Current attempt number (1-based) |
-
-### Defining workflows
-
-```rust
-use strait::authoring::*;
-
-let pipeline = define_workflow! {
-    name: "Order Pipeline",
-    slug: "order-pipeline",
-    project_id: "proj_abc123",
-    steps: [
-        step::job("validate", "job_validate"),
-        step::job("charge", "job_charge").depends_on(["validate"]),
-        step::approval("review").depends_on(["charge"])
-            .timeout_secs(3600),
-        step::wait_for_event("shipping", "shipping.confirmed")
-            .depends_on(["review"]),
-        step::sleep("cooldown", Duration::from_secs(60))
-            .depends_on(["shipping"]),
-    ],
-};
-
-// Dependency graph is validated at definition time
-pipeline.register(&client).await?;
-```
-
-### Test harness
-
-The SDK includes a test harness for running jobs and workflows locally without a Strait server:
-
-```rust
-use strait::testing::*;
-
-#[tokio::test]
-async fn test_sync_job() {
-    let harness = TestHarness::new();
-
-    let result = harness
-        .run_job(&sync_inventory, json!({ "sku": "ABC-123" }))
-        .await;
-
-    assert!(result.is_ok());
-    let output = result.unwrap();
-    assert_eq!(output["synced"], true);
-
-    // Verify progress was reported
-    assert_eq!(harness.progress_reports().len(), 1);
-    assert_eq!(harness.progress_reports()[0], 0.5);
-}
-
-#[tokio::test]
-async fn test_workflow_steps() {
-    let harness = TestHarness::new();
-
-    let result = harness
-        .run_workflow(&pipeline, json!({ "order_id": "ord_1" }))
-        .await;
-
-    assert!(result.is_ok());
-    assert_eq!(harness.completed_steps(), vec!["validate", "charge"]);
-}
-```
-
-## Composition Helpers
-
-### Retry with backoff
-
-```rust
-use strait::composition::*;
-
-let run = with_retry(
-    || client.jobs().trigger("job_abc123", TriggerJobRequest {
-        payload: json!({ "sku": "A" }),
-        ..Default::default()
-    }),
-    RetryConfig {
-        attempts: 5,
-        delay: Duration::from_millis(250),
-        jitter: Jitter::Full,
-        ..Default::default()
-    },
-).await?;
-```
-
-### Wait for run completion
-
-```rust
-use strait::composition::*;
-
-let completed = wait_for_run(&client, &run.id, WaitConfig {
-    timeout: Duration::from_secs(120),
-    poll_interval: Duration::from_secs(2),
-    ..Default::default()
-}).await?;
-
-println!("Run finished with status: {:?}", completed.status);
-```
-
-### Cancellation
-
-```rust
-use strait::composition::CancellationToken;
-
-let token = CancellationToken::new();
-let token_clone = token.clone();
-
-// Cancel after 30 seconds
-tokio::spawn(async move {
-    tokio::time::sleep(Duration::from_secs(30)).await;
-    token_clone.cancel();
-});
-
-let result = wait_for_run(&client, &run.id, WaitConfig {
-    cancellation_token: Some(token),
-    ..Default::default()
-}).await;
-
-match result {
-    Err(StraitError::Cancelled) => println!("Wait was cancelled"),
-    other => println!("Run completed: {:?}", other),
-}
-```
-
-### Cost budget
-
-```rust
-use strait::composition::*;
-
-let budget = CostBudget::new(5.00); // $5.00 USD limit
-
-let run = client.jobs().trigger("job_abc123", TriggerJobRequest {
-    payload: json!({ "query": "analyze dataset" }),
-    cost_budget: Some(budget),
-    ..Default::default()
-}).await?;
-```
-
-### Checkpoint resume
-
-```rust
-use strait::composition::*;
-
-// Save progress during long-running work
-async fn process_batch(ctx: &RunContext, items: &[Item]) -> Result<(), StraitError> {
-    for (i, item) in items.iter().enumerate() {
-        process_item(item).await?;
-
-        // Checkpoint every 100 items so we can resume on failure
-        if i % 100 == 0 {
-            ctx.checkpoint(json!({ "last_index": i })).await?;
-        }
-    }
-    Ok(())
-}
-
-// On retry, resume from the last checkpoint
-async fn run_with_resume(ctx: &RunContext, items: &[Item]) -> Result<(), StraitError> {
-    let start = match ctx.get_checkpoint().await? {
-        Some(cp) => cp["last_index"].as_usize().unwrap_or(0),
-        None => 0,
-    };
-    process_batch(ctx, &items[start..]).await
-}
-```
-
-### Stream pagination
-
-Requires the `stream` feature flag.
-
-```rust
-use strait::composition::*;
-use futures::StreamExt;
-
-// Stream all runs
-let mut stream = client.runs().list_stream(ListRunsQuery {
-    project_id: "proj_abc123".into(),
-    ..Default::default()
-});
-
-while let Some(run) = stream.next().await {
-    let run = run?;
-    println!("{}: {:?}", run.id, run.status);
-}
-```
-
-## Error Handling
-
-All errors are represented by the `StraitError` enum. Use `match` for exhaustive handling:
-
-```rust
-use strait::errors::StraitError;
-
-match client.jobs().get("job_nonexistent").await {
-    Ok(job) => println!("Found: {}", job.name),
-    Err(e) => match e {
-        StraitError::NotFound { resource, id } =>
-            println!("{} '{}' not found", resource, id),
-        StraitError::Unauthorized { message } =>
-            println!("Auth failed: {}", message),
-        StraitError::RateLimited { retry_after } =>
-            println!("Rate limited, retry after {:?}", retry_after),
-        StraitError::Validation { errors } =>
-            println!("Invalid input: {:?}", errors),
-        StraitError::Conflict { message } =>
-            println!("Conflict: {}", message),
-        StraitError::Transport { source } =>
-            println!("Network error: {}", source),
-        StraitError::Timeout { duration } =>
-            println!("Timed out after {:?}", duration),
-        StraitError::Api { status, message } =>
-            println!("API error {}: {}", status, message),
-        StraitError::Cancelled =>
-            println!("Operation was cancelled"),
-        _ => println!("Unexpected error: {}", e),
-    },
-}
-```
-
-| Error variant | HTTP Status | Description |
-|---|---|---|
-| `Transport` | | Network failure or connection refused |
-| `Timeout` | | Request or polling timeout exceeded |
-| `Validation` | | Invalid configuration or input |
-| `Unauthorized` | 401, 403 | Authentication or authorization failure |
-| `NotFound` | 404 | Resource does not exist |
-| `Conflict` | 409 | Duplicate resource or version conflict |
-| `RateLimited` | 429 | Too many requests; includes `retry_after` duration |
-| `Api` | other | Any other HTTP error |
-| `Cancelled` | | Operation cancelled via `CancellationToken` |
-| `DagValidation` | | Invalid workflow dependency graph (cycles, missing dependencies) |
-
-## Middleware
-
-Add middleware to intercept every request and response:
-
-```rust
-use strait::middleware::*;
-
-let client = StraitClient::builder()
-    .base_url("https://api.strait.dev")
-    .api_key("strait_...")
-    .middleware(LoggingMiddleware::new(|event| {
-        match event {
-            MiddlewareEvent::Request { method, url } =>
-                println!("-> {} {}", method, url),
-            MiddlewareEvent::Response { status, duration } =>
-                println!("<- {} ({:?})", status, duration),
-            MiddlewareEvent::Error { error } =>
-                eprintln!("Error: {}", error),
-        }
-    }))
-    .build()?;
-```
-
-With the `tracing` feature flag, the SDK automatically emits spans for every API call. You can also add custom middleware:
-
-```rust
-use strait::middleware::Middleware;
-
-struct MetricsMiddleware {
-    counter: Arc<AtomicU64>,
-}
-
-impl Middleware for MetricsMiddleware {
-    async fn on_request(&self, req: &Request) {
-        self.counter.fetch_add(1, Ordering::Relaxed);
-    }
-
-    async fn on_response(&self, resp: &Response) {
-        record_latency(resp.duration);
-    }
-}
-```
-
-## Module Reference
-
-| Module | Description |
-|---|---|
-| `strait::client` | `StraitClient` builder and configuration |
-| `strait::config` | Configuration loading from files and environment |
-| `strait::authoring` | `define_job!`, `define_workflow!` macros and `RunContext` |
-| `strait::composition` | `with_retry`, `wait_for_run`, `CancellationToken`, cost budgets, stream pagination |
-| `strait::models` | Request/response types for all API resources |
-| `strait::operations` | 27 service clients with 260+ methods (jobs, runs, workflows, projects, events, and more) |
-| `strait::middleware` | Request/response middleware trait and built-in implementations |
-| `strait::errors` | `StraitError` enum and error types |
-| `strait::validation` | Compile-time validation for schemas and workflow dependencies (requires `validation` feature) |
-| `strait::testing` | `TestHarness` for local testing without a server |
-| `strait::prelude` | Re-exports of the most commonly used types |
+## Next
+
+- [API Reference](/api-reference/overview)
+- [SDK Overview](/sdks/overview)
+- [Create a Production Job](/guides/production-job)

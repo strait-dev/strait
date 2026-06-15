@@ -1,0 +1,6 @@
+{
+  "project_id": "proj_acme_production",
+  "name": "production-ci",
+  "scopes": ["jobs:read", "jobs:write", "runs:read", "runs:write"],
+  "expires_in_days": 90
+}

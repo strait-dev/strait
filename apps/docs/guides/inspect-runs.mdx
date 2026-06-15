@@ -1,0 +1,129 @@
+---
+title: "Inspect Runs and Logs"
+description: "Find a run, read its events, inspect outputs, and replay it when needed."
+icon: "search"
+---
+
+Use this guide after you trigger work. It shows the operator flow for answering: what ran, what happened, and what should happen next.
+
+## Prerequisites
+
+Export the standard Cloud variables:
+
+```bash
+export STRAIT_BASE_URL=https://api.strait.dev
+export STRAIT_API_KEY=strait_replace_with_your_key
+export STRAIT_PROJECT_ID=proj_replace_with_your_project_id
+```
+
+You also need a run ID. The [Quick Start](/quickstart) stores one in `STRAIT_RUN_ID`.
+
+## 1. List Recent Runs
+
+```bash
+curl -sS "$STRAIT_BASE_URL/v1/runs?project_id=$STRAIT_PROJECT_ID&limit=20" \
+  -H "Authorization: Bearer $STRAIT_API_KEY" | jq
+```
+
+Use filters when you already know what you need:
+
+```bash
+curl -sS "$STRAIT_BASE_URL/v1/runs?project_id=$STRAIT_PROJECT_ID&status=failed&limit=20" \
+  -H "Authorization: Bearer $STRAIT_API_KEY" | jq
+```
+
+## 2. Read One Run
+
+```bash
+curl -sS "$STRAIT_BASE_URL/v1/runs/$STRAIT_RUN_ID" \
+  -H "Authorization: Bearer $STRAIT_API_KEY" | jq
+```
+
+Check these fields first:
+
+| Field | What to check |
+|---|---|
+| `status` | Current run state. Terminal states include `completed`, `failed`, `timed_out`, `canceled`, and `dead_letter`. |
+| `attempt` | Current or final attempt count. |
+| `error` | Last failure message. Empty on success. |
+| `started_at` and `finished_at` | Runtime and whether the run has completed. |
+| `tags` | Caller-supplied labels used for filtering. |
+
+## 3. Read Events
+
+Events show state changes and SDK-reported logs.
+
+```bash
+curl -sS "$STRAIT_BASE_URL/v1/runs/$STRAIT_RUN_ID/events" \
+  -H "Authorization: Bearer $STRAIT_API_KEY" | jq
+```
+
+Use events to answer when the run was claimed, when an attempt started, what the job handler reported, and why a terminal state was reached.
+
+## 4. Read Outputs and Checkpoints
+
+Outputs are final or named values written by job and workflow code:
+
+```bash
+curl -sS "$STRAIT_BASE_URL/v1/runs/$STRAIT_RUN_ID/outputs" \
+  -H "Authorization: Bearer $STRAIT_API_KEY" | jq
+```
+
+Checkpoints are intermediate state written by SDK handlers:
+
+```bash
+curl -sS "$STRAIT_BASE_URL/v1/runs/$STRAIT_RUN_ID/checkpoints" \
+  -H "Authorization: Bearer $STRAIT_API_KEY" | jq
+```
+
+Use checkpoints to resume long work without repeating completed steps.
+
+## 5. Stream Live Updates
+
+For an active run:
+
+```bash
+curl -N "$STRAIT_BASE_URL/v1/runs/$STRAIT_RUN_ID/stream" \
+  -H "Authorization: Bearer $STRAIT_API_KEY"
+```
+
+For log-style event streams:
+
+```bash
+curl -N "$STRAIT_BASE_URL/v1/runs/$STRAIT_RUN_ID/stream/logs" \
+  -H "Authorization: Bearer $STRAIT_API_KEY"
+```
+
+Close the stream when the run reaches a terminal state.
+
+## 6. Replay Only After Diagnosis
+
+Replay creates new work from the same run context:
+
+```bash
+curl -sS -X POST "$STRAIT_BASE_URL/v1/runs/$STRAIT_RUN_ID/replay" \
+  -H "Authorization: Bearer $STRAIT_API_KEY" | jq
+```
+
+For runs in `dead_letter`, use:
+
+```bash
+curl -sS -X POST "$STRAIT_BASE_URL/v1/runs/$STRAIT_RUN_ID/dlq-replay" \
+  -H "Authorization: Bearer $STRAIT_API_KEY" | jq
+```
+
+For many `dead_letter` runs, use the fixture at `apps/docs/examples/requests/bulk-dlq-replay.json`.
+
+```bash
+curl -sS -X POST "$STRAIT_BASE_URL/v1/runs/bulk-dlq-replay" \
+  -H "Authorization: Bearer $STRAIT_API_KEY" \
+  -H "Content-Type: application/json" \
+  --data @apps/docs/examples/requests/bulk-dlq-replay.json | jq
+```
+
+## Next
+
+- [Handle Failed Runs](/guides/handle-failed-runs)
+- [Runs](/concepts/runs)
+- [Debug Bundles](/concepts/debug-bundles)
+- [Observability](/operations/observability)

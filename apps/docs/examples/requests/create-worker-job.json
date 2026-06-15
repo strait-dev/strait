@@ -1,0 +1,10 @@
+{
+  "project_id": "proj_acme_production",
+  "name": "Train Model",
+  "slug": "train-model",
+  "execution_mode": "worker",
+  "queue_name": "ml",
+  "timeout_secs": 1800,
+  "max_attempts": 3,
+  "max_concurrency": 5
+}

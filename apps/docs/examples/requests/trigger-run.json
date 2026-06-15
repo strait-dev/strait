@@ -1,0 +1,11 @@
+{
+  "payload": {
+    "user_id": "user_abc123",
+    "email": "customer@example.com"
+  },
+  "tags": {
+    "tenant": "acme",
+    "source": "signup"
+  },
+  "concurrency_key": "user_abc123"
+}

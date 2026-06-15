@@ -1,0 +1,9 @@
+{
+  "project_id": "proj_acme_production",
+  "name": "stripe",
+  "description": "Stripe events that can resume Strait workflows",
+  "enabled": true,
+  "signature_header": "Stripe-Signature",
+  "signature_algorithm": "stripe-v1",
+  "signature_secret": "whsec_replace_with_real_secret"
+}

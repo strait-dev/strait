@@ -148,6 +148,8 @@ curl -X POST http://localhost:8080/v1/jobs \
 
 ## Upgrading
 
+For the full operator checklist, use [Self-Host Upgrades](/guides/self-host-upgrades).
+
 ```bash
 docker compose --env-file .env.selfhost -f docker-compose.base.yml -f docker-compose.selfhost.yml --profile core --profile dashboard pull
 docker compose --env-file .env.selfhost -f docker-compose.base.yml -f docker-compose.selfhost.yml --profile core --profile dashboard up -d
@@ -156,6 +158,8 @@ docker compose --env-file .env.selfhost -f docker-compose.base.yml -f docker-com
 Migrations run automatically on startup.
 
 ## Backups
+
+For backup schedules, off-host copies, restore drills, and verification, use [Self-Host Backup and Restore](/guides/self-host-backup-restore).
 
 Use the bundled script, which gzips a dump into `./backups` and prunes files older than 30 days:
 
@@ -179,6 +183,8 @@ Schedule daily backups with cron:
 ## Related
 
 - [Deployment](/guides/deployment)
+- [Self-Host Upgrades](/guides/self-host-upgrades)
+- [Self-Host Backup and Restore](/guides/self-host-backup-restore)
 - [Troubleshooting](/guides/troubleshooting)
 - [Health and Readiness](/operations/health-readiness)
 - [Environment Variables](/configuration/environment-variables)

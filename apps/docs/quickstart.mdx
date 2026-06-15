@@ -19,6 +19,8 @@ For Cloud:
 
 For community local setup, complete [Community Local Setup](/choose-your-path#community-local-setup) first.
 
+If you do not have a Cloud project and API key yet, complete [Set Up a Cloud Project](/guides/cloud-project-setup).
+
 ## 1. Export Connection Settings
 
 Cloud:
@@ -57,6 +59,8 @@ A community instance returns its own edition value.
 ## 2. Create A Job
 
 This job posts to `https://httpbin.org/post`, which returns a successful response for the first test run. Use your own endpoint for real work.
+
+The production HTTP job fixture lives at `apps/docs/examples/requests/create-http-job.json`.
 
 ```bash
 curl -sS -X POST "$STRAIT_BASE_URL/v1/jobs" \
@@ -125,6 +129,8 @@ Expected fields:
 
 If the run is still `queued` or `executing`, repeat the same `GET /v1/runs/{runID}` command.
 
+For events, logs, outputs, checkpoints, and live streams, read [Inspect Runs and Logs](/guides/inspect-runs).
+
 ## 5. Replay The Run
 
 Replay creates a new run from the same work after you fix an endpoint or dependency problem. You can also replay a successful quickstart run to verify the route.
@@ -150,11 +156,11 @@ curl -sS -X POST "$STRAIT_BASE_URL/v1/runs/$STRAIT_RUN_ID/replay" \
   <Card title="Create a Production Job" icon="check-circle" href="/guides/production-job">
     Add idempotency, retry policy, concurrency limits, metadata, and failure handling.
   </Card>
+  <Card title="Inspect Runs" icon="search" href="/guides/inspect-runs">
+    Read run status, events, outputs, checkpoints, and live streams.
+  </Card>
   <Card title="Jobs" icon="briefcase" href="/concepts/jobs">
     Learn every job setting before you create production jobs.
-  </Card>
-  <Card title="Runs" icon="play" href="/concepts/runs">
-    Understand run states, replay, metadata, tags, and live updates.
   </Card>
   <Card title="SDKs" icon="code" href="/sdks/overview">
     Trigger jobs from your application code.

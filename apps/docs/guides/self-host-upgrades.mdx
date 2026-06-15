@@ -1,0 +1,117 @@
+---
+title: "Self-Host Upgrades"
+description: "Upgrade a community self-hosted Strait stack with backups, image pulls, migrations, and checks."
+icon: "arrow-up-circle"
+---
+
+Use this runbook when upgrading a community self-hosted stack.
+
+Migrations run automatically when the Strait API container starts. Always take a database backup before pulling new images.
+
+## 1. Check the Current Version
+
+```bash
+docker compose --env-file .env.selfhost -f docker-compose.base.yml -f docker-compose.selfhost.yml ps
+docker image ls "ghcr.io/strait-dev/strait*"
+```
+
+Record the current image tags before changing them.
+
+## 2. Back Up PostgreSQL
+
+```bash
+./packages/scripts/selfhost-backup.sh
+```
+
+Confirm that a new file exists in `./backups`:
+
+```bash
+ls -lh backups
+```
+
+Read [Self-Host Backup and Restore](/guides/self-host-backup-restore) before continuing if this is your first production upgrade.
+
+## 3. Pull the New Images
+
+```bash
+docker compose --env-file .env.selfhost \
+  -f docker-compose.base.yml \
+  -f docker-compose.selfhost.yml \
+  --profile core \
+  --profile dashboard \
+  pull
+```
+
+If you pin `STRAIT_IMAGE` or `STRAIT_APP_IMAGE`, update those tags in `.env.selfhost` before pulling.
+
+## 4. Restart the Stack
+
+```bash
+docker compose --env-file .env.selfhost \
+  -f docker-compose.base.yml \
+  -f docker-compose.selfhost.yml \
+  --profile core \
+  --profile dashboard \
+  up -d
+```
+
+The API starts, applies embedded migrations, and then serves traffic.
+
+## 5. Verify Health
+
+```bash
+curl -sS http://localhost:8080/health | jq
+curl -sS http://localhost:8080/ready | jq
+```
+
+Expected health response:
+
+```json
+{
+  "edition": "community",
+  "status": "ok"
+}
+```
+
+Open the dashboard:
+
+```bash
+open http://localhost:3000
+```
+
+## 6. Check Worker Throughput
+
+Trigger one known-safe job and inspect the run:
+
+```bash
+curl -sS http://localhost:8080/v1/runs?project_id=$STRAIT_PROJECT_ID&limit=5 \
+  -H "Authorization: Bearer $STRAIT_API_KEY" | jq
+```
+
+If runs stay `queued`, check the API/worker container logs:
+
+```bash
+docker compose --env-file .env.selfhost \
+  -f docker-compose.base.yml \
+  -f docker-compose.selfhost.yml \
+  logs --tail=200 strait-api
+```
+
+## Roll Back
+
+Rollback means restoring the previous image tag and, when required, restoring the database backup.
+
+1. Stop the stack.
+2. Set `STRAIT_IMAGE` and `STRAIT_APP_IMAGE` back to the previous tags.
+3. Restore the database backup if the release notes require it.
+4. Start the stack.
+5. Run the health and ready checks again.
+
+Do not downgrade across migrations unless the release notes say the downgrade path is supported.
+
+## Related
+
+- [Self-Hosting](/guides/self-hosting)
+- [Self-Host Backup and Restore](/guides/self-host-backup-restore)
+- [Health and Readiness](/operations/health-readiness)
+- [Troubleshooting](/guides/troubleshooting)
