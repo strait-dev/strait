@@ -1,0 +1,80 @@
+---
+title: "Queue Backlog"
+description: "Diagnose and drain a growing queue backlog without overloading downstream systems."
+icon: "list-tree"
+---
+
+Use this runbook when runs are delayed or queue depth is rising.
+
+Backlog usually means work is arriving faster than it is completing. Scaling workers helps only when downstream systems can handle the extra load.
+
+## Prerequisites
+
+- Project ID
+- Queue depth metrics
+- Worker capacity metrics
+- Recent trigger rate
+
+## 1. Confirm the Backlog
+
+Check recent runs:
+
+```bash
+curl -sS "$STRAIT_BASE_URL/v1/runs?project_id=$STRAIT_PROJECT_ID&status=queued&limit=20" \
+  -H "Authorization: Bearer $STRAIT_API_KEY" | jq
+```
+
+Expected result: queued runs are visible and have a common project, job, or queue.
+
+## 2. Identify the Bottleneck
+
+| Evidence | Bottleneck |
+|---|---|
+| Workers idle, queue high | Queue routing or worker connection issue. |
+| Workers busy, downstream healthy | Add worker capacity. |
+| Workers busy, downstream overloaded | Reduce concurrency or trigger rate. |
+| Many retries | Fix failing endpoint before scaling. |
+
+## 3. Check Job Limits
+
+Inspect job settings:
+
+- `max_concurrency`
+- `max_concurrency_per_key`
+- `rate_limit_max`
+- `rate_limit_window_secs`
+- `retry_strategy`
+
+Expected result: limits explain whether queued runs are intentional.
+
+## 4. Drain Safely
+
+Choose one action at a time:
+
+1. Add workers for the affected queue.
+2. Raise job concurrency only if the handler and downstream systems are healthy.
+3. Reduce trigger traffic if downstream systems are saturated.
+4. Pause low-priority jobs if high-priority work is blocked.
+
+Expected result: queue depth decreases and run completion rate rises.
+
+## 5. Watch for Retry Amplification
+
+Retries can turn a small incident into a backlog.
+
+If many runs fail with the same error, fix the handler or dependency before replaying or scaling.
+
+## Failure Cases
+
+| Problem | What to do |
+|---|---|
+| Backlog grows after scaling | Downstream system is likely the bottleneck. |
+| Only worker jobs are stuck | Check queue names and worker connections. |
+| Only HTTP jobs are stuck | Check endpoint reachability and rate limits. |
+| Retries dominate the queue | Stop replay and fix the failure source. |
+
+## Next
+
+- [Run Stuck Queued](/guides/troubleshooting-runs-queued)
+- [Worker Fleet Scaling](/operations/worker-fleet-scaling)
+- [Adaptive Concurrency](/concepts/adaptive-concurrency)

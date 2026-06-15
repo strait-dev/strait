@@ -4,6 +4,12 @@ description: "Roll out a new workflow version to a percentage of traffic before 
 sidebarTitle: "Canary Deploys"
 ---
 
+## Common Tasks
+
+- [Review release docs checklist](/development/release-docs-checklist)
+- [Inspect runs and logs](/guides/inspect-runs)
+- [Use the Jobs API](/api-reference/jobs)
+
 Canary deployments let you roll out a new workflow version to a small percentage of traffic before promoting it to 100%. If the new version has problems, you catch them before they affect every run.
 
 A canary always compares two versions of the same workflow: a `source_version` that currently serves traffic and a `target_version` you want to roll out. Both are the integer [version](/concepts/versioning) counters Strait assigns each time you publish a workflow.

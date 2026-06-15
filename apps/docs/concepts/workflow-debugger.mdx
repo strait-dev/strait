@@ -4,6 +4,12 @@ description: "Inspect workflow runs, step timing, data flow, errors, and run com
 sidebarTitle: "Debugger"
 ---
 
+## Common Tasks
+
+- [Inspect runs and logs](/guides/inspect-runs)
+- [Troubleshoot failed runs](/guides/troubleshooting-run-failed)
+- [Build multi-step workflows](/use-cases/multi-step-workflows)
+
 The workflow debugger shows what happened during a workflow run: which steps ran, how long they took, what data moved between them, and where a failure started.
 
 The debug view comes from `GET /v1/workflow-runs/{workflowRunID}/debug`, which returns a timeline with per-step status, timing, cost, input and output, and the data flow between steps.

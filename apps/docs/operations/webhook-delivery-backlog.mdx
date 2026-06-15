@@ -1,0 +1,77 @@
+---
+title: "Webhook Delivery Backlog"
+description: "Diagnose delayed webhook deliveries and replay them without duplicating receiver side effects."
+icon: "send-horizontal"
+---
+
+Use this runbook when webhook deliveries are delayed, failing, or accumulating for review.
+
+Fix the receiver before replaying. Replay against a broken receiver only grows the backlog.
+
+## Prerequisites
+
+- Project ID
+- Receiver URL or subscription ID
+- Receiver logs
+- Webhook signing secret
+
+## 1. Confirm Delivery Health
+
+List recent deliveries from the Webhooks API or dashboard.
+
+```bash
+curl -sS "$STRAIT_BASE_URL/v1/webhooks/deliveries?project_id=$STRAIT_PROJECT_ID&limit=50" \
+  -H "Authorization: Bearer $STRAIT_API_KEY" | jq
+```
+
+Expected result: you can see failing or delayed delivery attempts.
+
+## 2. Test the Receiver
+
+```bash
+curl -sS -X POST "$STRAIT_BASE_URL/v1/webhooks/test" \
+  -H "Authorization: Bearer $STRAIT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://ops.example.com/strait/webhooks",
+    "secret": "whsec_replace_with_returned_secret"
+  }' | jq
+```
+
+Expected result: the receiver returns `2xx`.
+
+## 3. Classify Failures
+
+| Evidence | Cause |
+|---|---|
+| `5xx` responses | Receiver error or dependency outage. |
+| `4xx` responses | Receiver rejected the payload or auth. |
+| Signature failures | Wrong signing secret or verifier bug. |
+| Timeouts | Receiver is slow or overloaded. |
+
+## 4. Fix Before Replay
+
+Fix receiver code, TLS, dependencies, or signature verification.
+
+Then replay one delivery and confirm idempotent processing.
+
+## 5. Drain the Backlog
+
+Replay in small batches. Watch receiver latency and error rate.
+
+Expected result: delivery backlog decreases and duplicate side effects do not appear.
+
+## Failure Cases
+
+| Problem | What to do |
+|---|---|
+| Replay fails the same way | Stop and fix the receiver. |
+| Receiver processes duplicates | Deduplicate by event or delivery ID. |
+| Backlog grows while draining | Reduce replay rate or scale receiver. |
+| Circuit keeps opening | Fix repeated `5xx` responses. |
+
+## Next
+
+- [Webhook Not Delivered](/guides/troubleshooting-webhooks)
+- [Webhooks API](/api-reference/webhooks)
+- [Webhook Subscriptions](/concepts/webhook-subscriptions)

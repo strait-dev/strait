@@ -72,6 +72,12 @@
                   "guides/handle-failed-runs",
                   "operations/observability",
                   "operations/health-readiness",
+                  "operations/incident-response",
+                  "operations/queue-backlog",
+                  "operations/database-saturation",
+                  "operations/redis-sequin-outage",
+                  "operations/webhook-delivery-backlog",
+                  "operations/worker-fleet-scaling",
                   "concepts/debug-bundles"
                 ]
               },
@@ -237,7 +243,8 @@
                   "api-reference/webhooks",
                   "api-reference/event-sources",
                   "api-reference/workers",
-                  "api-reference/admin-ops"
+                  "api-reference/admin-ops",
+                  "api-reference/generated-fields"
                 ]
               },
               {

@@ -4,6 +4,12 @@ description: "Preview the order a workflow's steps would run in before triggerin
 sidebarTitle: "Simulator"
 ---
 
+## Common Tasks
+
+- [Build multi-step workflows](/use-cases/multi-step-workflows)
+- [Debug workflows](/concepts/workflow-debugger)
+- [Review workflow test suites](/concepts/workflow-test-suites)
+
 The workflow simulator returns the predicted execution order of a workflow's steps without running anything. It resolves each step's dependencies and reports the order they would run in, so you can sanity-check the wiring before triggering a real run.
 
 This is a static plan based on step dependencies. The simulator does not call your endpoints, execute steps, evaluate conditions, or use a payload.

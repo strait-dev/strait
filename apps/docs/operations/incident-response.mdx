@@ -1,0 +1,106 @@
+---
+title: "Incident Response"
+description: "Triage and stabilize a Strait production incident without losing work."
+icon: "siren"
+---
+
+Use this runbook when customers report failed jobs, delayed runs, missing live updates, or API instability.
+
+The first goal is to protect run state. PostgreSQL is the source of truth, so avoid destructive database actions during triage.
+
+## Prerequisites
+
+- Access to metrics, logs, and traces
+- API key or internal secret for health checks
+- Project ID for the affected customer
+- Recent deploy or release context
+
+## 1. Confirm Scope
+
+Check whether the incident is project-specific, region-specific, or global.
+
+```bash
+curl -sS "$STRAIT_BASE_URL/health" | jq
+curl -sS "$STRAIT_BASE_URL/ready" | jq
+```
+
+Expected result: you know whether the public API is healthy.
+
+## 2. Check Internal Readiness
+
+For self-hosted or internal operator access:
+
+```bash
+curl -sS "$STRAIT_BASE_URL/health/ready" \
+  -H "X-Internal-Secret: $INTERNAL_SECRET" | jq
+```
+
+Expected result: readiness identifies unhealthy subsystems such as PostgreSQL, Redis, Sequin, migrations, queue depth, or worker pool.
+
+## 3. Stop the Bleed
+
+Choose the smallest safe action:
+
+| Symptom | Stabilizing action |
+|---|---|
+| API error rate rising | Reduce deploy traffic or roll back the API image. |
+| Queue depth rising | Scale workers or reduce trigger traffic. |
+| Database saturated | Reduce concurrency and inspect slow queries. |
+| Webhook delivery backlog | Fix receiver failures before replaying. |
+| Worker disconnect storm | Check gRPC endpoint, proxy idle timeouts, and worker version. |
+
+Expected result: error rate or backlog growth stops.
+
+## 4. Preserve Evidence
+
+Capture:
+
+- request IDs
+- affected project IDs
+- run IDs
+- deploy version
+- queue depth
+- database saturation
+- worker connection counts
+- representative logs
+
+For run-specific issues, generate a [debug bundle](/concepts/debug-bundles).
+
+## 5. Recover Work
+
+Use recovery tools only after the cause is fixed:
+
+- replay failed runs
+- replay dead-letter runs
+- replay webhook deliveries
+- restart workers
+- scale worker fleet
+
+Expected result: delayed work drains without creating duplicate side effects.
+
+## 6. Close the Incident
+
+Record:
+
+- root cause
+- customer impact
+- commands run
+- validation evidence
+- follow-up fixes
+- docs updates needed
+
+## Failure Cases
+
+| Problem | What to do |
+|---|---|
+| Health is green but runs are delayed | Check queue depth and worker capacity. |
+| Runs replay into the same failure | Stop replay and fix the handler or dependency. |
+| Database actions are tempting | Take a backup first and prefer application-level recovery. |
+| Customer impact is unclear | Query affected project runs and webhook deliveries. |
+
+## Next
+
+- [Queue Backlog](/operations/queue-backlog)
+- [Database Saturation](/operations/database-saturation)
+- [Worker Fleet Scaling](/operations/worker-fleet-scaling)
+- [Webhook Delivery Backlog](/operations/webhook-delivery-backlog)

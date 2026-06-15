@@ -4,6 +4,12 @@ description: "How Strait retries failed runs, plus circuit breakers, fallbacks, 
 icon: "rotate"
 ---
 
+## Common Tasks
+
+- [Create a production job](/guides/production-job)
+- [Handle failed runs](/guides/handle-failed-runs)
+- [Troubleshoot failed runs](/guides/troubleshooting-run-failed)
+
 When a run fails because of a timeout, network error, or retryable response, Strait schedules another attempt using backoff. This page covers the backoff policies Strait applies, where you can change them, and the surrounding controls that keep retries from making things worse: circuit breakers, fallback endpoints, and `dead_letter` handling.
 
 ## Backoff Policies
