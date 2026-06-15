@@ -1,0 +1,63 @@
+---
+title: "Webhooks API"
+description: "Common API operations for webhook subscriptions, tests, rotation, and delivery replay."
+icon: "webhook"
+---
+
+Use the Webhooks API to send Strait events to your systems.
+
+## Prerequisites
+
+```bash
+export STRAIT_BASE_URL=https://api.strait.dev
+export STRAIT_API_KEY=strait_replace_with_your_key
+```
+
+## Create a Subscription
+
+```bash
+curl -sS -X POST "$STRAIT_BASE_URL/v1/webhooks/subscriptions" \
+  -H "Authorization: Bearer $STRAIT_API_KEY" \
+  -H "Content-Type: application/json" \
+  --data @apps/docs/examples/requests/create-webhook-subscription.json | jq
+```
+
+Expected result: a subscription and one-time `signing_secret`.
+
+## Test a Receiver
+
+```bash
+curl -sS -X POST "$STRAIT_BASE_URL/v1/webhooks/test" \
+  -H "Authorization: Bearer $STRAIT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://ops.example.com/strait/webhooks",
+    "secret": "whsec_replace_with_returned_secret"
+  }' | jq
+```
+
+## Common Operations
+
+| Operation | Method and path |
+|---|---|
+| Test webhook URL | `POST /v1/webhooks/test` |
+| List subscriptions | `GET /v1/webhooks/subscriptions` |
+| Create subscription | `POST /v1/webhooks/subscriptions` |
+| Delete subscription | `DELETE /v1/webhooks/subscriptions/{id}` |
+| Rotate signing secret | `POST /v1/webhooks/subscriptions/{id}/rotate-secret` |
+| Replay delivery | `POST /v1/webhooks/deliveries/{id}/replay` |
+
+## Failure Cases
+
+| Status | Meaning |
+|---|---|
+| `400` | URL, event type, or body is invalid. |
+| `401` | API key missing or invalid. |
+| `403` | API key lacks webhook permissions. |
+| `409` | Duplicate subscription or state conflict. |
+
+## Next
+
+- [Create Webhooks and Event Sources](/guides/webhooks-and-events)
+- [Webhook Not Delivered](/guides/troubleshooting-webhooks)
+- [Webhook Subscriptions](/concepts/webhook-subscriptions)

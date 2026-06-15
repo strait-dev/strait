@@ -1,0 +1,72 @@
+---
+title: "Run Stuck Queued"
+description: "Diagnose a run that stays queued and does not start executing."
+icon: "list-clock"
+---
+
+Use this page when a run remains `queued` longer than expected.
+
+## Prerequisites
+
+- `STRAIT_BASE_URL`
+- `STRAIT_API_KEY`
+- `STRAIT_RUN_ID`
+
+## 1. Read the Run
+
+```bash
+curl -sS "$STRAIT_BASE_URL/v1/runs/$STRAIT_RUN_ID" \
+  -H "Authorization: Bearer $STRAIT_API_KEY" | jq
+```
+
+Expected result: the response shows `status: "queued"` and includes the job ID.
+
+## 2. Check the Job Execution Mode
+
+Open the job in the dashboard or fetch it from the API.
+
+If the job uses HTTP mode, Strait must be able to call `endpoint_url`.
+
+If the job uses worker mode, at least one connected worker must drain the job queue.
+
+## 3. HTTP Mode Checks
+
+Check the endpoint from a network outside your private VPC:
+
+```bash
+curl -i https://jobs.example.com/strait/send-welcome-email
+```
+
+Expected result: the host is reachable over public HTTPS.
+
+If the endpoint is private, use [Run Private Workers](/guides/private-workers).
+
+## 4. Worker Mode Checks
+
+Confirm the worker queue name matches the job queue name.
+
+Check worker logs for connection errors, authentication failures, and queue mismatch messages.
+
+Expected result: a connected worker claims the run and the status changes to `executing`.
+
+## 5. Check Backlog and Limits
+
+High queue depth can delay new runs.
+
+Lower trigger rate, add worker capacity, or reduce job concurrency only after confirming the endpoint or worker can handle more work.
+
+## Failure Cases
+
+| Symptom | Likely cause |
+|---|---|
+| HTTP job never starts | Endpoint unreachable or rejected by SSRF guard. |
+| Worker job never starts | No worker connected to the queue. |
+| Some runs start, others wait | Concurrency or rate limits are active. |
+| Self-hosted runs never move | API was started without worker mode or dependencies are unhealthy. |
+
+## Next
+
+- [Inspect Runs and Logs](/guides/inspect-runs)
+- [Run Private Workers](/guides/private-workers)
+- [Adaptive Concurrency](/concepts/adaptive-concurrency)
+- [Self-Host Health Check Failing](/guides/troubleshooting-self-host-health)

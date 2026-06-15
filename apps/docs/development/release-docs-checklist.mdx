@@ -1,0 +1,91 @@
+---
+title: "Release Documentation Checklist"
+description: "Document upgrade, migration, rollback, configuration, and operator impact for each release."
+icon: "list-checks"
+---
+
+Use this checklist before publishing a release or merging a release PR.
+
+Release notes must tell operators what changed, whether they need to act, and how to validate the upgrade.
+
+## 1. Classify the Release
+
+| Classification | Meaning |
+|---|---|
+| Optional upgrade | No urgent operator action. |
+| Recommended upgrade | Fixes or improvements that most users should take. |
+| Required upgrade | Security, data correctness, or compatibility issue. |
+
+State the classification near the top of the release notes.
+
+## 2. Document Migrations
+
+For each database migration, include:
+
+- migration number
+- what changes
+- whether it locks large tables
+- expected runtime
+- rollback constraint
+
+If there are no migrations, say so.
+
+## 3. Document Rollback Constraints
+
+Say whether rollback is safe after startup.
+
+If a migration changes data shape, explain whether restoring a backup is required.
+
+## 4. Document Configuration Changes
+
+List new, renamed, removed, or behavior-changing environment variables.
+
+Link to [Environment Variables](/configuration/environment-variables).
+
+## 5. Document Operator Actions
+
+Use direct steps:
+
+1. Back up PostgreSQL.
+2. Pull images.
+3. Restart services.
+4. Check health and readiness.
+5. Trigger one known-safe job.
+
+Link to [Self-Host Upgrades](/guides/self-host-upgrades) for self-hosted users.
+
+## 6. Document API and SDK Impact
+
+For API changes, link to the relevant API operation page or OpenAPI reference.
+
+For SDK changes, list affected languages and package versions.
+
+## 7. Validate the Release Notes
+
+Before publishing:
+
+```bash
+cd apps/docs
+bun run lint
+```
+
+Expected result: docs lint passes with no broken links, stale API routes, or fixture drift.
+
+## Template
+
+```text
+Classification:
+Migrations:
+Rollback:
+Configuration:
+Operator actions:
+API impact:
+SDK impact:
+Validation:
+```
+
+## Next
+
+- [Self-Host Upgrades](/guides/self-host-upgrades)
+- [Self-Host Backup and Restore](/guides/self-host-backup-restore)
+- [API Reference Overview](/api-reference/overview)

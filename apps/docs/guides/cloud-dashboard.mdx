@@ -1,0 +1,121 @@
+---
+title: "Use the Cloud Dashboard"
+description: "Create projects, API keys, jobs, webhooks, and run replays from Strait Cloud."
+icon: "panel-top"
+---
+
+Use the dashboard when you want to configure Strait Cloud without writing API calls.
+
+The API examples in these docs map to the same resources. Use the dashboard for setup and daily operations, then use API keys from your application code.
+
+## Prerequisites
+
+- A Strait Cloud account at [app.strait.dev](https://app.strait.dev)
+- Access to the organization you want to use
+- Permission to create projects or manage the target project
+
+## 1. Create a Project
+
+1. Open [app.strait.dev](https://app.strait.dev).
+2. Select the organization.
+3. Open **Projects**.
+4. Select **Create project**.
+5. Enter a clear production name, such as `Acme Production`.
+6. Copy the project ID.
+
+Expected result: the project appears in the project list and has a project ID beginning with `proj_`.
+
+If creation fails, confirm your organization plan allows another project.
+
+## 2. Create an API Key
+
+1. Open the project.
+2. Open **Settings**.
+3. Open **API keys**.
+4. Select **Create API key**.
+5. Choose scopes for the service that will use the key.
+6. Copy the key immediately.
+
+Expected result: the key is shown once. Store it in your secret manager.
+
+Use separate keys for local development, CI, and production services.
+
+## 3. Create an HTTP Job
+
+1. Open the project.
+2. Open **Jobs**.
+3. Select **Create job**.
+4. Choose **HTTP** execution mode.
+5. Enter a slug, name, endpoint URL, timeout, retry count, and concurrency limit.
+6. Save the job.
+
+Expected result: the job appears in the job list and can be triggered.
+
+For production settings, read [Create a Production Job](/guides/production-job).
+
+## 4. Create a Private Worker Job
+
+1. Open the project.
+2. Open **Jobs**.
+3. Select **Create job**.
+4. Choose **Worker** execution mode.
+5. Enter a queue name.
+6. Start a worker process that drains the same queue.
+
+Expected result: matching runs move from `queued` to `executing` when a worker is connected.
+
+For worker setup, read [Run Private Workers](/guides/private-workers).
+
+## 5. Inspect and Replay a Run
+
+1. Open **Runs**.
+2. Filter by job, status, tag, or time range.
+3. Open a run.
+4. Review status, attempts, error, events, outputs, and checkpoints.
+5. Select **Replay** only after the cause is fixed.
+
+Expected result: replay creates a new run linked to the original work.
+
+For the API operator flow, read [Inspect Runs and Logs](/guides/inspect-runs).
+
+## 6. Configure Webhooks
+
+1. Open the project.
+2. Open **Webhooks**.
+3. Select **Create webhook**.
+4. Enter the HTTPS receiver URL.
+5. Choose event types.
+6. Store the generated signing secret.
+7. Send a test webhook.
+
+Expected result: your receiver gets a signed `webhook.test` payload.
+
+For event type details, read [Create Webhooks and Event Sources](/guides/webhooks-and-events).
+
+## 7. Invite Members and Assign Roles
+
+1. Open the organization or project access settings.
+2. Invite the member by email.
+3. Assign the smallest role that lets them complete their work.
+4. Review access after they join.
+
+Expected result: the member can see only the projects and actions allowed by the assigned role.
+
+For permissions, read [RBAC](/guides/rbac).
+
+## Failure Cases
+
+| Problem | What to do |
+|---|---|
+| Project creation is blocked | Check project limits in [Billing](/billing/pricing). |
+| API key cannot create jobs | Add `jobs:write` or use a key with the right project. |
+| HTTP job endpoint is rejected | Use public HTTPS or switch to private workers. |
+| Worker job stays queued | Confirm a worker is connected to the same queue. |
+| Webhook test fails | Check TLS, receiver status code, and signature verification. |
+
+## Next
+
+- [Quick Start](/quickstart)
+- [Create a Production Job](/guides/production-job)
+- [Inspect Runs and Logs](/guides/inspect-runs)
+- [Troubleshooting](/guides/troubleshooting)

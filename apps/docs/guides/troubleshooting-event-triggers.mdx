@@ -1,0 +1,64 @@
+---
+title: "Event Trigger Not Resuming"
+description: "Diagnose workflows that wait for an event and do not continue."
+icon: "radio-tower"
+---
+
+Use this page when a workflow step waits for an event but does not resume.
+
+## Prerequisites
+
+- Workflow run ID
+- Event key
+- Source system event payload
+
+## 1. Confirm the Event Key
+
+The event key sent by the external system must exactly match the key the workflow step is waiting for.
+
+Template variables must resolve to the same value in both places.
+
+## 2. Send the Event Manually
+
+```bash
+curl -sS -X POST "$STRAIT_BASE_URL/v1/events/invoice:paid:cus_abc123/send" \
+  -H "Authorization: Bearer $STRAIT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "payload": {
+      "customer_id": "cus_abc123"
+    }
+  }' | jq
+```
+
+Expected result: the waiting step completes and downstream steps start.
+
+## 3. Check Trigger Status
+
+```bash
+curl -sS "$STRAIT_BASE_URL/v1/events/invoice:paid:cus_abc123" \
+  -H "Authorization: Bearer $STRAIT_API_KEY" | jq
+```
+
+If the trigger timed out or was canceled, start a new workflow run.
+
+## 4. Check Event Source Dispatch
+
+If you use event sources, confirm the dispatched `source`, `project_id`, and filter expression match the subscription.
+
+Use [Create Webhooks and Event Sources](/guides/webhooks-and-events) to test dispatch directly.
+
+## Failure Cases
+
+| Symptom | Likely cause |
+|---|---|
+| Event send returns `404` | No active trigger is waiting for that key. |
+| Event accepted but workflow waits | Event key or project does not match. |
+| Event source dispatch triggers nothing | Subscription filter did not match. |
+| Step timed out | The event arrived after `timeout_secs`. |
+
+## Next
+
+- [Event Triggers](/guides/event-triggers)
+- [Event Sources](/concepts/event-sources)
+- [Workflow Approvals](/guides/workflow-approvals)

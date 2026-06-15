@@ -1,0 +1,66 @@
+---
+title: "Jobs API"
+description: "Common API operations for creating, updating, triggering, and managing jobs."
+icon: "briefcase"
+---
+
+Use the Jobs API to define work and start job runs.
+
+## Prerequisites
+
+```bash
+export STRAIT_BASE_URL=https://api.strait.dev
+export STRAIT_API_KEY=strait_replace_with_your_key
+export STRAIT_PROJECT_ID=proj_replace_with_your_project_id
+```
+
+## Create a Job
+
+```bash
+curl -sS -X POST "$STRAIT_BASE_URL/v1/jobs" \
+  -H "Authorization: Bearer $STRAIT_API_KEY" \
+  -H "Content-Type: application/json" \
+  --data @apps/docs/examples/requests/create-http-job.json | jq
+```
+
+Expected result: a job object with `id`, `slug`, and `project_id`.
+
+## Trigger a Job
+
+```bash
+curl -sS -X POST "$STRAIT_BASE_URL/v1/jobs/send-welcome-email/trigger" \
+  -H "Authorization: Bearer $STRAIT_API_KEY" \
+  -H "Content-Type: application/json" \
+  --data @apps/docs/examples/requests/trigger-run.json | jq
+```
+
+Expected result: a run object.
+
+## Common Operations
+
+| Operation | Method and path |
+|---|---|
+| List jobs | `GET /v1/jobs` |
+| Create job | `POST /v1/jobs` |
+| Get job | `GET /v1/jobs/{jobID}` |
+| Update job | `PATCH /v1/jobs/{jobID}` |
+| Delete job | `DELETE /v1/jobs/{jobID}` |
+| Trigger job | `POST /v1/jobs/{jobID}/trigger` |
+| Pause job | `POST /v1/jobs/{jobID}/pause` |
+| Resume job | `POST /v1/jobs/{jobID}/resume` |
+
+## Failure Cases
+
+| Status | Meaning |
+|---|---|
+| `400` | Body is invalid or endpoint URL is rejected. |
+| `401` | API key missing or invalid. |
+| `403` | API key does not have permission for the project. |
+| `409` | Slug, idempotency key, or resource conflict. |
+| `429` | Rate limit or enqueue throttle. |
+
+## Next
+
+- [Create a Production Job](/guides/production-job)
+- [Runs API](/api-reference/runs)
+- [Jobs](/concepts/jobs)

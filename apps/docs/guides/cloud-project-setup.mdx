@@ -36,6 +36,8 @@ curl -sS -X POST "https://api.strait.dev/v1/projects" \
 
 Cloud dashboard users usually do not need the internal-secret path.
 
+Expected result: the project exists and has an ID you can use as `STRAIT_PROJECT_ID`.
+
 ## 2. Create an API Key
 
 In the dashboard:
@@ -57,6 +59,8 @@ curl -sS -X POST "https://api.strait.dev/v1/api-keys" \
 ```
 
 Create short-lived keys for CI and production deploy systems. Rotate keys before `expires_at`.
+
+Expected result: the response returns a key value once. Store it before closing the page or terminal.
 
 ## 3. Export Connection Variables
 
@@ -83,6 +87,8 @@ Expected Cloud response:
 }
 ```
 
+Expected result: Cloud reports `status: "ok"` and `edition: "cloud"`.
+
 ## 4. Choose Key Scopes
 
 Start with the narrowest set that can perform the task.
@@ -97,6 +103,18 @@ Start with the narrowest set that can perform the task.
 | Manage event sources | `events:read`, `events:write` |
 
 If a request returns `403 Forbidden`, check both the project ID and the key scopes.
+
+Expected result: each service has only the permissions it needs.
+
+## Failure Cases
+
+| Problem | What to do |
+|---|---|
+| Project creation is blocked | Check organization project limits and billing status. |
+| API key is shown once and lost | Revoke it and create a new key. |
+| `401 Unauthorized` | Confirm the key was copied without whitespace. |
+| `403 Forbidden` | Confirm key scopes and project ID match. |
+| Health check is not Cloud | Check `STRAIT_BASE_URL`. |
 
 ## Next
 

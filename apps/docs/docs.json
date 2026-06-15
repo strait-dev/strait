@@ -39,6 +39,7 @@
                   "introduction",
                   "choose-your-path",
                   "guides/cloud-project-setup",
+                  "guides/cloud-dashboard",
                   "quickstart"
                 ]
               },
@@ -71,8 +72,19 @@
                   "guides/handle-failed-runs",
                   "operations/observability",
                   "operations/health-readiness",
-                  "guides/troubleshooting",
                   "concepts/debug-bundles"
+                ]
+              },
+              {
+                "group": "Troubleshooting",
+                "pages": [
+                  "guides/troubleshooting",
+                  "guides/troubleshooting-runs-queued",
+                  "guides/troubleshooting-run-failed",
+                  "guides/troubleshooting-private-worker",
+                  "guides/troubleshooting-webhooks",
+                  "guides/troubleshooting-event-triggers",
+                  "guides/troubleshooting-self-host-health"
                 ]
               },
               {
@@ -181,7 +193,10 @@
               },
               {
                 "group": "Development",
-                "pages": ["development/performance-reliability-0-1-6"]
+                "pages": [
+                  "development/performance-reliability-0-1-6",
+                  "development/release-docs-checklist"
+                ]
               }
             ]
           },
@@ -215,7 +230,15 @@
             "groups": [
               {
                 "group": "Overview",
-                "pages": ["api-reference/overview"]
+                "pages": [
+                  "api-reference/overview",
+                  "api-reference/jobs",
+                  "api-reference/runs",
+                  "api-reference/webhooks",
+                  "api-reference/event-sources",
+                  "api-reference/workers",
+                  "api-reference/admin-ops"
+                ]
               },
               {
                 "group": "Endpoints",

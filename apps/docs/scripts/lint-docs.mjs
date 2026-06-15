@@ -16,7 +16,9 @@
 //  11. First-party Markdown links and README commands resolve
 //  12. Request example fixtures are valid JSON, referenced, and match expected fields
 //  13. SDK docs do not claim unverified RubyGems/crates.io package installs
+//  14. Task guides include prerequisites, steps, expected results, failure cases, and next links
 
+import { spawnSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, extname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -44,6 +46,7 @@ const GO_STRING_CONST_RE =
 const CODE_TABLE_VALUE_RE = /^`([^`]+)`$/;
 const BUN_RUN_RE = /\bbun run(?: --cwd ([^\s]+))?\s+([a-zA-Z0-9:_-]+)/g;
 const BUN_DIRECT_RE = /\bbun\s+(dev|build|start|test)\b/g;
+const NUMBERED_TASK_HEADING_RE = /^## \d+\. /m;
 
 // ---- config ----------------------------------------------------------------
 const BUZZWORDS = [
@@ -73,6 +76,7 @@ const FORBIDDEN_HOSTS = [
 const DOCS = join(dirname(fileURLToPath(import.meta.url)), "..");
 const REPO = join(DOCS, "..", "..");
 const EXAMPLES = join(DOCS, "examples");
+const SNIPPETS = join(EXAMPLES, "snippets");
 const PRICING_CATALOG = JSON.parse(
   readFileSync(
     join(REPO, "packages", "billing", "catalog", "strait-pricing.json"),
@@ -167,6 +171,11 @@ function walkByExtension(dir, extension, out = []) {
   return out;
 }
 const exampleJSONFiles = walkByExtension(EXAMPLES, ".json");
+const snippetFiles = [
+  ...walkByExtension(SNIPPETS, ".ts"),
+  ...walkByExtension(SNIPPETS, ".py"),
+  ...walkByExtension(SNIPPETS, ".go"),
+];
 
 // ---- docs.json: all string scalars + route resolution ----------------------
 const docsJson = JSON.parse(readFileSync(join(DOCS, "docs.json"), "utf8"));
@@ -584,6 +593,18 @@ const REQUEST_EXAMPLE_REQUIRED_FIELDS = {
   "requests/dispatch-event.json": ["source", "project_id", "payload"],
   "requests/bulk-dlq-replay.json": ["run_ids"],
 };
+const TASK_GUIDE_FILES = [
+  "guides/cloud-dashboard.mdx",
+  "guides/cloud-project-setup.mdx",
+  "guides/inspect-runs.mdx",
+  "guides/webhooks-and-events.mdx",
+  "guides/troubleshooting-runs-queued.mdx",
+  "guides/troubleshooting-run-failed.mdx",
+  "guides/troubleshooting-private-worker.mdx",
+  "guides/troubleshooting-webhooks.mdx",
+  "guides/troubleshooting-event-triggers.mdx",
+  "guides/troubleshooting-self-host-health.mdx",
+];
 
 function allDocsText() {
   return files.map((file) => readFileSync(file, "utf8")).join("\n");
@@ -693,6 +714,92 @@ function checkSDKTruthClaims() {
         lineOf(text, "full API coverage"),
         "unverified SDK completeness claim"
       );
+    }
+  }
+}
+
+function checkTaskGuideShape() {
+  for (const file of TASK_GUIDE_FILES) {
+    const text = readFileSync(join(DOCS, file), "utf8");
+    const checks = [
+      ["## Prerequisites", "missing prerequisites section"],
+      ["## Failure Cases", "missing failure cases section"],
+      ["## Next", "missing next links section"],
+      ["Expected result:", "missing expected result"],
+    ];
+    for (const [needle, message] of checks) {
+      if (!text.includes(needle)) {
+        err(file, 1, message);
+      }
+    }
+    if (!NUMBERED_TASK_HEADING_RE.test(text)) {
+      err(file, 1, "missing numbered task steps");
+    }
+  }
+}
+
+function checkTypeScriptSnippet(file, tsTranspiler) {
+  if (!tsTranspiler) {
+    return;
+  }
+  try {
+    tsTranspiler.transformSync(readFileSync(file, "utf8"));
+  } catch (syntaxErr) {
+    err(
+      repoRel(file),
+      1,
+      `TypeScript snippet syntax error: ${syntaxErr.message}`
+    );
+  }
+}
+
+function checkPythonSnippet(file) {
+  const result = spawnSync(
+    "python3",
+    [
+      "-B",
+      "-c",
+      "import ast, pathlib, sys; ast.parse(pathlib.Path(sys.argv[1]).read_text(), filename=sys.argv[1])",
+      file,
+    ],
+    { encoding: "utf8" }
+  );
+  if (result.status !== 0) {
+    err(
+      repoRel(file),
+      1,
+      `Python snippet syntax error: ${result.stderr.trim()}`
+    );
+  }
+}
+
+function checkGoSnippet(file) {
+  const result = spawnSync("gofmt", ["-l", file], { encoding: "utf8" });
+  if (result.status !== 0) {
+    err(repoRel(file), 1, `Go snippet syntax error: ${result.stderr.trim()}`);
+  } else if (result.stdout.trim() !== "") {
+    err(repoRel(file), 1, "Go snippet is not gofmt-formatted");
+  }
+}
+
+function checkSnippetExamples() {
+  const tsTranspiler =
+    globalThis.Bun &&
+    new globalThis.Bun.Transpiler({
+      loader: "ts",
+    });
+  for (const file of snippetFiles) {
+    const extension = extname(file);
+    if (extension === ".ts") {
+      checkTypeScriptSnippet(file, tsTranspiler);
+      continue;
+    }
+    if (extension === ".py") {
+      checkPythonSnippet(file);
+      continue;
+    }
+    if (extension === ".go") {
+      checkGoSnippet(file);
     }
   }
 }
@@ -1113,11 +1220,13 @@ checkAgentDocsSync();
 checkExampleFixtures();
 checkCloudTaskRouteCoverage();
 checkSDKTruthClaims();
+checkTaskGuideShape();
+checkSnippetExamples();
 
 // ---- report ----------------------------------------------------------------
 if (errors.length === 0) {
   console.log(
-    `docs-lint: ${files.length} mdx files, ${firstPartyMarkdownFiles.length} markdown files, and ${exampleJSONFiles.length} examples checked, no problems found`
+    `docs-lint: ${files.length} mdx files, ${firstPartyMarkdownFiles.length} markdown files, ${exampleJSONFiles.length} request examples, and ${snippetFiles.length} snippets checked, no problems found`
   );
   process.exit(0);
 }
@@ -1126,6 +1235,6 @@ for (const e of errors) {
   console.error(`${e.file}:${e.line}  ${e.msg}`);
 }
 console.error(
-  `\ndocs-lint: ${errors.length} problem(s) in ${files.length} mdx files, ${firstPartyMarkdownFiles.length} markdown files, and ${exampleJSONFiles.length} examples`
+  `\ndocs-lint: ${errors.length} problem(s) in ${files.length} mdx files, ${firstPartyMarkdownFiles.length} markdown files, ${exampleJSONFiles.length} request examples, and ${snippetFiles.length} snippets`
 );
 process.exit(1);

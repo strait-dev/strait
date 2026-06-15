@@ -6,6 +6,15 @@ icon: "wrench"
 
 This page covers the failures teams hit most often and how to narrow each one down. Start with the [health endpoints](/operations/health-readiness): the internal `/health/ready` view names the exact subsystem that is down, which usually points straight at the cause.
 
+For step-by-step trees, use:
+
+- [Run Stuck Queued](/guides/troubleshooting-runs-queued)
+- [Run Failed](/guides/troubleshooting-run-failed)
+- [Private Worker Disconnected](/guides/troubleshooting-private-worker)
+- [Webhook Not Delivered](/guides/troubleshooting-webhooks)
+- [Event Trigger Not Resuming](/guides/troubleshooting-event-triggers)
+- [Self-Host Health Check Failing](/guides/troubleshooting-self-host-health)
+
 ```bash
 curl http://localhost:8080/health/ready -H "X-Internal-Secret: $INTERNAL_SECRET"
 ```

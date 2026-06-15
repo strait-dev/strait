@@ -1,0 +1,68 @@
+---
+title: "Webhook Not Delivered"
+description: "Diagnose webhook delivery, receiver status codes, signatures, and replay."
+icon: "webhook-off"
+---
+
+Use this page when a webhook receiver does not get events or rejects signed payloads.
+
+## Prerequisites
+
+- Webhook subscription ID or receiver URL
+- Receiver logs
+- Webhook signing secret
+
+## 1. Test the Receiver URL
+
+```bash
+curl -sS -X POST "$STRAIT_BASE_URL/v1/webhooks/test" \
+  -H "Authorization: Bearer $STRAIT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://ops.example.com/strait/webhooks",
+    "secret": "whsec_replace_with_returned_secret"
+  }' | jq
+```
+
+Expected result: the receiver returns `2xx`.
+
+## 2. Check Receiver Logs
+
+Look for:
+
+- TLS errors
+- non-`2xx` responses
+- signature verification failures
+- body parsing failures
+- slow handlers
+
+## 3. Verify the Signature
+
+Use the subscription signing secret returned when the webhook was created.
+
+Verify the `X-Strait-Timestamp` and `X-Strait-Signature` headers before processing the body.
+
+## 4. Check Circuit Behavior
+
+Repeated `5xx` responses can open the delivery circuit. Fix the receiver first. Strait resumes after a successful probe.
+
+## 5. Replay Delivery
+
+Replay only after the receiver is fixed. Use the webhook delivery tools in the dashboard or API reference.
+
+Expected result: the replayed delivery returns `2xx` and the receiver records the event once.
+
+## Failure Cases
+
+| Problem | What to do |
+|---|---|
+| Test webhook fails | Fix TLS, DNS, firewall, or receiver status code. |
+| Signature rejected | Confirm the secret and signed payload format. |
+| Receiver gets duplicates | Deduplicate by delivery ID or event ID. |
+| Delivery pauses repeatedly | Fix repeated `5xx` responses before replaying. |
+
+## Next
+
+- [Create Webhooks and Event Sources](/guides/webhooks-and-events)
+- [Webhook Subscriptions](/concepts/webhook-subscriptions)
+- [Security](/guides/security)

@@ -1,0 +1,68 @@
+---
+title: "Workers API"
+description: "Common API and connection surfaces for private worker execution."
+icon: "server"
+---
+
+Private workers connect to Strait over the worker plane and claim jobs from a queue.
+
+Most worker operations are handled by the CLI or SDK worker runtime. Use this page to understand the API resources around worker-mode jobs.
+
+## Prerequisites
+
+```bash
+export STRAIT_BASE_URL=https://api.strait.dev
+export STRAIT_API_KEY=strait_replace_with_your_key
+export STRAIT_PROJECT_ID=proj_replace_with_your_project_id
+```
+
+## Create a Worker-Mode Job
+
+```bash
+curl -sS -X POST "$STRAIT_BASE_URL/v1/jobs" \
+  -H "Authorization: Bearer $STRAIT_API_KEY" \
+  -H "Content-Type: application/json" \
+  --data @apps/docs/examples/requests/create-worker-job.json | jq
+```
+
+Expected result: a job with `execution_mode: "worker"` and a queue name.
+
+## Start a Worker
+
+Set the queue name in `strait.json`:
+
+```json
+{
+  "worker": {
+    "concurrency": 10,
+    "queue_name": "ml"
+  }
+}
+```
+
+Start the worker with the Strait CLI or SDK worker runtime.
+
+## Common Surfaces
+
+| Surface | Purpose |
+|---|---|
+| `POST /v1/jobs` | Create a worker-mode job. |
+| `POST /v1/jobs/{jobID}/trigger` | Enqueue work for workers. |
+| gRPC worker stream | Long-lived worker connection. |
+| `worker.queue_name` | Routes jobs to a worker pool. |
+| `worker.concurrency` | Caps parallel work in one worker process. |
+
+## Failure Cases
+
+| Problem | What to do |
+|---|---|
+| Job stays queued | Confirm worker queue matches job queue. |
+| Worker disconnects | Check gRPC URL, API key, and proxy idle timeouts. |
+| Worker receives no jobs | Confirm project ID and queue name. |
+| Run retries after disconnect | Make the handler idempotent. |
+
+## Next
+
+- [Run Private Workers](/guides/private-workers)
+- [Private Worker Disconnected](/guides/troubleshooting-private-worker)
+- [Execution Modes](/concepts/execution-modes)

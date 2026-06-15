@@ -1,0 +1,63 @@
+---
+title: "Event Sources API"
+description: "Common API operations for inbound event sources, subscriptions, dispatch, and wait events."
+icon: "radio"
+---
+
+Use Event Sources when an external system should send events into Strait.
+
+## Prerequisites
+
+```bash
+export STRAIT_BASE_URL=https://api.strait.dev
+export STRAIT_API_KEY=strait_replace_with_your_key
+```
+
+## Create an Event Source
+
+```bash
+curl -sS -X POST "$STRAIT_BASE_URL/v1/event-sources" \
+  -H "Authorization: Bearer $STRAIT_API_KEY" \
+  -H "Content-Type: application/json" \
+  --data @apps/docs/examples/requests/create-event-source.json | jq
+```
+
+Expected result: an event source with an ID.
+
+## Dispatch an Event
+
+```bash
+curl -sS -X POST "$STRAIT_BASE_URL/v1/events/dispatch" \
+  -H "Authorization: Bearer $STRAIT_API_KEY" \
+  -H "Content-Type: application/json" \
+  --data @apps/docs/examples/requests/dispatch-event.json | jq
+```
+
+## Common Operations
+
+| Operation | Method and path |
+|---|---|
+| List event sources | `GET /v1/event-sources` |
+| Create event source | `POST /v1/event-sources` |
+| Get event source | `GET /v1/event-sources/{sourceID}` |
+| Update event source | `PATCH /v1/event-sources/{sourceID}` |
+| Delete event source | `DELETE /v1/event-sources/{sourceID}` |
+| Subscribe target | `POST /v1/event-sources/{sourceID}/subscribe` |
+| Delete subscription | `DELETE /v1/event-sources/{sourceID}/subscriptions/{subID}` |
+| Dispatch event | `POST /v1/events/dispatch` |
+| Send event key | `POST /v1/events/{eventKey}/send` |
+
+## Failure Cases
+
+| Status | Meaning |
+|---|---|
+| `400` | Source, signature config, or payload is invalid. |
+| `401` | API key missing or invalid. |
+| `404` | Source, subscription, or trigger does not exist. |
+| `409` | Duplicate source or subscription conflict. |
+
+## Next
+
+- [Create Webhooks and Event Sources](/guides/webhooks-and-events)
+- [Event Trigger Not Resuming](/guides/troubleshooting-event-triggers)
+- [Event Sources](/concepts/event-sources)

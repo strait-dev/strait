@@ -91,6 +91,16 @@ Then create a client from the environment.
   ```
 </CodeGroup>
 
+## Checked REST Examples
+
+These examples use direct HTTP calls and are syntax-checked by docs lint:
+
+| Language | File |
+|---|---|
+| TypeScript | `apps/docs/examples/snippets/trigger-job.ts` |
+| Python | `apps/docs/examples/snippets/trigger_job.py` |
+| Go | `apps/docs/examples/snippets/trigger_job.go` |
+
 ## Report Progress from a Job
 
 When Strait calls your job endpoint, it includes a short-lived run token. Use that token to log progress, save checkpoints, and send heartbeats during long work.

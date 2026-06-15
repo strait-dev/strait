@@ -1,0 +1,75 @@
+---
+title: "Self-Host Health Check Failing"
+description: "Diagnose self-hosted health and readiness failures by subsystem."
+icon: "heart-pulse"
+---
+
+Use this page when a self-hosted Strait stack fails `/health`, `/ready`, or dashboard startup checks.
+
+## Prerequisites
+
+- Access to the host
+- `.env.selfhost`
+- `INTERNAL_SECRET`
+
+## 1. Read Internal Readiness
+
+```bash
+curl -sS http://localhost:8080/health/ready \
+  -H "X-Internal-Secret: $INTERNAL_SECRET" | jq
+```
+
+Expected result: each required subsystem reports healthy.
+
+## 2. Check PostgreSQL
+
+If the database check is down, verify `DATABASE_URL` and container health:
+
+```bash
+docker compose --env-file .env.selfhost \
+  -f docker-compose.base.yml \
+  -f docker-compose.selfhost.yml \
+  ps strait-postgres
+```
+
+PostgreSQL must also support logical replication for Sequin.
+
+## 3. Check Redis
+
+If Redis is down, live updates, SSE, and worker signalling are unavailable.
+
+```bash
+docker compose --env-file .env.selfhost \
+  -f docker-compose.base.yml \
+  -f docker-compose.selfhost.yml \
+  ps strait-redis
+```
+
+## 4. Check Sequin
+
+If Sequin is down, CDC-backed live updates stop.
+
+Verify `SEQUIN_BASE_URL`, `SEQUIN_API_TOKEN`, and PostgreSQL logical replication.
+
+## 5. Check Secrets
+
+`INTERNAL_SECRET`, `JWT_SIGNING_KEY`, and `SECRET_ENCRYPTION_KEY` must be stable across restarts.
+
+Do not rotate them casually. Rotation can break internal auth, run tokens, or encrypted secrets.
+
+## Failure Cases
+
+| Subsystem | What to check |
+|---|---|
+| `postgres` | `DATABASE_URL`, container state, max connections, migrations. |
+| `redis` | `REDIS_URL`, container state, network path. |
+| `sequin_cdc` | Sequin token, sink state, logical replication. |
+| `migrations` | Failed migration logs and dirty schema state. |
+| `worker_pool` | Worker mode enabled and worker capacity. |
+
+## Next
+
+- [Health and Readiness](/operations/health-readiness)
+- [Self-Hosting](/guides/self-hosting)
+- [Self-Host Upgrades](/guides/self-host-upgrades)
+- [Self-Host Backup and Restore](/guides/self-host-backup-restore)

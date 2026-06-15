@@ -32,6 +32,8 @@ curl -sS "$STRAIT_BASE_URL/v1/runs?project_id=$STRAIT_PROJECT_ID&status=failed&l
   -H "Authorization: Bearer $STRAIT_API_KEY" | jq
 ```
 
+Expected result: the list contains the recent runs visible to your API key.
+
 ## 2. Read One Run
 
 ```bash
@@ -49,6 +51,8 @@ Check these fields first:
 | `started_at` and `finished_at` | Runtime and whether the run has completed. |
 | `tags` | Caller-supplied labels used for filtering. |
 
+Expected result: you can explain the run state from status, attempts, timestamps, and error fields.
+
 ## 3. Read Events
 
 Events show state changes and SDK-reported logs.
@@ -59,6 +63,8 @@ curl -sS "$STRAIT_BASE_URL/v1/runs/$STRAIT_RUN_ID/events" \
 ```
 
 Use events to answer when the run was claimed, when an attempt started, what the job handler reported, and why a terminal state was reached.
+
+Expected result: events show the timeline of the run.
 
 ## 4. Read Outputs and Checkpoints
 
@@ -78,6 +84,8 @@ curl -sS "$STRAIT_BASE_URL/v1/runs/$STRAIT_RUN_ID/checkpoints" \
 
 Use checkpoints to resume long work without repeating completed steps.
 
+Expected result: outputs and checkpoints are either present or empty arrays.
+
 ## 5. Stream Live Updates
 
 For an active run:
@@ -95,6 +103,8 @@ curl -N "$STRAIT_BASE_URL/v1/runs/$STRAIT_RUN_ID/stream/logs" \
 ```
 
 Close the stream when the run reaches a terminal state.
+
+Expected result: the stream emits updates until the run changes state or reaches a terminal state.
 
 ## 6. Replay Only After Diagnosis
 
@@ -120,6 +130,18 @@ curl -sS -X POST "$STRAIT_BASE_URL/v1/runs/bulk-dlq-replay" \
   -H "Content-Type: application/json" \
   --data @apps/docs/examples/requests/bulk-dlq-replay.json | jq
 ```
+
+Expected result: replay returns a new run or per-run replay result.
+
+## Failure Cases
+
+| Problem | What to do |
+|---|---|
+| Run is not found | Confirm the run belongs to the API key's project. |
+| Events are empty | Confirm the run ID and retention window. |
+| Stream closes immediately | The run may already be terminal. Fetch the run. |
+| Replay fails with conflict | The run state does not allow replay. |
+| Bulk replay fails | Check `project_id`, `limit`, and each run ID. |
 
 ## Next
 

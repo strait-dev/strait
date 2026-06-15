@@ -31,6 +31,8 @@ curl -sS -X POST "$STRAIT_BASE_URL/v1/webhooks/subscriptions" \
 
 The response includes `signing_secret`. Store it immediately. Strait does not return the plaintext secret again.
 
+Expected result: the response includes a subscription and one-time signing secret.
+
 ## 2. Verify Webhook Delivery
 
 Use the same URL and signing secret you configured:
@@ -47,6 +49,8 @@ curl -sS -X POST "$STRAIT_BASE_URL/v1/webhooks/test" \
 
 Your endpoint should verify the signature, respond with `2xx`, and finish quickly. Return non-`2xx` only when you want Strait to retry delivery.
 
+Expected result: the test request reaches your receiver and returns `2xx`.
+
 ## 3. Create an Event Source
 
 An event source names a system that sends events into Strait.
@@ -61,6 +65,8 @@ curl -sS -X POST "$STRAIT_BASE_URL/v1/event-sources" \
 ```
 
 Use `signature_algorithm` when the sender supports signatures. If you set `signature_header` or `signature_secret`, Strait requires `signature_algorithm`.
+
+Expected result: the response includes an event source ID.
 
 ## 4. Subscribe a Target
 
@@ -81,6 +87,8 @@ curl -sS -X POST "$STRAIT_BASE_URL/v1/event-sources/$STRAIT_EVENT_SOURCE_ID/subs
 ```
 
 Use filters to keep one event source from triggering unrelated work.
+
+Expected result: the target subscription is active for that event source.
 
 ## 5. Dispatch an Event
 
@@ -103,8 +111,10 @@ curl -sS -X POST "$STRAIT_BASE_URL/v1/events/invoice:paid:cus_abc123/send" \
     "payload": {
       "customer_id": "cus_abc123"
     }
-  }' | jq
+}' | jq
 ```
+
+Expected result: matching jobs or workflow waits receive the event.
 
 ## 6. Operate Safely
 
@@ -115,6 +125,16 @@ curl -sS -X POST "$STRAIT_BASE_URL/v1/events/invoice:paid:cus_abc123/send" \
 | Prove an endpoint is reachable | Test the webhook subscription. |
 | Avoid duplicate external effects | Verify webhook signatures and deduplicate event IDs in your receiver. |
 | Route only matching events | Use event source subscriptions with filters. |
+
+## Failure Cases
+
+| Problem | What to do |
+|---|---|
+| Webhook URL is rejected | Use public HTTPS and remove embedded credentials. |
+| Signing secret was lost | Rotate the subscription secret. |
+| Event source accepts no signatures | Set `signature_algorithm` with the header and secret. |
+| Dispatch triggers nothing | Check source name, project ID, target subscription, and filter. |
+| Event wait does not resume | Confirm the event key exactly matches the waiting step. |
 
 ## Next
 
