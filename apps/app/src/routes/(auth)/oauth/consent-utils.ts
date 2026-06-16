@@ -4,7 +4,7 @@ export type ClientInfo = {
   redirectUrls: string[];
 };
 
-export function extractHost(uri: string | undefined): string {
+function extractHost(uri: string | undefined): string {
   if (!uri) {
     return "";
   }

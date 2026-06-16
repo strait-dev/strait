@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { resolveRedirectHost } from "../consent-utils";
 
+// extractHost is an internal helper — tested indirectly through resolveRedirectHost
+// to cover its own edge cases without exporting it.
+
 describe("resolveRedirectHost", () => {
   it("returns host from server-authoritative clientInfo when available", () => {
     const clientInfo = {
@@ -41,15 +44,35 @@ describe("resolveRedirectHost", () => {
     expect(result).toBe("first.example.com");
   });
 
-  it("returns empty string for malformed registered redirect URL", () => {
+  it("returns the raw string for a malformed registered redirect URL, never attacker.com", () => {
     const clientInfo = {
       name: "My App",
       clientId: "abc",
       redirectUrls: ["not-a-url"],
     };
     const result = resolveRedirectHost(clientInfo, "https://attacker.com/cb");
-    // Falls back to the raw string since URL() throws, but it's not a host.
-    // The important thing: attacker.com is NOT returned.
-    expect(result).not.toBe("attacker.com");
+    // extractHost falls back to the raw string when URL() throws.
+    expect(result).toBe("not-a-url");
+  });
+
+  // extractHost edge cases — exercised through resolveRedirectHost
+  it("includes port in host when the registered URL specifies one", () => {
+    const clientInfo = {
+      name: "My App",
+      clientId: "abc",
+      redirectUrls: ["https://app.example.com:8443/callback"],
+    };
+    const result = resolveRedirectHost(clientInfo, "https://attacker.com/cb");
+    expect(result).toBe("app.example.com:8443");
+  });
+
+  it("returns empty string when the registered URL is an empty string", () => {
+    const clientInfo = {
+      name: "My App",
+      clientId: "abc",
+      redirectUrls: [""],
+    };
+    const result = resolveRedirectHost(clientInfo, "https://attacker.com/cb");
+    expect(result).toBe("");
   });
 });
