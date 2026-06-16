@@ -51,9 +51,9 @@ func TestAdaptiveRun_ContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	var probeCalls atomic.Int32
-	probe := func(_ context.Context) (int, float64, error) {
+	probe := func(_ context.Context) (int, float64, bool, error) {
 		probeCalls.Add(1)
-		return 0, 0.0, nil
+		return 0, 0.0, false, nil
 	}
 
 	done := make(chan struct{})
@@ -93,13 +93,13 @@ func TestAdaptiveRun_ProbeError_ContinuesPolling(t *testing.T) {
 	defer cancel()
 
 	var callCount atomic.Int32
-	probe := func(_ context.Context) (int, float64, error) {
+	probe := func(_ context.Context) (int, float64, bool, error) {
 		n := callCount.Add(1)
 		if n <= 3 {
-			return 0, 0, fmt.Errorf("transient error %d", n)
+			return 0, 0, false, fmt.Errorf("transient error %d", n)
 		}
 		// After errors, return a signal that should scale up.
-		return 5000, 0.95, nil
+		return 5000, 0.95, false, nil
 	}
 
 	done := make(chan struct{})
@@ -136,9 +136,9 @@ func TestAdaptiveRun_ZeroInterval_DefaultsTo10s(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	var probeCalls atomic.Int32
-	probe := func(_ context.Context) (int, float64, error) {
+	probe := func(_ context.Context) (int, float64, bool, error) {
 		probeCalls.Add(1)
-		return 0, 0.0, nil
+		return 0, 0.0, false, nil
 	}
 	concWG.Go(func() {
 		a.Run(ctx, 0, probe, nil) // zero interval, nil logger
@@ -161,9 +161,9 @@ func TestAdaptiveRun_NilLogger_DoesNotPanic(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	var probeCalls atomic.Int32
-	probe := func(_ context.Context) (int, float64, error) {
+	probe := func(_ context.Context) (int, float64, bool, error) {
 		probeCalls.Add(1)
-		return 0, 0, errors.New("probe error with nil logger")
+		return 0, 0, false, errors.New("probe error with nil logger")
 	}
 
 	done := make(chan struct{})
@@ -197,8 +197,8 @@ func TestAdaptiveRun_UpdatesLimit_WhenProbeSignalsLoad(t *testing.T) {
 	a := NewAdaptiveConcurrency(1, 200, 10)
 	ctx, cancel := context.WithCancel(context.Background())
 
-	probe := func(_ context.Context) (int, float64, error) {
-		return 2000, 0.95, nil // deep queue, high utilization
+	probe := func(_ context.Context) (int, float64, bool, error) {
+		return 2000, 0.95, false, nil // deep queue, high utilization
 	}
 
 	done := make(chan struct{})
@@ -287,8 +287,8 @@ func TestAdaptiveConcurrency_NegativeInterval_DefaultsGracefully(t *testing.T) {
 	a := NewAdaptiveConcurrency(1, 10, 5)
 	ctx, cancel := context.WithCancel(context.Background())
 
-	probe := func(_ context.Context) (int, float64, error) {
-		return 0, 0.0, nil
+	probe := func(_ context.Context) (int, float64, bool, error) {
+		return 0, 0.0, false, nil
 	}
 	concWG.Go(func() {
 		a.Run(ctx, -1*time.Second, probe, slog.Default())

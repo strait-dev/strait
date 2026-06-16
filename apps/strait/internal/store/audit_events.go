@@ -243,17 +243,6 @@ func (q *Queries) CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) e
 		if err := acquireProjectRotationLock(ctx, tx, working.ProjectID); err != nil {
 			return fmt.Errorf("create audit event: rotation lock: %w", err)
 		}
-		if working.RotationEpoch == 0 && !working.IsAnchor {
-			var currentEpoch int
-			if err := tx.db.QueryRow(ctx, `
-				SELECT COALESCE(MAX(rotation_epoch), 0)
-				FROM audit_events
-				WHERE project_id = $1
-			`, working.ProjectID).Scan(&currentEpoch); err != nil {
-				return fmt.Errorf("create audit event: read current epoch: %w", err)
-			}
-			working.RotationEpoch = currentEpoch
-		}
 
 		// Chain lock. Legacy (empty shard_id) writes serialize under
 		// AdvisoryLockNsAuditChain (per-project) so the pre-shard lock
@@ -291,15 +280,32 @@ func (q *Queries) CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) e
 		// HMAC binding of shard_id this makes shards cryptographically
 		// independent sub-chains within a single project.
 		var prevHash string
-		if err := tx.db.QueryRow(ctx, `
-			SELECT COALESCE(
-			    (SELECT signature FROM audit_events
-			     WHERE project_id = $1 AND shard_id = $2 AND signature != ''
-			     ORDER BY rotation_epoch DESC, created_at DESC, id DESC LIMIT 1),
-			    $3
-			)
-		`, working.ProjectID, working.ShardID, ZeroHash).Scan(&prevHash); err != nil {
-			return fmt.Errorf("create audit event: read prev hash: %w", err)
+		if working.RotationEpoch == 0 && !working.IsAnchor {
+			if err := tx.db.QueryRow(ctx, `
+				SELECT
+					COALESCE(MAX(rotation_epoch), 0) AS rotation_epoch,
+					COALESCE(
+						(SELECT signature FROM audit_events
+						 WHERE project_id = $1 AND shard_id = $2 AND signature != ''
+						 ORDER BY rotation_epoch DESC, created_at DESC, id DESC LIMIT 1),
+						$3
+					) AS previous_hash
+				FROM audit_events
+				WHERE project_id = $1
+			`, working.ProjectID, working.ShardID, ZeroHash).Scan(&working.RotationEpoch, &prevHash); err != nil {
+				return fmt.Errorf("create audit event: read epoch and prev hash: %w", err)
+			}
+		} else {
+			if err := tx.db.QueryRow(ctx, `
+				SELECT COALESCE(
+				    (SELECT signature FROM audit_events
+				     WHERE project_id = $1 AND shard_id = $2 AND signature != ''
+				     ORDER BY rotation_epoch DESC, created_at DESC, id DESC LIMIT 1),
+				    $3
+				)
+			`, working.ProjectID, working.ShardID, ZeroHash).Scan(&prevHash); err != nil {
+				return fmt.Errorf("create audit event: read prev hash: %w", err)
+			}
 		}
 		working.PreviousHash = prevHash
 
@@ -393,11 +399,15 @@ func (q *Queries) resolveSigningKeyForEpoch(ctx context.Context, projectID strin
 	if q.secretEncryptionKey == "" {
 		return q.auditSigningKey, nil
 	}
+	if key, ok := q.auditSigningKeyCache.Get(projectID, epoch); ok {
+		return key, nil
+	}
 	stored, err := q.GetAuditSigningKey(ctx, projectID, epoch)
 	if err != nil {
 		return nil, fmt.Errorf("resolve signing key: %w", err)
 	}
 	if stored != nil {
+		q.auditSigningKeyCache.Set(projectID, epoch, stored)
 		return stored, nil
 	}
 	if epoch != 0 {
@@ -447,6 +457,7 @@ func (q *Queries) resolveSigningKeyForEpoch(ctx context.Context, projectID strin
 		// every row we sign here. Refuse instead.
 		return nil, fmt.Errorf("resolve signing key: bootstrap inserted for project %s epoch %d but subsequent read returned nothing; refusing to sign under global key to avoid signer/verifier key divergence", projectID, epoch)
 	}
+	q.auditSigningKeyCache.Set(projectID, epoch, stored)
 	return stored, nil
 }
 

@@ -56,6 +56,9 @@ func TestInitMetrics(t *testing.T) {
 	assert.NotNil(t, metrics.
 		PprofRequests,
 	)
+	assert.NotNil(t, metrics.
+		TriggerAdmissionGuard,
+	)
 
 	// Verify all metric fields are initialized.
 }

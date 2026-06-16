@@ -485,44 +485,48 @@ type JobSecret struct {
 }
 
 type JobRun struct {
-	ID                    string            `json:"id"`
-	JobID                 string            `json:"job_id"`
-	ProjectID             string            `json:"project_id"`
-	Tags                  map[string]string `json:"tags,omitempty"`
-	Status                RunStatus         `json:"status"`
-	Attempt               int               `json:"attempt"`
-	Payload               json.RawMessage   `json:"payload,omitempty"`
-	Result                json.RawMessage   `json:"result,omitempty"`
-	Metadata              map[string]string `json:"metadata,omitempty"`
-	Error                 string            `json:"error,omitempty"`
-	ErrorClass            string            `json:"error_class,omitempty"`
-	TriggeredBy           string            `json:"triggered_by"`
-	ScheduledAt           *time.Time        `json:"scheduled_at,omitempty"`
-	StartedAt             *time.Time        `json:"started_at,omitempty"`
-	FinishedAt            *time.Time        `json:"finished_at,omitempty"`
-	HeartbeatAt           *time.Time        `json:"heartbeat_at,omitempty"`
-	NextRetryAt           *time.Time        `json:"next_retry_at,omitempty"`
-	ExpiresAt             *time.Time        `json:"expires_at,omitempty"`
-	ParentRunID           string            `json:"parent_run_id,omitempty"`
-	Priority              int               `json:"priority"`
-	IdempotencyKey        string            `json:"idempotency_key,omitempty"`
-	JobVersion            int               `json:"job_version"`
-	JobVersionID          string            `json:"job_version_id,omitempty"`
-	WorkflowStepRunID     string            `json:"workflow_step_run_id,omitempty"`
-	MaxAttemptsOverride   int               `json:"max_attempts_override,omitempty"`
-	TimeoutSecsOverride   int               `json:"timeout_secs_override,omitempty"`
-	RetryBackoff          string            `json:"retry_backoff,omitempty"`
-	RetryInitialDelaySecs int               `json:"retry_initial_delay_secs,omitempty"`
-	RetryMaxDelaySecs     int               `json:"retry_max_delay_secs,omitempty"`
-	ExecutionTrace        *ExecutionTrace   `json:"execution_trace,omitempty"`
-	DebugMode             bool              `json:"debug_mode"`
-	ContinuationOf        string            `json:"continuation_of,omitempty"`
-	LineageDepth          int               `json:"lineage_depth"`
-	CreatedBy             string            `json:"created_by,omitempty"`
-	BatchID               string            `json:"batch_id,omitempty"`
-	ConcurrencyKey        string            `json:"concurrency_key,omitempty"`
-	ExecutionMode         ExecutionMode     `json:"execution_mode,omitempty"`
-	QueueName             string            `json:"queue_name,omitempty"`
+	ID                      string            `json:"id"`
+	JobID                   string            `json:"job_id"`
+	ProjectID               string            `json:"project_id"`
+	Tags                    map[string]string `json:"tags,omitempty"`
+	Status                  RunStatus         `json:"status"`
+	Attempt                 int               `json:"attempt"`
+	Payload                 json.RawMessage   `json:"payload,omitempty"`
+	Result                  json.RawMessage   `json:"result,omitempty"`
+	Metadata                map[string]string `json:"metadata,omitempty"`
+	Error                   string            `json:"error,omitempty"`
+	ErrorClass              string            `json:"error_class,omitempty"`
+	TriggeredBy             string            `json:"triggered_by"`
+	ScheduledAt             *time.Time        `json:"scheduled_at,omitempty"`
+	StartedAt               *time.Time        `json:"started_at,omitempty"`
+	FinishedAt              *time.Time        `json:"finished_at,omitempty"`
+	HeartbeatAt             *time.Time        `json:"heartbeat_at,omitempty"`
+	NextRetryAt             *time.Time        `json:"next_retry_at,omitempty"`
+	ExpiresAt               *time.Time        `json:"expires_at,omitempty"`
+	ParentRunID             string            `json:"parent_run_id,omitempty"`
+	Priority                int               `json:"priority"`
+	IdempotencyKey          string            `json:"idempotency_key,omitempty"`
+	JobVersion              int               `json:"job_version"`
+	JobVersionID            string            `json:"job_version_id,omitempty"`
+	WorkflowStepRunID       string            `json:"workflow_step_run_id,omitempty"`
+	MaxAttemptsOverride     int               `json:"max_attempts_override,omitempty"`
+	TimeoutSecsOverride     int               `json:"timeout_secs_override,omitempty"`
+	RetryBackoff            string            `json:"retry_backoff,omitempty"`
+	RetryInitialDelaySecs   int               `json:"retry_initial_delay_secs,omitempty"`
+	RetryMaxDelaySecs       int               `json:"retry_max_delay_secs,omitempty"`
+	ExecutionTrace          *ExecutionTrace   `json:"execution_trace,omitempty"`
+	DebugMode               bool              `json:"debug_mode"`
+	ContinuationOf          string            `json:"continuation_of,omitempty"`
+	LineageDepth            int               `json:"lineage_depth"`
+	CreatedBy               string            `json:"created_by,omitempty"`
+	BatchID                 string            `json:"batch_id,omitempty"`
+	ConcurrencyKey          string            `json:"concurrency_key,omitempty"`
+	ExecutionMode           ExecutionMode     `json:"execution_mode,omitempty"`
+	QueueName               string            `json:"queue_name,omitempty"`
+	JobEnabled              *bool             `json:"-"`
+	JobPaused               *bool             `json:"-"`
+	JobMaxConcurrency       *int              `json:"-"`
+	JobMaxConcurrencyPerKey *int              `json:"-"`
 	// IsRollback is retained for historical run records; always false for new runs.
 	IsRollback bool `json:"is_rollback,omitempty"`
 	// ReplayedRunID is set on a dead-letter run after it has been successfully
@@ -1114,6 +1118,13 @@ type WorkerQueueRef struct {
 	ProjectID     string
 	QueueName     string
 	EnvironmentID string
+}
+
+// WorkerQueueAvailability describes the worker queues that can accept runs
+// on this replica and the total number of currently available worker slots.
+type WorkerQueueAvailability struct {
+	Queues         []WorkerQueueRef
+	SlotsAvailable int
 }
 
 // IsValid returns true if the execution mode is a known value.

@@ -101,8 +101,12 @@ Redis is still required at startup. Cache operations fail open to in-process cac
 | `VERSION_CACHE_TTL` | `30m` | Immutable job and workflow definition cache TTL. |
 | `RUN_VERSION_CACHE_TTL` | `10m` | TTL for immutable workflow run version lookups used by worker execution policy resolution. |
 | `API_KEY_CACHE_TTL` | `60s` | API key auth cache TTL. Revocation and rotation invalidate immediately; cached values exclude secret material. |
-| `JOB_HEALTH_CACHE_TTL` | `2s` | Short TTL for adaptive job health aggregates used on hot worker paths. |
-| `JOB_HEALTH_STATS_CACHE_TTL` | `30s` | Compatibility alias for older job health stats cache users. |
+| `ADAPTIVE_TIMEOUT_ENABLED` | `false` | Enables worker adaptive HTTP timeouts from job health percentiles. Keep disabled on high-cardinality job pools unless the extra DB aggregate cost is acceptable. |
+| `JOB_HEALTH_CACHE_TTL` | `5m` | TTL for adaptive job health aggregates used on hot worker paths. |
+| `JOB_HEALTH_STATS_CACHE_TTL` | `5m` | Compatibility alias for older job health stats cache users. |
+| `ENDPOINT_GUARD_CACHE_TTL` | `1s` | TTL for worker-local allowed endpoint circuit and health guard decisions. Set `0` to disable. |
+| `ENDPOINT_HEALTH_SUCCESS_SAMPLE_INTERVAL` | `1s` | Minimum interval between successful endpoint health writes per worker and endpoint. Failures always write immediately. |
+| `ENDPOINT_CIRCUIT_SUCCESS_SAMPLE_INTERVAL` | `1s` | Minimum interval between successful endpoint circuit writes per worker and endpoint. Failures always write immediately. |
 | `JOB_DEPS_CACHE_TTL` | `5m` | Job dependency list cache TTL. Dependency create and delete invalidate affected entries. |
 | `CACHE_STATUS_READMODEL_TTL` | `5m` | Redis status read-model TTL for job runs and workflow runs. CDC updates use version compare-and-set so status does not move backward. |
 | `CACHE_SHARED_DEDUPE_TTL` | `10m` | Redis duplicate suppression TTL for CDC side effects and Sequin push webhooks. |
@@ -131,6 +135,14 @@ Strait uses a vendored and modified SQL snapshot of [PgQue](https://github.com/N
 | `MAX_BULK_TRIGGER_ITEMS` | `500` | Max items in one bulk trigger request. |
 | `IDEMPOTENCY_FAIL_OPEN` | `false` | When `false`, idempotent writes return `503` if the idempotency store is unavailable instead of risking duplicate execution. |
 | `IDEMPOTENCY_CLEANUP_TIMEOUT` | `5s` | Cleanup budget for pending idempotency rows after a failed request. |
+| `BACKPRESSURE_ENABLED` | `true` | Enable the per-project enqueue token bucket. Keep enabled unless an upstream limiter enforces equivalent tenant isolation. |
+| `BACKPRESSURE_DEFAULT_MAX_TOKENS` | `1000` | Initial enqueue burst capacity for projects without an explicit project rate-limit row. |
+| `BACKPRESSURE_DEFAULT_REFILL_PER_SEC` | `500` | Steady-state accepted enqueue refill rate per project for projects without an explicit project rate-limit row. |
+| `BACKPRESSURE_LOCAL_LEASE_SIZE` | `32` | DB-backed token lease size reserved per process before serving single-run admissions from memory. Set to `1` for strict per-trigger DB accounting. |
+| `DB_BACKPRESSURE_DISABLED` | `false` | Disable API database admission backpressure. Use only for controlled capacity tests or when an upstream limiter protects Postgres. |
+| `DB_BACKPRESSURE_SAMPLE_INTERVAL` | `100ms` | Interval for sampling Postgres pool acquire-wait pressure. |
+| `DB_BACKPRESSURE_ACQUIRE_WAIT_THRESHOLD` | `50ms` | Average connection acquire wait that starts database admission shedding. |
+| `DB_BACKPRESSURE_OCCUPANCY_THRESHOLD` | `0.90` | Pool occupancy ratio that starts database admission shedding. |
 
 ## Security
 

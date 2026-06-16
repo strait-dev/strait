@@ -27,6 +27,7 @@ func benchmarkConfig() *config.Config {
 		InternalSecret:      "test-secret-value",
 		MaxBulkTriggerItems: 500,
 		JWTSigningKey:       testJWTSigningKey,
+		JobDepsCacheTTL:     5 * time.Minute,
 	}
 }
 
@@ -68,6 +69,44 @@ func BenchmarkHandleTriggerJob(b *testing.B) {
 	})
 	b.Cleanup(srv.Close)
 	body := `{"payload":{"key":"value"}}`
+	var reqCount atomic.Uint64
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodPost, "/v1/jobs/job-123/trigger", strings.NewReader(body))
+			r.Header.Set("X-Internal-Secret", "test-secret-value")
+			r.Header.Set("Content-Type", "application/json")
+			r.RemoteAddr = uniqueRemoteAddr(&reqCount)
+			srv.ServeHTTP(w, r)
+			if w.Code != http.StatusCreated {
+				b.Fatalf("expected 201, got %d", w.Code)
+			}
+		}
+	})
+}
+
+func BenchmarkHandleTriggerJob_EmptyPayload(b *testing.B) {
+	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+			return benchmarkJob(id), nil
+		},
+		AreJobDependenciesSatisfiedFunc: func(_ context.Context, _ *domain.JobRun) (bool, error) {
+			return true, nil
+		},
+	}
+	mq := &mockQueue{
+		enqueueFn: func(_ context.Context, _ *domain.JobRun) error { return nil },
+	}
+	srv := NewServer(ServerDeps{
+		Config: benchmarkConfig(),
+		Store:  ms,
+		Queue:  mq,
+	})
+	b.Cleanup(srv.Close)
+	body := `{}`
 	var reqCount atomic.Uint64
 
 	b.ReportAllocs()

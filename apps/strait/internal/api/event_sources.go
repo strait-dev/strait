@@ -632,6 +632,7 @@ func (s *Server) dispatchEventToJob(
 		JobVersion:   job.Version,
 		JobVersionID: job.VersionID,
 	}
+	stampRunJobConfig(run, job)
 	if err := s.withTriggerLimitGuard(ctx, job, projectQuota, func(guardCtx context.Context, tx store.DBTX) error {
 		return s.enqueueTriggerRun(guardCtx, tx, run)
 	}); err != nil {

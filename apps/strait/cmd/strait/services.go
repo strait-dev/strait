@@ -344,6 +344,7 @@ func startCDCConsumer(ctx context.Context, g *pool.ContextPool, cfg *config.Conf
 		BatchSize:    cfg.CDCBatchSize,
 		WaitTimeMs:   cfg.CDCWaitTimeMs,
 	}, slog.Default())
+	cdcConsumer.SetPublisher(pub)
 	sharedDedupe := cdc.NewSharedDedupeStore(rdb, cfg.SharedDedupeTTL)
 	cacheHandlers := cdc.NewCacheReadModelHandlers(rdb, cfg.StatusReadModelTTL, slog.Default())
 	registerCDCDeliveryHandlers(cdcConsumer, pub, queries, chExporter, cacheHandlers, cacheBus, sharedDedupe)
@@ -543,31 +544,32 @@ func startAPIServer(deps apiServerDeps) {
 	siemDrain := buildAuditSIEMDrain(cfg)
 
 	srv := api.NewServer(api.ServerDeps{
-		Config:             cfg,
-		Store:              queries,
-		AnalyticsStore:     deps.analyticsStore,
-		Queue:              deps.queue,
-		PubSub:             deps.publisher,
-		MetricsHandler:     deps.metricsHandler,
-		Metrics:            deps.metrics,
-		Pinger:             pingerFromPublisher(deps.publisher),
-		HealthRegistry:     deps.healthRegistry,
-		WorkflowCallback:   deps.stepCallback,
-		WorkflowEngine:     deps.workflowEngine,
-		TxPool:             deps.txPool,
-		PoolStatter:        poolStatterFromPgxPool(deps.dbPool),
-		RedisClient:        deps.redisClient,
-		CacheBus:           deps.cacheBus,
-		CacheRegistry:      deps.cacheRegistry,
-		Encryptor:          deps.encryptor,
-		StripeWebhook:      stripeWebhook,
-		BillingEnforcer:    nilSafeBillingEnforcer(billingEnforcer),
-		UsageService:       usageSvc,
-		CHExporter:         deps.clickHouseExporter,
-		Edition:            domain.ParseEdition(cfg.Edition),
-		Version:            version,
-		CDCWebhookReceiver: deps.cdcWebhookReceiver,
-		SIEMDrain:          siemDrain,
+		Config:               cfg,
+		Store:                queries,
+		AnalyticsStore:       deps.analyticsStore,
+		Queue:                deps.queue,
+		PubSub:               deps.publisher,
+		MetricsHandler:       deps.metricsHandler,
+		Metrics:              deps.metrics,
+		Pinger:               pingerFromPublisher(deps.publisher),
+		HealthRegistry:       deps.healthRegistry,
+		WorkflowCallback:     deps.stepCallback,
+		WorkflowEngine:       deps.workflowEngine,
+		TxPool:               deps.txPool,
+		PoolStatter:          poolStatterFromPgxPool(deps.dbPool),
+		RedisClient:          deps.redisClient,
+		CacheBus:             deps.cacheBus,
+		CacheRegistry:        deps.cacheRegistry,
+		Encryptor:            deps.encryptor,
+		StripeWebhook:        stripeWebhook,
+		BillingEnforcer:      nilSafeBillingEnforcer(billingEnforcer),
+		UsageService:         usageSvc,
+		CHExporter:           deps.clickHouseExporter,
+		Edition:              domain.ParseEdition(cfg.Edition),
+		Version:              version,
+		CDCWebhookReceiver:   deps.cdcWebhookReceiver,
+		AuditAsyncBufferSize: cfg.AuditAsyncBufferSize,
+		SIEMDrain:            siemDrain,
 	})
 	registerAPIMetrics(deps.metrics, srv, siemDrain)
 
@@ -929,15 +931,15 @@ func startWorker(deps workerRuntimeDeps) {
 
 	g.Go(func(ctx context.Context) error {
 		if adaptive != nil {
-			adaptive.Run(ctx, 3*time.Second, func(probeCtx context.Context) (int, float64, error) {
+			adaptive.Run(ctx, 3*time.Second, func(probeCtx context.Context) (int, float64, bool, error) {
 				stats, err := queries.QueueStats(probeCtx)
 				if err != nil {
-					return 0, 0, err
+					return 0, 0, false, err
 				}
 				current := adaptive.CurrentLimit()
 				current = max(current, 1)
 				utilization := float64(p.ActiveCount()) / float64(current)
-				return stats.Queued, utilization, nil
+				return stats.Queued, utilization, workerDBPressure(deps.dbPool, cfg), nil
 			}, slog.Default())
 		}
 		return nil
@@ -982,6 +984,22 @@ func startWorker(deps workerRuntimeDeps) {
 	g.Go(func(ctx context.Context) error {
 		return runWorkerScheduler(ctx, deps)
 	})
+}
+
+func workerDBPressure(dbPool *pgxpool.Pool, cfg *config.Config) bool {
+	if dbPool == nil || cfg == nil || cfg.DBBackpressureDisabled {
+		return false
+	}
+	stat := dbPool.Stat()
+	maxConns := stat.MaxConns()
+	if maxConns <= 0 {
+		return false
+	}
+	threshold := cfg.DBBackpressureOccupancyThreshold
+	if threshold <= 0 || threshold > 1 {
+		threshold = 0.9
+	}
+	return stat.AcquiredConns() >= int32(float64(maxConns)*threshold)
 }
 
 func runWorkerScheduler(ctx context.Context, deps workerRuntimeDeps) error {
@@ -1314,43 +1332,52 @@ func buildExecutorConfig(
 	}
 
 	execCfg := worker.ExecutorConfig{
-		Pool:                     p,
-		Queue:                    deps.queue,
-		Wake:                     wake,
-		Degraded:                 notifier,
-		ConcurrencyLimit:         adaptive,
-		Store:                    deps.queries,
-		TxPool:                   deps.txPool,
-		PollInterval:             cfg.PollerInterval,
-		HeartbeatInterval:        cfg.HeartbeatInterval,
-		Publisher:                deps.publisher,
-		Metrics:                  deps.metrics,
-		WorkflowCallback:         deps.stepCallback,
-		Partitions:               partitions,
-		PartitionWeights:         partitionWeights,
-		ExecutorHTTPTimeout:      cfg.ExecutorHTTPTimeout,
-		ExecutorIdleConnTimeout:  cfg.ExecutorIdleConnTimeout,
-		ExecutionTraceMode:       cfg.ExecutionTraceMode,
-		AllowPrivateEndpoints:    cfg.AllowPrivateEndpoints,
-		WebhookMaxAttempts:       cfg.WebhookMaxAttempts,
-		JobCacheTTL:              cfg.JobCacheTTL,
-		VersionCacheTTL:          cfg.VersionCacheTTL,
-		RunVersionCacheTTL:       cfg.RunVersionCacheTTL,
-		JobHealthCacheTTL:        cfg.JobHealthCacheTTL,
-		RedisClient:              deps.redisClient,
-		CacheRegistry:            deps.cacheRegistry,
-		CacheBus:                 deps.cacheBus,
-		MaxDequeueBatchSize:      cfg.MaxDequeueBatchSize,
-		DefaultJobMaxConcurrency: cfg.DefaultJobMaxConcurrency,
-		MaxSnoozeCount:           cfg.MaxSnoozeCount,
-		JWTSigningKey:            cfg.JWTSigningKey,
-		ExternalAPIURL:           cfg.ExternalAPIURL,
-		DefaultRegion:            cfg.DefaultRegion,
-		Mode:                     cfg.Mode,
-		Version:                  version,
-		Edition:                  domain.ParseEdition(cfg.Edition),
-		EventChannelSize:         cfg.WorkerEventChannelSize,
-		SecretDecryptor:          deps.encryptor,
+		Pool:                    p,
+		Queue:                   deps.queue,
+		Wake:                    wake,
+		Degraded:                notifier,
+		ConcurrencyLimit:        adaptive,
+		Store:                   deps.queries,
+		TxPool:                  deps.txPool,
+		PollInterval:            cfg.PollerInterval,
+		HeartbeatInterval:       cfg.HeartbeatInterval,
+		Publisher:               deps.publisher,
+		Metrics:                 deps.metrics,
+		WorkflowCallback:        deps.stepCallback,
+		Partitions:              partitions,
+		PartitionWeights:        partitionWeights,
+		ExecutorHTTPTimeout:     cfg.ExecutorHTTPTimeout,
+		ExecutorIdleConnTimeout: cfg.ExecutorIdleConnTimeout,
+		ExecutionTraceMode:      cfg.ExecutionTraceMode,
+		AdaptiveTimeoutEnabled:  cfg.AdaptiveTimeoutEnabled,
+		AllowPrivateEndpoints:   cfg.AllowPrivateEndpoints,
+		WebhookMaxAttempts:      cfg.WebhookMaxAttempts,
+		JobCacheTTL:             cfg.JobCacheTTL,
+		VersionCacheTTL:         cfg.VersionCacheTTL,
+		RunVersionCacheTTL:      cfg.RunVersionCacheTTL,
+		JobHealthCacheTTL:       cfg.JobHealthCacheTTL,
+		EndpointGuardCacheTTL:   cfg.EndpointGuardCacheTTL,
+
+		EndpointHealthSuccessSampleInterval:  cfg.EndpointHealthSuccessSampleInterval,
+		EndpointCircuitSuccessSampleInterval: cfg.EndpointCircuitSuccessSampleInterval,
+
+		RedisClient:               deps.redisClient,
+		CacheRegistry:             deps.cacheRegistry,
+		CacheBus:                  deps.cacheBus,
+		MaxDequeueBatchSize:       cfg.MaxDequeueBatchSize,
+		DefaultJobMaxConcurrency:  cfg.DefaultJobMaxConcurrency,
+		MaxSnoozeCount:            cfg.MaxSnoozeCount,
+		JWTSigningKey:             cfg.JWTSigningKey,
+		ExternalAPIURL:            cfg.ExternalAPIURL,
+		DefaultRegion:             cfg.DefaultRegion,
+		Mode:                      cfg.Mode,
+		Version:                   version,
+		Edition:                   domain.ParseEdition(cfg.Edition),
+		SentryEnvironment:         cfg.SentryEnvironment,
+		BillingEnforcementEnabled: cfg.BillingEnforcementEnabled,
+		StripeWebhookSecret:       cfg.StripeWebhookSecret,
+		EventChannelSize:          cfg.WorkerEventChannelSize,
+		SecretDecryptor:           deps.encryptor,
 		DLQCapEnforcer: worker.NewDLQCapEnforcer(deps.queries, worker.DLQCapConfig{
 			MaxPerJob:     cfg.DLQMaxPerJob,
 			MaxPerProject: cfg.DLQMaxPerProject,

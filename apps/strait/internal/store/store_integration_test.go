@@ -2509,6 +2509,34 @@ func TestQueueStats(t *testing.T) {
 		1,
 	)
 
+	require.NoError(t, q.UpdateRunStatus(ctx,
+		queued.ID,
+		domain.StatusQueued,
+		domain.StatusDequeued,
+		nil,
+	))
+	require.NoError(t, q.UpdateRunStatus(ctx,
+		queued.ID,
+		domain.StatusDequeued,
+		domain.StatusExecuting,
+		nil,
+	))
+	require.NoError(t, q.UpdateRunStatus(ctx,
+		queued.ID,
+		domain.StatusExecuting,
+		domain.StatusCompleted,
+		nil,
+	))
+
+	stats, err = q.QueueStats(ctx)
+	require.NoError(t, err)
+	require.False(t, stats.
+		Queued !=
+		0 || stats.
+		Executing !=
+		1 || stats.Delayed !=
+		1,
+	)
 }
 
 func mustStore(t *testing.T) *store.Queries {

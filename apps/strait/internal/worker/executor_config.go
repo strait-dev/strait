@@ -35,7 +35,11 @@ type ExecutorConfig struct {
 	ExecutorHTTPTimeout        time.Duration
 	ExecutorIdleConnTimeout    time.Duration
 	AllowPrivateEndpoints      bool
+	AdaptiveTimeoutEnabled     bool
 	WebhookMaxAttempts         int
+	TerminalRetryTimeout       time.Duration
+	TerminalRetryInitial       time.Duration
+	TerminalRetryMax           time.Duration
 	ExecutionTraceMode         string
 	MaxDequeueBatchSize        int
 	DefaultJobMaxConcurrency   int
@@ -44,25 +48,33 @@ type ExecutorConfig struct {
 	VersionCacheTTL            time.Duration
 	RunVersionCacheTTL         time.Duration
 	JobHealthCacheTTL          time.Duration
-	RedisClient                redis.Cmdable
-	CacheBus                   *straitcache.Bus
-	CacheRegistry              *straitcache.Registry
-	MaxSnoozeCount             int
-	JWTSigningKey              string
-	ExternalAPIURL             string
-	DefaultRegion              string
-	Mode                       string
-	Version                    string
-	Edition                    domain.Edition
-	WorkflowLookup             WorkflowLookup
-	WorkflowTriggerer          WorkflowTriggerer
-	JobLookup                  JobLookup
-	JobEnqueuer                JobEnqueuer
-	BillingEnforcer            *billing.Enforcer            // Optional: org-level billing enforcement (cloud only).
-	StripeUsageReporter        *billing.StripeUsageReporter // Optional: Stripe usage event reporting (cloud only).
-	RunCostRecorder            *billing.RunCostRecorder     // Optional: flat per-run cost recording (cloud only).
-	DLQCapEnforcer             *DLQCapEnforcer              // Optional: enforces DLQ caps before terminal dead-letter transitions.
-	SecretDecryptor            SecretDecryptor              // Optional: decrypts encrypted endpoint signing secrets.
+	EndpointGuardCacheTTL      time.Duration
+
+	EndpointHealthSuccessSampleInterval  time.Duration
+	EndpointCircuitSuccessSampleInterval time.Duration
+
+	RedisClient               redis.Cmdable
+	CacheBus                  *straitcache.Bus
+	CacheRegistry             *straitcache.Registry
+	MaxSnoozeCount            int
+	JWTSigningKey             string
+	ExternalAPIURL            string
+	DefaultRegion             string
+	Mode                      string
+	Version                   string
+	Edition                   domain.Edition
+	SentryEnvironment         string
+	BillingEnforcementEnabled bool
+	StripeWebhookSecret       string
+	WorkflowLookup            WorkflowLookup
+	WorkflowTriggerer         WorkflowTriggerer
+	JobLookup                 JobLookup
+	JobEnqueuer               JobEnqueuer
+	BillingEnforcer           *billing.Enforcer            // Optional: org-level billing enforcement (cloud only).
+	StripeUsageReporter       *billing.StripeUsageReporter // Optional: Stripe usage event reporting (cloud only).
+	RunCostRecorder           *billing.RunCostRecorder     // Optional: flat per-run cost recording (cloud only).
+	DLQCapEnforcer            *DLQCapEnforcer              // Optional: enforces DLQ caps before terminal dead-letter transitions.
+	SecretDecryptor           SecretDecryptor              // Optional: decrypts encrypted endpoint signing secrets.
 	// QueueSnapshotter provides the set of queue names with active workers on
 	// this replica. When set, the poll loop performs a second dequeue pass
 	// for worker-mode runs filtered to those queues.
@@ -94,6 +106,9 @@ const (
 	defaultCircuitFailureThreshold = 5
 	defaultCircuitOpenDuration     = time.Minute
 	defaultDegradedPollInterval    = time.Second
+	defaultTerminalRetryTimeout    = 2 * time.Minute
+	defaultTerminalRetryInitial    = 200 * time.Millisecond
+	defaultTerminalRetryMax        = 2 * time.Second
 )
 
 func resolveDegradedPollInterval(d time.Duration) time.Duration {
@@ -101,6 +116,29 @@ func resolveDegradedPollInterval(d time.Duration) time.Duration {
 		return defaultDegradedPollInterval
 	}
 	return d
+}
+
+func resolveTerminalRetryTimeout(d time.Duration) time.Duration {
+	if d < 0 {
+		return -1
+	}
+	if d == 0 {
+		return defaultTerminalRetryTimeout
+	}
+	return d
+}
+
+func resolveTerminalRetryBackoff(initial, maxDelay time.Duration) (time.Duration, time.Duration) {
+	if initial <= 0 {
+		initial = defaultTerminalRetryInitial
+	}
+	if maxDelay <= 0 {
+		maxDelay = defaultTerminalRetryMax
+	}
+	if maxDelay < initial {
+		maxDelay = initial
+	}
+	return initial, maxDelay
 }
 
 func NewExecutor(cfg ExecutorConfig) *Executor {
@@ -122,6 +160,7 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 	runVersionCache := newTierWorkflowRunVersionCache(cfg.RunVersionCacheTTL, cacheDeps)
 	stepsVersionCache := newTierWorkflowStepsVersionCache(cfg.VersionCacheTTL, cacheDeps)
 	jobHealthCache := newTierJobHealthCache(cfg.JobHealthCacheTTL, cacheDeps)
+	terminalRetryInitial, terminalRetryMax := resolveTerminalRetryBackoff(cfg.TerminalRetryInitial, cfg.TerminalRetryMax)
 
 	return &Executor{
 		pool:                     cfg.Pool,
@@ -142,6 +181,10 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		circuitOpenFor:           defaultCircuitOpenDuration,
 		logger:                   slog.Default(),
 		webhookMaxRetry:          whMaxAttempts,
+		terminalRetryTimeout:     resolveTerminalRetryTimeout(cfg.TerminalRetryTimeout),
+		terminalRetryInitial:     terminalRetryInitial,
+		terminalRetryMax:         terminalRetryMax,
+		adaptiveTimeoutEnabled:   cfg.AdaptiveTimeoutEnabled,
 		executionTraceMode:       normalizeExecutionTraceMode(cfg.ExecutionTraceMode),
 		eventCh:                  make(chan runEventEnvelope, resolveEventChannelSize(cfg.EventChannelSize)),
 		eventChannelSize:         resolveEventChannelSize(cfg.EventChannelSize),
@@ -153,21 +196,38 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		runVersionCache:          runVersionCache,
 		stepsVersionCache:        stepsVersionCache,
 		jobHealthCache:           jobHealthCache,
-		memoryPressureThreshold:  cfg.MemoryPressureThresholdPct,
-		maxSnoozeCount:           cfg.MaxSnoozeCount,
-		jwtSigningKey:            cfg.JWTSigningKey,
-		externalAPIURL:           cfg.ExternalAPIURL,
-		defaultRegion:            cfg.DefaultRegion,
-		mode:                     cfg.Mode,
-		version:                  cfg.Version,
-		edition:                  cfg.Edition,
-		billingEnforcer:          cfg.BillingEnforcer,
-		stripeUsageReporter:      cfg.StripeUsageReporter,
-		runCostRecorder:          cfg.RunCostRecorder,
-		dlqCapEnforcer:           cfg.DLQCapEnforcer,
-		secretDecryptor:          cfg.SecretDecryptor,
-		healthScorer:             NewHealthScorer(cfg.Store),
-		drain:                    newDrainController(queueMetrics),
+		endpointGuardCache:       newEndpointGuardCache(cfg.EndpointGuardCacheTTL),
+		dispatchSecretsCache: newExecutorMetadataCache(
+			dispatchMetadataCacheTTL,
+			cloneJobSecrets,
+		),
+		webhookSubscriptionsCache: newExecutorMetadataCache(
+			dispatchMetadataCacheTTL,
+			cloneWebhookSubscriptions,
+		),
+		memoryPressureThreshold: cfg.MemoryPressureThresholdPct,
+		maxSnoozeCount:          cfg.MaxSnoozeCount,
+		jwtSigningKey:           cfg.JWTSigningKey,
+		externalAPIURL:          cfg.ExternalAPIURL,
+		defaultRegion:           cfg.DefaultRegion,
+		mode:                    cfg.Mode,
+		version:                 cfg.Version,
+		edition:                 cfg.Edition,
+		sentryEnvironment:       cfg.SentryEnvironment,
+		billingEnforcement:      cfg.BillingEnforcementEnabled,
+		stripeWebhookSecret:     cfg.StripeWebhookSecret,
+		billingEnforcer:         cfg.BillingEnforcer,
+		stripeUsageReporter:     cfg.StripeUsageReporter,
+		runCostRecorder:         cfg.RunCostRecorder,
+		dlqCapEnforcer:          cfg.DLQCapEnforcer,
+		secretDecryptor:         cfg.SecretDecryptor,
+		healthScorer: NewHealthScorer(
+			cfg.Store,
+			WithHealthSuccessSampleInterval(cfg.EndpointHealthSuccessSampleInterval),
+		),
+		circuitSuccessSampleInterval: cfg.EndpointCircuitSuccessSampleInterval,
+		lastCircuitSuccess:           make(map[string]time.Time),
+		drain:                        newDrainController(queueMetrics),
 		onCompleteTrigger: NewOnCompleteTrigger(
 			cfg.WorkflowLookup,
 			cfg.WorkflowTriggerer,

@@ -75,10 +75,16 @@ func (s *Server) resolveTriggerIdempotencyConflict(ctx context.Context, job *dom
 	return idempotencyResponse(existingRun)
 }
 
+type triggerIdempotencyResponse struct {
+	ID             string           `json:"id"`
+	Status         domain.RunStatus `json:"status"`
+	IdempotencyHit bool             `json:"idempotency_hit"`
+}
+
 func idempotencyResponse(run *domain.JobRun) *rawStatusError {
-	return &rawStatusError{status: http.StatusOK, body: map[string]any{
-		"id":              run.ID,
-		"status":          run.Status,
-		"idempotency_hit": true,
+	return &rawStatusError{status: http.StatusOK, body: triggerIdempotencyResponse{
+		ID:             run.ID,
+		Status:         run.Status,
+		IdempotencyHit: true,
 	}}
 }

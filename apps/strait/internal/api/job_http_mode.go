@@ -20,6 +20,9 @@ func (s *Server) checkHTTPModeAllowed(ctx context.Context, mode domain.Execution
 		return nil
 	}
 	if s.billingEnforcer == nil {
+		if s.allowsUngatedCloudDevelopment() {
+			return nil
+		}
 		return planGateUnavailable("http_mode_enforcer", errors.New("billing enforcer not configured"))
 	}
 

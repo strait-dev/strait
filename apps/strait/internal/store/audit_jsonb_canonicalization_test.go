@@ -157,17 +157,12 @@ func (f *fakeJSONBDBTX) QueryRow(_ context.Context, sql string, args ...any) pgx
 	switch {
 	case strings.Contains(sql, "pg_try_advisory_xact_lock"):
 		return &fakeScalarRow{val: true}
-	case strings.Contains(sql, "MAX(rotation_epoch)") && strings.Contains(sql, "FROM audit_events"):
+	case strings.Contains(sql, "MAX(rotation_epoch)") && strings.Contains(sql, "previous_hash") && strings.Contains(sql, "FROM audit_events"):
 		projectID, _ := args[0].(string)
-		var maxEpoch int
-		for _, row := range f.rows {
-			if row["project_id"] == projectID {
-				if epoch, _ := row["rotation_epoch"].(int); epoch > maxEpoch {
-					maxEpoch = epoch
-				}
-			}
-		}
-		return &fakeScalarRow{val: maxEpoch}
+		shardID, _ := args[1].(string)
+		zeroHash, _ := args[2].(string)
+		maxEpoch, tail := f.auditEpochAndTail(projectID, shardID, zeroHash)
+		return &fakeJSONBRow{tail: tail, rotationEpoch: &maxEpoch}
 	case strings.Contains(sql, "SELECT COALESCE(") && strings.Contains(sql, "FROM audit_events"):
 		// Tail read for previous_hash. Real query takes (projectID,
 		// shardID, ZeroHash) so the tail is shard-scoped — legacy ('')
@@ -175,15 +170,7 @@ func (f *fakeJSONBDBTX) QueryRow(_ context.Context, sql string, args ...any) pgx
 		projectID, _ := args[0].(string)
 		shardID, _ := args[1].(string)
 		zeroHash, _ := args[2].(string)
-		var tail string
-		for _, row := range f.rows {
-			if row["project_id"] == projectID && row["shard_id"] == shardID && row["signature"] != "" {
-				tail = row["signature"].(string)
-			}
-		}
-		if tail == "" {
-			tail = zeroHash
-		}
+		_, tail := f.auditEpochAndTail(projectID, shardID, zeroHash)
 		return &fakeJSONBRow{tail: tail}
 	case strings.Contains(sql, "INSERT INTO audit_events") && strings.Contains(sql, "RETURNING details"):
 		// Insert with RETURNING details. Positional args from the real
@@ -226,10 +213,31 @@ func (f *fakeJSONBDBTX) QueryRow(_ context.Context, sql string, args ...any) pgx
 	return &fakeJSONBRow{err: errors.New("fake: unexpected QueryRow")}
 }
 
+func (f *fakeJSONBDBTX) auditEpochAndTail(projectID, shardID, zeroHash string) (int, string) {
+	var maxEpoch int
+	var tail string
+	for _, row := range f.rows {
+		if row["project_id"] != projectID {
+			continue
+		}
+		if epoch, _ := row["rotation_epoch"].(int); epoch > maxEpoch {
+			maxEpoch = epoch
+		}
+		if row["shard_id"] == shardID && row["signature"] != "" {
+			tail = row["signature"].(string)
+		}
+	}
+	if tail == "" {
+		tail = zeroHash
+	}
+	return maxEpoch, tail
+}
+
 // fakeJSONBRow returns either a tail signature, a returned details blob,
 // or an error depending on which call it is for.
 type fakeJSONBRow struct {
 	tail             string
+	rotationEpoch    *int
 	returningDetails json.RawMessage
 	err              error
 }
@@ -237,6 +245,11 @@ type fakeJSONBRow struct {
 func (r *fakeJSONBRow) Scan(dest ...any) error {
 	if r.err != nil {
 		return r.err
+	}
+	if r.rotationEpoch != nil && len(dest) == 2 {
+		*dest[0].(*int) = *r.rotationEpoch
+		*dest[1].(*string) = r.tail
+		return nil
 	}
 	if r.tail != "" && len(dest) == 1 {
 		*dest[0].(*string) = r.tail

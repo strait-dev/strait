@@ -40,6 +40,8 @@ import (
 	chimw "github.com/go-chi/chi/v5/middleware"
 	"github.com/go-playground/validator/v10"
 	"github.com/redis/go-redis/v9"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 
 	scalar "github.com/MarceloPetrucio/go-scalar-api-reference"
 )
@@ -636,6 +638,7 @@ type Server struct {
 	permCache                  *permissionCache
 	quotaCache                 *quotaCache
 	apiKeyCache                *apiKeyCache
+	apiJobCache                *apiJobCache
 	jobDependencyCache         *jobDependencyCache
 	cacheBus                   *straitcache.Bus
 	workerJobBarrier           *straitcache.Tier[string, struct{}]
@@ -834,7 +837,7 @@ type ServerDeps struct {
 	Edition              domain.Edition           // Edition controls feature gating (community vs cloud).
 	Version              string                   // Build version (injected via ldflags).
 	CDCWebhookReceiver   http.Handler             // Required in production startup; handles CDC webhook push delivery.
-	AuditAsyncBufferSize int                      // Optional: overrides the audit async channel capacity (default 4096, minimum 256).
+	AuditAsyncBufferSize int                      // Optional: overrides the audit async channel capacity (default 16384, minimum 256).
 	SIEMDrain            *logdrain.AuditSIEMDrain // Optional: forwards successfully persisted audit events to an external SIEM endpoint.
 }
 
@@ -880,6 +883,10 @@ func NewServer(deps ServerDeps) *Server {
 		Bus:      deps.CacheBus,
 		Registry: deps.CacheRegistry,
 	}
+	var apiJobLoader func(context.Context, string) (*domain.Job, error)
+	if deps.Store != nil {
+		apiJobLoader = deps.Store.GetJob
+	}
 
 	srv := &Server{
 		store:              deps.Store,
@@ -904,6 +911,7 @@ func NewServer(deps ServerDeps) *Server {
 			return deps.Store.GetProjectQuota(ctx, projectID)
 		}, cacheDeps),
 		apiKeyCache:                newAPIKeyCache(apiKeyCacheTTL(deps.Config), cacheDeps),
+		apiJobCache:                newAPIJobCache(apiJobCacheTTL(deps.Config), apiJobLoader, cacheDeps),
 		jobDependencyCache:         newJobDependencyCache(jobDepsCacheTTL(deps.Config), cacheDeps),
 		cacheBus:                   deps.CacheBus,
 		workerJobBarrier:           newWorkerJobBarrier(workerJobBarrierTTL(deps.Config), deps.RedisClient),
@@ -972,8 +980,12 @@ func NewServer(deps ServerDeps) *Server {
 		srv.auditAsyncBufferSize = auditAsyncBufferSize // fallback to constant default
 	}
 
-	if srv.poolStatter != nil {
-		srv.poolBackpressure = newPoolBackpressureSampler(srv.poolStatter, 0, 0)
+	if srv.poolStatter != nil && !deps.Config.DBBackpressureDisabled {
+		srv.poolBackpressure = newPoolBackpressureSampler(
+			srv.poolStatter,
+			deps.Config.DBBackpressureSampleInterval,
+			deps.Config.DBBackpressureAcquireWaitThreshold,
+		)
 		srv.poolBackpressure.Start()
 	}
 
@@ -987,7 +999,14 @@ func NewServer(deps ServerDeps) *Server {
 
 func (s *Server) dbBackpressure(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if s.shouldApplyDBBackpressure() {
+		if isOperationalHealthPath(r.URL.Path) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if shouldShed, reason := s.dbBackpressureDecision(); shouldShed {
+			if s.metrics != nil && s.metrics.DBBackpressureShed != nil {
+				s.metrics.DBBackpressureShed.Add(r.Context(), 1, metric.WithAttributes(attribute.String("reason", string(reason))))
+			}
 			w.Header().Set("Retry-After", "1")
 			respondError(w, r, http.StatusTooManyRequests, APIError{
 				Code:    ErrorCodeRateLimited,
@@ -1014,14 +1033,34 @@ func (s *Server) dbBackpressure(next http.Handler) http.Handler {
 //     request would see a near-zero delta against the just-updated baseline
 //     and admit).
 func (s *Server) shouldApplyDBBackpressure() bool {
+	shouldShed, _ := s.dbBackpressureDecision()
+	return shouldShed
+}
+
+type dbBackpressureReason string
+
+const (
+	dbBackpressureReasonNone        dbBackpressureReason = ""
+	dbBackpressureReasonOccupancy   dbBackpressureReason = "occupancy"
+	dbBackpressureReasonAcquireWait dbBackpressureReason = "acquire_wait"
+)
+
+func (s *Server) dbBackpressureDecision() (bool, dbBackpressureReason) {
 	stats := poolBackpressureStats(s.poolStatter)
-	if stats.MaxConns > 0 && stats.AcquiredConns > int32(float64(stats.MaxConns)*0.9) {
-		return true
+	occupancyThreshold := 0.9
+	if s.config != nil {
+		occupancyThreshold = s.config.DBBackpressureOccupancyThreshold
+	}
+	if occupancyThreshold <= 0 || occupancyThreshold > 1 {
+		occupancyThreshold = 0.9
+	}
+	if stats.MaxConns > 0 && stats.AcquiredConns > int32(float64(stats.MaxConns)*occupancyThreshold) {
+		return true, dbBackpressureReasonOccupancy
 	}
 	if s.poolBackpressure != nil && s.poolBackpressure.Shedding() {
-		return true
+		return true, dbBackpressureReasonAcquireWait
 	}
-	return false
+	return false, dbBackpressureReasonNone
 }
 
 func poolBackpressureStats(ps PoolStatter) PoolBackpressureStats {
@@ -1092,6 +1131,9 @@ func (s *Server) Close() {
 	}
 	if s.apiKeyCache != nil {
 		s.apiKeyCache.Stop()
+	}
+	if s.apiJobCache != nil {
+		s.apiJobCache.Stop()
 	}
 	if s.jobDependencyCache != nil {
 		s.jobDependencyCache.Stop()

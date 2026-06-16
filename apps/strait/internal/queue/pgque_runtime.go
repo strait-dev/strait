@@ -45,6 +45,11 @@ func (q *PgQueQueue) routeState(routeKey string) *pgQueRouteState {
 	return state
 }
 
+func (q *PgQueQueue) routeConfigured(routeKey string) bool {
+	state := q.routeState(routeKey)
+	return state.configured.Load()
+}
+
 func (q *PgQueQueue) ensureRunRouteCached(ctx context.Context, run *domain.JobRun) error {
 	routeKey, err := q.routeKeyForRun(ctx, q.db, run)
 	if err != nil {
@@ -52,6 +57,18 @@ func (q *PgQueQueue) ensureRunRouteCached(ctx context.Context, run *domain.JobRu
 	}
 	state := q.routeState(routeKey)
 	return q.ensureRouteCached(ctx, state, routeKey, state.queueName)
+}
+
+func (q *PgQueQueue) PrepareRouteForJob(ctx context.Context, job *domain.Job) error {
+	if job == nil {
+		return nil
+	}
+	return q.ensureRunRouteCached(ctx, &domain.JobRun{
+		JobID:         job.ID,
+		ProjectID:     job.ProjectID,
+		ExecutionMode: job.ExecutionMode,
+		QueueName:     job.Queue,
+	})
 }
 
 func (q *PgQueQueue) ensureRunRoutesCached(ctx context.Context, runs []*domain.JobRun) error {

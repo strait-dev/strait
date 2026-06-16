@@ -113,6 +113,30 @@ func TestBackpressure_RefillAfterWait(t *testing.T) {
 
 }
 
+func TestBackpressure_PreservesPartialRefillAcrossSuccessfulConsume(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	mustClean(t, ctx)
+
+	bp := queue.NewBackpressure(testDB.Pool, queue.BackpressureConfig{
+		DefaultMaxTokens:    2,
+		DefaultRefillPerSec: 2, // 2/sec -> 500ms per token
+	}, true)
+	project := "proj-bp-partial-refill"
+
+	require.NoError(t, bp.TryConsume(ctx, project))
+
+	// This consumes the second burst token before a full refill token is earned.
+	// The bucket must keep the partial refill time instead of resetting
+	// last_refill_at, otherwise steady traffic below the configured refill rate
+	// slowly starves itself.
+	time.Sleep(350 * time.Millisecond)
+	require.NoError(t, bp.TryConsume(ctx, project))
+
+	time.Sleep(250 * time.Millisecond)
+	require.NoError(t, bp.TryConsume(ctx, project))
+}
+
 func TestBackpressure_DisabledIsNoOp(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

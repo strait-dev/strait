@@ -4,11 +4,13 @@ import (
 	"encoding/json"
 	"net/http"
 	"reflect"
+	"sync"
 
 	"github.com/danielgtaylor/huma/v2"
 )
 
 var errorResponseType = reflect.TypeFor[ErrorResponse]()
+var humaErrorOverrideOnce sync.Once
 
 // humaStatusError carries an ErrorResponse together with its HTTP status so
 // it can flow through Huma's error pipeline. The JSON representation is the
@@ -56,28 +58,30 @@ func (e *humaStatusError) Schema(r huma.Registry) *huma.Schema {
 // schemas. Because huma.NewError is a package-level variable, this is a
 // process-wide override; callers gate it behind a sync.Once.
 func installHumaErrorOverride() {
-	//nolint:reassign // huma.NewError is a documented package-level extension point.
-	huma.NewError = func(status int, msg string, errs ...error) huma.StatusError {
-		details := make([]string, 0, len(errs))
-		for _, err := range errs {
-			if err == nil {
-				continue
+	humaErrorOverrideOnce.Do(func() {
+		//nolint:reassign // huma.NewError is a documented package-level extension point.
+		huma.NewError = func(status int, msg string, errs ...error) huma.StatusError {
+			details := make([]string, 0, len(errs))
+			for _, err := range errs {
+				if err == nil {
+					continue
+				}
+				details = append(details, err.Error())
 			}
-			details = append(details, err.Error())
-		}
-		message := msg
-		if message == "" {
-			message = http.StatusText(status)
-		}
-		return &humaStatusError{
-			status: status,
-			body: ErrorResponse{
-				Error: &APIError{
-					Code:    defaultErrorCode(status),
-					Message: message,
-					Details: details,
+			message := msg
+			if message == "" {
+				message = http.StatusText(status)
+			}
+			return &humaStatusError{
+				status: status,
+				body: ErrorResponse{
+					Error: &APIError{
+						Code:    defaultErrorCode(status),
+						Message: message,
+						Details: details,
+					},
 				},
-			},
+			}
 		}
-	}
+	})
 }

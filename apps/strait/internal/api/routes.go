@@ -58,7 +58,7 @@ func (s *Server) routes() chi.Router {
 	r.Use(s.sentryScope)
 	r.Use(chimw.Recoverer)
 	r.Use(apiVersionHeader)
-	if s.poolStatter != nil {
+	if s.poolStatter != nil && !s.config.DBBackpressureDisabled {
 		r.Use(s.dbBackpressure)
 	}
 	requestTimeout := s.config.RequestTimeout
@@ -66,7 +66,21 @@ func (s *Server) routes() chi.Router {
 		requestTimeout = 30 * time.Second
 	}
 	if s.config.RateLimitRequests > 0 {
-		r.Use(httprate.Limit(s.config.RateLimitRequests, s.config.RateLimitWindow, httprate.WithKeyFuncs(s.rateLimitKeyByIP)))
+		globalRateLimit := httprate.Limit(
+			s.config.RateLimitRequests,
+			s.config.RateLimitWindow,
+			httprate.WithKeyFuncs(s.rateLimitKeyByIP),
+		)
+		r.Use(func(next http.Handler) http.Handler {
+			limited := globalRateLimit(next)
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if isOperationalHealthPath(r.URL.Path) {
+					next.ServeHTTP(w, r)
+					return
+				}
+				limited.ServeHTTP(w, r)
+			})
+		})
 	}
 
 	triggerRateLimitRequests := s.config.TriggerRateLimitRequests
@@ -215,6 +229,7 @@ func (s *Server) routes() chi.Router {
 
 	// Project activity stream (SSE, no timeout -- connections stay open).
 	r.Route("/v1/projects/{projectID}/activity/stream", func(r chi.Router) {
+		r.Use(s.sseTokenAuth)
 		r.Use(s.apiKeyOrSecretAuth)
 		r.Use(s.projectContextMiddleware)
 		r.Use(s.projectRateLimit)
@@ -710,6 +725,10 @@ func (s *Server) routes() chi.Router {
 	// Agent discovery (RFC 9728 OAuth Protected Resource Metadata).
 	r.Get("/.well-known/oauth-protected-resource", s.handleOAuthProtectedResource)
 	return r
+}
+
+func isOperationalHealthPath(path string) bool {
+	return path == "/health" || path == "/health/ready"
 }
 
 func gzipBytes(src []byte) []byte {

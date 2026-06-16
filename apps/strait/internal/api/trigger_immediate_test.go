@@ -7,8 +7,11 @@ import (
 	"time"
 
 	"strait/internal/domain"
+	"strait/internal/telemetry"
 
 	"github.com/stretchr/testify/require"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 )
 
 func TestNewImmediateTriggerRunBuildsRunEnvelope(t *testing.T) {
@@ -120,10 +123,16 @@ func TestExtractDependencyKey(t *testing.T) {
 		want    string
 	}{
 		{name: "empty", payload: nil, want: ""},
+		{name: "empty object", payload: json.RawMessage(`{}`), want: ""},
 		{name: "invalid", payload: json.RawMessage(`{`), want: ""},
 		{name: "missing", payload: json.RawMessage(`{"ok":true}`), want: ""},
+		{name: "token in value", payload: json.RawMessage(`{"message":"\"dependency_key\""}`), want: ""},
+		{name: "nested key ignored", payload: json.RawMessage(`{"nested":{"dependency_key":"dep-nested"}}`), want: ""},
 		{name: "non-string", payload: json.RawMessage(`{"dependency_key":42}`), want: ""},
 		{name: "string", payload: json.RawMessage(`{"dependency_key":"dep-1"}`), want: "dep-1"},
+		{name: "string with whitespace", payload: json.RawMessage(`{"dependency_key" : "dep-spaced"}`), want: "dep-spaced"},
+		{name: "escaped string value", payload: json.RawMessage(`{"dependency_key":"dep-\u0031"}`), want: "dep-1"},
+		{name: "escaped key", payload: json.RawMessage(`{"dependency\u005fkey":"dep-2"}`), want: "dep-2"},
 	}
 
 	for _, tt := range tests {
@@ -133,4 +142,156 @@ func TestExtractDependencyKey(t *testing.T) {
 				payload))
 		})
 	}
+}
+
+func TestImmediateTriggerAuditDetailsOmitsEmptyOptionalFields(t *testing.T) {
+	t.Parallel()
+
+	details := immediateTriggerAuditDetails(&domain.JobRun{
+		ID:          "run-1",
+		Priority:    0,
+		TriggeredBy: domain.TriggerManual,
+	}, nil, "", false)
+
+	require.Equal(t, "run-1", details["run_id"])
+	require.Equal(t, domain.TriggerManual, details["triggered_by"])
+	require.NotContains(t, details, "scheduled_at")
+	require.NotContains(t, details, "idempotency_key_hash")
+	require.NotContains(t, details, "tag_keys")
+	require.NotContains(t, details, "waiting")
+}
+
+func TestImmediateTriggerAuditDetailsIncludesOperationalFields(t *testing.T) {
+	t.Parallel()
+
+	scheduledAt := time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
+	details := immediateTriggerAuditDetails(&domain.JobRun{
+		ID:          "run-1",
+		Priority:    5,
+		Tags:        map[string]string{"team": "platform", "env": "prod"},
+		TriggeredBy: domain.TriggerManual,
+	}, &scheduledAt, "idem-123", true)
+
+	require.Equal(t, "run-1", details["run_id"])
+	require.Equal(t, &scheduledAt, details["scheduled_at"])
+	require.Equal(t, 5, details["priority"])
+	require.Equal(t, "f6fdb32bfd0ba4734609b87192840b8609cea6025ab0f2452c950a1416102760", details["idempotency_key_hash"])
+	require.Equal(t, []string{"env", "team"}, details["tag_keys"])
+	require.Equal(t, true, details["waiting"])
+}
+
+func TestImmediateTriggerAuditDetailsJSONOmitsEmptyOptionalFields(t *testing.T) {
+	t.Parallel()
+
+	detailsJSON := immediateTriggerAuditDetailsJSON(&domain.JobRun{
+		ID:          "run-1",
+		Priority:    0,
+		TriggeredBy: domain.TriggerManual,
+	}, nil, "", false)
+
+	require.JSONEq(t, `{"run_id":"run-1","priority":0,"triggered_by":"manual"}`, string(detailsJSON))
+}
+
+func TestImmediateTriggerAuditDetailsJSONIncludesOperationalFields(t *testing.T) {
+	t.Parallel()
+
+	scheduledAt := time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
+	detailsJSON := immediateTriggerAuditDetailsJSON(&domain.JobRun{
+		ID:          `run-"quoted"`,
+		Priority:    5,
+		TriggeredBy: domain.TriggerManual,
+	}, &scheduledAt, "idem-123", true)
+
+	require.JSONEq(t, `{
+		"run_id":"run-\"quoted\"",
+		"priority":5,
+		"triggered_by":"manual",
+		"scheduled_at":"2026-06-09T12:00:00Z",
+		"idempotency_key_hash":"f6fdb32bfd0ba4734609b87192840b8609cea6025ab0f2452c950a1416102760",
+		"waiting":true
+	}`, string(detailsJSON))
+}
+
+func TestTriggerDependenciesSatisfiedSkipsSatisfactionCheckWhenNoDependencies(t *testing.T) {
+	t.Parallel()
+
+	listCalls := 0
+	reader := sdkmetric.NewManualReader()
+	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	t.Cleanup(func() {
+		require.NoError(t, provider.Shutdown(context.Background()))
+	})
+	counter, err := provider.Meter("trigger-immediate-test").Int64Counter("strait_trigger_dependency_gate_total")
+	require.NoError(t, err)
+
+	ms := &APIStoreMock{
+		ListJobDependenciesFunc: func(context.Context, string, int, *time.Time) ([]domain.JobDependency, error) {
+			listCalls++
+			return nil, nil
+		},
+		AreJobDependenciesSatisfiedFunc: func(context.Context, *domain.JobRun) (bool, error) {
+			require.Fail(t, "dependency satisfaction query must be skipped for jobs with no dependency edges")
+			return false, nil
+		},
+	}
+	cache := newJobDependencyCache(time.Minute)
+	t.Cleanup(cache.Stop)
+	srv := &Server{
+		store:              ms,
+		jobDependencyCache: cache,
+		metrics:            &telemetry.Metrics{TriggerDependencyGate: counter},
+	}
+
+	satisfied, err := srv.triggerDependenciesSatisfied(context.Background(), &domain.JobRun{JobID: "job-1"})
+
+	require.NoError(t, err)
+	require.True(t, satisfied)
+	require.Equal(t, 1, listCalls)
+	assertTriggerDependencyGateMetric(t, reader, "skipped")
+}
+
+func BenchmarkExtractDependencyKey(b *testing.B) {
+	cases := []struct {
+		name    string
+		payload json.RawMessage
+	}{
+		{name: "missing", payload: json.RawMessage(`{"ok":true,"value":123}`)},
+		{name: "empty_object", payload: json.RawMessage(`{}`)},
+		{name: "present", payload: json.RawMessage(`{"dependency_key":"dep-1","ok":true}`)},
+	}
+
+	for _, tc := range cases {
+		b.Run(tc.name, func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				_ = extractDependencyKey(tc.payload)
+			}
+		})
+	}
+}
+
+func assertTriggerDependencyGateMetric(t *testing.T, reader *sdkmetric.ManualReader, result string) {
+	t.Helper()
+
+	var rm metricdata.ResourceMetrics
+	require.NoError(t, reader.Collect(context.Background(), &rm))
+	for _, scope := range rm.ScopeMetrics {
+		for _, metric := range scope.Metrics {
+			if metric.Name != "strait_trigger_dependency_gate_total" {
+				continue
+			}
+			sum, ok := metric.Data.(metricdata.Sum[int64])
+			require.Truef(t, ok, "unexpected metric type %T", metric.Data)
+			for _, point := range sum.DataPoints {
+				if point.Value != 1 {
+					continue
+				}
+				got, ok := point.Attributes.Value("result")
+				if ok && got.AsString() == result {
+					return
+				}
+			}
+		}
+	}
+	require.Failf(t, "test failure", "metric result=%q not found in %#v", result, rm.ScopeMetrics)
 }

@@ -355,8 +355,8 @@ func (q *PgQueQueue) refreshCandidateClaimState(ctx context.Context, candidates 
 		)
 		SELECT input.run_id,
 		       COALESCE(priority.priority, s.priority) AS priority,
-		       s.job_max_concurrency IS NOT NULL
-		           OR s.job_max_concurrency_per_key IS NOT NULL AS has_concurrency_limit
+		       COALESCE(s.job_max_concurrency, 0) > 0
+		           OR COALESCE(s.job_max_concurrency_per_key, 0) > 0 AS has_concurrency_limit
 		FROM input
 		JOIN job_run_state s ON s.run_id = input.run_id
 		LEFT JOIN LATERAL (

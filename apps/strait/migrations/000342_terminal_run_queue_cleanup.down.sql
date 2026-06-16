@@ -1,0 +1,2 @@
+DROP TRIGGER IF EXISTS job_run_terminal_state_cleanup_ephemeral_trg ON job_run_terminal_state;
+DROP FUNCTION IF EXISTS cleanup_terminal_run_ephemeral_queue();

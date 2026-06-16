@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -151,6 +153,59 @@ func TestCompleteRunWithWebhook_StoreError_Propagated(t *testing.T) {
 		err.Error())
 }
 
+func TestCompleteRunWithWebhook_RetryableStoreErrorRetries(t *testing.T) {
+	t.Parallel()
+
+	var attempts atomic.Int32
+	store := &mockExecutorStore{
+		updateRunStatusFn: func(_ context.Context, _ string, _, _ domain.RunStatus, _ map[string]any) error {
+			if attempts.Add(1) < 3 {
+				return fmt.Errorf("update run status: %w", retryableCompletionErr{})
+			}
+			return nil
+		},
+	}
+	exec := newSnoozeTestExecutor(t, store, 0)
+	exec.terminalRetryTimeout = 100 * time.Millisecond
+	exec.terminalRetryInitial = time.Millisecond
+	exec.terminalRetryMax = time.Millisecond
+
+	run := &domain.JobRun{ID: "run-1", Status: domain.StatusExecuting}
+	job := &domain.Job{ID: "job-1", WebhookURL: ""}
+
+	err := exec.completeRunWithWebhook(context.Background(), run, job,
+		domain.StatusCompleted, map[string]any{})
+	require.NoError(t, err)
+	require.EqualValues(t, 3, attempts.Load())
+	require.Len(t, store.statusUpdates(), 3)
+}
+
+func TestCompleteRunWithWebhook_RetryableStoreErrorStopsOnContextCancel(t *testing.T) {
+	t.Parallel()
+
+	store := &mockExecutorStore{
+		updateRunStatusFn: func(_ context.Context, _ string, _, _ domain.RunStatus, _ map[string]any) error {
+			return fmt.Errorf("update run status: %w", retryableCompletionErr{})
+		},
+	}
+	exec := newSnoozeTestExecutor(t, store, 0)
+	exec.terminalRetryTimeout = time.Second
+	exec.terminalRetryInitial = time.Hour
+	exec.terminalRetryMax = time.Hour
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	run := &domain.JobRun{ID: "run-1", Status: domain.StatusExecuting}
+	job := &domain.Job{ID: "job-1", WebhookURL: ""}
+
+	err := exec.completeRunWithWebhook(ctx, run, job,
+		domain.StatusCompleted, map[string]any{})
+	require.Error(t, err)
+	require.ErrorIs(t, err, context.Canceled)
+	require.Len(t, store.statusUpdates(), 1)
+}
+
 func TestTerminalRunCompletion_CompletedEndpointWebhook(t *testing.T) {
 	t.Parallel()
 
@@ -256,6 +311,55 @@ func TestTerminalRunCompletion_FailedRunSkipsEndpointSuccess(t *testing.T) {
 			!completion.
 				webhookRun.FinishedAt.
 				Equal(finishedAt))
+}
+
+func TestRunWebhookEventType(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		status domain.RunStatus
+		want   string
+		ok     bool
+	}{
+		{status: domain.StatusCompleted, want: domain.WebhookEventRunCompleted, ok: true},
+		{status: domain.StatusFailed, want: domain.WebhookEventRunFailed, ok: true},
+		{status: domain.StatusTimedOut, want: domain.WebhookEventRunTimedOut, ok: true},
+		{status: domain.StatusCanceled, want: domain.WebhookEventRunCanceled, ok: true},
+		{status: domain.StatusQueued, ok: false},
+	}
+	for _, tt := range tests {
+		t.Run(string(tt.status), func(t *testing.T) {
+			got, ok := runWebhookEventType(tt.status)
+			require.Equal(t, tt.ok, ok)
+			require.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestRunSubscriptionWebhookPayload(t *testing.T) {
+	t.Parallel()
+
+	run := &domain.JobRun{
+		ID:        "run-1",
+		JobID:     "job-1",
+		ProjectID: "project-1",
+		Status:    domain.StatusCompleted,
+		Attempt:   2,
+		Result:    json.RawMessage(`{"ok":true}`),
+	}
+
+	payload, err := runSubscriptionWebhookPayload(run, domain.WebhookEventRunCompleted)
+	require.NoError(t, err)
+
+	var decoded map[string]any
+	require.NoError(t, json.Unmarshal(payload, &decoded))
+	require.Equal(t, domain.WebhookEventRunCompleted, decoded["type"])
+	require.Equal(t, "run-1", decoded["run_id"])
+	require.Equal(t, "job-1", decoded["job_id"])
+	require.Equal(t, "project-1", decoded["project_id"])
+	require.Equal(t, "completed", decoded["status"])
+	require.EqualValues(t, 2, decoded["attempt"])
+	require.Equal(t, map[string]any{"ok": true}, decoded["result"])
 }
 
 // Handler integration tests.
@@ -455,4 +559,11 @@ func (m *mockRow) Scan(dest ...any) error {
 		}
 	}
 	return errors.New("mock row: not implemented")
+}
+
+type retryableCompletionErr struct{}
+
+func (retryableCompletionErr) Error() string { return "conn closed" }
+func (retryableCompletionErr) SafeToRetry() bool {
+	return true
 }

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	straitcache "strait/internal/cache"
+	"strait/internal/domain"
 	"strait/internal/store"
 
 	"github.com/stretchr/testify/require"
@@ -23,6 +24,9 @@ func TestAPIStrongCacheConstructorsRegisterRuntimeNamespaces(t *testing.T) {
 	_ = newQuotaCache(time.Minute, func(context.Context, string) (*store.ProjectQuota, error) {
 		return nil, nil
 	}, deps)
+	_ = newAPIJobCache(time.Minute, func(context.Context, string) (*domain.Job, error) {
+		return nil, nil
+	}, deps)
 	_ = newJobDependencyCache(time.Minute, deps)
 
 	assertRegisteredNamespaces(t, registry, []string{
@@ -30,6 +34,7 @@ func TestAPIStrongCacheConstructorsRegisterRuntimeNamespaces(t *testing.T) {
 		permissionCacheNamespace,
 		permissionProjectCacheNamespace,
 		quotaCacheNamespace,
+		apiJobCacheNamespace,
 		jobDependencyCacheNamespace,
 	})
 }

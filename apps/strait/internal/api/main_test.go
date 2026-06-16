@@ -11,6 +11,8 @@ import (
 // ValidateExternalURL (which rejects DNS lookup failures to prevent SSRF) does
 // not fail on synthetic hostnames used in tests.
 func TestMain(m *testing.M) {
+	installHumaErrorOverride()
+
 	restore := httputil.SetLookupHostForTest(func(host string) ([]string, error) {
 		switch host {
 		case "internal.example.com":

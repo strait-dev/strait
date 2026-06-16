@@ -10,11 +10,14 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+	"strait/internal/telemetry"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/require"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 )
 
 func TestAcquireTriggerAdmissionLocks_UsesRowLocksWithoutAdvisoryLock(t *testing.T) {
@@ -54,6 +57,90 @@ func TestAcquireTriggerAdmissionLocks_NoLimitsSkipsDatabaseWork(t *testing.T) {
 		queryRowSQL,
 	) != 0,
 	)
+}
+
+func TestWithTriggerLimitGuard_SetsStatementTimeout(t *testing.T) {
+	t.Parallel()
+
+	tx := &triggerAdmissionTx{}
+	storeMock := &triggerAdmissionStoreMock{
+		APIStoreMock: &APIStoreMock{},
+		tx:           tx,
+	}
+	srv := &Server{store: storeMock}
+	job := &domain.Job{ID: "job-1", ProjectID: "project-1"}
+	quota := &store.ProjectQuota{ProjectID: job.ProjectID, MaxQueuedRuns: 100}
+	called := false
+
+	err := srv.withTriggerLimitGuard(context.Background(), job, quota, func(_ context.Context, gotTx store.DBTX) error {
+		called = true
+		require.Same(t, tx, gotTx)
+		return nil
+	})
+
+	require.NoError(t, err)
+	require.True(t, called)
+	require.Equal(t, 1, storeMock.txCalls)
+	require.Contains(t, strings.Join(tx.execSQL, "\n"), "SET LOCAL statement_timeout")
+}
+
+func TestWithTriggerLimitGuard_NoLimitsSkipsTransaction(t *testing.T) {
+	t.Parallel()
+
+	reader := sdkmetric.NewManualReader()
+	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	t.Cleanup(func() {
+		require.NoError(t, provider.Shutdown(context.Background()))
+	})
+	counter, err := provider.Meter("trigger-admission-test").Int64Counter("strait_trigger_admission_guard_total")
+	require.NoError(t, err)
+
+	tx := &triggerAdmissionTx{}
+	storeMock := &triggerAdmissionStoreMock{
+		APIStoreMock: &APIStoreMock{},
+		tx:           tx,
+	}
+	srv := &Server{
+		store:   storeMock,
+		metrics: &telemetry.Metrics{TriggerAdmissionGuard: counter},
+	}
+	job := &domain.Job{ID: "job-1", ProjectID: "project-1"}
+	called := false
+
+	err = srv.withTriggerLimitGuard(context.Background(), job, nil, func(_ context.Context, gotTx store.DBTX) error {
+		called = true
+		require.Nil(t, gotTx)
+		return nil
+	})
+
+	require.NoError(t, err)
+	require.True(t, called)
+	require.Zero(t, storeMock.txCalls)
+	require.Empty(t, tx.execSQL)
+	require.Empty(t, tx.queryRowSQL)
+	assertTriggerAdmissionGuardMetric(t, reader, "direct")
+}
+
+func TestTriggerAdmissionNeedsTransaction(t *testing.T) {
+	t.Parallel()
+
+	baseJob := &domain.Job{ID: "job-1", ProjectID: "project-1"}
+
+	require.False(t, triggerAdmissionNeedsTransaction(baseJob, nil))
+	require.False(t, triggerAdmissionNeedsTransaction(baseJob, &store.ProjectQuota{
+		ProjectID:            baseJob.ProjectID,
+		MaxDailyCostMicrousd: 100,
+	}))
+	require.True(t, triggerAdmissionNeedsTransaction(baseJob, &store.ProjectQuota{
+		ProjectID:     baseJob.ProjectID,
+		MaxQueuedRuns: 100,
+	}))
+	require.True(t, triggerAdmissionNeedsTransaction(&domain.Job{
+		ID:                  baseJob.ID,
+		ProjectID:           baseJob.ProjectID,
+		RateLimitMax:        10,
+		RateLimitWindowSecs: int(time.Minute.Seconds()),
+	}, nil))
 }
 
 func TestCheckTriggerLimitsInTx_UsesTransactionalCounts(t *testing.T) {
@@ -232,6 +319,70 @@ func BenchmarkTriggerAdmissionRowLocks(b *testing.B) {
 	}
 }
 
+func assertTriggerAdmissionGuardMetric(t *testing.T, reader *sdkmetric.ManualReader, path string) {
+	t.Helper()
+
+	var rm metricdata.ResourceMetrics
+	require.NoError(t, reader.Collect(context.Background(), &rm))
+	for _, scope := range rm.ScopeMetrics {
+		for _, metric := range scope.Metrics {
+			if metric.Name != "strait_trigger_admission_guard_total" {
+				continue
+			}
+			sum, ok := metric.Data.(metricdata.Sum[int64])
+			require.Truef(t, ok, "unexpected metric type %T", metric.Data)
+			for _, point := range sum.DataPoints {
+				if point.Value != 1 {
+					continue
+				}
+				got, ok := point.Attributes.Value("path")
+				if ok && got.AsString() == path {
+					return
+				}
+			}
+		}
+	}
+	require.Failf(t, "test failure", "metric path=%q not found in %#v", path, rm.ScopeMetrics)
+}
+
+func BenchmarkWithTriggerLimitGuard(b *testing.B) {
+	job := &domain.Job{ID: "job-1", ProjectID: "project-1"}
+
+	b.Run("no_limits", func(b *testing.B) {
+		srv := &Server{store: &triggerAdmissionStoreMock{
+			APIStoreMock: &APIStoreMock{},
+			tx:           &triggerAdmissionTx{},
+		}}
+
+		b.ReportAllocs()
+		for b.Loop() {
+			if err := srv.withTriggerLimitGuard(context.Background(), job, nil, func(context.Context, store.DBTX) error {
+				return nil
+			}); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+
+	b.Run("queued_quota", func(b *testing.B) {
+		tx := &triggerAdmissionTx{counts: map[string]int{"queued": 0}}
+		srv := &Server{store: &triggerAdmissionStoreMock{
+			APIStoreMock: &APIStoreMock{},
+			tx:           tx,
+		}}
+		quota := &store.ProjectQuota{ProjectID: job.ProjectID, MaxQueuedRuns: 100}
+
+		b.ReportAllocs()
+		for b.Loop() {
+			if err := srv.withTriggerLimitGuard(context.Background(), job, quota, func(context.Context, store.DBTX) error {
+				return nil
+			}); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+}
+
 func FuzzTriggerAdmissionQuotaModel(f *testing.F) {
 	f.Add(0, 1, 1)
 	f.Add(1, 1, 1)
@@ -284,6 +435,17 @@ type triggerPriorityAdmissionEnforcer struct {
 
 func (e *triggerPriorityAdmissionEnforcer) CheckMaxDispatchPriority(ctx context.Context, projectID string, priority int) error {
 	return e.checkFunc(ctx, projectID, priority)
+}
+
+type triggerAdmissionStoreMock struct {
+	*APIStoreMock
+	tx      store.DBTX
+	txCalls int
+}
+
+func (m *triggerAdmissionStoreMock) WithTx(ctx context.Context, fn func(context.Context, store.DBTX) error) error {
+	m.txCalls++
+	return fn(ctx, m.tx)
 }
 
 type triggerAdmissionTx struct {

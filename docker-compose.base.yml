@@ -11,8 +11,8 @@ x-strait-env: &strait-env
   SEQUIN_API_TOKEN: ${SEQUIN_API_TOKEN:-local-dev-sequin-api-token-change-me}
   INTERNAL_SECRET: ${INTERNAL_SECRET:-local-dev-internal-secret-change-me}
   JWT_SIGNING_KEY: ${JWT_SIGNING_KEY:-local-dev-jwt-signing-key-change-me-32chars}
-  ENCRYPTION_KEY: ${ENCRYPTION_KEY:-local-dev-encryption-key-change-me-32chars}
-  SECRET_ENCRYPTION_KEY: ${SECRET_ENCRYPTION_KEY:-local-dev-secret-encryption-key-change-me-32chars}
+  ENCRYPTION_KEY: ${ENCRYPTION_KEY:-0123456789abcdef0123456789abcdef}
+  SECRET_ENCRYPTION_KEY: ${SECRET_ENCRYPTION_KEY:-abcdef0123456789abcdef0123456789}
   LOG_LEVEL: ${LOG_LEVEL:-info}
   LOG_FORMAT: ${LOG_FORMAT:-json}
 

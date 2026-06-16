@@ -21,7 +21,7 @@ import (
 // auditAsyncBufferSize is the capacity of the buffered audit-event channel.
 // Large enough to absorb bursts on the job trigger hot path; small enough to
 // avoid unbounded memory growth if the DB stalls.
-const auditAsyncBufferSize = 4096
+const auditAsyncBufferSize = 16384
 
 // auditAsyncShutdownTimeout bounds how long Close() waits for the drainer
 // to flush pending events before abandoning them.
@@ -391,6 +391,138 @@ func (s *Server) validateActorForEmit(ctx context.Context, action string) (actor
 	return "", "", false
 }
 
+func (s *Server) auditEventFromContext(
+	ctx context.Context,
+	actorID string,
+	actorType string,
+	action string,
+	resourceType string,
+	resourceID string,
+	details json.RawMessage,
+) *domain.AuditEvent {
+	return &domain.AuditEvent{
+		ProjectID:     projectIDFromContext(ctx),
+		ActorID:       actorID,
+		ActorType:     actorType,
+		Action:        action,
+		ResourceType:  resourceType,
+		ResourceID:    resourceID,
+		Details:       details,
+		RemoteIP:      remoteIPFromContext(ctx),
+		UserAgent:     userAgentFromContext(ctx),
+		RequestID:     requestIDFromContext(ctx),
+		TraceID:       traceIDFromContext(ctx),
+		SchemaVersion: domain.AuditEventSchemaVersionCurrent,
+	}
+}
+
+func (s *Server) enqueueAuditEventAsync(
+	ctx context.Context,
+	ch chan *domain.AuditEvent,
+	stopped bool,
+	ev *domain.AuditEvent,
+) {
+	if stopped {
+		if s.metrics != nil && s.metrics.AuditEventsDropped != nil {
+			s.metrics.AuditEventsDropped.Add(ctx, 1,
+				metric.WithAttributes(attribute.String("reason", "stopped")))
+		}
+		return
+	}
+
+	if len(ch) > cap(ch)*3/4 {
+		if s.metrics != nil && s.metrics.AuditEventsDropped != nil {
+			s.metrics.AuditEventsDropped.Add(ctx, 1,
+				metric.WithAttributes(attribute.String("reason", "backpressure_degraded")))
+		}
+		syncCtx, syncCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		syncErr := s.store.CreateAuditEvent(syncCtx, ev)
+		syncCancel()
+		outcome := "success"
+		if syncErr != nil {
+			outcome = "failure"
+			slog.Warn("backpressure sync audit write failed", "action", ev.Action, "error", syncErr)
+		} else if s.metrics != nil && s.metrics.AuditEventsEmitted != nil {
+			s.metrics.AuditEventsEmitted.Add(ctx, 1,
+				metric.WithAttributes(attribute.String("mode", "sync_fallback")))
+		}
+		if s.metrics != nil && s.metrics.AuditEventsSyncFallback != nil {
+			s.metrics.AuditEventsSyncFallback.Add(ctx, 1,
+				metric.WithAttributes(attribute.String("outcome", outcome)))
+		}
+		return
+	}
+
+	// The channel may be closed between the snapshot above and the send
+	// below if stopAuditAsyncDrain runs concurrently. Recover from the
+	// resulting panic rather than adding a second lock acquisition on the
+	// hot path.
+	defer func() {
+		if r := recover(); r != nil {
+			if s.metrics != nil && s.metrics.AuditEventsDropped != nil {
+				s.metrics.AuditEventsDropped.Add(ctx, 1,
+					metric.WithAttributes(attribute.String("reason", "channel_closed")))
+			}
+			slog.Warn("audit async channel closed during send, dropping event",
+				"action", ev.Action,
+				"resource_type", ev.ResourceType,
+				"resource_id", ev.ResourceID)
+		}
+	}()
+	select {
+	case ch <- ev:
+	default:
+		if s.metrics != nil && s.metrics.AuditEventsDropped != nil {
+			s.metrics.AuditEventsDropped.Add(ctx, 1,
+				metric.WithAttributes(attribute.String("reason", "buffer_full")))
+		}
+		slog.Warn("audit async buffer full, dropping event",
+			"action", ev.Action,
+			"resource_type", ev.ResourceType,
+			"resource_id", ev.ResourceID)
+	}
+}
+
+// emitAuditEventRawAsync is a narrow fast path for callers that can prove
+// their details JSON is already valid, bounded, and free of user-supplied
+// secret-bearing values. Generic handlers must use emitAuditEventAsync so
+// marshalAndCapDetails can run redaction and size enforcement.
+func (s *Server) emitAuditEventRawAsync(
+	ctx context.Context,
+	action string,
+	resourceType string,
+	resourceID string,
+	detailsJSON json.RawMessage,
+) bool {
+	if len(detailsJSON) > auditMaxDetailsBytes {
+		return false
+	}
+	if !domain.IsKnownAuditAction(action) {
+		slog.Error("emitAuditEventRawAsync: unknown action rejected",
+			"action", action, "resource_type", resourceType, "resource_id", resourceID)
+		if s.metrics != nil && s.metrics.AuditEventsDropped != nil {
+			s.metrics.AuditEventsDropped.Add(ctx, 1,
+				metric.WithAttributes(attribute.String("reason", "unknown_action")))
+		}
+		return true
+	}
+	s.auditAsyncMu.RLock()
+	ch := s.auditAsyncCh
+	stopped := s.auditAsyncStopped
+	s.auditAsyncMu.RUnlock()
+
+	if ch == nil {
+		return false
+	}
+	actorID, actorType, ok := s.validateActorForEmit(ctx, action)
+	if !ok {
+		return true
+	}
+	ev := s.auditEventFromContext(ctx, actorID, actorType, action, resourceType, resourceID, detailsJSON)
+	s.enqueueAuditEventAsync(ctx, ch, stopped, ev)
+	return true
+}
+
 // emitAuditEventAsync builds an audit event from the request context and
 // hands it off to the background drainer. Safe to call on hot paths: the
 // caller never blocks on the DB. If the buffer is full the event is dropped
@@ -428,78 +560,6 @@ func (s *Server) emitAuditEventAsync(ctx context.Context, action, resourceType, 
 			"action", action, "error", err)
 		return
 	}
-	ev := &domain.AuditEvent{
-		ProjectID:     projectIDFromContext(ctx),
-		ActorID:       actorID,
-		ActorType:     actorType,
-		Action:        action,
-		ResourceType:  resourceType,
-		ResourceID:    resourceID,
-		Details:       detailsJSON,
-		RemoteIP:      remoteIPFromContext(ctx),
-		UserAgent:     userAgentFromContext(ctx),
-		RequestID:     requestIDFromContext(ctx),
-		TraceID:       traceIDFromContext(ctx),
-		SchemaVersion: domain.AuditEventSchemaVersionCurrent,
-	}
-
-	if stopped {
-		if s.metrics != nil && s.metrics.AuditEventsDropped != nil {
-			s.metrics.AuditEventsDropped.Add(ctx, 1,
-				metric.WithAttributes(attribute.String("reason", "stopped")))
-		}
-		return
-	}
-
-	if len(ch) > cap(ch)*3/4 {
-		if s.metrics != nil && s.metrics.AuditEventsDropped != nil {
-			s.metrics.AuditEventsDropped.Add(ctx, 1,
-				metric.WithAttributes(attribute.String("reason", "backpressure_degraded")))
-		}
-		syncCtx, syncCancel := context.WithTimeout(context.Background(), 5*time.Second)
-		syncErr := s.store.CreateAuditEvent(syncCtx, ev)
-		syncCancel()
-		outcome := "success"
-		if syncErr != nil {
-			outcome = "failure"
-			slog.Warn("backpressure sync audit write failed", "action", action, "error", syncErr)
-		} else if s.metrics != nil && s.metrics.AuditEventsEmitted != nil {
-			s.metrics.AuditEventsEmitted.Add(ctx, 1,
-				metric.WithAttributes(attribute.String("mode", "sync_fallback")))
-		}
-		if s.metrics != nil && s.metrics.AuditEventsSyncFallback != nil {
-			s.metrics.AuditEventsSyncFallback.Add(ctx, 1,
-				metric.WithAttributes(attribute.String("outcome", outcome)))
-		}
-		return
-	}
-
-	// The channel may be closed between the snapshot above and the send
-	// below if stopAuditAsyncDrain runs concurrently. Recover from the
-	// resulting panic rather than adding a second lock acquisition on the
-	// hot path.
-	defer func() {
-		if r := recover(); r != nil {
-			if s.metrics != nil && s.metrics.AuditEventsDropped != nil {
-				s.metrics.AuditEventsDropped.Add(ctx, 1,
-					metric.WithAttributes(attribute.String("reason", "channel_closed")))
-			}
-			slog.Warn("audit async channel closed during send, dropping event",
-				"action", action,
-				"resource_type", resourceType,
-				"resource_id", resourceID)
-		}
-	}()
-	select {
-	case ch <- ev:
-	default:
-		if s.metrics != nil && s.metrics.AuditEventsDropped != nil {
-			s.metrics.AuditEventsDropped.Add(ctx, 1,
-				metric.WithAttributes(attribute.String("reason", "buffer_full")))
-		}
-		slog.Warn("audit async buffer full, dropping event",
-			"action", action,
-			"resource_type", resourceType,
-			"resource_id", resourceID)
-	}
+	ev := s.auditEventFromContext(ctx, actorID, actorType, action, resourceType, resourceID, detailsJSON)
+	s.enqueueAuditEventAsync(ctx, ch, stopped, ev)
 }

@@ -26,7 +26,8 @@ type HealthSampler struct {
 	metrics  *QueueMetrics
 	logger   *slog.Logger
 
-	iterations atomic.Int64
+	iterations           atomic.Int64
+	pgstatindexAvailable atomic.Int32
 }
 
 // NewHealthSampler builds a sampler using the shared queue metrics singleton.
@@ -135,7 +136,7 @@ WHERE relname = 'job_runs_history'
 
 func (h *HealthSampler) sampleQueueDepthByStatus(ctx context.Context) {
 	const q = `
-SELECT status, COUNT(*) FROM job_runs
+SELECT status, COUNT(*) FROM job_run_read_state
 WHERE status IN ('queued', 'delayed', 'dequeued', 'executing', 'waiting', 'dead_letter')
 GROUP BY status
 `
@@ -188,18 +189,43 @@ WHERE COALESCE(s.status, jr.status) = 'queued'
 }
 
 func (h *HealthSampler) sampleIndexHealth(ctx context.Context) {
+	if !h.hasPgstatindex(ctx) {
+		return
+	}
+
 	// pgstatindex requires the pgstattuple extension. When the extension
 	// is not installed (common on managed Postgres without explicit
-	// CREATE EXTENSION), the query fails gracefully and we skip the
-	// metric.
-	const q = `SELECT COALESCE(dead_items, 0) FROM pgstatindex('idx_runs_queue_covering')`
+	// CREATE EXTENSION), hasPgstatindex skips this query so Postgres does
+	// not log an ERROR for every sampler tick.
+	const q = `SELECT COALESCE(dead_items, 0) FROM pgstatindex('idx_runs_queue_covering'::regclass)`
 	var deadItems int64
 	if err := h.db.QueryRow(ctx, q).Scan(&deadItems); err != nil {
-		// Expected on instances without pgstattuple; debug-level only.
-		h.logger.Debug("queue health sample: pgstatindex not available", "error", err)
+		h.logger.Debug("queue health sample: pgstatindex query failed", "error", err)
 		return
 	}
 	h.metrics.IndexDeadItems.Record(ctx, deadItems)
+}
+
+func (h *HealthSampler) hasPgstatindex(ctx context.Context) bool {
+	switch h.pgstatindexAvailable.Load() {
+	case 1:
+		return true
+	case -1:
+		return false
+	}
+
+	const q = `SELECT to_regprocedure('pgstatindex(regclass)') IS NOT NULL`
+	var available bool
+	if err := h.db.QueryRow(ctx, q).Scan(&available); err != nil {
+		h.logger.Debug("queue health sample: pgstatindex availability probe failed", "error", err)
+		return false
+	}
+	if available {
+		h.pgstatindexAvailable.Store(1)
+		return true
+	}
+	h.pgstatindexAvailable.Store(-1)
+	return false
 }
 
 func (h *HealthSampler) sampleOutboxClaimHealth(ctx context.Context) {

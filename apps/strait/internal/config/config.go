@@ -43,14 +43,14 @@ type Config struct {
 	HeartbeatInterval         time.Duration `env:"HEARTBEAT_INTERVAL" default:"10s"`
 	ReaperInterval            time.Duration `env:"REAPER_INTERVAL" default:"30s"`
 	StaleThreshold            time.Duration `env:"STALE_THRESHOLD" default:"1m"`
-	PollerInterval            time.Duration `env:"POLLER_INTERVAL" default:"5s"`
+	PollerInterval            time.Duration `env:"POLLER_INTERVAL" default:"1s"`
 	RunRetentionShort         time.Duration `env:"RUN_RETENTION_SHORT" default:"720h"`
 	RunRetentionLong          time.Duration `env:"RUN_RETENTION_LONG" default:"2160h"`
 	OTELEndpoint              string        `env:"OTEL_EXPORTER_OTLP_ENDPOINT"`
 	WorkflowRunRetentionDays  int           `env:"WORKFLOW_RUN_RETENTION_DAYS" default:"30"`
 	EventTriggerRetentionDays int           `env:"EVENT_TRIGGER_RETENTION_DAYS"`
 	AuditRetentionDefaultDays int           `env:"AUDIT_RETENTION_DEFAULT_DAYS" default:"365"`
-	AuditAsyncBufferSize      int           `env:"AUDIT_ASYNC_BUFFER_SIZE" default:"4096"`
+	AuditAsyncBufferSize      int           `env:"AUDIT_ASYNC_BUFFER_SIZE" default:"16384"`
 	AuditSIEMEndpoint         string        `env:"AUDIT_SIEM_ENDPOINT"`
 	AuditSIEMAuthToken        string        `env:"AUDIT_SIEM_AUTH_TOKEN"`
 	AuditSIEMBatchSize        int           `env:"AUDIT_SIEM_BATCH_SIZE" default:"100"`
@@ -79,12 +79,16 @@ type Config struct {
 
 	// MVCC horizon guardrails. These prevent stray long transactions
 	// from pinning pg_xmin and blocking autovacuum on hot queue tables.
-	DBIdleInTransactionTimeout time.Duration `env:"DB_IDLE_IN_TRANSACTION_TIMEOUT" default:"30s"`
-	DBLockTimeout              time.Duration `env:"DB_LOCK_TIMEOUT" default:"5s"`
-	DBTransactionTimeout       time.Duration `env:"DB_TRANSACTION_TIMEOUT" default:"60s"`
-	DBLongTxnAlertThreshold    time.Duration `env:"DB_LONG_TXN_ALERT_THRESHOLD" default:"60s"`
-	DBWatchdogInterval         time.Duration `env:"DB_WATCHDOG_INTERVAL" default:"15s"`
-	DBWatchdogEnabled          bool          `env:"DB_WATCHDOG_ENABLED" default:"true"`
+	DBIdleInTransactionTimeout         time.Duration `env:"DB_IDLE_IN_TRANSACTION_TIMEOUT" default:"30s"`
+	DBLockTimeout                      time.Duration `env:"DB_LOCK_TIMEOUT" default:"5s"`
+	DBTransactionTimeout               time.Duration `env:"DB_TRANSACTION_TIMEOUT" default:"60s"`
+	DBLongTxnAlertThreshold            time.Duration `env:"DB_LONG_TXN_ALERT_THRESHOLD" default:"60s"`
+	DBWatchdogInterval                 time.Duration `env:"DB_WATCHDOG_INTERVAL" default:"15s"`
+	DBWatchdogEnabled                  bool          `env:"DB_WATCHDOG_ENABLED" default:"true"`
+	DBBackpressureDisabled             bool          `env:"DB_BACKPRESSURE_DISABLED" default:"false"`
+	DBBackpressureSampleInterval       time.Duration `env:"DB_BACKPRESSURE_SAMPLE_INTERVAL" default:"100ms"`
+	DBBackpressureAcquireWaitThreshold time.Duration `env:"DB_BACKPRESSURE_ACQUIRE_WAIT_THRESHOLD" default:"50ms"`
+	DBBackpressureOccupancyThreshold   float64       `env:"DB_BACKPRESSURE_OCCUPANCY_THRESHOLD" default:"0.90"`
 
 	QueuePgQueMaintenanceInterval time.Duration `env:"QUEUE_PGQUE_MAINTENANCE_INTERVAL" default:"30s"`
 	QueuePgQueRotationPeriod      time.Duration `env:"QUEUE_PGQUE_ROTATION_PERIOD" default:"5m"`
@@ -154,6 +158,24 @@ type Config struct {
 	// the sampler; the gauge will simply report no points.
 	BackpressureSamplerInterval time.Duration `env:"BACKPRESSURE_SAMPLER_INTERVAL" default:"15s"`
 
+	// BackpressureEnabled gates the per-project enqueue token bucket. Keep this
+	// enabled in production unless an upstream limiter is enforcing equivalent
+	// tenant isolation.
+	BackpressureEnabled bool `env:"BACKPRESSURE_ENABLED" default:"true"`
+
+	// BackpressureDefaultMaxTokens controls the initial burst capacity for
+	// projects without an explicit project_rate_limits row.
+	BackpressureDefaultMaxTokens int `env:"BACKPRESSURE_DEFAULT_MAX_TOKENS" default:"1000"`
+
+	// BackpressureDefaultRefillPerSec controls the steady-state accepted enqueue
+	// rate per project for projects without an explicit project_rate_limits row.
+	BackpressureDefaultRefillPerSec int `env:"BACKPRESSURE_DEFAULT_REFILL_PER_SEC" default:"500"`
+
+	// BackpressureLocalLeaseSize controls how many DB-backed project tokens a
+	// process reserves at once before serving single-run admissions from memory.
+	// Set to 1 for strict per-trigger DB accounting.
+	BackpressureLocalLeaseSize int `env:"BACKPRESSURE_LOCAL_LEASE_SIZE" default:"32"`
+
 	// BackpressureSamplerN bounds the number of project rate-limit rows
 	// the sampler reads per tick. Larger values give better gauge
 	// coverage on high-tenant deployments at the cost of one extra
@@ -175,6 +197,7 @@ type Config struct {
 	ExecutorHTTPTimeout        time.Duration `env:"EXECUTOR_HTTP_TIMEOUT" default:"5m"`
 	ExecutorIdleConnTimeout    time.Duration `env:"EXECUTOR_IDLE_CONN_TIMEOUT" default:"1m30s"`
 	ExecutionTraceMode         string        `env:"EXECUTION_TRACE_MODE" default:"off"`
+	AdaptiveTimeoutEnabled     bool          `env:"ADAPTIVE_TIMEOUT_ENABLED" default:"false"`
 	WebhookDispatchTimeout     time.Duration `env:"WEBHOOK_DISPATCH_TIMEOUT" default:"15s"`
 	WebhookMaxPayloadBytes     int64         `env:"WEBHOOK_MAX_PAYLOAD_BYTES" default:"1048576"`
 	WebhookConcurrency         int           `env:"WEBHOOK_CONCURRENCY" default:"50"`
@@ -232,11 +255,16 @@ type Config struct {
 	VersionCacheTTL            time.Duration `env:"VERSION_CACHE_TTL" default:"30m"`
 	RunVersionCacheTTL         time.Duration `env:"RUN_VERSION_CACHE_TTL" default:"10m"`
 	APIKeyCacheTTL             time.Duration `env:"API_KEY_CACHE_TTL" default:"60s"`
-	JobHealthCacheTTL          time.Duration `env:"JOB_HEALTH_CACHE_TTL" default:"2s"`
-	// JobHealthStatsCacheTTL is kept as a compatibility alias for the
-	// short-TTL job health stats cache added before the generalized worker
-	// cache tiers. The executor uses JobHealthCacheTTL.
-	JobHealthStatsCacheTTL time.Duration `env:"JOB_HEALTH_STATS_CACHE_TTL" default:"30s"`
+	JobHealthCacheTTL          time.Duration `env:"JOB_HEALTH_CACHE_TTL" default:"5m"`
+	EndpointGuardCacheTTL      time.Duration `env:"ENDPOINT_GUARD_CACHE_TTL" default:"1s"`
+
+	EndpointHealthSuccessSampleInterval  time.Duration `env:"ENDPOINT_HEALTH_SUCCESS_SAMPLE_INTERVAL" default:"1s"`
+	EndpointCircuitSuccessSampleInterval time.Duration `env:"ENDPOINT_CIRCUIT_SUCCESS_SAMPLE_INTERVAL" default:"1s"`
+
+	// JobHealthStatsCacheTTL is kept as a compatibility alias for the job
+	// health stats cache added before the generalized worker cache tiers. The
+	// executor uses JobHealthCacheTTL.
+	JobHealthStatsCacheTTL time.Duration `env:"JOB_HEALTH_STATS_CACHE_TTL" default:"5m"`
 	JobDepsCacheTTL        time.Duration `env:"JOB_DEPS_CACHE_TTL" default:"5m"`
 	StatusReadModelTTL     time.Duration `env:"CACHE_STATUS_READMODEL_TTL" default:"5m"`
 	SharedDedupeTTL        time.Duration `env:"CACHE_SHARED_DEDUPE_TTL" default:"10m"`

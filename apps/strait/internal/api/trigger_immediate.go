@@ -1,9 +1,11 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"time"
 
 	"strait/internal/domain"
@@ -47,6 +49,11 @@ type immediateTriggerRunConfig struct {
 	status      domain.RunStatus
 }
 
+var (
+	dependencyKeyJSONToken     = []byte(`"dependency_key"`)
+	jsonUnicodeEscapeIndicator = []byte(`\u`)
+)
+
 func (s *Server) newImmediateTriggerRun(
 	ctx context.Context,
 	input *TriggerJobInput,
@@ -82,7 +89,8 @@ func (s *Server) newImmediateTriggerRun(
 		IsRollback:     false,
 		Metadata:       metadata,
 	}
-	run.Metadata = mergeRunMetadata(run.Metadata, job.DefaultRunMetadata)
+	stampRunJobConfig(run, job)
+	run.Metadata = applyDefaultRunMetadata(run.Metadata, job.DefaultRunMetadata)
 	run.ConcurrencyKey = req.ConcurrencyKey
 	run.Metadata = applyRunTraceHeaderMetadata(
 		run.Metadata,
@@ -119,7 +127,7 @@ func (s *Server) enqueueImmediateTriggerRun(
 			}
 		}
 		if initialStatus == domain.StatusQueued {
-			satisfied, depErr := s.store.AreJobDependenciesSatisfied(guardCtx, run)
+			satisfied, depErr := s.triggerDependenciesSatisfied(guardCtx, run)
 			if depErr != nil {
 				return fmt.Errorf("evaluate job dependencies: %w", depErr)
 			}
@@ -144,9 +152,34 @@ func (s *Server) enqueueImmediateTriggerRun(
 		if apiErr := enqueueAPIError(err); apiErr != nil {
 			return nil, apiErr
 		}
-		return nil, triggerLimitAPIError(err, "failed to enqueue run")
+		return nil, s.triggerLimitAPIError(err, "failed to enqueue run")
 	}
 	return result, nil
+}
+
+func (s *Server) triggerDependenciesSatisfied(ctx context.Context, run *domain.JobRun) (bool, error) {
+	if s.jobDependencyCache == nil {
+		s.recordTriggerDependencyGate(ctx, "uncached")
+		return s.store.AreJobDependenciesSatisfied(ctx, run)
+	}
+	deps, err := s.listCachedJobDependencies(ctx, run.JobID, 1000)
+	if err != nil {
+		s.recordTriggerDependencyGate(ctx, "list_error")
+		return false, fmt.Errorf("list job dependencies: %w", err)
+	}
+	if len(deps) == 0 {
+		s.recordTriggerDependencyGate(ctx, "skipped")
+		return true, nil
+	}
+	s.recordTriggerDependencyGate(ctx, "evaluated")
+	return s.store.AreJobDependenciesSatisfied(ctx, run)
+}
+
+func (s *Server) recordTriggerDependencyGate(ctx context.Context, result string) {
+	if s.metrics == nil || s.metrics.TriggerDependencyGate == nil {
+		return
+	}
+	s.metrics.TriggerDependencyGate.Add(ctx, 1, otelmetric.WithAttributes(otelattr.String("result", result)))
 }
 
 func (s *Server) emitImmediateTriggerAudit(
@@ -157,31 +190,101 @@ func (s *Server) emitImmediateTriggerAudit(
 	idempotencyKey string,
 	waitingRun bool,
 ) {
+	if len(run.Tags) == 0 {
+		detailsJSON := immediateTriggerAuditDetailsJSON(run, scheduledAt, idempotencyKey, waitingRun)
+		if s.emitAuditEventRawAsync(
+			auditContextWithProject(ctx, job.ProjectID),
+			domain.AuditActionJobTriggered,
+			"job",
+			job.ID,
+			detailsJSON,
+		) {
+			return
+		}
+	}
+	details := immediateTriggerAuditDetails(run, scheduledAt, idempotencyKey, waitingRun)
+	s.emitAuditEventAsync(auditContextWithProject(ctx, job.ProjectID), domain.AuditActionJobTriggered, "job", job.ID, details)
+}
+
+func immediateTriggerAuditDetailsJSON(
+	run *domain.JobRun,
+	scheduledAt *time.Time,
+	idempotencyKey string,
+	waitingRun bool,
+) json.RawMessage {
+	details := make([]byte, 0, 160)
+	details = append(details, `{"run_id":`...)
+	details = strconv.AppendQuote(details, run.ID)
+	details = append(details, `,"priority":`...)
+	details = strconv.AppendInt(details, int64(run.Priority), 10)
+	details = append(details, `,"triggered_by":`...)
+	details = strconv.AppendQuote(details, run.TriggeredBy)
+	if scheduledAt != nil {
+		details = append(details, `,"scheduled_at":`...)
+		details = strconv.AppendQuote(details, scheduledAt.Format(time.RFC3339Nano))
+	}
+	if idempotencyKeyHash := hashIdempotencyKey(idempotencyKey); idempotencyKeyHash != "" {
+		details = append(details, `,"idempotency_key_hash":`...)
+		details = strconv.AppendQuote(details, idempotencyKeyHash)
+	}
+	if waitingRun {
+		details = append(details, `,"waiting":true`...)
+	}
+	details = append(details, '}')
+	return details
+}
+
+func immediateTriggerAuditDetails(
+	run *domain.JobRun,
+	scheduledAt *time.Time,
+	idempotencyKey string,
+	waitingRun bool,
+) map[string]any {
 	details := map[string]any{
-		"run_id":               run.ID,
-		"scheduled_at":         scheduledAt,
-		"priority":             run.Priority,
-		"idempotency_key_hash": hashIdempotencyKey(idempotencyKey),
-		"tag_keys":             tagKeys(run.Tags),
-		"triggered_by":         run.TriggeredBy,
+		"run_id":       run.ID,
+		"priority":     run.Priority,
+		"triggered_by": run.TriggeredBy,
+	}
+	if scheduledAt != nil {
+		details["scheduled_at"] = scheduledAt
+	}
+	if idempotencyKeyHash := hashIdempotencyKey(idempotencyKey); idempotencyKeyHash != "" {
+		details["idempotency_key_hash"] = idempotencyKeyHash
+	}
+	if keys := tagKeys(run.Tags); len(keys) > 0 {
+		details["tag_keys"] = keys
 	}
 	if waitingRun {
 		details["waiting"] = true
 	}
-	s.emitAuditEventAsync(ctx, domain.AuditActionJobTriggered, "job", job.ID, details)
+	return details
+}
+
+type triggerRunResponse struct {
+	ID             string           `json:"id"`
+	Status         domain.RunStatus `json:"status"`
+	PayloadHash    string           `json:"payload_hash"`
+	IdempotencyHit bool             `json:"idempotency_hit"`
 }
 
 func triggerRunOutput(run *domain.JobRun, payloadHash string, idempotencyHit bool) *TriggerJobOutput {
-	return &TriggerJobOutput{Body: map[string]any{
-		"id":              run.ID,
-		"status":          run.Status,
-		"payload_hash":    payloadHash,
-		"idempotency_hit": idempotencyHit,
+	return &TriggerJobOutput{Body: triggerRunResponse{
+		ID:             run.ID,
+		Status:         run.Status,
+		PayloadHash:    payloadHash,
+		IdempotencyHit: idempotencyHit,
 	}}
 }
 
 func extractDependencyKey(payload json.RawMessage) string {
 	if len(payload) == 0 {
+		return ""
+	}
+	if bytes.Contains(payload, dependencyKeyJSONToken) {
+		if key, ok := extractTopLevelDependencyKey(payload); ok {
+			return key
+		}
+	} else if !bytes.Contains(payload, jsonUnicodeEscapeIndicator) {
 		return ""
 	}
 	var body map[string]any
@@ -192,4 +295,89 @@ func extractDependencyKey(payload json.RawMessage) string {
 		return key
 	}
 	return ""
+}
+
+func extractTopLevelDependencyKey(payload []byte) (string, bool) {
+	depth := 0
+	inString := false
+	escaped := false
+	for i := 0; i < len(payload); i++ {
+		c := payload[i]
+		if inString {
+			if escaped {
+				escaped = false
+				continue
+			}
+			switch c {
+			case '\\':
+				escaped = true
+			case '"':
+				inString = false
+			}
+			continue
+		}
+		switch c {
+		case '"':
+			if depth == 1 && bytes.HasPrefix(payload[i:], dependencyKeyJSONToken) {
+				if key, ok, definitive := parseDependencyKeyStringValue(payload[i+len(dependencyKeyJSONToken):]); definitive {
+					return key, ok
+				}
+			}
+			inString = true
+		case '{', '[':
+			depth++
+		case '}', ']':
+			if depth > 0 {
+				depth--
+			}
+		}
+	}
+	return "", false
+}
+
+func parseDependencyKeyStringValue(payload []byte) (string, bool, bool) {
+	i := skipJSONWhitespace(payload, 0)
+	if i >= len(payload) || payload[i] != ':' {
+		return "", false, false
+	}
+	i = skipJSONWhitespace(payload, i+1)
+	if i >= len(payload) || payload[i] != '"' {
+		return "", true, true
+	}
+	start := i
+	i++
+	escaped := false
+	for ; i < len(payload); i++ {
+		c := payload[i]
+		if escaped {
+			escaped = false
+			continue
+		}
+		switch c {
+		case '\\':
+			escaped = true
+		case '"':
+			if !bytes.Contains(payload[start:i+1], []byte(`\`)) {
+				return string(payload[start+1 : i]), true, true
+			}
+			value, err := strconv.Unquote(string(payload[start : i+1]))
+			if err != nil {
+				return "", false, false
+			}
+			return value, true, true
+		}
+	}
+	return "", false, false
+}
+
+func skipJSONWhitespace(payload []byte, i int) int {
+	for i < len(payload) {
+		switch payload[i] {
+		case ' ', '\n', '\r', '\t':
+			i++
+		default:
+			return i
+		}
+	}
+	return i
 }

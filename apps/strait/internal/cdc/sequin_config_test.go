@@ -53,6 +53,18 @@ func TestPostgresCDCInitSetsReplicaIdentityForRequiredConsumerTables(t *testing.
 	}
 }
 
+func TestPostgresCDCInitPublishesPartitionChangesViaRoot(t *testing.T) {
+	t.Parallel()
+
+	raw, err := os.ReadFile("../../../../packages/configs/postgres-init.sql")
+	require.NoError(t,
+		err)
+
+	config := string(raw)
+	require.Contains(t, config, "CREATE PUBLICATION sequin_strait_pub FOR ALL TABLES WITH (publish_via_partition_root = true)")
+	require.Contains(t, config, "ALTER PUBLICATION sequin_strait_pub SET (publish_via_partition_root = true)")
+}
+
 func TestPostgresInitCreatesStraitAppRole(t *testing.T) {
 	t.Parallel()
 

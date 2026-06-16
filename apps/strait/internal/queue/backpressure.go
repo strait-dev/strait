@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"strait/internal/store"
@@ -50,14 +51,23 @@ func AsThrottled(err error) (*ThrottledError, bool) {
 type BackpressureConfig struct {
 	DefaultMaxTokens    int
 	DefaultRefillPerSec int
+	LocalLeaseSize      int
 }
 
 // Backpressure consults the project_rate_limits table to enforce a
 // DB-side token bucket per project.
 type Backpressure struct {
-	db      store.DBTX
-	cfg     BackpressureConfig
-	enabled bool
+	db           store.DBTX
+	cfg          BackpressureConfig
+	enabled      bool
+	mu           sync.Mutex
+	localLeases  map[string]int
+	leaseRefills map[string]*leaseRefill
+}
+
+type leaseRefill struct {
+	done chan struct{}
+	err  error
 }
 
 // NewBackpressure builds a backpressure controller. When enabled is
@@ -80,7 +90,16 @@ func NewBackpressure(db store.DBTX, cfg BackpressureConfig, enabled bool) *Backp
 		cfg.DefaultMaxTokens = 1000
 		cfg.DefaultRefillPerSec = 100
 	}
-	return &Backpressure{db: db, cfg: cfg, enabled: enabled}
+	if cfg.LocalLeaseSize <= 0 {
+		cfg.LocalLeaseSize = 32
+	}
+	return &Backpressure{
+		db:           db,
+		cfg:          cfg,
+		enabled:      enabled,
+		localLeases:  make(map[string]int),
+		leaseRefills: make(map[string]*leaseRefill),
+	}
 }
 
 // TryConsume reserves one token from the project's bucket. Returns nil
@@ -141,6 +160,89 @@ func (b *Backpressure) tryConsumeNOn(ctx context.Context, db store.DBTX, project
 	if db == nil {
 		return nil
 	}
+
+	if n == 1 && b.cfg.LocalLeaseSize > 1 {
+		return b.tryConsumeWithLocalLease(ctx, db, projectID)
+	}
+
+	return b.tryConsumeNOnDB(ctx, db, projectID, n)
+}
+
+func (b *Backpressure) tryConsumeWithLocalLease(ctx context.Context, db store.DBTX, projectID string) error {
+	for {
+		refill, owner := b.beginLocalLeaseRefill(projectID)
+		if owner {
+			return b.finishLocalLeaseRefill(ctx, db, projectID, refill)
+		}
+		if refill == nil {
+			return nil
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-refill.done:
+			if refill.err != nil {
+				return refill.err
+			}
+		}
+	}
+}
+
+func (b *Backpressure) beginLocalLeaseRefill(projectID string) (*leaseRefill, bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if b.localLeases[projectID] > 0 {
+		b.localLeases[projectID]--
+		return nil, false
+	}
+
+	if refill := b.leaseRefills[projectID]; refill != nil {
+		return refill, false
+	}
+
+	refill := &leaseRefill{done: make(chan struct{})}
+	b.leaseRefills[projectID] = refill
+	return refill, true
+}
+
+func (b *Backpressure) finishLocalLeaseRefill(ctx context.Context, db store.DBTX, projectID string, refill *leaseRefill) error {
+	leaseSize := b.localLeaseSize()
+	granted := leaseSize
+	err := b.tryConsumeNOnDB(ctx, db, projectID, leaseSize)
+	if err != nil && leaseSize > 1 {
+		// Explicit project buckets may be smaller than the default bucket.
+		// Fall back to a strict one-token consume instead of rejecting useful
+		// capacity just because the configured lease is too large.
+		granted = 1
+		err = b.tryConsumeNOnDB(ctx, db, projectID, 1)
+	}
+
+	b.mu.Lock()
+	if err == nil && granted > 1 {
+		b.localLeases[projectID] += granted - 1
+	}
+	refill.err = err
+	delete(b.leaseRefills, projectID)
+	close(refill.done)
+	b.mu.Unlock()
+
+	return err
+}
+
+func (b *Backpressure) localLeaseSize() int {
+	leaseSize := b.cfg.LocalLeaseSize
+	if b.cfg.DefaultMaxTokens > 0 && leaseSize > b.cfg.DefaultMaxTokens {
+		leaseSize = b.cfg.DefaultMaxTokens
+	}
+	if leaseSize < 1 {
+		leaseSize = 1
+	}
+	return leaseSize
+}
+
+func (b *Backpressure) tryConsumeNOnDB(ctx context.Context, db store.DBTX, projectID string, n int) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "queue.Backpressure.TryConsume")
 	defer span.End()
 
@@ -159,7 +261,11 @@ func (b *Backpressure) tryConsumeNOn(ctx context.Context, db store.DBTX, project
 				project_rate_limits.tokens +
 					GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (NOW() - project_rate_limits.last_refill_at)) * project_rate_limits.refill_per_sec)::int)
 			) - $4::int,
-			last_refill_at = NOW(),
+			last_refill_at = CASE
+				WHEN GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (NOW() - project_rate_limits.last_refill_at)) * project_rate_limits.refill_per_sec)::int) > 0
+				THEN NOW()
+				ELSE project_rate_limits.last_refill_at
+			END,
 			updated_at = NOW()
 		WHERE LEAST(
 			project_rate_limits.max_tokens,

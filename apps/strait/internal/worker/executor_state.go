@@ -19,68 +19,81 @@ import (
 
 // Executor polls the queue and executes job runs via HTTP dispatch.
 type Executor struct {
-	pool                     *Pool
-	concurrencyLimit         ConcurrencyLimitProvider
-	queue                    queue.Queue
-	wake                     <-chan struct{}
-	store                    ExecutorStore
-	txPool                   store.TxBeginner
-	httpClient               *http.Client
-	pollInterval             time.Duration
-	heartbeat                *HeartbeatSender
-	publisher                pubsub.Publisher
-	metrics                  *telemetry.Metrics
-	workflowCallback         WorkflowCallback
-	workerDispatcher         WorkerRunDispatcher
-	partitionCycle           []string
-	nextPartition            int
-	bulkhead                 *ShardedBulkhead
-	circuitThreshold         int
-	circuitOpenFor           time.Duration
-	healthScorer             *HealthScorer
-	onCompleteTrigger        *OnCompleteTrigger
-	logger                   *slog.Logger
-	webhookMaxRetry          int
-	executionTraceMode       executionTraceMode
-	middlewares              []ExecutionMiddleware
-	subscribers              []RunEventSubscriber
-	eventCh                  chan runEventEnvelope
-	maxDequeueBatchSize      int
-	defaultJobMaxConcurrency int
-	jobCache                 executorJobCache
-	jobVersionCache          executorVersionedJobCache
-	runVersionCache          *tierWorkflowRunVersionCache
-	stepsVersionCache        *tierWorkflowStepsVersionCache
-	jobHealthCache           *tierJobHealthCache
-	memoryPressureThreshold  float64
-	maxSnoozeCount           int
-	jwtSigningKey            string
-	externalAPIURL           string
-	defaultRegion            string
-	mode                     string
-	version                  string
-	edition                  domain.Edition
-	billingEnforcer          *billing.Enforcer
-	stripeUsageReporter      *billing.StripeUsageReporter
-	stripeUsageWG            conc.WaitGroup // tracks in-flight Stripe usage event goroutines
-	runCostRecorder          *billing.RunCostRecorder
-	dlqCapEnforcer           *DLQCapEnforcer
-	secretDecryptor          SecretDecryptor
-	stop                     chan struct{}
-	done                     chan struct{}
-	stopOnce                 sync.Once
-	pollWG                   sync.WaitGroup
-	bgWG                     conc.WaitGroup
-	callbackWG               conc.WaitGroup
-	pollInFlight             atomic.Int64
-	runStarted               atomic.Bool
-	drain                    *drainController
-	degradedPollInterval     time.Duration
-	degraded                 queue.DegradedNotifier
-	dbCircuit                *queue.DBCircuit
-	eventChannelSize         int
-	saturationWarnMu         sync.Mutex
-	saturationLastWarn       map[eventChannelKind]time.Time
+	pool                         *Pool
+	concurrencyLimit             ConcurrencyLimitProvider
+	queue                        queue.Queue
+	wake                         <-chan struct{}
+	store                        ExecutorStore
+	txPool                       store.TxBeginner
+	httpClient                   *http.Client
+	pollInterval                 time.Duration
+	heartbeat                    *HeartbeatSender
+	publisher                    pubsub.Publisher
+	metrics                      *telemetry.Metrics
+	workflowCallback             WorkflowCallback
+	workerDispatcher             WorkerRunDispatcher
+	partitionCycle               []string
+	nextPartition                int
+	bulkhead                     *ShardedBulkhead
+	circuitThreshold             int
+	circuitOpenFor               time.Duration
+	circuitSuccessSampleInterval time.Duration
+	circuitSuccessMu             sync.Mutex
+	lastCircuitSuccess           map[string]time.Time
+	healthScorer                 *HealthScorer
+	onCompleteTrigger            *OnCompleteTrigger
+	logger                       *slog.Logger
+	webhookMaxRetry              int
+	terminalRetryTimeout         time.Duration
+	terminalRetryInitial         time.Duration
+	terminalRetryMax             time.Duration
+	adaptiveTimeoutEnabled       bool
+	executionTraceMode           executionTraceMode
+	middlewares                  []ExecutionMiddleware
+	subscribers                  []RunEventSubscriber
+	eventCh                      chan runEventEnvelope
+	maxDequeueBatchSize          int
+	defaultJobMaxConcurrency     int
+	jobCache                     executorJobCache
+	jobVersionCache              executorVersionedJobCache
+	runVersionCache              *tierWorkflowRunVersionCache
+	stepsVersionCache            *tierWorkflowStepsVersionCache
+	jobHealthCache               *tierJobHealthCache
+	endpointGuardCache           *endpointGuardCache
+	dispatchSecretsCache         *executorMetadataCache[[]domain.JobSecret]
+	webhookSubscriptionsCache    *executorMetadataCache[[]domain.WebhookSubscription]
+	memoryPressureThreshold      float64
+	maxSnoozeCount               int
+	jwtSigningKey                string
+	externalAPIURL               string
+	defaultRegion                string
+	mode                         string
+	version                      string
+	edition                      domain.Edition
+	sentryEnvironment            string
+	billingEnforcement           bool
+	stripeWebhookSecret          string
+	billingEnforcer              *billing.Enforcer
+	stripeUsageReporter          *billing.StripeUsageReporter
+	stripeUsageWG                conc.WaitGroup // tracks in-flight Stripe usage event goroutines
+	runCostRecorder              *billing.RunCostRecorder
+	dlqCapEnforcer               *DLQCapEnforcer
+	secretDecryptor              SecretDecryptor
+	stop                         chan struct{}
+	done                         chan struct{}
+	stopOnce                     sync.Once
+	pollWG                       sync.WaitGroup
+	bgWG                         conc.WaitGroup
+	callbackWG                   conc.WaitGroup
+	pollInFlight                 atomic.Int64
+	runStarted                   atomic.Bool
+	drain                        *drainController
+	degradedPollInterval         time.Duration
+	degraded                     queue.DegradedNotifier
+	dbCircuit                    *queue.DBCircuit
+	eventChannelSize             int
+	saturationWarnMu             sync.Mutex
+	saturationLastWarn           map[eventChannelKind]time.Time
 	// queueSnapshotter returns the set of queue names with active workers on
 	// this replica. When non-nil, poll performs a second dequeue pass for
 	// worker-mode runs filtered to those queues. Injected from the gRPC

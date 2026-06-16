@@ -79,7 +79,7 @@ func (s *Server) handleCreateWebhookSubscription(ctx context.Context, input *Cre
 	if err := requireProjectWideWebhookAccess(ctx); err != nil {
 		return nil, err
 	}
-	s.emitInternalSecretBypassAuditIfProjectless(ctx, "create_webhook_subscription.project_match", "handleCreateWebhookSubscription", "project", req.ProjectID)
+	s.emitInternalSecretBypassAuditIfProjectless(ctx, req.ProjectID, "create_webhook_subscription.project_match", "handleCreateWebhookSubscription", "project", req.ProjectID)
 	orgID, maxEndpoints, _, err := s.resolveWebhookEndpointCreateLimit(ctx, req.ProjectID)
 	if err != nil {
 		return nil, err
@@ -260,7 +260,7 @@ func (s *Server) handleDeleteWebhookSubscription(ctx context.Context, input *Del
 	if err := requireProjectMatch(ctx, sub.ProjectID); err != nil {
 		return nil, huma.Error404NotFound("webhook subscription not found")
 	}
-	s.emitInternalSecretBypassAuditIfProjectless(ctx, "delete_webhook_subscription.project_match", "handleDeleteWebhookSubscription", "webhook_subscription", input.ID)
+	s.emitInternalSecretBypassAuditIfProjectless(ctx, sub.ProjectID, "delete_webhook_subscription.project_match", "handleDeleteWebhookSubscription", "webhook_subscription", input.ID)
 
 	err = s.store.DeleteWebhookSubscription(ctx, input.ID)
 	if err != nil {
@@ -321,7 +321,7 @@ func (s *Server) handleRotateWebhookSecret(ctx context.Context, input *RotateWeb
 	if err := requireProjectMatch(ctx, sub.ProjectID); err != nil {
 		return nil, huma.Error404NotFound("webhook subscription not found")
 	}
-	s.emitInternalSecretBypassAuditIfProjectless(ctx, "rotate_webhook_secret.project_match", "handleRotateWebhookSecret", "webhook_subscription", input.ID)
+	s.emitInternalSecretBypassAuditIfProjectless(ctx, sub.ProjectID, "rotate_webhook_secret.project_match", "handleRotateWebhookSecret", "webhook_subscription", input.ID)
 
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {

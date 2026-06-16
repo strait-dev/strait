@@ -113,6 +113,34 @@ func BenchmarkEmitAuditEventAsync_SmallDetails(b *testing.B) {
 	}
 }
 
+// BenchmarkEmitAuditEventRawAsync_ImmediateDetails measures the immediate
+// trigger fast path for known-safe audit details.
+func BenchmarkEmitAuditEventRawAsync_ImmediateDetails(b *testing.B) {
+	ms := &APIStoreMock{
+		CreateAuditEventFunc: func(_ context.Context, _ *domain.AuditEvent) error { return nil },
+	}
+	srv := NewServer(ServerDeps{
+		Config: benchmarkConfig(),
+		Store:  ms,
+	})
+	b.Cleanup(srv.Close)
+
+	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-bench")
+	ctx = context.WithValue(ctx, ctxActorIDKey, "actor-bench")
+	ctx = context.WithValue(ctx, ctxActorTypeKey, "user")
+	detailsJSON := immediateTriggerAuditDetailsJSON(&domain.JobRun{
+		ID:          "01HXABCXYZ1234567890ABCDEF",
+		Priority:    5,
+		TriggeredBy: domain.TriggerManual,
+	}, nil, "", false)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		srv.emitAuditEventRawAsync(ctx, domain.AuditActionJobTriggered, "job", "job-1", detailsJSON)
+	}
+}
+
 // BenchmarkEmitAuditEvent_Sync measures the direct cost of the
 // synchronous emit path (used by low-rate handlers). This exists as a
 // comparison for the async path — the hot-path trigger handler must not

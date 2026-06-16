@@ -19,6 +19,15 @@ import (
 )
 
 func mergedRunTags(base, overlay map[string]string) map[string]string {
+	if len(base) == 0 && len(overlay) == 0 {
+		return nil
+	}
+	if len(base) == 0 {
+		return maps.Clone(overlay)
+	}
+	if len(overlay) == 0 {
+		return maps.Clone(base)
+	}
 	runTags := make(map[string]string, len(base)+len(overlay))
 	maps.Copy(runTags, base)
 	maps.Copy(runTags, overlay)
@@ -26,6 +35,15 @@ func mergedRunTags(base, overlay map[string]string) map[string]string {
 }
 
 func mergeRunMetadata(metadata, defaults map[string]string) map[string]string {
+	if len(metadata) == 0 && len(defaults) == 0 {
+		return nil
+	}
+	if len(metadata) == 0 {
+		return maps.Clone(defaults)
+	}
+	if len(defaults) == 0 {
+		return maps.Clone(metadata)
+	}
 	merged := make(map[string]string, len(defaults)+len(metadata))
 	maps.Copy(merged, metadata)
 	for key, value := range defaults {
@@ -33,10 +51,25 @@ func mergeRunMetadata(metadata, defaults map[string]string) map[string]string {
 			merged[key] = value
 		}
 	}
-	if len(merged) == 0 {
-		return nil
-	}
 	return merged
+}
+
+func applyDefaultRunMetadata(metadata, defaults map[string]string) map[string]string {
+	if len(defaults) == 0 {
+		if len(metadata) == 0 {
+			return nil
+		}
+		return metadata
+	}
+	if len(metadata) == 0 {
+		return maps.Clone(defaults)
+	}
+	for key, value := range defaults {
+		if _, exists := metadata[key]; !exists {
+			metadata[key] = value
+		}
+	}
+	return metadata
 }
 
 func ensureJobTriggerable(job *domain.Job) error {
@@ -95,9 +128,11 @@ func validateTriggerTTLSecs(ttlSecs *int) error {
 	return nil
 }
 
+const canonicalEmptyPayloadHash = "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+
 func canonicalizePayload(payload json.RawMessage) (json.RawMessage, string, error) {
-	if len(payload) == 0 {
-		return json.RawMessage(`{}`), "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a", nil
+	if len(payload) == 0 || (len(payload) == 2 && payload[0] == '{' && payload[1] == '}') {
+		return json.RawMessage(`{}`), canonicalEmptyPayloadHash, nil
 	}
 	if !gjson.ValidBytes(payload) {
 		return canonicalizePayloadSlow(payload)

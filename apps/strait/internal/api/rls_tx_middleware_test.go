@@ -3,11 +3,15 @@ package api
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
+
+	"strait/internal/config"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -43,6 +47,247 @@ func TestRLSTxMiddleware_CommitFailureDoesNotLeakSuccessResponse(t *testing.T) {
 	require.True(
 		t, tx.setProjectContext,
 	)
+}
+
+func TestRLSTxMiddleware_TimeoutCommitFailureReturnsRetryable429(t *testing.T) {
+	t.Parallel()
+
+	tx := &fakeRLSTx{commitErr: context.DeadlineExceeded}
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
+	srv.txPool = fakeTxBeginner{tx: tx}
+	handler := srv.rlsTxMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("X-Test-Header", "success")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte("success body"))
+	}))
+	req := httptest.NewRequest(http.MethodPost, "/", nil)
+	ctx := context.WithValue(req.Context(), ctxProjectIDKey, "proj-1")
+	req = req.WithContext(ctx)
+
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	require.Equal(t, http.StatusTooManyRequests, w.Code)
+	require.Equal(t, "1", w.Header().Get("Retry-After"))
+	require.Empty(t, w.Header().Get("X-Test-Header"))
+	require.NotEqual(t, "success body", w.Body.String())
+	require.True(t, tx.setProjectContext)
+}
+
+func TestRLSTxMiddleware_UsesAdmissionTimeoutForDatabaseBoundaries(t *testing.T) {
+	t.Parallel()
+
+	var beginDeadline capturedAdmissionDeadline
+	var execDeadline capturedAdmissionDeadline
+	var commitDeadline capturedAdmissionDeadline
+	tx := &fakeRLSTx{
+		execDeadline:   &execDeadline,
+		commitDeadline: &commitDeadline,
+	}
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
+	srv.txPool = fakeTxBeginner{
+		tx:            tx,
+		beginDeadline: &beginDeadline,
+	}
+	handler := srv.rlsTxMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+	}))
+	req := httptest.NewRequest(http.MethodPost, "/", nil)
+	ctx := context.WithValue(req.Context(), ctxProjectIDKey, "proj-1")
+	req = req.WithContext(ctx)
+
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	require.Equal(t, http.StatusCreated, w.Code)
+	requireAdmissionDeadline(t, beginDeadline)
+	requireAdmissionDeadline(t, execDeadline)
+	requireAdmissionDeadline(t, commitDeadline)
+}
+
+func TestRLSTxMiddleware_RetryableBeginFailureReturns429(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
+	srv.txPool = fakeTxBeginner{
+		beginErr: fmt.Errorf("begin transaction: %w", retryableAdmissionErr{}),
+	}
+	handler := srv.rlsTxMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+	}))
+	req := httptest.NewRequest(http.MethodPost, "/", nil)
+	ctx := context.WithValue(req.Context(), ctxProjectIDKey, "proj-1")
+	req = req.WithContext(ctx)
+
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	require.Equal(t, http.StatusTooManyRequests, w.Code)
+	require.Equal(t, "1", w.Header().Get("Retry-After"))
+}
+
+func TestRLSTxMiddleware_DBBackpressureDisabledDoesNotReturn429(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
+	srv.config = &config.Config{DBBackpressureDisabled: true}
+	srv.txPool = fakeTxBeginner{
+		beginErr: fmt.Errorf("begin transaction: %w", retryableAdmissionErr{}),
+	}
+	handler := srv.rlsTxMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+	}))
+	req := httptest.NewRequest(http.MethodPost, "/", nil)
+	ctx := context.WithValue(req.Context(), ctxProjectIDKey, "proj-1")
+	req = req.WithContext(ctx)
+
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	require.Equal(t, http.StatusInternalServerError, w.Code)
+	require.Empty(t, w.Header().Get("Retry-After"))
+}
+
+func TestRLSTxMiddleware_CanceledBeginFailureReturns429(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
+	srv.txPool = fakeTxBeginner{
+		beginErr: fmt.Errorf("begin transaction: %w", context.Canceled),
+	}
+	handler := srv.rlsTxMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+	}))
+	req := httptest.NewRequest(http.MethodPost, "/", nil)
+	ctx := context.WithValue(req.Context(), ctxProjectIDKey, "proj-1")
+	req = req.WithContext(ctx)
+
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	require.Equal(t, http.StatusTooManyRequests, w.Code)
+	require.Equal(t, "1", w.Header().Get("Retry-After"))
+}
+
+func TestRLSTxMiddleware_ClosedConnectionBeginFailureReturns429(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
+	srv.txPool = fakeTxBeginner{
+		beginErr: errors.New("begin transaction: conn closed"),
+	}
+	handler := srv.rlsTxMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+	}))
+	req := httptest.NewRequest(http.MethodPost, "/", nil)
+	ctx := context.WithValue(req.Context(), ctxProjectIDKey, "proj-1")
+	req = req.WithContext(ctx)
+
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	require.Equal(t, http.StatusTooManyRequests, w.Code)
+	require.Equal(t, "1", w.Header().Get("Retry-After"))
+}
+
+func TestRLSTxMiddleware_RetryableSetConfigFailureReturns429(t *testing.T) {
+	t.Parallel()
+
+	tx := &fakeRLSTx{
+		execErr: fmt.Errorf("set project context: %w", retryableAdmissionErr{}),
+	}
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
+	srv.txPool = fakeTxBeginner{tx: tx}
+	handler := srv.rlsTxMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+	}))
+	req := httptest.NewRequest(http.MethodPost, "/", nil)
+	ctx := context.WithValue(req.Context(), ctxProjectIDKey, "proj-1")
+	req = req.WithContext(ctx)
+
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	require.Equal(t, http.StatusTooManyRequests, w.Code)
+	require.Equal(t, "1", w.Header().Get("Retry-After"))
+	require.True(t, tx.rollbackCalled)
+}
+
+func TestRLSTxMiddleware_ClosedConnectionSetConfigFailureReturns429(t *testing.T) {
+	t.Parallel()
+
+	tx := &fakeRLSTx{
+		execErr: errors.New("set project context: use of closed network connection"),
+	}
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
+	srv.txPool = fakeTxBeginner{tx: tx}
+	handler := srv.rlsTxMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+	}))
+	req := httptest.NewRequest(http.MethodPost, "/", nil)
+	ctx := context.WithValue(req.Context(), ctxProjectIDKey, "proj-1")
+	req = req.WithContext(ctx)
+
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	require.Equal(t, http.StatusTooManyRequests, w.Code)
+	require.Equal(t, "1", w.Header().Get("Retry-After"))
+	require.True(t, tx.rollbackCalled)
+}
+
+func TestRLSTxMiddleware_PostgresTimeoutCommitFailureReturnsRetryable429(t *testing.T) {
+	t.Parallel()
+
+	tx := &fakeRLSTx{commitErr: &pgconn.PgError{Code: "57014", Message: "canceling statement due to statement timeout"}}
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
+	srv.txPool = fakeTxBeginner{tx: tx}
+	handler := srv.rlsTxMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+	}))
+	req := httptest.NewRequest(http.MethodPost, "/", nil)
+	ctx := context.WithValue(req.Context(), ctxProjectIDKey, "proj-1")
+	req = req.WithContext(ctx)
+
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	require.Equal(t, http.StatusTooManyRequests, w.Code)
+	require.Equal(t, "1", w.Header().Get("Retry-After"))
+}
+
+func TestRLSTxMiddleware_SafeToRetryCommitFailureReturnsRetryable429(t *testing.T) {
+	t.Parallel()
+
+	tx := &fakeRLSTx{
+		commitErr: fmt.Errorf("failed to deallocate cached statement(s): %w", retryableAdmissionErr{}),
+	}
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
+	srv.txPool = fakeTxBeginner{tx: tx}
+	handler := srv.rlsTxMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+	}))
+	req := httptest.NewRequest(http.MethodPost, "/", nil)
+	ctx := context.WithValue(req.Context(), ctxProjectIDKey, "proj-1")
+	req = req.WithContext(ctx)
+
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	require.Equal(t, http.StatusTooManyRequests, w.Code)
+	require.Equal(t, "1", w.Header().Get("Retry-After"))
+	require.True(t, tx.commitCalled)
+}
+
+func TestRLSTxMiddleware_ServerErrorResponseRollsBackWithoutCommit(t *testing.T) {
+	t.Parallel()
+
+	tx := &fakeRLSTx{commitErr: errors.New("commit should not run")}
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
+	srv.txPool = fakeTxBeginner{tx: tx}
+	handler := srv.rlsTxMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		respondError(w, nil, http.StatusInternalServerError, "failed to enqueue run")
+	}))
+	req := httptest.NewRequest(http.MethodPost, "/", nil)
+	ctx := context.WithValue(req.Context(), ctxProjectIDKey, "proj-1")
+	req = req.WithContext(ctx)
+
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	require.Equal(t, http.StatusInternalServerError, w.Code)
+	require.False(t, tx.commitCalled)
+	require.True(t, tx.rollbackCalled)
+	require.Contains(t, w.Body.String(), "failed to enqueue run")
 }
 
 func TestRLSTxMiddleware_ResponseBufferLimitRollsBack(t *testing.T) {
@@ -123,26 +368,40 @@ func TestRLSTxMiddleware_WebhookTestBypassesBufferedTransaction(t *testing.T) {
 }
 
 type fakeTxBeginner struct {
-	tx         *fakeRLSTx
-	beginCount *atomic.Int32
+	tx            *fakeRLSTx
+	beginCount    *atomic.Int32
+	beginErr      error
+	beginDeadline *capturedAdmissionDeadline
 }
 
-func (f fakeTxBeginner) Begin(context.Context) (pgx.Tx, error) {
+func (f fakeTxBeginner) Begin(ctx context.Context) (pgx.Tx, error) {
+	if f.beginDeadline != nil {
+		f.beginDeadline.capture(ctx)
+	}
 	if f.beginCount != nil {
 		f.beginCount.Add(1)
+	}
+	if f.beginErr != nil {
+		return nil, f.beginErr
 	}
 	return f.tx, nil
 }
 
 type fakeRLSTx struct {
 	commitErr         error
+	execErr           error
+	execDeadline      *capturedAdmissionDeadline
+	commitDeadline    *capturedAdmissionDeadline
 	setProjectContext bool
 	commitCalled      bool
 	rollbackCalled    bool
 }
 
 func (f *fakeRLSTx) Begin(context.Context) (pgx.Tx, error) { return nil, errors.New("not implemented") }
-func (f *fakeRLSTx) Commit(context.Context) error {
+func (f *fakeRLSTx) Commit(ctx context.Context) error {
+	if f.commitDeadline != nil {
+		f.commitDeadline.capture(ctx)
+	}
 	f.commitCalled = true
 	return f.commitErr
 }
@@ -158,9 +417,15 @@ func (f *fakeRLSTx) LargeObjects() pgx.LargeObjects                         { re
 func (f *fakeRLSTx) Prepare(context.Context, string, string) (*pgconn.StatementDescription, error) {
 	return nil, errors.New("not implemented")
 }
-func (f *fakeRLSTx) Exec(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
+func (f *fakeRLSTx) Exec(ctx context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
+	if f.execDeadline != nil {
+		f.execDeadline.capture(ctx)
+	}
 	if sql == "SELECT set_config('app.current_project_id', $1, true)" {
 		f.setProjectContext = true
+	}
+	if f.execErr != nil {
+		return pgconn.CommandTag{}, f.execErr
 	}
 	return pgconn.CommandTag{}, nil
 }
@@ -169,3 +434,26 @@ func (f *fakeRLSTx) Query(context.Context, string, ...any) (pgx.Rows, error) {
 }
 func (f *fakeRLSTx) QueryRow(context.Context, string, ...any) pgx.Row { return nil }
 func (f *fakeRLSTx) Conn() *pgx.Conn                                  { return nil }
+
+type retryableAdmissionErr struct{}
+
+func (retryableAdmissionErr) Error() string { return "conn closed" }
+func (retryableAdmissionErr) SafeToRetry() bool {
+	return true
+}
+
+type capturedAdmissionDeadline struct {
+	deadline time.Time
+	ok       bool
+}
+
+func (d *capturedAdmissionDeadline) capture(ctx context.Context) {
+	d.deadline, d.ok = ctx.Deadline()
+}
+
+func requireAdmissionDeadline(t *testing.T, deadline capturedAdmissionDeadline) {
+	t.Helper()
+
+	require.True(t, deadline.ok, "expected admission context to have a deadline")
+	require.LessOrEqual(t, time.Until(deadline.deadline), databaseAdmissionOperationTimeout)
+}

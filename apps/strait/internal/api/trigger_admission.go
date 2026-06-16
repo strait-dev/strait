@@ -13,6 +13,8 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/jackc/pgx/v5/pgconn"
+	otelattr "go.opentelemetry.io/otel/attribute"
+	otelmetric "go.opentelemetry.io/otel/metric"
 )
 
 var (
@@ -26,12 +28,29 @@ type triggerLimitTransactioner interface {
 	WithTx(ctx context.Context, fn func(context.Context, store.DBTX) error) error
 }
 
+type triggerQueueRoutePreparer interface {
+	PrepareRouteForJob(ctx context.Context, job *domain.Job) error
+}
+
 const triggerAdmissionLockTimeout = "2500ms"
+const triggerAdmissionStatementTimeout = "250ms"
 const setTriggerAdmissionLockTimeoutSQL = "SET LOCAL lock_timeout = '" + triggerAdmissionLockTimeout + "'"
+const setTriggerAdmissionStatementTimeoutSQL = "SET LOCAL statement_timeout = '" + triggerAdmissionStatementTimeout + "'"
 
 func (s *Server) withTriggerLimitGuard(ctx context.Context, job *domain.Job, quota *store.ProjectQuota, fn func(context.Context, store.DBTX) error) error {
+	if err := s.prepareTriggerQueueRoute(ctx, job); err != nil {
+		return err
+	}
+	if !triggerAdmissionNeedsTransaction(job, quota) {
+		s.recordTriggerAdmissionGuard(ctx, "direct")
+		return fn(ctx, nil)
+	}
 	if txer, ok := s.store.(triggerLimitTransactioner); ok {
+		s.recordTriggerAdmissionGuard(ctx, "transaction")
 		return txer.WithTx(ctx, func(txCtx context.Context, tx store.DBTX) error {
+			if err := setTriggerAdmissionStatementTimeout(txCtx, tx); err != nil {
+				return err
+			}
 			if err := acquireTriggerAdmissionLocks(txCtx, tx, job, quota); err != nil {
 				return err
 			}
@@ -41,10 +60,46 @@ func (s *Server) withTriggerLimitGuard(ctx context.Context, job *domain.Job, quo
 			return fn(txCtx, tx)
 		})
 	}
+	s.recordTriggerAdmissionGuard(ctx, "fallback")
 	if err := s.checkTriggerLimits(ctx, job, quota); err != nil {
 		return err
 	}
 	return fn(ctx, nil)
+}
+
+func triggerAdmissionNeedsTransaction(job *domain.Job, quota *store.ProjectQuota) bool {
+	if job != nil && job.RateLimitMax > 0 && job.RateLimitWindowSecs > 0 {
+		return true
+	}
+	return quota != nil && (quota.MaxQueuedRuns > 0 || quota.MaxExecutingRuns > 0)
+}
+
+func (s *Server) recordTriggerAdmissionGuard(ctx context.Context, path string) {
+	if s.metrics == nil || s.metrics.TriggerAdmissionGuard == nil {
+		return
+	}
+	s.metrics.TriggerAdmissionGuard.Add(ctx, 1, otelmetric.WithAttributes(otelattr.String("path", path)))
+}
+
+func setTriggerAdmissionStatementTimeout(ctx context.Context, tx store.DBTX) error {
+	if tx == nil {
+		return nil
+	}
+	if _, err := tx.Exec(ctx, setTriggerAdmissionStatementTimeoutSQL); err != nil {
+		return fmt.Errorf("set trigger admission statement timeout: %w", err)
+	}
+	return nil
+}
+
+func (s *Server) prepareTriggerQueueRoute(ctx context.Context, job *domain.Job) error {
+	preparer, ok := s.queue.(triggerQueueRoutePreparer)
+	if !ok {
+		return nil
+	}
+	if err := preparer.PrepareRouteForJob(ctx, job); err != nil {
+		return fmt.Errorf("prepare trigger queue route: %w", err)
+	}
+	return nil
 }
 
 func (s *Server) checkTriggerDispatchPriority(ctx context.Context, projectID string, priority int) error {
@@ -294,6 +349,14 @@ func countRunsForJobSince(ctx context.Context, tx store.DBTX, jobID string, sinc
 const triggerLimitFallbackRetryAfterSeconds = 5
 
 func triggerLimitAPIError(err error, fallback string) error {
+	return triggerLimitAPIErrorWithDatabaseAdmission(err, fallback, true)
+}
+
+func (s *Server) triggerLimitAPIError(err error, fallback string) error {
+	return triggerLimitAPIErrorWithDatabaseAdmission(err, fallback, s.databaseAdmission429Enabled())
+}
+
+func triggerLimitAPIErrorWithDatabaseAdmission(err error, fallback string, databaseAdmission429Enabled bool) error {
 	var statusErr huma.StatusError
 	if errors.As(err, &statusErr) {
 		return err
@@ -307,6 +370,11 @@ func triggerLimitAPIError(err error, fallback string) error {
 		return newTriggerLimit429("job rate limit exceeded")
 	case errors.Is(err, errTriggerAdmissionContended):
 		return newTriggerLimit429("trigger admission busy")
+	case isRetryableDatabaseAdmissionError(err):
+		if !databaseAdmission429Enabled {
+			return huma.Error500InternalServerError(fallback)
+		}
+		return newDatabaseAdmission429()
 	default:
 		return huma.Error500InternalServerError(fallback)
 	}
