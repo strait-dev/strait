@@ -14,7 +14,11 @@ import (
 // baselineCutoff is the migration number up to which historical violations
 // are tolerated. New migrations (> this number) must pass clean. Raise the
 // cutoff over time as legacy migrations get annotated with `-- safety-ok`.
-const baselineCutoff = 234
+//
+// Raised from 234 to 326: the RuleDropIndexNonConcurrent negRe previously
+// exempted IF EXISTS (incorrectly); migrations 235-326 contain DROP INDEX IF
+// EXISTS without CONCURRENTLY and were written before that bug was fixed.
+const baselineCutoff = 326
 
 func TestLint_NewMigrationsPassClean(t *testing.T) {
 	dir := filepath.Join("..", "..", "migrations")
@@ -163,14 +167,23 @@ func TestLint_DropIndexBareFlagged(t *testing.T) {
 	assertHasRule(t, v, RuleDropIndexNonConcurrent)
 }
 
-func TestLint_DropIndexIfExistsAccepted(t *testing.T) {
-	sql := `DROP INDEX IF EXISTS idx_ok;`
+func TestLint_DropIndexIfExistsFlagged(t *testing.T) {
+	// IF EXISTS does not affect locking; ACCESS EXCLUSIVE is still acquired
+	// when the index exists. Only CONCURRENTLY avoids the lock.
+	sql := `DROP INDEX IF EXISTS idx_bad;`
 	v := LintFile("test.up.sql", []byte(sql))
-	assertNoRule(t, v, RuleDropIndexNonConcurrent)
+	assertHasRule(t, v, RuleDropIndexNonConcurrent)
 }
 
 func TestLint_DropIndexConcurrentlyAccepted(t *testing.T) {
 	sql := `DROP INDEX CONCURRENTLY idx_ok;`
+	v := LintFile("test.up.sql", []byte(sql))
+	assertNoRule(t, v, RuleDropIndexNonConcurrent)
+}
+
+func TestLint_DropIndexConcurrentlyIfExistsAccepted(t *testing.T) {
+	// DROP INDEX CONCURRENTLY IF EXISTS is the correct safe form.
+	sql := `DROP INDEX CONCURRENTLY IF EXISTS idx_ok;`
 	v := LintFile("test.up.sql", []byte(sql))
 	assertNoRule(t, v, RuleDropIndexNonConcurrent)
 }
