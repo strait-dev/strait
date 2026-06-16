@@ -412,7 +412,8 @@ func (s *StepCallback) handleCompensationJobTerminal(ctx context.Context, run *d
 
 	if status == domain.CompensationFailed {
 		if err := s.store.UpdateWorkflowRunStatus(ctx, compRun.WorkflowRunID, domain.WfStatusCompensating, domain.WfStatusCompensationFailed, map[string]any{
-			"error": errMsg,
+			"finished_at": finishedAt,
+			"error":       errMsg,
 		}); err != nil {
 			return true, fmt.Errorf("mark workflow compensation failed: %w", err)
 		}
