@@ -1,0 +1,144 @@
+---
+title: "Create Webhooks and Event Sources"
+description: "Send Strait events to your systems and receive external events that resume work."
+icon: "webhook"
+---
+
+Use webhooks when Strait should notify your system. Use event sources when your system should send events into Strait.
+
+## Prerequisites
+
+Export the standard Cloud variables:
+
+```bash
+export STRAIT_BASE_URL=https://api.strait.dev
+export STRAIT_API_KEY=strait_replace_with_your_key
+export STRAIT_PROJECT_ID=proj_replace_with_your_project_id
+```
+
+You also need an HTTPS endpoint for webhook delivery.
+
+## 1. Create a Webhook Subscription
+
+The request body fixture lives at `apps/docs/examples/requests/create-webhook-subscription.json`.
+
+```bash
+curl -sS -X POST "$STRAIT_BASE_URL/v1/webhooks/subscriptions" \
+  -H "Authorization: Bearer $STRAIT_API_KEY" \
+  -H "Content-Type: application/json" \
+  --data @apps/docs/examples/requests/create-webhook-subscription.json | jq
+```
+
+The response includes `signing_secret`. Store it immediately. Strait does not return the plaintext secret again.
+
+Expected result: the response includes a subscription and one-time signing secret.
+
+## 2. Verify Webhook Delivery
+
+Use the same URL and signing secret you configured:
+
+```bash
+curl -sS -X POST "$STRAIT_BASE_URL/v1/webhooks/test" \
+  -H "Authorization: Bearer $STRAIT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://ops.example.com/strait/webhooks",
+    "secret": "whsec_replace_with_returned_secret"
+  }' | jq
+```
+
+Your endpoint should verify the signature, respond with `2xx`, and finish quickly. Return non-`2xx` only when you want Strait to retry delivery.
+
+Expected result: the test request reaches your receiver and returns `2xx`.
+
+## 3. Create an Event Source
+
+An event source names a system that sends events into Strait.
+
+The request body fixture lives at `apps/docs/examples/requests/create-event-source.json`.
+
+```bash
+curl -sS -X POST "$STRAIT_BASE_URL/v1/event-sources" \
+  -H "Authorization: Bearer $STRAIT_API_KEY" \
+  -H "Content-Type: application/json" \
+  --data @apps/docs/examples/requests/create-event-source.json | jq
+```
+
+Use `signature_algorithm` when the sender supports signatures. If you set `signature_header` or `signature_secret`, Strait requires `signature_algorithm`.
+
+Expected result: the response includes an event source ID.
+
+## 4. Subscribe a Target
+
+Subscribe a job or workflow to the event source:
+
+```bash
+curl -sS -X POST "$STRAIT_BASE_URL/v1/event-sources/$STRAIT_EVENT_SOURCE_ID/subscribe" \
+  -H "Authorization: Bearer $STRAIT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "target_type": "job",
+    "target_id": "job_abc123",
+    "filter_expr": {
+      "type": "invoice.paid"
+    },
+    "enabled": true
+  }' | jq
+```
+
+Use filters to keep one event source from triggering unrelated work.
+
+Expected result: the target subscription is active for that event source.
+
+## 5. Dispatch an Event
+
+The request body fixture lives at `apps/docs/examples/requests/dispatch-event.json`.
+
+```bash
+curl -sS -X POST "$STRAIT_BASE_URL/v1/events/dispatch" \
+  -H "Authorization: Bearer $STRAIT_API_KEY" \
+  -H "Content-Type: application/json" \
+  --data @apps/docs/examples/requests/dispatch-event.json | jq
+```
+
+For workflow wait steps, you can also send directly to an event key:
+
+```bash
+curl -sS -X POST "$STRAIT_BASE_URL/v1/events/invoice:paid:cus_abc123/send" \
+  -H "Authorization: Bearer $STRAIT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "payload": {
+      "customer_id": "cus_abc123"
+    }
+}' | jq
+```
+
+Expected result: matching jobs or workflow waits receive the event.
+
+## 6. Operate Safely
+
+| Need | Action |
+|---|---|
+| Deliver Strait status changes to your system | Create webhook subscriptions. |
+| Resume workflows after third-party callbacks | Create event sources and event triggers. |
+| Prove an endpoint is reachable | Test the webhook subscription. |
+| Avoid duplicate external effects | Verify webhook signatures and deduplicate event IDs in your receiver. |
+| Route only matching events | Use event source subscriptions with filters. |
+
+## Failure Cases
+
+| Problem | What to do |
+|---|---|
+| Webhook URL is rejected | Use public HTTPS and remove embedded credentials. |
+| Signing secret was lost | Rotate the subscription secret. |
+| Event source accepts no signatures | Set `signature_algorithm` with the header and secret. |
+| Dispatch triggers nothing | Check source name, project ID, target subscription, and filter. |
+| Event wait does not resume | Confirm the event key exactly matches the waiting step. |
+
+## Next
+
+- [Webhook Subscriptions](/concepts/webhook-subscriptions)
+- [Event Sources](/concepts/event-sources)
+- [Event Triggers](/guides/event-triggers)
+- [Workflow Approvals](/guides/workflow-approvals)

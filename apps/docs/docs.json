@@ -35,7 +35,13 @@
             "groups": [
               {
                 "group": "Getting Started",
-                "pages": ["introduction", "choose-your-path", "quickstart"]
+                "pages": [
+                  "introduction",
+                  "choose-your-path",
+                  "guides/cloud-project-setup",
+                  "guides/cloud-dashboard",
+                  "quickstart"
+                ]
               },
               {
                 "group": "Use Cases",
@@ -48,15 +54,43 @@
                 ]
               },
               {
-                "group": "Guides",
+                "group": "Build Jobs",
                 "pages": [
                   "guides/production-job",
                   "guides/private-workers",
-                  "guides/handle-failed-runs",
-                  "guides/authentication",
+                  "guides/webhooks-and-events",
+                  "guides/event-triggers",
                   "sdks/typescript-quickstart",
                   "sdks/python-quickstart",
                   "sdks/go-quickstart"
+                ]
+              },
+              {
+                "group": "Operate Production",
+                "pages": [
+                  "guides/inspect-runs",
+                  "guides/handle-failed-runs",
+                  "operations/observability",
+                  "operations/health-readiness",
+                  "operations/incident-response",
+                  "operations/queue-backlog",
+                  "operations/database-saturation",
+                  "operations/redis-sequin-outage",
+                  "operations/webhook-delivery-backlog",
+                  "operations/worker-fleet-scaling",
+                  "concepts/debug-bundles"
+                ]
+              },
+              {
+                "group": "Troubleshooting",
+                "pages": [
+                  "guides/troubleshooting",
+                  "guides/troubleshooting-runs-queued",
+                  "guides/troubleshooting-run-failed",
+                  "guides/troubleshooting-private-worker",
+                  "guides/troubleshooting-webhooks",
+                  "guides/troubleshooting-event-triggers",
+                  "guides/troubleshooting-self-host-health"
                 ]
               },
               {
@@ -121,17 +155,9 @@
                 ]
               },
               {
-                "group": "Operations",
-                "pages": [
-                  "operations/observability",
-                  "operations/health-readiness",
-                  "guides/troubleshooting",
-                  "concepts/debug-bundles"
-                ]
-              },
-              {
                 "group": "Security and Access",
                 "pages": [
+                  "guides/authentication",
                   "guides/security",
                   "guides/sdk-integration",
                   "guides/rbac",
@@ -143,7 +169,12 @@
               },
               {
                 "group": "Self-Hosting",
-                "pages": ["guides/self-hosting", "guides/deployment"]
+                "pages": [
+                  "guides/self-hosting",
+                  "guides/deployment",
+                  "guides/self-host-upgrades",
+                  "guides/self-host-backup-restore"
+                ]
               },
               {
                 "group": "Configuration",
@@ -168,7 +199,10 @@
               },
               {
                 "group": "Development",
-                "pages": ["development/performance-reliability-0-1-6"]
+                "pages": [
+                  "development/performance-reliability-0-1-6",
+                  "development/release-docs-checklist"
+                ]
               }
             ]
           },
@@ -202,7 +236,16 @@
             "groups": [
               {
                 "group": "Overview",
-                "pages": ["api-reference/overview"]
+                "pages": [
+                  "api-reference/overview",
+                  "api-reference/jobs",
+                  "api-reference/runs",
+                  "api-reference/webhooks",
+                  "api-reference/event-sources",
+                  "api-reference/workers",
+                  "api-reference/admin-ops",
+                  "api-reference/generated-fields"
+                ]
               },
               {
                 "group": "Endpoints",

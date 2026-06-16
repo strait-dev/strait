@@ -1,0 +1,79 @@
+---
+title: "Worker Fleet Scaling"
+description: "Scale private workers safely while preserving idempotency and downstream capacity."
+icon: "server-cog"
+---
+
+Use this runbook when worker-mode jobs need more throughput or when queue depth rises for private queues.
+
+Scaling workers increases pressure on the systems those workers call. Confirm downstream capacity before raising concurrency.
+
+## Prerequisites
+
+- Queue name
+- Current worker count
+- Current `worker.concurrency`
+- Downstream capacity estimate
+- Queue depth and run duration metrics
+
+## 1. Measure Demand
+
+Check queued runs for the affected queue and job.
+
+Expected result: you know whether backlog is temporary or sustained.
+
+## 2. Check Current Capacity
+
+Calculate:
+
+```text
+total capacity = worker processes * worker.concurrency
+```
+
+Compare total capacity to average run duration and trigger rate.
+
+## 3. Scale Horizontally First
+
+Add more worker processes for the same queue.
+
+Expected result: more workers connect, claim work, and reduce queue depth.
+
+## 4. Raise Per-Worker Concurrency Carefully
+
+Increase `worker.concurrency` only when each process has spare CPU, memory, database connections, and downstream budget.
+
+Roll out one worker group at a time.
+
+## 5. Validate Idempotency
+
+Worker disconnects, timeouts, and retries can reattempt work.
+
+Handlers should be idempotent by run ID or business key.
+
+## 6. Watch for Saturation
+
+Watch:
+
+- worker CPU and memory
+- downstream latency
+- database connections
+- run failure rate
+- retry rate
+- queue depth
+
+Expected result: throughput rises without raising failure rate.
+
+## Failure Cases
+
+| Problem | What to do |
+|---|---|
+| Queue depth unchanged | Check queue name and downstream bottlenecks. |
+| Failure rate rises | Reduce concurrency and inspect handler errors. |
+| Database saturates | Lower concurrency or add database capacity. |
+| Workers disconnect | Check gRPC path and proxy idle timeouts. |
+
+## Next
+
+- [Run Private Workers](/guides/private-workers)
+- [Private Worker Disconnected](/guides/troubleshooting-private-worker)
+- [Queue Backlog](/operations/queue-backlog)

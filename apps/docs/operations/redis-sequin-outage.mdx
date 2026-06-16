@@ -1,0 +1,87 @@
+---
+title: "Redis or Sequin Outage"
+description: "Diagnose Redis and Sequin failures that affect live updates, SSE, and worker signalling."
+icon: "radio-receiver"
+---
+
+Use this runbook when live updates stop, SSE streams fail, worker signalling degrades, or readiness reports Redis or Sequin as down.
+
+PostgreSQL remains the source of truth. Redis and Sequin power real-time delivery and signalling.
+
+## Prerequisites
+
+- Access to service logs
+- `REDIS_URL`
+- `SEQUIN_BASE_URL`
+- `SEQUIN_API_TOKEN`
+- PostgreSQL logical replication status
+
+## 1. Check Readiness
+
+```bash
+curl -sS "$STRAIT_BASE_URL/health/ready" \
+  -H "X-Internal-Secret: $INTERNAL_SECRET" | jq
+```
+
+Expected result: readiness identifies whether Redis, Sequin, or both are unhealthy.
+
+## 2. If Redis Is Down
+
+Check:
+
+- Redis process or container state
+- network path from Strait to Redis
+- authentication and URL
+- memory pressure
+
+Expected result: Strait can publish and subscribe again.
+
+## 3. If Sequin Is Down
+
+Check:
+
+- Sequin process or container state
+- `SEQUIN_API_TOKEN`
+- sink health
+- PostgreSQL logical replication
+- replication slot lag
+
+Expected result: CDC resumes and live views catch up.
+
+## 4. Communicate User Impact
+
+Likely impact:
+
+- run state remains in PostgreSQL
+- dashboard live updates may lag
+- SSE streams may close
+- workers may reconnect
+
+Do not tell users work is lost unless PostgreSQL data confirms it.
+
+## 5. Validate Recovery
+
+Check:
+
+```bash
+curl -sS "$STRAIT_BASE_URL/ready" | jq
+```
+
+Then open a run stream or trigger a known-safe job and watch status update.
+
+Expected result: readiness is healthy and live updates resume.
+
+## Failure Cases
+
+| Problem | What to do |
+|---|---|
+| Redis recovers but streams still lag | Check Sequin and dashboard clients. |
+| Sequin cannot read changes | Check PostgreSQL logical replication and slots. |
+| Workers reconnect repeatedly | Check Redis signalling and gRPC path. |
+| Readiness flaps | Look for resource pressure or network instability. |
+
+## Next
+
+- [Real-time Updates](/concepts/real-time)
+- [Health and Readiness](/operations/health-readiness)
+- [Self-Host Health Check Failing](/guides/troubleshooting-self-host-health)

@@ -2,7 +2,11 @@
 
 Shared billing constants and generated plan definitions for Strait. The canonical source is `catalog/strait-pricing.json`; generated TypeScript and Go artifacts are checked in so app and backend code use the same launch catalog.
 
-## Key exports
+## Source Of Truth
+
+Edit `catalog/strait-pricing.json` first. Do not edit generated catalog artifacts by hand.
+
+## Commands
 
 Generate and check artifacts:
 
@@ -31,4 +35,16 @@ Plan definitions include monthly and annual pricing in cents, feature lists, roa
 
 ## Used by
 
+- `apps/app` - billing UI, plan gates, usage screens
+- `apps/strait/internal/billing` - cloud-edition billing enforcement through generated Go data
+- `apps/docs/scripts/lint-docs.mjs` - pricing table drift checks
 - The marketing site (<https://github.com/strait-dev/website>) -- pricing page, pricing comparison tables, structured data
+
+## Validation
+
+Run this after changing pricing, limits, add-ons, or plan names:
+
+```bash
+bun run --cwd packages/billing check:generated
+bun run --cwd apps/docs lint
+```

@@ -4,6 +4,12 @@ description: "Undo completed workflow steps when a later step fails."
 sidebarTitle: "Compensation"
 ---
 
+## Common Tasks
+
+- [Build multi-step workflows](/use-cases/multi-step-workflows)
+- [Troubleshoot failed runs](/guides/troubleshooting-run-failed)
+- [Inspect runs and logs](/guides/inspect-runs)
+
 When a later workflow step fails, earlier steps may need to be undone.
 
 Compensating transactions let you attach an undo job to a step. When a workflow run ends up failed or timed out, you compensate it, and Strait runs the undo jobs for the completed steps in reverse order.

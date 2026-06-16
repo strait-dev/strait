@@ -1,4 +1,4 @@
-# Strait: Go service
+# Strait Go Service
 
 The core backend for Strait. This service handles the REST API, job dispatch, workflow orchestration, the gRPC worker plane, and monitoring. If you are contributing to the Go backend, this is where you work.
 
@@ -104,6 +104,17 @@ golangci-lint run --timeout=10m ./...
 
 See `internal/config/config.go` for every supported env var and its default value.
 
+## Source Of Truth
+
+| Area | Source |
+|---|---|
+| Runtime wiring | `cmd/strait/services.go` |
+| HTTP routes and OpenAPI registration | `internal/api/routes.go`, `internal/api/huma_registry.go`, `internal/api/huma_operations.go` |
+| Configuration | `internal/config/config.go` |
+| Domain states and event names | `internal/domain/types.go` |
+| Database schema changes | `migrations/` |
+| Customer-facing docs | `../docs/` |
+
 ---
 
 ## Packages
@@ -132,7 +143,7 @@ For detailed package notes, contribution rules, and architecture context, see [A
 
 ## Configuration
 
-All configuration is via environment variables. `internal/config/config.go` is the single source of truth. Every supported variable, its default, and its inline documentation live there. For a quick reference, see the root `.env.example`.
+All configuration is via environment variables. `internal/config/config.go` is the single source of truth. Every supported variable, its default, and its inline documentation live there. For a customer-facing reference, see `../docs/configuration/environment-variables.mdx`; for local examples, see the root `.env.example`.
 
 ---
 
@@ -214,3 +225,11 @@ refactor(store): extract run query helpers
 ```
 
 Never use `--no-verify`. If a lefthook check fails, fix the underlying issue.
+
+## Docs Impact
+
+When changing routes, environment variables, run states, webhook events, pricing gates, or user-visible behavior, update the docs in the same commit and run:
+
+```bash
+cd ../docs && bun run lint
+```

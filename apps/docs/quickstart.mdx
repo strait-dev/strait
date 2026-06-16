@@ -1,140 +1,168 @@
 ---
 title: "Quick Start"
-description: "Run Strait locally, create a job, trigger it, and inspect the run."
+description: "Create one Cloud job, trigger one run, and inspect the result."
 icon: "rocket"
 og:image: "/images/og.png"
 ---
 
-This guide gets you to one completed run. After that, you can add retries, schedules, workflows, SDKs, and production settings.
-
-If you use Strait Cloud, use `https://api.strait.dev` as the base URL and your API key as the bearer token. You can skip the local setup steps.
-
-## What You Will Do
-
-1. Start Strait locally.
-2. Create a project.
-3. Create a job.
-4. Trigger a run.
-5. Inspect the result.
+This guide gets you to one completed run. The default path uses Strait Cloud. Community users can run the same API commands after exporting a local `STRAIT_BASE_URL`, `STRAIT_API_KEY`, and `STRAIT_PROJECT_ID`.
 
 ## Prerequisites
 
-You need:
+For Cloud:
 
-- Go 1.26+
-- Docker with Compose v2
+- A Strait Cloud account at [app.strait.dev](https://app.strait.dev)
+- A project ID
+- An API key for that project
 - `curl`
+- `jq`
 
-## 1. Start Strait
+For community local setup, complete [Community Local Setup](/choose-your-path#community-local-setup) first.
+
+If you do not have a Cloud project and API key yet, complete [Set Up a Cloud Project](/guides/cloud-project-setup).
+
+## 1. Export Connection Settings
+
+Cloud:
 
 ```bash
-git clone https://github.com/strait-dev/strait.git
-cd strait
-
-make dev
-make dev-status
+export STRAIT_BASE_URL=https://api.strait.dev
+export STRAIT_API_KEY=strait_replace_with_your_key
+export STRAIT_PROJECT_ID=proj_replace_with_your_project_id
 ```
 
-PostgreSQL, Redis, Sequin, and Strait should report healthy.
-
-## 2. Configure Strait
+Community local:
 
 ```bash
-export DATABASE_URL=postgres://strait:strait@localhost:15432/strait?sslmode=disable
-export REDIS_URL=redis://localhost:16379
-export SEQUIN_BASE_URL=http://localhost:7376
-export SEQUIN_CONSUMER_NAME=strait-cdc
-export INTERNAL_SECRET=my-dev-secret-change-in-production-min-32-chars
-export JWT_SIGNING_KEY=my-jwt-key-change-in-production-min-32-chars
+export STRAIT_BASE_URL=http://localhost:8080
+export STRAIT_API_KEY=my-dev-secret-change-in-production-min-32-chars
+export STRAIT_PROJECT_ID=proj_replace_with_your_project_id
 ```
 
-For local development, `INTERNAL_SECRET` is the bearer token for API calls.
-
-## 3. Run the Server From Source
+Check that the API is reachable:
 
 ```bash
-docker compose -f docker-compose.base.yml -f apps/strait/docker-compose.yml --profile core stop strait
-cd apps/strait
-go build -o strait ./cmd/strait
-./strait --mode all
+curl -sS "$STRAIT_BASE_URL/health" | jq
 ```
 
-The Compose stack already runs Strait. Stop the Compose `strait` container only when you want to run the local binary against the same PostgreSQL, Redis, and Sequin services. Mode `all` runs the API, scheduler, and worker in one process.
+Expected response:
 
-## 4. Create a Project
+```json
+{
+  "status": "ok",
+  "edition": "cloud"
+}
+```
+
+A community instance returns its own edition value.
+
+## 2. Create A Job
+
+This job posts to `https://httpbin.org/post`, which returns a successful response for the first test run. Use your own endpoint for real work.
+
+The production HTTP job fixture lives at `apps/docs/examples/requests/create-http-job.json`.
 
 ```bash
-curl -X POST http://localhost:8080/v1/projects \
-  -H "Authorization: Bearer $INTERNAL_SECRET" \
+curl -sS -X POST "$STRAIT_BASE_URL/v1/jobs" \
+  -H "Authorization: Bearer $STRAIT_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{ "name": "My Project", "slug": "my-project" }'
+  -d "{
+    \"project_id\": \"$STRAIT_PROJECT_ID\",
+    \"name\": \"Hello World\",
+    \"slug\": \"hello-world\",
+    \"endpoint_url\": \"https://httpbin.org/post\",
+    \"timeout_secs\": 60,
+    \"max_attempts\": 3
+  }" | tee /tmp/strait-job.json | jq
 ```
 
-Save the returned project ID.
-
-## 5. Create a Job
-
-A job defines where Strait sends work, how long it may run, and how many times it may retry.
+Save the job ID:
 
 ```bash
-curl -X POST http://localhost:8080/v1/jobs \
-  -H "Authorization: Bearer $INTERNAL_SECRET" \
+export STRAIT_JOB_ID=$(jq -r '.id' /tmp/strait-job.json)
+```
+
+## 3. Trigger A Run
+
+```bash
+curl -sS -X POST "$STRAIT_BASE_URL/v1/jobs/hello-world/trigger" \
+  -H "Authorization: Bearer $STRAIT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "project_id": "proj_abc123",
-    "name": "Hello World",
-    "slug": "hello-world",
-    "endpoint_url": "https://httpbin.org/post",
-    "timeout_secs": 60,
-    "max_attempts": 3
-  }'
+    "payload": {
+      "greeting": "Hello from Strait"
+    },
+    "tags": {
+      "source": "quickstart"
+    }
+  }' | tee /tmp/strait-run.json | jq
 ```
 
-Replace `proj_abc123` with your project ID.
-
-## 6. Trigger a Run
+Save the run ID:
 
 ```bash
-curl -X POST http://localhost:8080/v1/jobs/hello-world/trigger \
-  -H "Authorization: Bearer $INTERNAL_SECRET" \
-  -H "Content-Type: application/json" \
-  -d '{ "payload": { "greeting": "Hello from Strait" } }'
+export STRAIT_RUN_ID=$(jq -r '.id' /tmp/strait-run.json)
 ```
 
-The response includes a run ID and a status such as `queued`.
+The initial status is usually `queued` or `executing`.
 
-## 7. Inspect the Run
+## 4. Inspect The Run
+
+Give the worker a few seconds, then read the run:
 
 ```bash
-curl http://localhost:8080/v1/runs/run_abc123 \
-  -H "Authorization: Bearer $INTERNAL_SECRET"
+sleep 3
+curl -sS "$STRAIT_BASE_URL/v1/runs/$STRAIT_RUN_ID" \
+  -H "Authorization: Bearer $STRAIT_API_KEY" | jq
 ```
 
-A successful run moves to `completed`. The run record shows the payload, attempts, timing, status, and result.
+Expected fields:
+
+```json
+{
+  "id": "run_abc123",
+  "job_id": "job_abc123",
+  "status": "completed",
+  "attempt": 1
+}
+```
+
+If the run is still `queued` or `executing`, repeat the same `GET /v1/runs/{runID}` command.
+
+For events, logs, outputs, checkpoints, and live streams, read [Inspect Runs and Logs](/guides/inspect-runs).
+
+## 5. Replay The Run
+
+Replay creates a new run from the same work after you fix an endpoint or dependency problem. You can also replay a successful quickstart run to verify the route.
+
+```bash
+curl -sS -X POST "$STRAIT_BASE_URL/v1/runs/$STRAIT_RUN_ID/replay" \
+  -H "Authorization: Bearer $STRAIT_API_KEY" | jq
+```
 
 ## Common Problems
 
-**Run stays queued.** Make sure Strait is running with `--mode all` or `--mode worker`.
-
-**Endpoint times out.** Increase `timeout_secs` or make the endpoint finish faster.
-
-**Private endpoint is rejected.** Strait blocks private IP ranges by default. See [Security](/guides/security#ssrf-protection).
-
-**Run moves to `dead_letter`.** Fix the underlying issue, then replay the run. See [Handle Failed Runs](/guides/handle-failed-runs).
+| Problem | Fix |
+|---|---|
+| `401 Unauthorized` | Use the project API key as `STRAIT_API_KEY`. Do not use the dashboard password. |
+| `403 Forbidden` | Confirm `STRAIT_PROJECT_ID` belongs to the API key's project. |
+| `400 endpoint_url failed validation` | Use a public HTTPS endpoint for Cloud. Cloud rejects private IP ranges and metadata endpoints. |
+| Run stays `queued` on community | Start Strait with API, scheduler, and worker enabled. Local `make dev` starts the full stack. |
+| Run moves to `dead_letter` | Read the run error, fix the endpoint, then replay. |
 
 ## Next
 
 <CardGroup cols={2}>
   <Card title="Create a Production Job" icon="check-circle" href="/guides/production-job">
-    Add idempotency, retry policy, limits, metadata, and failure handling.
+    Add idempotency, retry policy, concurrency limits, metadata, and failure handling.
   </Card>
-  <Card title="Use Cases" icon="list-checks" href="/use-cases/background-jobs">
-    Choose the path that matches what you want to build.
+  <Card title="Inspect Runs" icon="search" href="/guides/inspect-runs">
+    Read run status, events, outputs, checkpoints, and live streams.
   </Card>
-  <Card title="Workflows" icon="diagram-project" href="/concepts/workflows">
-    Coordinate multi-step work after your first job is running.
+  <Card title="Jobs" icon="briefcase" href="/concepts/jobs">
+    Learn every job setting before you create production jobs.
   </Card>
   <Card title="SDKs" icon="code" href="/sdks/overview">
-    Trigger jobs and report progress from your application.
+    Trigger jobs from your application code.
   </Card>
 </CardGroup>

@@ -1,0 +1,69 @@
+---
+title: "Runs API"
+description: "Common API operations for listing, inspecting, streaming, canceling, and replaying runs."
+icon: "play"
+---
+
+Use the Runs API to operate work after it has been triggered.
+
+For request body fields generated from the runtime OpenAPI schema, see [Generated API Fields](/api-reference/generated-fields#runs).
+
+## Prerequisites
+
+```bash
+export STRAIT_BASE_URL=https://api.strait.dev
+export STRAIT_API_KEY=strait_replace_with_your_key
+export STRAIT_RUN_ID=run_replace_with_your_run_id
+```
+
+## Inspect a Run
+
+```bash
+curl -sS "$STRAIT_BASE_URL/v1/runs/$STRAIT_RUN_ID" \
+  -H "Authorization: Bearer $STRAIT_API_KEY" | jq
+```
+
+Expected result: a run object with `status`, `attempt`, and timestamps.
+
+## Read Run Events
+
+```bash
+curl -sS "$STRAIT_BASE_URL/v1/runs/$STRAIT_RUN_ID/events" \
+  -H "Authorization: Bearer $STRAIT_API_KEY" | jq
+```
+
+## Replay a Run
+
+```bash
+curl -sS -X POST "$STRAIT_BASE_URL/v1/runs/$STRAIT_RUN_ID/replay" \
+  -H "Authorization: Bearer $STRAIT_API_KEY" | jq
+```
+
+## Common Operations
+
+| Operation | Method and path |
+|---|---|
+| List runs | `GET /v1/runs` |
+| List dead-letter runs | `GET /v1/runs/dlq` |
+| Get run | `GET /v1/runs/{runID}` |
+| Cancel run | `DELETE /v1/runs/{runID}` |
+| Replay run | `POST /v1/runs/{runID}/replay` |
+| Replay dead-letter run | `POST /v1/runs/{runID}/dlq-replay` |
+| List events | `GET /v1/runs/{runID}/events` |
+| List outputs | `GET /v1/runs/{runID}/outputs` |
+| List checkpoints | `GET /v1/runs/{runID}/checkpoints` |
+
+## Failure Cases
+
+| Status | Meaning |
+|---|---|
+| `400` | Query or replay request is invalid. |
+| `401` | API key missing or invalid. |
+| `404` | Run does not exist in this project. |
+| `409` | Run cannot be replayed or canceled from its current state. |
+
+## Next
+
+- [Inspect Runs and Logs](/guides/inspect-runs)
+- [Handle Failed Runs](/guides/handle-failed-runs)
+- [Runs](/concepts/runs)

@@ -2,6 +2,10 @@
 
 Self-host deployment infrastructure for the Strait stack. Prometheus and Grafana configurations used by `docker-compose.selfhost.yml` so a fresh self-host install ships with metrics and a dashboard.
 
+## Source Of Truth
+
+Runtime mounting lives in `docker-compose.selfhost.yml`. Customer setup instructions live in [SELFHOST.md](../../SELFHOST.md). This package only owns the deployable files.
+
 ## Structure
 
 ```
@@ -22,3 +26,10 @@ These files are volume-mounted by the self-host Docker Compose stack. Prometheus
 Referenced by:
 - `docker-compose.selfhost.yml` (Prometheus and Grafana service volumes)
 - `apps/docs/guides/deployment.mdx` (production deploy docs)
+
+## Validation
+
+```bash
+make selfhost
+cd apps/docs && bun run lint
+```

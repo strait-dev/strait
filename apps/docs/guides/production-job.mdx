@@ -1,18 +1,34 @@
 ---
 title: "Create a Production Job"
-description: "Set up a job with retries, timeouts, idempotency, and basic monitoring."
+description: "Create a Cloud job with endpoint contract, retries, idempotency, limits, and recovery."
 icon: "check-circle"
 ---
 
-This guide shows the settings most production jobs should have before they process real work.
+This guide turns the quickstart job into a production job. The commands target Strait Cloud. Community users can run the same commands against their own `STRAIT_BASE_URL`.
 
-## 1. Create an Endpoint
+## Prerequisites
 
-Your endpoint should accept a POST request and return quickly with a clear success or failure.
+Export the same variables from the [Quick Start](/quickstart):
+
+```bash
+export STRAIT_BASE_URL=https://api.strait.dev
+export STRAIT_API_KEY=strait_replace_with_your_key
+export STRAIT_PROJECT_ID=proj_replace_with_your_project_id
+```
+
+You also need a public HTTPS endpoint that completes the work and returns a clear success or failure.
+
+## 1. Implement The Endpoint Contract
+
+Strait sends one HTTP POST per run attempt.
+
+Request body:
 
 ```json
 {
-  "payload": { "user_id": "user_abc123" },
+  "payload": {
+    "user_id": "user_abc123"
+  },
   "metadata": {},
   "job_id": "job_abc123",
   "run_id": "run_abc123",
@@ -20,99 +36,145 @@ Your endpoint should accept a POST request and return quickly with a clear succe
 }
 ```
 
-Return `2xx` only after the work is complete. Return `408`, `429`, or `5xx` for failures that should be retried.
+Return:
 
-## 2. Create the Job
+| Endpoint result | What Strait does |
+|---|---|
+| `2xx` | Marks the run `completed`. |
+| `408`, `429`, or `5xx` | Retries if attempts remain. |
+| Other `4xx` | Treats the attempt as a failure. |
+| Timeout | Marks the attempt `timed_out` and retries if attempts remain. |
+
+Make the endpoint idempotent by `run_id` or by a business key in the payload. Strait may retry after network failures.
+
+## 2. Create The Job
+
+The request body fixture lives at `apps/docs/examples/requests/create-http-job.json`.
 
 ```bash
-curl -X POST https://api.strait.dev/v1/jobs \
+curl -sS -X POST "$STRAIT_BASE_URL/v1/jobs" \
   -H "Authorization: Bearer $STRAIT_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{
-    "project_id": "proj_abc123",
-    "name": "Send Welcome Email",
-    "slug": "send-welcome-email",
-    "endpoint_url": "https://api.example.com/jobs/send-welcome-email",
-    "timeout_secs": 60,
-    "max_attempts": 5,
-    "retry_strategy": "exponential"
-  }'
+  -d "{
+    \"project_id\": \"$STRAIT_PROJECT_ID\",
+    \"name\": \"Send Welcome Email\",
+    \"slug\": \"send-welcome-email\",
+    \"endpoint_url\": \"https://jobs.example.com/strait/send-welcome-email\",
+    \"timeout_secs\": 60,
+    \"max_attempts\": 5,
+    \"retry_strategy\": \"exponential\",
+    \"max_concurrency\": 10,
+    \"rate_limit_max\": 100,
+    \"rate_limit_window_secs\": 60,
+    \"tags\": {
+      \"team\": \"growth\",
+      \"tier\": \"production\"
+    },
+    \"default_run_metadata\": {
+      \"service\": \"signup\"
+    }
+  }" | tee /tmp/strait-production-job.json | jq
 ```
 
-Use a timeout that reflects the real upper bound for the work. Avoid very long timeouts unless the endpoint truly needs them.
+Set `endpoint_url` to your service. For Cloud, the endpoint must be reachable from the public internet unless you use private workers.
 
-## 3. Add Idempotency
+## 3. Trigger With Idempotency
 
-If the caller may retry the trigger request, send an idempotency key.
+Use an idempotency key when the caller might retry the trigger request.
+
+This calls `POST /v1/jobs/{jobID}/trigger`. The path accepts a job ID or slug.
+
+The trigger request body fixture lives at `apps/docs/examples/requests/trigger-run.json`.
 
 ```bash
-curl -X POST https://api.strait.dev/v1/jobs/send-welcome-email/trigger \
+curl -sS -X POST "$STRAIT_BASE_URL/v1/jobs/send-welcome-email/trigger" \
   -H "Authorization: Bearer $STRAIT_API_KEY" \
   -H "Idempotency-Key: welcome-email-user_abc123" \
   -H "Content-Type: application/json" \
-  -d '{ "payload": { "user_id": "user_abc123" } }'
+  -d '{
+    "payload": {
+      "user_id": "user_abc123",
+      "email": "user@example.com"
+    },
+    "tags": {
+      "tenant": "acme",
+      "source": "signup"
+    }
+  }' | tee /tmp/strait-production-run.json | jq
 ```
 
-The key should represent the business action, not a random request ID.
-
-## 4. Protect the Downstream Service
-
-Set concurrency and rate limits when your endpoint calls a database, third-party API, or service with limited capacity.
-
-```json
-{
-  "max_concurrency": 10,
-  "rate_limit_max": 100,
-  "rate_limit_window_secs": 60
-}
-```
-
-Start conservative. Raise limits after you understand latency and failure rates.
-
-## 5. Add Metadata
-
-Metadata makes runs easier to find later.
-
-```json
-{
-  "payload": { "user_id": "user_abc123" },
-  "metadata": {
-    "source": "signup",
-    "request_id": "req_123"
-  },
-  "tags": {
-    "tenant": "acme"
-  }
-}
-```
-
-Use metadata for context. Use tags for fields you expect to filter on.
-
-## 6. Watch the First Runs
-
-After triggering the job, check the run:
+Save the run ID:
 
 ```bash
-curl https://api.strait.dev/v1/runs/run_abc123 \
-  -H "Authorization: Bearer $STRAIT_API_KEY"
+export STRAIT_RUN_ID=$(jq -r '.id' /tmp/strait-production-run.json)
 ```
 
-Confirm:
+Use a business key for `Idempotency-Key`, not a random request ID. Retrying the same business action with the same key returns the same accepted run instead of creating duplicate work.
 
-- The run reaches `completed`.
-- The result contains what you expect.
-- The endpoint latency is inside your timeout.
-- Failed attempts retry as expected.
+## 4. Verify The First Run
 
-## 7. Handle Failures
+```bash
+curl -sS "$STRAIT_BASE_URL/v1/runs/$STRAIT_RUN_ID" \
+  -H "Authorization: Bearer $STRAIT_API_KEY" | jq
+```
 
-When retries are exhausted, the run moves to `dead_letter`. Treat those runs as a work queue for human review.
+Check these fields:
 
-See [Handle Failed Runs](/guides/handle-failed-runs).
+| Field | Expected value |
+|---|---|
+| `status` | `completed`, or a clear failure state while you are testing failure handling. |
+| `attempt` | `1` for the first successful attempt. |
+| `error` | Empty on success. |
+| `started_at` and `finished_at` | Present after execution. |
+| `tags` | Includes the tags you sent on trigger. |
+
+## 5. Tune Limits
+
+Use the first runs to set limits:
+
+| Setting | Start with | Change when |
+|---|---|---|
+| `timeout_secs` | The endpoint p99 plus headroom | Runs time out before legitimate work finishes. |
+| `max_attempts` | `3` to `5` | The downstream system has known transient failures. |
+| `max_concurrency` | A number your endpoint can process safely | Endpoint latency or database load changes. |
+| `rate_limit_max` and `rate_limit_window_secs` | Your downstream request budget | A third-party API or internal service publishes limits. |
+
+Keep limits conservative until you have production latency and error data.
+
+## 6. Recover Failed Runs
+
+When all attempts fail, Strait moves the run to `dead_letter`.
+
+1. Read the run and inspect `error`.
+2. Fix the endpoint, dependency, or payload issue.
+3. Replay the run:
+
+```bash
+curl -sS -X POST "$STRAIT_BASE_URL/v1/runs/$STRAIT_RUN_ID/replay" \
+  -H "Authorization: Bearer $STRAIT_API_KEY" | jq
+```
+
+For a full operator flow, read [Handle Failed Runs](/guides/handle-failed-runs).
+
+For run events, logs, outputs, checkpoints, and live streams, read [Inspect Runs and Logs](/guides/inspect-runs).
+
+## Community Notes
+
+For community self-hosting, replace only the connection variables:
+
+```bash
+export STRAIT_BASE_URL=https://strait.your-company.example
+export STRAIT_API_KEY=strait_replace_with_your_key
+export STRAIT_PROJECT_ID=proj_replace_with_your_project_id
+```
+
+Before production self-hosting, complete [Self-Hosting](/guides/self-hosting) and [Environment Variables](/configuration/environment-variables). Confirm TLS, backups, monitoring, retention, `SECRET_ENCRYPTION_KEY`, `INTERNAL_SECRET`, and `JWT_SIGNING_KEY` before running customer workloads.
 
 ## Related
 
 - [Jobs](/concepts/jobs)
 - [Runs](/concepts/runs)
+- [Inspect Runs and Logs](/guides/inspect-runs)
 - [Idempotency](/guides/idempotency)
 - [Retry Strategies](/concepts/retry-strategies)
+- [Private Workers](/guides/private-workers)

@@ -2,6 +2,10 @@
 
 This directory contains the built-in Grafana dashboards for operating Strait.
 
+## Source Of Truth
+
+Dashboard JSON files in this directory are the checked-in source. Provisioning files under `provisioning/` define how self-host and local smoke checks load them.
+
 Dashboards:
 
 - `service-overview.json` - top-level health, latency, queue, API, and dependency posture

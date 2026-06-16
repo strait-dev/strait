@@ -1,0 +1,83 @@
+---
+title: "Run Failed"
+description: "Diagnose a failed run, identify the failing attempt, and replay safely."
+icon: "circle-x"
+---
+
+Use this page when a run reaches `failed`, `timed_out`, or `dead_letter`.
+
+## Prerequisites
+
+- `STRAIT_BASE_URL`
+- `STRAIT_API_KEY`
+- `STRAIT_RUN_ID`
+
+## 1. Read the Run
+
+```bash
+curl -sS "$STRAIT_BASE_URL/v1/runs/$STRAIT_RUN_ID" \
+  -H "Authorization: Bearer $STRAIT_API_KEY" | jq
+```
+
+Expected result: the response includes `status`, `attempt`, and `error`.
+
+## 2. Read Events
+
+```bash
+curl -sS "$STRAIT_BASE_URL/v1/runs/$STRAIT_RUN_ID/events" \
+  -H "Authorization: Bearer $STRAIT_API_KEY" | jq
+```
+
+Find the first failed attempt, the final failed attempt, and any SDK logs written before failure.
+
+## 3. Classify the Failure
+
+| Evidence | Action |
+|---|---|
+| `408`, `429`, or `5xx` from endpoint | Check downstream health and retry policy. |
+| Other `4xx` | Fix payload or endpoint validation. |
+| Timeout | Increase `timeout_secs` or make the handler return faster. |
+| Same error every attempt | Check poison payload or deterministic handler failure. |
+| Worker disconnect | Check worker process, network path, and queue name. |
+
+## 4. Fix Before Replay
+
+Replay only after you fix the cause.
+
+Common fixes:
+
+- Deploy endpoint code.
+- Restore downstream dependency.
+- Correct a bad payload source.
+- Increase timeout or lower concurrency.
+- Add idempotency to side effects.
+
+## 5. Replay
+
+```bash
+curl -sS -X POST "$STRAIT_BASE_URL/v1/runs/$STRAIT_RUN_ID/replay" \
+  -H "Authorization: Bearer $STRAIT_API_KEY" | jq
+```
+
+For `dead_letter`:
+
+```bash
+curl -sS -X POST "$STRAIT_BASE_URL/v1/runs/$STRAIT_RUN_ID/dlq-replay" \
+  -H "Authorization: Bearer $STRAIT_API_KEY" | jq
+```
+
+Expected result: Strait creates a new run.
+
+## Failure Cases
+
+| Problem | What to do |
+|---|---|
+| Replay creates duplicate side effects | Add business-key idempotency before replaying more runs. |
+| Replay fails immediately | The original cause is still present. |
+| Run goes back to `dead_letter` | Stop bulk replay and inspect the repeated error. |
+
+## Next
+
+- [Handle Failed Runs](/guides/handle-failed-runs)
+- [Retry Strategies](/concepts/retry-strategies)
+- [Idempotency](/guides/idempotency)

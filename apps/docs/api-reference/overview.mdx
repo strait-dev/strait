@@ -13,6 +13,15 @@ og:image: "/images/og.png"
 
 The Strait API supports four authentication methods depending on the client and use case.
 
+Use these variables in examples:
+
+```bash
+export STRAIT_BASE_URL=https://api.strait.dev
+export STRAIT_API_KEY=strait_replace_with_your_key
+```
+
+Community users set `STRAIT_BASE_URL` to their own Strait URL.
+
 ### Server Secret
 Used for trusted backend calls.
 - **Header**: `X-Internal-Secret: <your-secret>`
@@ -32,15 +41,7 @@ Used by the SDK within a job run context to authenticate heartbeats, logs, and c
 
 ## Error Response Format
 
-All API errors follow a standard JSON structure:
-
-```json
-{
-  "error": "Detailed error message",
-  "code": "optional_error_code",
-  "request_id": "req_abc123"
-}
-```
+All API errors use the envelope described in [Error Envelope](#error-envelope). SDKs branch on `error.code`; operators should quote `request_id` when reporting failures.
 
 ## Pagination
 
@@ -90,11 +91,21 @@ Additional endpoint-specific limits:
 |Projects|`/v1/projects`|Create and manage projects and quotas|
 |Environments|`/v1/environments`|Configure per-environment variable overrides|
 |API Keys|`/v1/api-keys`|Create, rotate, and revoke API keys|
-|Webhook Subscriptions|`/v1/webhook-subscriptions`|Manage project-wide webhook subscriptions|
+|Webhook Subscriptions|`/v1/webhooks/subscriptions`|Manage project-wide webhook subscriptions|
 |Audit|`/v1/audit-events`|Query and export audit events|
 |RBAC|`/v1/roles`, `/v1/members`|Manage roles, members, and policies|
 
 All endpoints accept and return JSON. Use the interactive API explorer below for full request/response schemas.
+
+For common task flows before the raw endpoint explorer, start here:
+
+- [Jobs API](/api-reference/jobs)
+- [Runs API](/api-reference/runs)
+- [Webhooks API](/api-reference/webhooks)
+- [Event Sources API](/api-reference/event-sources)
+- [Workers API](/api-reference/workers)
+- [Admin and Operations API](/api-reference/admin-ops)
+- [Generated API Fields](/api-reference/generated-fields)
 
 ## Response Patterns
 
@@ -163,6 +174,7 @@ Every error response follows the same shape:
 |`enqueue_throttled`|429|Per-job or per-project enqueue throttle exceeded. Retry with backoff.|
 |`internal_error`|500|Unexpected server-side failure. Quote `request_id` when reporting.|
 |`service_unavailable`|503|Dependency degraded or shedding load. Retry with backoff.|
+
 ## Workflow and Dependency Endpoints
 
 ### Planning and Diagnostics
@@ -193,18 +205,18 @@ Every error response follows the same shape:
 
 ```bash
 # Runtime graph snapshot
-curl -X GET "https://api.strait.dev/v1/workflow-runs/wr_abc123/graph" \
-  -H "Authorization: Bearer strait_live_abc123"
+curl -X GET "$STRAIT_BASE_URL/v1/workflow-runs/wr_abc123/graph" \
+  -H "Authorization: Bearer $STRAIT_API_KEY"
 ```
 
 ```bash
 # Explain why a step is waiting/skipped
-curl -X GET "https://api.strait.dev/v1/workflow-runs/wr_abc123/explain?step_ref=deploy&decision_type=resource" \
-  -H "Authorization: Bearer strait_live_abc123"
+curl -X GET "$STRAIT_BASE_URL/v1/workflow-runs/wr_abc123/explain?step_ref=deploy&decision_type=resource" \
+  -H "Authorization: Bearer $STRAIT_API_KEY"
 ```
 
 ```bash
 # Replay a failed branch from step 'deploy'
-curl -X POST "https://api.strait.dev/v1/workflow-runs/wr_abc123/steps/deploy/replay-subtree" \
-  -H "Authorization: Bearer strait_live_abc123"
+curl -X POST "$STRAIT_BASE_URL/v1/workflow-runs/wr_abc123/steps/deploy/replay-subtree" \
+  -H "Authorization: Bearer $STRAIT_API_KEY"
 ```

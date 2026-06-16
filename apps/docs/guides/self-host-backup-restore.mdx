@@ -1,0 +1,103 @@
+---
+title: "Self-Host Backup and Restore"
+description: "Back up and restore the PostgreSQL database for a community self-hosted Strait stack."
+icon: "database-backup"
+---
+
+PostgreSQL is the source of truth for a self-hosted Strait stack. Back up PostgreSQL before upgrades, host maintenance, and risky configuration changes.
+
+Redis is used for pub/sub and live streams. It is not the source of truth for jobs, runs, workflows, or audit history.
+
+## 1. Create a Backup
+
+Run the bundled backup script from the repo root:
+
+```bash
+./packages/scripts/selfhost-backup.sh
+```
+
+The script writes a gzipped SQL dump to `./backups` and prunes backups older than 30 days.
+
+Check the result:
+
+```bash
+ls -lh backups
+```
+
+## 2. Schedule Daily Backups
+
+Example cron entry:
+
+```bash
+0 3 * * * cd /path/to/strait && ./packages/scripts/selfhost-backup.sh
+```
+
+Send backup logs to the same place as your host logs. A backup that fails silently is not a backup.
+
+## 3. Copy Backups Off the Host
+
+Store at least one copy outside the Docker host.
+
+Common targets:
+
+| Target | Notes |
+|---|---|
+| Object storage | Good default for production. Enable lifecycle rules and access logs. |
+| Managed backup service | Use if your PostgreSQL provider already supports point-in-time restore. |
+| Encrypted file storage | Works for small installs. Test restore speed before relying on it. |
+
+Protect backups like production data. They contain job payloads, run metadata, and audit records.
+
+## 4. Restore Into a Running Stack
+
+Stop application traffic first. Then restore the dump into PostgreSQL:
+
+```bash
+gunzip -c backups/strait_20260325_120000.sql.gz | \
+  docker exec -i strait-postgres psql -U strait strait
+```
+
+Restart Strait after restore:
+
+```bash
+docker compose --env-file .env.selfhost \
+  -f docker-compose.base.yml \
+  -f docker-compose.selfhost.yml \
+  --profile core \
+  --profile dashboard \
+  up -d
+```
+
+## 5. Verify the Restore
+
+```bash
+curl -sS http://localhost:8080/health | jq
+curl -sS http://localhost:8080/ready | jq
+```
+
+Then open the dashboard and verify:
+
+- Projects are present.
+- Jobs are present.
+- Recent runs are present.
+- A known-safe job can be triggered.
+- New runs leave `queued` and reach a terminal state.
+
+## 6. Restore Drill
+
+Run a restore drill before depending on backups in production.
+
+1. Create a backup.
+2. Restore it into a separate test host.
+3. Start Strait against the restored database.
+4. Confirm project, job, run, and audit data.
+5. Record the time required.
+
+Use the drill time as your recovery time estimate.
+
+## Related
+
+- [Self-Hosting](/guides/self-hosting)
+- [Self-Host Upgrades](/guides/self-host-upgrades)
+- [Deployment](/guides/deployment)
+- [Troubleshooting](/guides/troubleshooting)

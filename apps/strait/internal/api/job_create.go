@@ -22,12 +22,12 @@ type CreateJobRequest struct {
 	Cron                      string            `json:"cron,omitempty"`
 	PayloadSchema             json.RawMessage   `json:"payload_schema,omitempty"`
 	Tags                      map[string]string `json:"tags,omitempty"`
-	EndpointURL               string            `json:"endpoint_url" validate:"omitempty,url"`
+	EndpointURL               string            `json:"endpoint_url,omitempty" validate:"omitempty,url"`
 	EndpointSigningSecret     string            `json:"endpoint_signing_secret,omitempty" validate:"omitempty,min=16,max=4096"`
 	WebhookSecret             string            `json:"webhook_secret,omitempty" validate:"omitempty,min=16,max=4096" doc:"Alias of endpoint_signing_secret used by the Go SDK. When both are set, webhook_secret wins and a warning is logged."`
 	FallbackEndpointURL       string            `json:"fallback_endpoint_url,omitempty" validate:"omitempty,url"`
-	MaxAttempts               int               `json:"max_attempts" validate:"omitempty,min=1,max=100"`
-	TimeoutSecs               int               `json:"timeout_secs" validate:"omitempty,min=1"`
+	MaxAttempts               int               `json:"max_attempts,omitempty" validate:"omitempty,min=1,max=100"`
+	TimeoutSecs               int               `json:"timeout_secs,omitempty" validate:"omitempty,min=1"`
 	MaxConcurrency            int               `json:"max_concurrency,omitempty" validate:"omitempty,min=0"`
 	MaxConcurrencyPerKey      int               `json:"max_concurrency_per_key,omitempty" validate:"omitempty,min=0"`
 	ExecutionWindowCron       string            `json:"execution_window_cron,omitempty"`

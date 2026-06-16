@@ -4,6 +4,12 @@ description: "Organize your jobs, workflows, and settings into isolated projects
 icon: "folder"
 ---
 
+## Common Tasks
+
+- [Set up a Cloud project](/guides/cloud-project-setup)
+- [Use the Cloud dashboard](/guides/cloud-dashboard)
+- [Manage authentication](/guides/authentication)
+
 ## What is a Project?
 
 A project is the top-level container in Strait. Every job, workflow, run, environment, secret, and API key belongs to exactly one project. Use projects to separate concerns: one per service, team, or deployment stage.
@@ -18,10 +24,12 @@ Projects provide:
 
 ## Creating a Project
 
-Creating a project is an org-level operation, so it authenticates with the internal management secret rather than a project-scoped API key. An API key only exists once a project does. The `id` is caller-supplied and must be unique within the org.
+On Strait Cloud, create projects in the dashboard and copy the project ID from project settings. Cloud plans cap projects per organization: Free includes one project, Starter includes three, Pro includes ten, Scale includes fifty, and Business is unlimited. Project add-ons are not sold at launch.
+
+For community self-hosting and internal automation, create projects through the API. Creating a project is an org-level operation, so it authenticates with the internal management secret rather than a project-scoped API key. An API key only exists once a project does. The `id` is caller-supplied and must be unique within the org.
 
 ```bash
-curl -X POST https://api.strait.dev/v1/projects \
+curl -X POST "$STRAIT_BASE_URL/v1/projects" \
   -H "X-Internal-Secret: $INTERNAL_SECRET" \
   -H "Content-Type: application/json" \
   -d '{
@@ -45,10 +53,6 @@ Response:
 
 A project has five fields: `id`, `org_id`, `name`, `created_at`, and `updated_at`.
 
-On Strait Cloud, the dashboard creates projects for you. Self-hosted operators use the internal secret directly, as shown above.
-
-Cloud plans cap projects per organization: Free includes one project, Starter includes three, Pro includes ten, Scale includes fifty, and Business is unlimited. Project add-ons are not sold at launch.
-
 ---
 
 ## Organizations
@@ -64,8 +68,8 @@ API keys can also carry an `org_id`, granting access across all projects in that
 Every project has a quota that caps concurrency, throughput, and cost. View your project's current limits:
 
 ```bash
-curl https://api.strait.dev/v1/projects/payments/settings \
-  -H "Authorization: Bearer YOUR_API_KEY"
+curl "$STRAIT_BASE_URL/v1/projects/payments/settings" \
+  -H "Authorization: Bearer $STRAIT_API_KEY"
 ```
 
 Key quota fields:
@@ -118,8 +122,8 @@ Each API key is scoped to a project and carries a set of permission scopes. Assi
 Create a key scoped to a project. `scopes` is required and must list at least one permission. The plaintext `key` is returned once, at creation, and never again, so store it immediately.
 
 ```bash
-curl -X POST https://api.strait.dev/v1/api-keys \
-  -H "Authorization: Bearer YOUR_API_KEY" \
+curl -X POST "$STRAIT_BASE_URL/v1/api-keys" \
+  -H "Authorization: Bearer $STRAIT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "project_id": "payments",
@@ -133,8 +137,8 @@ The very first key for a fresh project is minted with the internal secret instea
 Rotate a key when it leaks or on a schedule. Rotation issues a new key and keeps the old one valid for a grace period (default 60 minutes, max 10080) so callers can cut over without downtime:
 
 ```bash
-curl -X POST https://api.strait.dev/v1/api-keys/{keyID}/rotate \
-  -H "Authorization: Bearer YOUR_API_KEY" \
+curl -X POST "$STRAIT_BASE_URL/v1/api-keys/{keyID}/rotate" \
+  -H "Authorization: Bearer $STRAIT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{ "grace_period_minutes": 120 }'
 ```

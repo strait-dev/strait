@@ -2,6 +2,10 @@
 
 Shell scripts for self-hosted Strait deployments.
 
+## Source Of Truth
+
+These scripts are called by root Makefile targets. User-facing setup and backup instructions live in [SELFHOST.md](../../SELFHOST.md).
+
 ## Files
 
 | Script | Purpose |
@@ -28,3 +32,17 @@ Referenced by:
 - `Makefile` (`selfhost`, `selfhost-reset` targets)
 - `SELFHOST.md` (self-host guide)
 - `docker-compose.selfhost.yml` (comment header)
+
+## Validation
+
+```bash
+shellcheck packages/scripts/*.sh
+cd apps/docs && bun run lint
+```
+
+If `shellcheck` is not installed locally, run the self-host flow before committing script changes:
+
+```bash
+make selfhost
+make selfhost-down
+```

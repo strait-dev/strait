@@ -63,7 +63,7 @@ Inside `apps/strait/`:
 - `cmd/strait/`: entrypoint, server wiring, migration runner (`main.go`, `server.go`, `services.go`, `migrate.go`)
 - `migrations/`: embedded SQL migrations
 - `proto/`: gRPC worker-plane protobuf definitions (linted by `buf`)
-- `schemas/strait.json`: generated OpenAPI spec
+- `schemas/strait.json`: embedded SDK `strait.json` configuration schema, served at `/schemas/v1/strait.json`
 - `monitoring/`: Prometheus rules and Grafana dashboards
 - `internal/`: application code:
 
@@ -151,7 +151,7 @@ Map of platform capabilities. Each entry links to the doc that explains it in de
 - Event triggers guide: `apps/docs/guides/event-triggers.mdx`
 
 **Reference**
-- API: `apps/docs/api-reference/` and `apps/strait/schemas/strait.json`
+- API: `apps/docs/api-reference/` and the runtime OpenAPI document served at `/reference/openapi.json`
 - Configuration and env vars: `apps/docs/configuration/environment-variables.mdx` and `.env.example`
 
 If you have unresolved questions about scope, schema, API contracts, or user-facing semantics after reading the relevant docs, **ask the user before implementing.** Do not assume.
@@ -287,7 +287,7 @@ Once the plan is approved, execute each phase in order. For every phase:
 - Never silently expand scope mid-phase.
 - Never skip validation or commit gates.
 - Tests live in the same phase as the behavior change, never deferred to a later phase.
-- Update docs, OpenAPI (`apps/strait/schemas/strait.json`), and `.env.example` in the same phase that introduces the change.
+- Update docs, Huma route registration/OpenAPI coverage, and `.env.example` in the same phase that introduces the change.
 
 ---
 
@@ -423,7 +423,7 @@ JSON
 - Keep changes small, focused, and reversible.
 - Add tests for new behavior, and regression tests for bug fixes.
 - Maintain backward compatibility unless the user requests breakage.
-- Update OpenAPI (`apps/strait/schemas/strait.json`), docs, and `.env.example` when the surface changes.
+- Update Huma route registration/OpenAPI coverage, docs, and `.env.example` when the surface changes.
 
 ### Don't
 - Guess business rules, API contracts, or schema intent.

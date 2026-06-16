@@ -2,6 +2,10 @@
 
 Transactional email templates built with React Email. Contains all email templates sent by the Strait platform, organized by domain.
 
+## Source Of Truth
+
+Templates live under `emails/` and are exported from the package root. Keep product copy in the templates themselves; keep operational email policy in customer or support documentation.
+
 ## Templates
 
 ### Auth (6)
@@ -30,8 +34,15 @@ import { MagicLink, OrganizationInvite, Feedback } from "@strait/transactional";
 
 ## Development
 
-```sh
+```bash
 bun run dev          # launch React Email preview on port 3001
 bun run export       # export templates to HTML
 bun run typecheck    # type-check with tsgo
+```
+
+## Validation
+
+```bash
+bun run --cwd packages/transactional typecheck
+bun run --cwd packages/transactional biome:lint
 ```

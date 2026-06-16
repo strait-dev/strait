@@ -1,49 +1,56 @@
 ---
 title: "Introduction"
-description: "Run background jobs and workflows without adding a message broker."
+description: "Run background jobs and workflows from Strait Cloud or your own Strait instance."
 icon: "book-open"
 og:image: "/images/og.png"
 ---
 
-## What Strait Does
+Strait runs background jobs and multi-step workflows. You define the work, where it runs, and when it should happen. Strait handles queueing, retries, schedules, dependencies, durable waits, and run history.
 
-Strait runs background jobs and multi-step workflows. You define the work, where it runs, and when it should happen. Strait handles the queue, retries, schedules, dependencies, and run history.
+Most teams should start with Strait Cloud. Strait hosts the control plane at `https://api.strait.dev`; your job code stays in your infrastructure and receives HTTP requests from Strait, or connects back through the worker plane. Use the community self-hosted edition when you need to run the control plane yourself.
 
-It ships as a single Go binary backed by PostgreSQL for state and queued work, Redis for the transport plane and rate limiting, and Sequin for CDC-driven updates. There is no separate message broker or workflow engine to run.
+## What You Can Build
 
-## When to Use It
+- Background jobs for imports, reports, email, cleanup, cache warming, and maintenance.
+- Scheduled jobs with cron expressions, time zones, retries, and history.
+- Event-driven jobs that process external events with replay for failed work.
+- Workflows where one step waits for another step, event, approval, or long-running process.
+- Operational recovery flows for failed runs, `dead_letter` review, and replay.
 
-Strait is useful when a simple queue is no longer enough:
+## How Strait Runs Work
 
-- You need retries, timeouts, and `dead_letter` handling.
-- You need recurring jobs with clear run history.
-- You need workflows where one step waits for another.
-- You need approvals, event waits, or long-running processes.
-- You want to self-host the control plane and keep job code on your own infrastructure.
+1. Create a project in Strait Cloud or your self-hosted instance.
+2. Create a job with an `endpoint_url` or `execution_mode: "worker"`.
+3. Trigger the job from your app, an SDK, a schedule, or an event source.
+4. Strait records a run, dispatches the work, retries failures, and stores the result.
+5. You inspect, stream, replay, or recover runs from the API or dashboard.
 
-Each run moves through clear states: `queued`, `executing`, then `completed`, `failed`, or another terminal state. Failed runs retry according to the job policy. If retries are exhausted, the run moves to `dead_letter` so it can be inspected and replayed.
+A normal run moves from `queued` to `executing` to `completed`. If the endpoint fails and retries are exhausted, the run moves to `dead_letter` so you can inspect and replay it after the underlying problem is fixed.
 
-## Common Uses
+## Cloud And Community
 
-- **Background jobs**: imports, reports, cache warming, cleanup, and recurring maintenance.
-- **Webhook consumers**: process external events with retries and replay for failed work.
-- **Data pipelines**: run steps in order, pass results between steps, and retry only what failed.
-- **Approval workflows**: route high-risk steps through explicit review before continuing.
-- **Scheduled work**: use cron expressions, time zones, and execution windows.
+| Need | Use |
+|---|---|
+| Fastest production setup, hosted upgrades, hosted run history, and billing controls | Strait Cloud |
+| Local evaluation before creating a Cloud account | Community self-host with Docker Compose |
+| Compliance, residency, air-gap, or full operational control requirements | Community self-host or a dedicated Cloud plan |
+| Job code that must stay inside your own network | Cloud with private workers, or community self-host |
 
-## Read next
+The API shape is the same across editions. The base URL and setup steps change.
+
+## Read Next
 
 <CardGroup cols={2}>
+  <Card title="Choose Your Path" icon="route" href="/choose-your-path">
+    Pick Cloud, local community, or production self-hosting.
+  </Card>
   <Card title="Quick Start" icon="rocket" href="/quickstart">
-    Run Strait locally, create a job, trigger it, and inspect the run.
+    Create one job, trigger one run, and verify the result.
   </Card>
   <Card title="Create a Production Job" icon="check-circle" href="/guides/production-job">
-    Add retries, timeouts, idempotency, limits, and failure handling.
+    Add retries, limits, idempotency, metadata, and failure handling.
   </Card>
   <Card title="Use Cases" icon="list-checks" href="/use-cases/background-jobs">
-    Start from the problem you want Strait to solve.
-  </Card>
-  <Card title="Compare" icon="scale-balanced" href="/compare/message-queues">
-    Decide whether Strait is the right tool for your workload.
+    Start from the workflow you want to operate.
   </Card>
 </CardGroup>

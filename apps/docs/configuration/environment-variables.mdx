@@ -44,8 +44,27 @@ export STRAIT_ENV="production"
 | `MODE` | `all` | `all`, `api`, or `worker`. |
 | `PORT` | `8080` | HTTP API port. |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn`, or `error`. |
+| `LOG_FORMAT` | `json` | Log output format. Use `json` in production and `text` for local development. |
+| `STRAIT_EDITION` | `community` | Logged for compatibility only. The actual edition is selected at compile time with build tags. |
 | `REQUEST_TIMEOUT` | `30s` | Max time for incoming HTTP requests. |
 | `MAX_REQUEST_BODY_SIZE` | `1MB` | Max request body size. |
+| `MIGRATION_MODE` | `auto` | Startup migration behavior. Use `auto`, `manual`, or `validate`. |
+| `MIGRATION_LOCK_TIMEOUT` | `30s` | How long startup waits for the migration advisory lock. |
+
+## Scheduler
+
+| Variable | Default | Description |
+|---|---|---|
+| `HEARTBEAT_INTERVAL` | `10s` | Worker heartbeat write interval. |
+| `REAPER_INTERVAL` | `30s` | Scheduler reaper interval for stale and terminal work. |
+| `STALE_THRESHOLD` | `1m` | Age after which missing heartbeats are considered stale. |
+| `POLLER_INTERVAL` | `5s` | Scheduler poller interval. |
+| `SCHEDULER_COMPONENT_SHUTDOWN_TIMEOUT` | `15s` | Per-component shutdown timeout for scheduler background loops. |
+| `BACKPRESSURE_SAMPLER_INTERVAL` | `15s` | Interval for sampling per-project backpressure buckets. Set `0` to disable. |
+| `BACKPRESSURE_SAMPLER_N` | `100` | Max project rate-limit rows sampled per tick. |
+| `LOG_DRAIN_WORKER_INTERVAL` | `1m` | Scheduler interval for log drain delivery work. |
+| `DEBOUNCE_POLLER_INTERVAL` | `1s` | Poll interval for debounced delayed work. |
+| `DEFAULT_REGION` | `iad` | Default region label for new regional metadata. |
 
 ## Worker Settings
 
@@ -53,11 +72,24 @@ export STRAIT_ENV="production"
 |---|---|---|
 | `WORKER_CONCURRENCY` | `25` | Max jobs a worker can execute at the same time. |
 | `WORKER_QUEUE_SIZE` | `0` | Local queue size per worker. `0` means unbounded. |
+| `WORKER_DRAIN_TIMEOUT` | `30s` | Grace period for active work during worker shutdown. |
+| `WORKER_EVENT_CHANNEL_SIZE` | `1024` | Buffered capacity for internal run-lifecycle events. Raise only after measuring subscriber lag. |
+| `WORKER_PARTITIONS` | - | Optional comma-separated partitions this worker should claim. |
+| `WORKER_PARTITION_WEIGHTS` | - | Optional partition weight map for multi-node dequeue distribution. |
+| `ADAPTIVE_CONCURRENCY_MIN` | `5` | Lower bound for adaptive per-job concurrency. |
+| `ADAPTIVE_CONCURRENCY_MAX` | `100` | Upper bound for adaptive per-job concurrency. |
 | `EXECUTOR_HTTP_TIMEOUT` | `5m` | Max time for HTTP job execution. |
+| `EXECUTOR_IDLE_CONN_TIMEOUT` | `1m30s` | Idle connection timeout for executor HTTP transports. |
 | `EXECUTION_TRACE_MODE` | `off` | Persist per-run execution trace JSON. Use `off`, `errors`, or `full`. |
 | `MAX_DEQUEUE_BATCH_SIZE` | `50` | Max runs one worker polls from PgQue at once. |
 | `DEFAULT_JOB_TIMEOUT_SECS` | `300` | Default timeout for jobs without an explicit timeout. |
 | `DEFAULT_JOB_MAX_ATTEMPTS` | `3` | Default retry attempts for jobs without an explicit value. |
+| `DEFAULT_JOB_MAX_CONCURRENCY` | `0` | Default per-job concurrency cap. `0` means no default cap. |
+| `DEFAULT_RUN_TTL_SECS` | `0` | Default run TTL in seconds. `0` keeps runs until retention jobs remove them. |
+| `MAX_RESULT_SIZE` | `1048576` | Max bytes accepted for stored run results. |
+| `MAX_SNOOZE_COUNT` | `50` | Max number of delayed requeue operations for one run. |
+| `BATCH_FLUSH_INTERVAL` | `1s` | Interval for flushing buffered batch work. |
+| `MEMORY_PRESSURE_THRESHOLD_PCT` | `0` | Optional memory pressure threshold. `0` disables this guard. |
 
 ## Cache Settings
 
@@ -71,6 +103,7 @@ Redis is still required at startup. Cache operations fail open to in-process cac
 | `API_KEY_CACHE_TTL` | `60s` | API key auth cache TTL. Revocation and rotation invalidate immediately; cached values exclude secret material. |
 | `ADAPTIVE_TIMEOUT_ENABLED` | `false` | Enables worker adaptive HTTP timeouts from job health percentiles. Keep disabled on high-cardinality job pools unless the extra DB aggregate cost is acceptable. |
 | `JOB_HEALTH_CACHE_TTL` | `5m` | TTL for adaptive job health aggregates used on hot worker paths. |
+| `JOB_HEALTH_STATS_CACHE_TTL` | `5m` | Compatibility alias for older job health stats cache users. |
 | `ENDPOINT_GUARD_CACHE_TTL` | `1s` | TTL for worker-local allowed endpoint circuit and health guard decisions. Set `0` to disable. |
 | `ENDPOINT_HEALTH_SUCCESS_SAMPLE_INTERVAL` | `1s` | Minimum interval between successful endpoint health writes per worker and endpoint. Failures always write immediately. |
 | `ENDPOINT_CIRCUIT_SUCCESS_SAMPLE_INTERVAL` | `1s` | Minimum interval between successful endpoint circuit writes per worker and endpoint. Failures always write immediately. |
@@ -97,7 +130,11 @@ Strait uses a vendored and modified SQL snapshot of [PgQue](https://github.com/N
 | `RATE_LIMIT_WINDOW` | `1m` | Global rate-limit window. |
 | `TRIGGER_RATE_LIMIT_REQUESTS` | `10` | Trigger requests allowed per window. |
 | `TRIGGER_RATE_LIMIT_WINDOW` | `1m` | Trigger rate-limit window. |
+| `DEFAULT_API_KEY_RATE_LIMIT` | `1000` | Default requests per API key window when no lower quota applies. |
+| `DEFAULT_API_KEY_RATE_WINDOW_SECS` | `60` | Default API key rate-limit window in seconds. |
 | `MAX_BULK_TRIGGER_ITEMS` | `500` | Max items in one bulk trigger request. |
+| `IDEMPOTENCY_FAIL_OPEN` | `false` | When `false`, idempotent writes return `503` if the idempotency store is unavailable instead of risking duplicate execution. |
+| `IDEMPOTENCY_CLEANUP_TIMEOUT` | `5s` | Cleanup budget for pending idempotency rows after a failed request. |
 | `BACKPRESSURE_ENABLED` | `true` | Enable the per-project enqueue token bucket. Keep enabled unless an upstream limiter enforces equivalent tenant isolation. |
 | `BACKPRESSURE_DEFAULT_MAX_TOKENS` | `1000` | Initial enqueue burst capacity for projects without an explicit project rate-limit row. |
 | `BACKPRESSURE_DEFAULT_REFILL_PER_SEC` | `500` | Steady-state accepted enqueue refill rate per project for projects without an explicit project rate-limit row. |
@@ -113,18 +150,20 @@ Strait uses a vendored and modified SQL snapshot of [PgQue](https://github.com/N
 |---|---|---|
 | `CORS_ALLOWED_ORIGINS` | `*` | Comma-separated list of allowed origins. |
 | `CORS_ALLOW_CREDENTIALS` | `false` | Whether CORS requests may include credentials. |
+| `TRUSTED_PROXIES` | - | CIDR or IP list allowed to provide `X-Forwarded-For`. Leave empty unless Strait is behind trusted load balancers. |
 | `STRAIT_ENV` | `production` | Runtime environment used by safety checks. Wildcard CORS and `DATABASE_URL` with `sslmode=disable` are allowed only when this is `development` or `test`. |
 | `OIDC_ENABLED` | `false` | Enable OIDC bearer-token authentication. |
 | `OIDC_ISSUER` | - | Expected OIDC issuer. |
 | `OIDC_AUDIENCE` | - | Expected OIDC audience. |
 | `OIDC_PUBLIC_KEY_PEM` | - | Public key used to verify OIDC tokens. |
+| `ENCRYPTION_KEY_OLD` | - | Comma-separated old encryption keys used during key rotation. |
 
 ## Monitoring
 
 | Variable | Default | Description |
 |---|---|---|
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | - | OpenTelemetry endpoint for traces and logs. |
-| `OTEL_LOGS_EXPORTER` | `none` recommended locally | Set to `none` for local development when no OTLP logs endpoint is available, otherwise the collector may emit repeated `/v1/logs` errors. |
+| `OTEL_LOGS_EXPORTER` | `none` recommended locally | Set to `none` for local development when no OTLP logs endpoint is available, otherwise the collector may emit repeated OTLP log ingestion errors. |
 | `OTLP_METRIC_ENDPOINT` | - | OpenTelemetry endpoint for metrics, if different. |
 | `OTLP_METRIC_ENABLED` | `false` | Enable OTLP metric export. |
 | `DB_TRACE_STATEMENTS` | `false` | Enable per-SQL-statement pgx tracing and Sentry breadcrumbs. Keep disabled on hot production paths unless diagnosing database behavior. |
@@ -149,6 +188,17 @@ Strait uses a vendored and modified SQL snapshot of [PgQue](https://github.com/N
 | `STRAIT_PROFILING_SECRET` | - | Optional pprof-specific secret. When set, pprof requires this secret instead of `INTERNAL_SECRET`. |
 | `STRAIT_PROFILING_ALLOWED_CIDRS` | - | Optional comma-separated CIDR/IP allowlist for pprof callers. |
 | `PYROSCOPE_ENDPOINT` | - | Pyroscope endpoint for profiling. |
+| `PYROSCOPE_AUTH_TOKEN` | - | Optional Pyroscope authentication token. |
+| `DEBUG_STATSVIZ` | `false` | Enables internal-secret-protected statsviz debug routes. Keep disabled in production unless diagnosing runtime behavior. |
+
+## SSE
+
+| Variable | Default | Description |
+|---|---|---|
+| `SSE_KEEPALIVE_INTERVAL` | `15s` | Interval for SSE keepalive comments. |
+| `SSE_MAX_CONNS` | `5000` | Global max concurrent SSE connections. |
+| `SSE_MAX_CONNS_PER_PROJECT` | `100` | Max concurrent SSE connections per project. |
+| `SSE_MAX_CONN_DURATION` | `30m` | Maximum lifetime for one SSE connection before the client must reconnect. |
 
 ## Worker DLQ
 
@@ -157,6 +207,21 @@ Strait uses a vendored and modified SQL snapshot of [PgQue](https://github.com/N
 | `DLQ_MAX_PER_PROJECT` | `10000` | Maximum visible dead-letter runs per project. Set `0` to disable the project cap. |
 | `DLQ_MAX_PER_JOB` | `1000` | Maximum visible dead-letter runs per job. Set `0` to disable the job cap. |
 | `DLQ_OVERFLOW_POLICY` | `drop_oldest` | `drop_oldest` masks the oldest visible DLQ row before adding a new one. `reject` marks the new terminal failure `system_failed` with `error_class=dlq_overflow`. |
+
+## Audit Events
+
+| Variable | Default | Description |
+|---|---|---|
+| `AUDIT_ASYNC_BUFFER_SIZE` | `4096` | In-memory buffer size for asynchronous audit emission. |
+| `AUDIT_RETENTION_DEFAULT_DAYS` | `365` | Default audit event retention. |
+| `AUDIT_EXPORT_ROW_CAP_DEFAULT` | `1000000` | Default maximum rows returned by one audit export. |
+| `AUDIT_SIEM_ENDPOINT` | - | Optional SIEM forwarding endpoint. |
+| `AUDIT_SIEM_AUTH_TOKEN` | - | Bearer token for SIEM forwarding. Required when `AUDIT_SIEM_ENDPOINT` is set. |
+| `AUDIT_SIEM_BATCH_SIZE` | `100` | Max audit events per SIEM forwarding batch. |
+| `AUDIT_SIEM_FLUSH_INTERVAL` | `10s` | Max wait before flushing a non-empty SIEM batch. |
+| `AUDIT_DLQ_RECLAIM_BATCH` | `200` | Max audit DLQ rows reclaimed per scheduler tick. |
+| `AUDIT_DLQ_MAX_AGE_DAYS` | `30` | Max age for audit DLQ rows before retention removes them. `0` disables the sweep. |
+| `AUDIT_DLQ_MAX_RECLAIM_ATTEMPTS` | `10` | Max reclaim attempts per audit DLQ row before leaving it for manual triage. `0` disables the cap. |
 
 ## Notifications
 
@@ -167,14 +232,48 @@ Strait uses a vendored and modified SQL snapshot of [PgQue](https://github.com/N
 | `WEBHOOK_REQUIRE_TLS` | `false` | Require HTTPS webhook URLs. |
 | `ENDPOINT_REQUIRE_TLS` | `false` | Require HTTPS for job endpoint and fallback endpoint URLs. Job dispatch injects decrypted secrets and the run-token JWT, so enable this to reject plaintext HTTP endpoints. |
 | `ALLOW_PRIVATE_ENDPOINTS` | `false` | Allow private endpoint URLs. Not recommended unless the network is trusted. |
+| `WEBHOOK_TIMEOUT` | `10s` | HTTP client timeout for webhook setup checks. |
+| `WEBHOOK_IDLE_CONN_TIMEOUT` | `1m` | Idle connection timeout for webhook transports. |
+| `WEBHOOK_DISPATCH_TIMEOUT` | `15s` | Max time for one webhook delivery attempt. |
+| `WEBHOOK_MAX_PAYLOAD_BYTES` | `1048576` | Max webhook payload size. |
+| `WEBHOOK_MAX_ATTEMPTS` | `3` | Max attempts for webhook delivery. |
+| `WEBHOOK_CONCURRENCY` | `50` | Max concurrent webhook deliveries per process. |
+| `WEBHOOK_BATCH_ENABLED` | `false` | Enable batch webhook delivery when supported by the target. |
+| `WEBHOOK_MAX_BATCH_SIZE` | `50` | Max webhook events in one batch. |
+| `WEBHOOK_MAX_IDLE_CONNS` | `100` | Max idle webhook HTTP connections. |
+| `WEBHOOK_MAX_IDLE_CONNS_PER_HOST` | `50` | Max idle webhook HTTP connections per host. |
 
 ## Billing
 
 | Variable | Default | Description |
 |---|---|---|
 | `BILLING_ENFORCEMENT_ENABLED` | `false` | Enables cloud plan gates, run-limit enforcement, spending-cap enforcement, and worker billing hooks. Required for cloud builds outside development and test environments. |
+| `BILLING_ENTITLEMENTS_AUTHORITATIVE` | `true` | Read persisted billing entitlement snapshots on hot paths. Set `false` only as an escape hatch for a bad snapshot migration. |
 | `STRIPE_SECRET_KEY` | - | Stripe API key used for metered usage reporting and billing operations. |
 | `STRIPE_WEBHOOK_SECRET` | - | Stripe webhook signing secret. Required for cloud builds outside development and test environments. |
+| `STRIPE_METER_ID` | - | Stripe meter ID for usage reporting. |
+| `STRIPE_STARTER_MONTHLY_PRICE_ID` / `STRIPE_STARTER_YEARLY_PRICE_ID` | - | Legacy Starter Stripe price IDs kept for compatibility with older billing paths. |
+| `STRIPE_PRO_MONTHLY_PRICE_ID` / `STRIPE_PRO_YEARLY_PRICE_ID` | - | Legacy Pro Stripe price IDs kept for compatibility with older billing paths. |
+| `STRIPE_SCALE_MONTHLY_PRICE_ID` / `STRIPE_SCALE_YEARLY_PRICE_ID` | - | Legacy Scale Stripe price IDs kept for compatibility with older billing paths. |
+| `STRIPE_BUSINESS_MONTHLY_PRICE_ID` / `STRIPE_BUSINESS_YEARLY_PRICE_ID` | - | Legacy Business Stripe price IDs kept for compatibility with older billing paths. |
+| `STRIPE_ENTERPRISE_STARTER_YEARLY_PRICE_ID` / `STRIPE_ENTERPRISE_GROWTH_YEARLY_PRICE_ID` / `STRIPE_ENTERPRISE_LARGE_YEARLY_PRICE_ID` | - | Legacy Enterprise Stripe price IDs kept for compatibility with older billing paths. |
+| `STRIPE_STARTER_PRICE_ID` / `STRIPE_PRO_PRICE_ID` / `STRIPE_SCALE_PRICE_ID` / `STRIPE_ENTERPRISE_PRICE_ID` | - | Flat subscription price IDs for the current orchestration-tier billing model. |
+| `STRIPE_STARTER_OVERAGE_PRICE_ID` / `STRIPE_PRO_OVERAGE_PRICE_ID` / `STRIPE_SCALE_OVERAGE_PRICE_ID` | - | Overage meter price IDs for paid tiers. |
+| `PROMETHEUS_QUERY_URL` | - | Prometheus query endpoint for SLA credit calculation. When unset, the calculator uses a static 100 percent uptime source. |
+| `PROMETHEUS_UPTIME_QUERY` | `avg_over_time(up{job="strait"}[30d]) * 100` | PromQL expression used for SLA uptime calculation. |
+| `POSTHOG_API_KEY` | - | Server-side PostHog project analytics key. |
+| `POSTHOG_HOST` | `https://us.i.posthog.com` | PostHog ingestion host. |
+
+## ClickHouse
+
+| Variable | Default | Description |
+|---|---|---|
+| `CLICKHOUSE_ENABLED` | `false` | Enable the ClickHouse client and schema setup. |
+| `CLICKHOUSE_URL` | - | ClickHouse native protocol URL. Required when `CLICKHOUSE_ENABLED=true`. |
+| `CLICKHOUSE_DATABASE` | `strait` | ClickHouse database name. |
+| `CLICKHOUSE_BATCH_SIZE` | `1000` | Max events buffered per ClickHouse insert. |
+| `CLICKHOUSE_FLUSH_INTERVAL` | `5s` | Max wait before flushing buffered ClickHouse events. |
+| `CLICKHOUSE_EXPORT_ENABLED` | `false` | Enable asynchronous export of run and workflow events to ClickHouse. |
 
 ## CDC / Sequin
 
@@ -195,7 +294,15 @@ Strait uses a vendored and modified SQL snapshot of [PgQue](https://github.com/N
 | `RUN_RETENTION_SHORT` | `30d` | Retention for common terminal runs. |
 | `RUN_RETENTION_LONG` | `90d` | Retention for timeout, crash, and system-failure runs. |
 | `WORKFLOW_RUN_RETENTION_DAYS` | `30` | Retention for workflow run data. |
-| `AUDIT_RETENTION_DEFAULT_DAYS` | `365` | Default audit event retention. |
+| `WORKFLOW_RETENTION` | `30d` | Legacy workflow retention duration used by scheduler cleanup. |
+| `EVENT_TRIGGER_RETENTION` | - | Duration for event trigger retention. |
+| `EVENT_TRIGGER_RETENTION_DAYS` | - | Legacy day-based event trigger retention setting. |
+| `INDEX_MAINTENANCE_INTERVAL` | `24h` | Interval for scheduler index maintenance. |
+| `REAPER_DELETE_BATCH_SIZE` | `5000` | Max rows removed per retention reaper batch. |
+| `TERMINAL_ARCHIVE_ENABLED` | `true` | Archive terminal runs out of hot tables when retention jobs run. |
+| `PARTITION_RECLAIM_ENABLED` | `false` | Enable periodic partition reclaim. |
+| `PARTITION_RECLAIM_INTERVAL` | `24h` | Partition reclaim interval when enabled. |
+| `PARTITION_RECLAIM_SAFETY_MONTHS` | `2` | Minimum months retained before reclaiming partitions. |
 
 ## Workflow Recovery
 
@@ -203,6 +310,10 @@ Strait uses a vendored and modified SQL snapshot of [PgQue](https://github.com/N
 |---|---|---|
 | `WF_STALL_THRESHOLD` | `15m` | How long a running workflow can make no progress before the reaper treats it as stalled. |
 | `WF_STALL_ACTION` | `reconcile` | Action for stalled workflows. `reconcile` resumes persisted workflow state, `log_only` only logs, and `fail_workflow` marks the workflow failed. |
+| `WF_MAX_STEP_CAP` | `100` | Max workflow steps accepted by default. |
+| `WF_STEP_CONCURRENCY_LIMIT` | `0` | Global workflow step concurrency limit. `0` means no global limit. |
+| `MAX_WORKFLOW_NESTING_DEPTH` | `10` | Max sub-workflow nesting depth. |
+| `DEPENDENCY_STATUS_CACHE_TTL` | `5s` | Cache TTL for dependency status lookups. |
 
 ## Worker Mode
 
@@ -210,12 +321,17 @@ Use these when running connected workers.
 
 | Variable | Default | Description |
 |---|---|---|
+| `GRPC_ENABLED` | `true` | Enable the gRPC worker streaming server. |
 | `GRPC_BIND_ADDR` | `127.0.0.1` | Address for the gRPC server. |
 | `GRPC_PORT` | `50051` | gRPC server port. |
 | `GRPC_ALLOW_PLAINTEXT` | `false` | Allow plaintext gRPC on non-loopback addresses. |
 | `GRPC_TLS_CERT_PATH` | - | TLS certificate path. |
 | `GRPC_TLS_KEY_PATH` | - | TLS private key path. |
+| `GRPC_KEEPALIVE_TIME` | `30s` | gRPC keepalive ping interval. |
+| `GRPC_KEEPALIVE_TIMEOUT` | `10s` | gRPC keepalive timeout. |
 | `WORKER_DB_SYNC_INTERVAL` | `15s` | Interval at which connected worker state is flushed to the database. Must be greater than `HEARTBEAT_INTERVAL` and less than `STALE_THRESHOLD`. |
+| `WORKER_HEARTBEAT_TIMEOUT` | `30s` | Max worker heartbeat silence before the stream is considered unhealthy. |
+| `WORKER_DISCONNECT_SWEEP_INTERVAL` | `30s` | Interval for sweeping disconnected worker records. |
 | `WORKER_DISCONNECT_ACK_TIMEOUT` | `5s` | Maximum time `DELETE /workers/{id}` waits for worker-plane disconnect acknowledgement before returning `503` with `Retry-After`. |
 | `GRPC_PUBSUB_STARTUP_TIMEOUT` | `30s` | Maximum time gRPC startup waits for pubsub readiness before refusing to serve worker streams. |
 | `EXTERNAL_API_URL` | - | Base URL workers use to call back to the Strait API. |
@@ -226,10 +342,25 @@ Use these when running connected workers.
 |---|---|---|
 | `DB_MAX_CONNS` | `50` | Maximum PostgreSQL pool size per Strait process. Keep this above `WORKER_CONCURRENCY` and multiply by replicas when sizing PostgreSQL. |
 | `DB_MIN_CONNS` | `10` | Minimum warm PostgreSQL connections per Strait process. |
+| `DB_MAX_CONN_LIFETIME` | `30m` | Maximum lifetime for one PostgreSQL connection. |
+| `DB_MAX_CONN_IDLE_TIME` | `5m` | Maximum idle time for one PostgreSQL connection. |
+| `DB_HEALTH_CHECK_PERIOD` | `30s` | PostgreSQL pool health-check period. |
+| `DB_STATEMENT_TIMEOUT` | `30s` | Default PostgreSQL statement timeout set by Strait sessions. |
+| `DB_IDLE_IN_TRANSACTION_TIMEOUT` | `30s` | PostgreSQL idle-in-transaction timeout set by Strait sessions. |
+| `DB_LOCK_TIMEOUT` | `5s` | PostgreSQL lock timeout set by Strait sessions. |
+| `DB_TRANSACTION_TIMEOUT` | `60s` | PostgreSQL transaction timeout set by Strait sessions. |
+| `DB_LONG_TXN_ALERT_THRESHOLD` | `60s` | Age threshold for long-transaction warnings. |
+| `DB_WATCHDOG_INTERVAL` | `15s` | Interval for the database watchdog sampler. |
+| `DB_WATCHDOG_ENABLED` | `true` | Enable database guardrail monitoring. |
 | `DB_PGBOUNCER_MODE` | `false` | Use simple protocol for PgBouncer transaction pooling when prepared statements are not available. |
 | `DB_PGBOUNCER_PREPARED_STATEMENTS` | `false` | Keep pgx prepared statement caching on when PgBouncer 1.21 or newer has `max_prepared_statements` configured. |
 | `REDIS_POOL_SIZE` | `30` | Maximum Redis connections per Strait process. |
 | `REDIS_MIN_IDLE_CONNS` | `5` | Minimum warm Redis connections per Strait process. |
+| `REDIS_READ_TIMEOUT` | `3s` | Redis read timeout. |
+| `REDIS_WRITE_TIMEOUT` | `3s` | Redis write timeout. |
+| `REDIS_CONN_MAX_LIFETIME` | `30m` | Maximum lifetime for one Redis connection. |
+| `REDIS_SENTINEL_MASTER` | - | Redis Sentinel master name. |
+| `REDIS_SENTINEL_ADDRS` | - | Comma-separated Redis Sentinel addresses. |
 | `WORKER_CONCURRENCY` | `25` | Maximum concurrent job executions per worker process. |
 
 ## Related

@@ -1,0 +1,303 @@
+---
+title: "Generated API Fields"
+description: "Request body field tables generated from the runtime OpenAPI schema."
+icon: "table-properties"
+---
+
+This page is generated from the runtime Huma OpenAPI schema.
+
+Do not edit this page by hand. Run:
+
+```bash
+cd apps/docs
+bun run generate:api-fields
+```
+
+## Jobs
+
+### Create job
+
+`POST /v1/jobs`
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `batch_max_size` | integer | No |  |
+| `batch_window_secs` | integer | No |  |
+| `cron` | string | No |  |
+| `cron_overlap_policy` | string | No |  |
+| `debounce_window_secs` | integer | No |  |
+| `dedup_window_secs` | integer | No |  |
+| `default_run_metadata` | object<string, string> | No |  |
+| `description` | string | No |  |
+| `enabled` | boolean | No |  |
+| `endpoint_signing_secret` | string | No |  |
+| `endpoint_url` | string | No |  |
+| `environment_id` | string | No |  |
+| `execution_mode` | string | No |  |
+| `execution_window_cron` | string | No |  |
+| `fallback_endpoint_url` | string | No |  |
+| `group_id` | string | No |  |
+| `max_attempts` | integer | No |  |
+| `max_concurrency` | integer | No |  |
+| `max_concurrency_per_key` | integer | No |  |
+| `name` | string | Yes |  |
+| `on_complete_payload_mapping` | any | No |  |
+| `on_complete_trigger_job` | string | No |  |
+| `on_complete_trigger_workflow` | string | No |  |
+| `on_failure_payload_mapping` | any | No |  |
+| `on_failure_trigger_job` | string | No |  |
+| `on_failure_trigger_workflow` | string | No |  |
+| `payload_schema` | any | No |  |
+| `poison_pill_threshold` | integer | No | Consecutive identical errors before auto-quarantine to DLQ. NULL or 0 disables. |
+| `project_id` | string | Yes |  |
+| `queue_name` | string | No |  |
+| `rate_limit_max` | integer | No |  |
+| `rate_limit_window_secs` | integer | No |  |
+| `result_schema` | any | No |  |
+| `retry_delays_secs` | array | No |  |
+| `retry_priority_boost` | integer | No |  |
+| `retry_strategy` | string | No |  |
+| `run_ttl_secs` | integer | No |  |
+| `slug` | string | Yes |  |
+| `tags` | object<string, string> | No |  |
+| `timeout_secs` | integer | No |  |
+| `timezone` | string | No |  |
+| `version_policy` | string | No |  |
+| `webhook_secret` | string | No | Alias of endpoint_signing_secret used by the Go SDK. When both are set, webhook_secret wins and a warning is logged. |
+
+### Trigger job
+
+`POST /v1/jobs/{jobID}/trigger`
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `batch_key` | string | No |  |
+| `concurrency_key` | string | No |  |
+| `debounce_key` | string | No |  |
+| `dry_run` | boolean | No |  |
+| `payload` | any | No |  |
+| `priority` | integer | No |  |
+| `scheduled_at` | string | No |  |
+| `tags` | object<string, string> | No |  |
+| `ttl_secs` | integer | No |  |
+
+### Bulk trigger job
+
+`POST /v1/jobs/{jobID}/trigger/bulk`
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `items` | array | Yes |  |
+
+### Update job
+
+`PATCH /v1/jobs/{jobID}`
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `backwards_compatible` | boolean | No |  |
+| `batch_max_size` | integer | No |  |
+| `batch_window_secs` | integer | No |  |
+| `cron` | string | No |  |
+| `cron_overlap_policy` | string | No |  |
+| `debounce_window_secs` | integer | No |  |
+| `dedup_window_secs` | integer | No |  |
+| `default_run_metadata` | object<string, string> | No |  |
+| `description` | string | No |  |
+| `enabled` | boolean | No |  |
+| `endpoint_signing_secret` | string | No |  |
+| `endpoint_url` | string | No |  |
+| `environment_id` | string | No |  |
+| `execution_mode` | string | No |  |
+| `execution_window_cron` | string | No |  |
+| `fallback_endpoint_url` | string | No |  |
+| `group_id` | string | No |  |
+| `max_attempts` | integer | No |  |
+| `max_concurrency` | integer | No |  |
+| `max_concurrency_per_key` | integer | No |  |
+| `name` | string | No |  |
+| `on_complete_payload_mapping` | any | No |  |
+| `on_complete_trigger_job` | string | No |  |
+| `on_complete_trigger_workflow` | string | No |  |
+| `on_failure_payload_mapping` | any | No |  |
+| `on_failure_trigger_job` | string | No |  |
+| `on_failure_trigger_workflow` | string | No |  |
+| `payload_schema` | any | No |  |
+| `poison_pill_threshold` | integer | No | Consecutive identical errors before auto-quarantine to DLQ. NULL or 0 disables. |
+| `queue_name` | string | No |  |
+| `rate_limit_max` | integer | No |  |
+| `rate_limit_window_secs` | integer | No |  |
+| `result_schema` | any | No |  |
+| `retry_delays_secs` | integer[] | No |  |
+| `retry_priority_boost` | integer | No |  |
+| `retry_strategy` | string | No |  |
+| `run_ttl_secs` | integer | No |  |
+| `slug` | string | No |  |
+| `tags` | object<string, string> | No |  |
+| `timeout_secs` | integer | No |  |
+| `timezone` | string | No |  |
+| `version_policy` | string | No |  |
+| `webhook_secret` | string | No | Alias of endpoint_signing_secret used by the Go SDK. When both are set, webhook_secret wins and a warning is logged. |
+
+## Runs
+
+### Bulk replay dead-letter runs
+
+`POST /v1/runs/bulk-dlq-replay`
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `limit` | integer | Yes |  |
+| `project_id` | string | Yes |  |
+| `run_ids` | array | Yes |  |
+
+### Bulk replay runs
+
+`POST /v1/runs/bulk-replay`
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `run_ids` | array | Yes |  |
+
+### Bulk cancel runs
+
+`POST /v1/runs/bulk-cancel`
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `run_ids` | array | Yes |  |
+
+## Webhooks
+
+### Test webhook
+
+`POST /v1/webhooks/test`
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `secret` | string | No |  |
+| `url` | string | Yes |  |
+
+### Create webhook subscription
+
+`POST /v1/webhooks/subscriptions`
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `active` | boolean | No |  |
+| `event_types` | array | Yes |  |
+| `project_id` | string | Yes |  |
+| `webhook_url` | string | Yes |  |
+
+### Rotate webhook secret
+
+`POST /v1/webhooks/subscriptions/{id}/rotate-secret`
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `grace_period_minutes` | integer | No |  |
+
+## Event Sources
+
+### Create event source
+
+`POST /v1/event-sources`
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `description` | string | No |  |
+| `enabled` | boolean | No |  |
+| `name` | string | Yes |  |
+| `project_id` | string | Yes |  |
+| `schema` | any | No |  |
+| `signature_algorithm` | string | No |  |
+| `signature_header` | string | No |  |
+| `signature_secret` | string | No |  |
+
+### Update event source
+
+`PATCH /v1/event-sources/{sourceID}`
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `description` | string | No |  |
+| `enabled` | boolean | No |  |
+| `name` | string | No |  |
+| `schema` | any | No |  |
+| `signature_algorithm` | string | No |  |
+| `signature_header` | string | No |  |
+| `signature_secret` | string | No |  |
+
+### Subscribe target to source
+
+`POST /v1/event-sources/{sourceID}/subscribe`
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `enabled` | boolean | No |  |
+| `filter_expr` | any | No |  |
+| `target_id` | string | Yes |  |
+| `target_type` | string | Yes |  |
+
+### Dispatch event
+
+`POST /v1/events/dispatch`
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `payload` | any | Yes |  |
+| `project_id` | string | Yes |  |
+| `source` | string | Yes |  |
+
+### Send event
+
+`POST /v1/events/{eventKey}/send`
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `payload` | any | No |  |
+
+## Projects and API Keys
+
+### Create project
+
+`POST /v1/projects`
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | Yes |  |
+| `name` | string | Yes |  |
+| `org_id` | string | Yes |  |
+
+### Update project settings
+
+`PUT /v1/projects/{projectID}/settings`
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `max_key_lifetime_days` | integer | No |  |
+
+### Create API key
+
+`POST /v1/api-keys`
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `environment_id` | string | No |  |
+| `expires_in_days` | integer | No |  |
+| `name` | string | Yes |  |
+| `org_id` | string | No |  |
+| `project_id` | string | Yes |  |
+| `rotation_interval_days` | integer | No |  |
+| `rotation_webhook_url` | string | No |  |
+| `scopes` | array | No |  |
+
+### Rotate API key
+
+`POST /v1/api-keys/{keyID}/rotate`
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `grace_period_minutes` | integer | No |  |
+
+

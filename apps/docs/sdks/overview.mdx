@@ -1,13 +1,13 @@
 ---
 title: "SDK Overview"
-description: "Install an official Strait SDK and call the API from your application."
+description: "Install a verified Strait SDK package and call the API from your application."
 icon: "code"
 og:image: "/images/og.png"
 ---
 
-Strait provides SDKs for TypeScript, Python, Go, Ruby, and Rust.
+Strait provides verified package installs for TypeScript, Python, and Go. Ruby and Rust source repositories exist, but their package-registry installs are not documented as production-ready until they are published and verified.
 
-Use an SDK to create jobs, trigger runs, inspect status, define workflows, and report progress from job handlers.
+Use a verified SDK to create jobs, trigger runs, inspect status, define workflows, and report progress from job handlers.
 
 ## Install
 
@@ -16,8 +16,8 @@ Use an SDK to create jobs, trigger runs, inspect status, define workflows, and r
 | TypeScript | `npm install @strait/ts` |
 | Python | `pip install strait-python` |
 | Go | `go get github.com/strait-dev/strait-go` |
-| Ruby | `gem install strait` |
-| Rust | `cargo add strait` |
+| Ruby | Source preview: [strait-dev/strait-ruby](https://github.com/strait-dev/strait-ruby) |
+| Rust | Source preview: [strait-dev/strait-rust](https://github.com/strait-dev/strait-rust) |
 
 ## Configure
 
@@ -91,6 +91,16 @@ Then create a client from the environment.
   ```
 </CodeGroup>
 
+## Checked REST Examples
+
+These examples use direct HTTP calls and are syntax-checked by docs lint:
+
+| Language | File |
+|---|---|
+| TypeScript | `apps/docs/examples/snippets/trigger-job.ts` |
+| Python | `apps/docs/examples/snippets/trigger_job.py` |
+| Go | `apps/docs/examples/snippets/trigger_job.go` |
+
 ## Report Progress from a Job
 
 When Strait calls your job endpoint, it includes a short-lived run token. Use that token to log progress, save checkpoints, and send heartbeats during long work.
@@ -121,8 +131,8 @@ SDK run-token callbacks are authenticated with JWTs whose issuer is exactly `str
 | TypeScript | [strait-dev/strait-ts](https://github.com/strait-dev/strait-ts) |
 | Python | [strait-dev/strait-python](https://github.com/strait-dev/strait-python) |
 | Go | [strait-dev/strait-go](https://github.com/strait-dev/strait-go) |
-| Ruby | [strait-dev/strait-ruby](https://github.com/strait-dev/strait-ruby) |
-| Rust | [strait-dev/strait-rust](https://github.com/strait-dev/strait-rust) |
+| Ruby | [strait-dev/strait-ruby](https://github.com/strait-dev/strait-ruby), source preview |
+| Rust | [strait-dev/strait-rust](https://github.com/strait-dev/strait-rust), source preview |
 
 ## Next
 

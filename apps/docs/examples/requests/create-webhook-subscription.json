@@ -1,0 +1,6 @@
+{
+  "project_id": "proj_acme_production",
+  "webhook_url": "https://ops.example.com/strait/webhooks",
+  "event_types": ["run.completed", "run.failed", "run.timed_out"],
+  "active": true
+}

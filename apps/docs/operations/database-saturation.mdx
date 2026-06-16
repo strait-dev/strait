@@ -1,0 +1,81 @@
+---
+title: "Database Saturation"
+description: "Diagnose PostgreSQL saturation that affects API latency, queue claims, and run updates."
+icon: "database-zap"
+---
+
+Use this runbook when API latency rises, queue claims slow down, or readiness reports database pressure.
+
+PostgreSQL is Strait's source of truth. Treat database changes as high-risk during an incident.
+
+## Prerequisites
+
+- Database metrics
+- Slow query logs
+- API and worker logs
+- Current `DB_MAX_CONNS`
+
+## 1. Confirm Saturation
+
+Look for:
+
+- high CPU
+- high I/O wait
+- connection exhaustion
+- lock waits
+- slow queue claim queries
+- slow migration or retention jobs
+
+Expected result: you can name the primary database bottleneck.
+
+## 2. Reduce Pressure
+
+Choose the smallest safe action:
+
+| Pressure source | Action |
+|---|---|
+| Worker claims | Reduce `WORKER_CONCURRENCY` or scale down workers. |
+| API reads | Check hot dashboards and polling clients. |
+| Retention jobs | Delay non-critical maintenance. |
+| Retry storm | Pause replay and fix the failing dependency. |
+
+Expected result: database latency starts decreasing.
+
+## 3. Check Connection Budget
+
+For self-hosted stacks, `DB_MAX_CONNS` must account for API requests, workers, migrations, Sequin, and dashboard traffic.
+
+If you scale horizontally, multiply per-process connection limits by process count.
+
+## 4. Inspect Slow Queries
+
+Use your PostgreSQL tooling to find the slowest statements and lock waits.
+
+Do not kill sessions blindly. First identify whether the session is a migration, queue claim, retention task, or dashboard query.
+
+## 5. Validate Recovery
+
+Check:
+
+- API latency
+- queue claim rate
+- run completion rate
+- database CPU and lock waits
+- readiness response
+
+Expected result: readiness is healthy and queue depth is stable or decreasing.
+
+## Failure Cases
+
+| Problem | What to do |
+|---|---|
+| Connections exhausted | Reduce app connection limits or add pooling. |
+| Lock waits dominate | Identify blocker before killing sessions. |
+| Queue claims slow | Check indexes and database I/O. |
+| Saturation returns after recovery | Add capacity or reduce steady-state concurrency. |
+
+## Next
+
+- [Self-Hosting](/guides/self-hosting)
+- [Queue Backlog](/operations/queue-backlog)
+- [Health and Readiness](/operations/health-readiness)

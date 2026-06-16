@@ -1,0 +1,69 @@
+---
+title: "Admin and Operations API"
+description: "Common API operations for health, audit, dead-letter queues, and operational recovery."
+icon: "shield"
+---
+
+Use admin and operations endpoints for health checks, audit review, dead-letter recovery, and support workflows.
+
+For request body fields generated from the runtime OpenAPI schema, see [Generated API Fields](/api-reference/generated-fields#projects-and-api-keys).
+
+Some operations require project permissions. Self-hosted internal operations may require `X-Internal-Secret`.
+
+## Health Checks
+
+```bash
+curl -sS "$STRAIT_BASE_URL/health" | jq
+curl -sS "$STRAIT_BASE_URL/ready" | jq
+```
+
+Self-hosted internal readiness:
+
+```bash
+curl -sS "$STRAIT_BASE_URL/health/ready" \
+  -H "X-Internal-Secret: $INTERNAL_SECRET" | jq
+```
+
+## Audit Events
+
+```bash
+curl -sS "$STRAIT_BASE_URL/v1/audit-events?project_id=$STRAIT_PROJECT_ID&limit=50" \
+  -H "Authorization: Bearer $STRAIT_API_KEY" | jq
+```
+
+## Dead-Letter Runs
+
+```bash
+curl -sS "$STRAIT_BASE_URL/v1/runs/dlq?project_id=$STRAIT_PROJECT_ID&limit=50" \
+  -H "Authorization: Bearer $STRAIT_API_KEY" | jq
+```
+
+## Common Operations
+
+| Operation | Method and path |
+|---|---|
+| Public health | `GET /health` |
+| Public readiness | `GET /ready` |
+| Internal readiness | `GET /health/ready` |
+| List audit events | `GET /v1/audit-events` |
+| Export audit events | `GET /v1/audit-events/export` |
+| List dead-letter runs | `GET /v1/runs/dlq` |
+| Replay dead-letter run | `POST /v1/runs/{runID}/dlq-replay` |
+| Bulk replay dead-letter runs | `POST /v1/runs/bulk-dlq-replay` |
+| Generate debug bundle | `GET /v1/runs/{runID}/debug-bundle` |
+
+## Failure Cases
+
+| Status | Meaning |
+|---|---|
+| `401` | Missing API key or internal secret. |
+| `403` | Caller lacks operational permission. |
+| `404` | Project, run, or audit event was not found. |
+| `503` | A required dependency is unhealthy. |
+
+## Next
+
+- [Health and Readiness](/operations/health-readiness)
+- [Audit Events](/guides/audit-events)
+- [Debug Bundles](/concepts/debug-bundles)
+- [Self-Host Health Check Failing](/guides/troubleshooting-self-host-health)

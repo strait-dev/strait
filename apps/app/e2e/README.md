@@ -2,6 +2,15 @@
 
 Playwright tests for the Strait dashboard. Run these to verify end-to-end user flows before submitting changes to the frontend.
 
+## Source Of Truth
+
+| Area | Source |
+|---|---|
+| Playwright config | `playwright.config.ts` |
+| Authenticated fixtures | `fixtures/` |
+| Local backend runner | `../scripts/e2e-core-local.mjs` |
+| Test data helpers | `fixtures/api.ts` |
+
 ## Prerequisites
 
 - Docker Compose running (`cd apps/strait && docker compose up -d`)
@@ -132,6 +141,16 @@ e2e/
 The backend-backed dashboard suite is currently intended for local validation.
 CI can enable it later by running `bun run e2e:core:local` in an environment
 with Docker, Infisical, and Playwright browsers available.
+
+## Validation
+
+Run one focused local suite while iterating, then the core suite before merging dashboard changes:
+
+```bash
+cd apps/app
+bun run e2e:local:smoke
+bun run e2e:core:local
+```
 
 ## Debugging
 

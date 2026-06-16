@@ -1,0 +1,59 @@
+---
+title: "Private Worker Disconnected"
+description: "Diagnose worker-mode jobs when workers disconnect or stop claiming runs."
+icon: "server-off"
+---
+
+Use this page when private worker jobs stay queued or worker logs show reconnect loops.
+
+## Prerequisites
+
+- Worker logs
+- Project API key
+- Worker queue name
+- Access to the network path between worker and Strait
+
+## 1. Confirm the Queue Name
+
+The job `queue_name` must match the worker `worker.queue_name`.
+
+Expected result: the worker drains the same queue as the job.
+
+## 2. Check Authentication
+
+Confirm the worker uses a valid project API key with worker access.
+
+If the key was rotated or revoked, create a new key and restart the worker.
+
+## 3. Check the gRPC URL
+
+The worker uses `worker.grpc_url` or a value derived from `sdk.base_url`.
+
+Expected result: the worker can establish a long-lived gRPC stream.
+
+## 4. Check Proxies and Idle Timeouts
+
+Long-lived worker streams can be closed by proxies with short idle timeouts.
+
+Allow long-lived HTTP/2 streams between the worker and Strait.
+
+## 5. Watch Run Recovery
+
+If a worker disconnects while executing a run, Strait reclaims unfinished work after heartbeat expiry and retries according to the job policy.
+
+Expected result: the run is either completed by a healthy worker or retried.
+
+## Failure Cases
+
+| Symptom | Likely cause |
+|---|---|
+| Worker connects then disconnects | Proxy timeout or network interruption. |
+| Worker authenticates but claims nothing | Queue mismatch or no matching jobs. |
+| Runs retry after worker exit | Worker stopped during execution. |
+| All workers rejected | API key project or scopes are wrong. |
+
+## Next
+
+- [Run Private Workers](/guides/private-workers)
+- [Execution Modes](/concepts/execution-modes)
+- [Run Stuck Queued](/guides/troubleshooting-runs-queued)

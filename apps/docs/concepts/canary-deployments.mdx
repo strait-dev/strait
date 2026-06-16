@@ -4,6 +4,12 @@ description: "Roll out a new workflow version to a percentage of traffic before 
 sidebarTitle: "Canary Deploys"
 ---
 
+## Common Tasks
+
+- [Review release docs checklist](/development/release-docs-checklist)
+- [Inspect runs and logs](/guides/inspect-runs)
+- [Use the Jobs API](/api-reference/jobs)
+
 Canary deployments let you roll out a new workflow version to a small percentage of traffic before promoting it to 100%. If the new version has problems, you catch them before they affect every run.
 
 A canary always compares two versions of the same workflow: a `source_version` that currently serves traffic and a `target_version` you want to roll out. Both are the integer [version](/concepts/versioning) counters Strait assigns each time you publish a workflow.
@@ -36,14 +42,14 @@ curl -X POST https://api.strait.dev/v1/canary-deployments \
     "auto_promote": {
       "enabled": true,
       "steps": [10, 25, 50, 100],
-      "interval": "15m",
+      "interval": 900000000000,
       "failure_rate_threshold": 5.0,
-      "latency_p99_threshold": "10s"
+      "latency_p99_threshold": 10000000000
     }
   }'
 ```
 
-This creates a canary that starts at 10% traffic. Every 15 minutes, Strait checks health and promotes to the next step when the target version has less than 5% failure rate and P99 latency under 10 seconds.
+This creates a canary that starts at 10% traffic. Duration fields are encoded as nanoseconds. Every 15 minutes, Strait checks health and promotes to the next step when the target version has less than 5% failure rate and P99 latency under 10 seconds.
 
 ## Promoting Manually
 
@@ -74,8 +80,8 @@ All new runs go back to the source version. In-flight target runs finish on thei
 | Setting | What it controls |
 | :--- | :--- |
 | `failure_rate_threshold` | Maximum error rate (%) before rollback triggers. |
-| `latency_p99_threshold` | Maximum P99 latency (the worst-case response time for 99% of runs) before rollback. |
-| `interval` | How often Strait checks canary health and decides to promote, hold, or rollback. |
+| `latency_p99_threshold` | Maximum P99 latency in nanoseconds before rollback. |
+| `interval` | How often Strait checks canary health and decides to promote, hold, or rollback, encoded as nanoseconds. |
 | `steps` | Traffic percentages to walk through during auto-promotion. |
 
 ## Related

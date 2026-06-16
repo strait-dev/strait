@@ -1,50 +1,73 @@
 ---
 title: "Choose Your Path"
-description: "Cloud or self-host: choose the setup that fits your team."
+description: "Start with Strait Cloud or run the community edition yourself."
 icon: "route"
 ---
 
-You can use Strait Cloud or run Strait yourself. The API and SDKs are the same, so you can start in one environment and move later if your requirements change.
+Start with Strait Cloud unless you have a specific reason to run the control plane yourself. Cloud gives you the shortest path to a production job: Strait runs the API, scheduler, worker plane, storage, upgrades, and billing controls. Your job code still runs in your infrastructure.
 
-| | Cloud | Self-host |
+Use the community self-hosted edition when you need local evaluation, air-gapped deployment, strict data residency, or direct operational control over PostgreSQL, Redis, Sequin, and the Strait process.
+
+| Question | Cloud | Community self-host |
 |---|---|---|
-| Setup | Sign up at app.strait.dev | Docker Compose or your own service host |
-| Infrastructure | Hosted by Strait | You run PostgreSQL, Redis, and Sequin |
-| Updates | Rolled out by Strait | You pull and deploy |
-| Pricing | Free tier plus paid plans | Free, no limits |
-| Data | Hosted by Strait | Your servers, your data |
-| Support | Email plus SLA on paid plans | GitHub Issues |
+| Who operates the control plane? | Strait | Your team |
+| What base URL do clients use? | `https://api.strait.dev` | Your deployed URL, or `http://localhost:8080` locally |
+| Where does job code run? | Your infrastructure | Your infrastructure |
+| How do users create projects and API keys? | Dashboard at `app.strait.dev` | Dashboard or internal-secret API calls |
+| How are upgrades applied? | Strait rolls them out | You pull, test, and deploy |
+| What is the cost model? | Free tier plus paid plans | Free software, your infrastructure cost |
+| Where do run records live? | Strait Cloud | Your PostgreSQL database |
 
-Choose Cloud when you want the fastest setup and do not need to keep run data inside your own network. Choose self-host when you have compliance, residency, air-gap, or operational control requirements.
+## Cloud Setup
 
-## Cloud setup
+1. Open [app.strait.dev](https://app.strait.dev).
+2. Create an organization and project.
+3. Create an API key from `Settings > API Keys`.
+4. Copy the project ID from the project settings page.
+5. Export these variables in your terminal:
 
-Sign up at [app.strait.dev](https://app.strait.dev), create an API key under **Settings → API Keys**, install an SDK, and trigger your first job:
-
-```typescript
-import { createClient } from "@strait/ts";
-
-const client = createClient({
-  baseUrl: "https://api.strait.dev",
-  auth: { type: "bearer", token: "strait_..." },
-});
-
-const run = await client.triggerJob({
-  pathParams: { jobID: "my-first-job" },
-  body: { payload: { message: "Hello from Strait!" } },
-});
-
-console.log(run.id, run.status); // run_abc123 queued
+```bash
+export STRAIT_BASE_URL=https://api.strait.dev
+export STRAIT_API_KEY=strait_replace_with_your_key
+export STRAIT_PROJECT_ID=proj_replace_with_your_project_id
 ```
 
-## Self-host setup
+Use these variables in the [Quick Start](/quickstart).
+
+## Community Local Setup
+
+Use this path when you want a local Strait instance before using Cloud or before planning a self-hosted deployment.
 
 ```bash
 git clone https://github.com/strait-dev/strait.git
 cd strait
-make selfhost
+make dev
+make dev-status
 ```
 
-That boots PostgreSQL, Redis, Sequin, the Strait API, and the dashboard via Docker Compose. Open [http://localhost:3000](http://localhost:3000) and sign up.
+Export the local API settings:
 
-The full self-host walkthrough lives in the [Self-Hosting](/guides/self-hosting) guide. For a local development setup, see the [Quick Start](/quickstart).
+```bash
+export STRAIT_BASE_URL=http://localhost:8080
+export STRAIT_API_KEY=my-dev-secret-change-in-production-min-32-chars
+export INTERNAL_SECRET=$STRAIT_API_KEY
+```
+
+Create a project:
+
+```bash
+curl -sS -X POST "$STRAIT_BASE_URL/v1/projects" \
+  -H "Authorization: Bearer $INTERNAL_SECRET" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "id": "local-project",
+    "org_id": "local-org",
+    "name": "Local Project"
+  }'
+```
+
+Export the returned `id` as `STRAIT_PROJECT_ID`, then use the same API commands from the [Quick Start](/quickstart).
+
+## Production Self-Hosting
+
+For a production community deployment, read [Self-Hosting](/guides/self-hosting) before exposing the API. Configure PostgreSQL backups, Redis persistence, Sequin, TLS, `INTERNAL_SECRET`, `JWT_SIGNING_KEY`, `SECRET_ENCRYPTION_KEY`, retention, monitoring, and upgrade procedures before processing customer workloads.

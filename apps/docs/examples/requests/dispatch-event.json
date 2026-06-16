@@ -1,0 +1,8 @@
+{
+  "source": "stripe",
+  "project_id": "proj_acme_production",
+  "payload": {
+    "type": "invoice.paid",
+    "customer_id": "cus_abc123"
+  }
+}
