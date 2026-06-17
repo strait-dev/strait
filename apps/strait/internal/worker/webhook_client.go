@@ -10,10 +10,10 @@ import (
 )
 
 const (
-	webhookTimeout         = 10 * time.Second
-	webhookMaxIdleConns    = 20
-	webhookMaxIdlePerHost  = 5
-	webhookIdleConnTimeout = 60 * time.Second
+	webhookTimeout         time.Duration = 10_000_000_000
+	webhookMaxIdleConns                  = 20
+	webhookMaxIdlePerHost                = 5
+	webhookIdleConnTimeout time.Duration = 60_000_000_000
 )
 
 // noFollowWebhookRedirects refuses to follow HTTP redirects on outbound

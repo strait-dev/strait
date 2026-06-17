@@ -103,12 +103,12 @@ type ExecutorConfig struct {
 }
 
 const (
-	defaultCircuitFailureThreshold = 5
-	defaultCircuitOpenDuration     = time.Minute
-	defaultDegradedPollInterval    = time.Second
-	defaultTerminalRetryTimeout    = 2 * time.Minute
-	defaultTerminalRetryInitial    = 200 * time.Millisecond
-	defaultTerminalRetryMax        = 2 * time.Second
+	defaultCircuitFailureThreshold               = 5
+	defaultCircuitOpenDuration                   = time.Minute
+	defaultDegradedPollInterval                  = time.Second
+	defaultTerminalRetryTimeout    time.Duration = 120_000_000_000
+	defaultTerminalRetryInitial    time.Duration = 200_000_000
+	defaultTerminalRetryMax        time.Duration = 2_000_000_000
 )
 
 func resolveDegradedPollInterval(d time.Duration) time.Duration {

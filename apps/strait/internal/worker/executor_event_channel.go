@@ -11,11 +11,11 @@ import (
 )
 
 const (
-	defaultEventChannelSize     = 1024
-	minEventChannelSize         = 16
-	eventChannelSaturationRatio = 0.8
-	eventChannelWarnInterval    = 30 * time.Second
-	eventChannelKindClosed      = eventChannelKind("closed")
+	defaultEventChannelSize                   = 1024
+	minEventChannelSize                       = 16
+	eventChannelSaturationRatio               = 0.8
+	eventChannelWarnInterval    time.Duration = 30_000_000_000
+	eventChannelKindClosed                    = eventChannelKind("closed")
 )
 
 type eventChannelKind string

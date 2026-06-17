@@ -8,8 +8,8 @@ import (
 )
 
 const (
-	defaultExecutorHTTPTimeout     = 5 * time.Minute
-	defaultExecutorIdleConnTimeout = 90 * time.Second
+	defaultExecutorHTTPTimeout     time.Duration = 300_000_000_000
+	defaultExecutorIdleConnTimeout time.Duration = 90_000_000_000
 )
 
 func resolveExecutorHTTPClient(cfg ExecutorConfig) *http.Client {
