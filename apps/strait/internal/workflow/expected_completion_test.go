@@ -158,6 +158,42 @@ func TestExpectedCompletion_DuplicateDependencyRefs(t *testing.T) {
 			want))
 }
 
+func TestExpectedCompletion_IndependentStepsUseLongestDuration(t *testing.T) {
+	t.Parallel()
+	steps := []domain.WorkflowStep{
+		{StepRef: "short", ExpectedDurationSecs: 5},
+		{StepRef: "long", ExpectedDurationSecs: 30},
+		{StepRef: "zero"},
+	}
+
+	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	got := CalculateExpectedCompletion(steps, start)
+	require.NotNil(t, got)
+
+	want := start.Add(30 * time.Second)
+	assert.True(t,
+		got.Equal(
+			want))
+}
+
+func TestExpectedCompletion_UnknownDependencyDoesNotBlockKnownRoots(t *testing.T) {
+	t.Parallel()
+	steps := []domain.WorkflowStep{
+		{StepRef: "root", ExpectedDurationSecs: 10},
+		{StepRef: "child", DependsOn: []string{"root"}, ExpectedDurationSecs: 5},
+		{StepRef: "blocked", DependsOn: []string{"missing"}, ExpectedDurationSecs: 30},
+	}
+
+	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	got := CalculateExpectedCompletion(steps, start)
+	require.NotNil(t, got)
+
+	want := start.Add(15 * time.Second)
+	assert.True(t,
+		got.Equal(
+			want))
+}
+
 func TestRecalculateExpectedCompletion_AllCompleted(t *testing.T) {
 	t.Parallel()
 	steps := []domain.WorkflowStep{
@@ -184,6 +220,24 @@ func TestRecalculateExpectedCompletion_CompletedParentsUnblockRemainingDAG(t *te
 	require.NotNil(t, got)
 
 	want := now.Add(20 * time.Second)
+	assert.True(t,
+		got.Equal(
+			want))
+}
+
+func TestRecalculateExpectedCompletion_DuplicateRemainingDependencyRefs(t *testing.T) {
+	t.Parallel()
+	steps := []domain.WorkflowStep{
+		{StepRef: "a", ExpectedDurationSecs: 5},
+		{StepRef: "b", DependsOn: []string{"a", "a"}, ExpectedDurationSecs: 10},
+		{StepRef: "c", DependsOn: []string{"b", "b"}, ExpectedDurationSecs: 20},
+	}
+
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	got := RecalculateExpectedCompletion(steps, nil, now)
+	require.NotNil(t, got)
+
+	want := now.Add(35 * time.Second)
 	assert.True(t,
 		got.Equal(
 			want))

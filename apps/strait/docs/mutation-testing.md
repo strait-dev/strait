@@ -69,7 +69,7 @@ full mutation run with the default bounded settings:
 | Package | Dry-run runnable mutants | Not covered | Notes |
 | --- | ---: | ---: | --- |
 | `./internal/worker` | 997 | 0 | Baseline package tests take about two minutes, so a full one-worker mutation run needs separate scheduling. |
-| `./internal/workflow` | 1213 | 42 | Added raw condition, JSON scanner, object payload merge, and step override filtering dry-run coverage; continue with callback progression, expected completion, and engine cost-gate clusters. |
+| `./internal/workflow` | 1218 | 37 | Added raw condition, JSON scanner, object payload merge, step override filtering, and expected-completion dry-run coverage; continue with callback progression and engine cost-gate clusters. |
 
 ## Current clean packages
 
