@@ -162,10 +162,12 @@ func marshalBusMessage(msg BusMessage) ([]byte, error) {
 func jsonStringExtraBytes(value string) int {
 	extra := 0
 	for i := range len(value) {
-		switch c := value[i]; {
-		case c < 0x20:
+		c := value[i]
+		if c < 0x20 {
 			extra += len(`\u00xx`) - 1
-		case c == '"' || c == '\\':
+			continue
+		}
+		if c == '"' || c == '\\' {
 			extra++
 		}
 	}
@@ -178,32 +180,44 @@ func appendBusJSONString(out []byte, value string) []byte {
 	out = append(out, '"')
 	start := 0
 	for i := range len(value) {
-		switch c := value[i]; {
-		case c == '"' || c == '\\':
+		c := value[i]
+		if c == '"' || c == '\\' {
 			out = append(out, value[start:i]...)
 			out = append(out, '\\', c)
 			start = i + 1
-		case c == '\b':
+			continue
+		}
+		if c == '\b' {
 			out = append(out, value[start:i]...)
 			out = append(out, `\b`...)
 			start = i + 1
-		case c == '\f':
+			continue
+		}
+		if c == '\f' {
 			out = append(out, value[start:i]...)
 			out = append(out, `\f`...)
 			start = i + 1
-		case c == '\n':
+			continue
+		}
+		if c == '\n' {
 			out = append(out, value[start:i]...)
 			out = append(out, `\n`...)
 			start = i + 1
-		case c == '\r':
+			continue
+		}
+		if c == '\r' {
 			out = append(out, value[start:i]...)
 			out = append(out, `\r`...)
 			start = i + 1
-		case c == '\t':
+			continue
+		}
+		if c == '\t' {
 			out = append(out, value[start:i]...)
 			out = append(out, `\t`...)
 			start = i + 1
-		case c < 0x20:
+			continue
+		}
+		if c < 0x20 {
 			out = append(out, value[start:i]...)
 			out = append(out, '\\', 'u', '0', '0', hex[c>>4], hex[c&0xf])
 			start = i + 1

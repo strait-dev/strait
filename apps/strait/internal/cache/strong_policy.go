@@ -48,8 +48,7 @@ var StrongNamespacePolicies = []StrongNamespacePolicy{
 		},
 		WriteThroughPath: "permissionCache.SetWithVersion / permissionCache.InvalidateWithVersion",
 		BusPath:          "cachebus invalidate namespace permission and permission_project",
-		CDCRepairPath: "cdc.NewCacheInvalidationHandlers(" +
-			"project_roles, project_member_roles, resource_policies, tag_policies)",
+		CDCRepairPath:    "cdc.NewCacheInvalidationHandlers(project_roles, project_member_roles, resource_policies, tag_policies)",
 		CDCTables: []string{
 			"project_roles",
 			"project_member_roles",
