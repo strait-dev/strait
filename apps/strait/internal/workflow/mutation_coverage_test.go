@@ -1,6 +1,7 @@
 package workflow
 
 import (
+	"context"
 	"encoding/json"
 	"regexp"
 	"strconv"
@@ -164,6 +165,9 @@ func TestMutationCoverage_JSONScannerBranches(t *testing.T) {
 func TestMutationCoverage_ObjectPayloadMergeBranches(t *testing.T) {
 	t.Parallel()
 
+	assert.Equal(t, `"step"`, string(mergePayloads(nil, json.RawMessage(`"step"`), nil)))
+	assert.Equal(t, `{"step":true}`, string(mergePayloads(json.RawMessage(`"trigger"`), json.RawMessage(`{"step":true}`), nil)))
+
 	fields, hasDuplicates, ok := splitTopLevelJSONObjectFields(json.RawMessage(`{"a":1,"a":2}`))
 	require.True(t, ok)
 	assert.True(t, hasDuplicates)
@@ -223,6 +227,91 @@ func TestMutationCoverage_StepOverrideFilteringBranches(t *testing.T) {
 	assert.True(t, stepRefDisabled([]string{"a"}, nil, "a"))
 	assert.False(t, stepRefDisabled([]string{"a"}, nil, "b"))
 	assert.True(t, stepRefDisabled(nil, map[string]struct{}{"a": {}}, "a"))
+}
+
+func TestMutationCoverage_WorkflowRunHelperBranches(t *testing.T) {
+	t.Parallel()
+
+	assert.Nil(t, workflowRunTags(nil, nil))
+	assert.Equal(t, map[string]string{
+		"env":   "prod",
+		"owner": "override",
+		"run":   "manual",
+	}, workflowRunTags(
+		map[string]string{"env": "prod", "owner": "workflow"},
+		map[string]string{"owner": "override", "run": "manual"},
+	))
+
+	wf := &domain.Workflow{
+		ID:               "wf-1",
+		ProjectID:        "proj-1",
+		Version:          3,
+		VersionID:        "wv-1",
+		MaxParallelSteps: 2,
+		TimeoutSecs:      60,
+		Tags:             map[string]string{"env": "prod"},
+	}
+	snapshot := &domain.WorkflowSnapshot{ID: "snap-1"}
+	run := newWorkflowRun(
+		context.Background(),
+		wf,
+		wf.ID,
+		wf.ProjectID,
+		json.RawMessage(`{"ok":true}`),
+		domain.TriggerManual,
+		"parent-run",
+		"parent-step",
+		snapshot,
+		map[string]string{"request": "abc"},
+	)
+
+	require.NotNil(t, run.ExpiresAt)
+	assert.Equal(t, "snap-1", run.WorkflowSnapshotID)
+	assert.Equal(t, "parent-run", run.ParentWorkflowRunID)
+	assert.Equal(t, "parent-step", run.ParentStepRunID)
+	assert.Equal(t, map[string]string{"env": "prod", "request": "abc"}, run.Tags)
+
+	stepRuns := initialWorkflowStepRuns("wr-1", []domain.WorkflowStep{
+		{ID: "step-a", StepRef: "a"},
+		{ID: "step-b", StepRef: "b", DependsOn: []string{"a", "missing"}},
+	})
+	require.Len(t, stepRuns, 2)
+	assert.Equal(t, domain.StepPending, stepRuns[0].Status)
+	assert.Zero(t, stepRuns[0].DepsRequired)
+	assert.Equal(t, domain.StepWaiting, stepRuns[1].Status)
+	assert.Equal(t, 2, stepRuns[1].DepsRequired)
+}
+
+func TestMutationCoverage_TopologicalAndDependentHelperBranches(t *testing.T) {
+	t.Parallel()
+
+	steps := []domain.WorkflowStep{
+		{StepRef: "child", DependsOn: []string{"root", "root"}},
+		{StepRef: "root"},
+		{StepRef: "blocked", DependsOn: []string{"missing"}},
+	}
+	order := buildTopologicalOrderIndexesWithStepIndex(steps, buildStepIndex(steps))
+	assert.Equal(t, []int{1, 0}, order)
+
+	dependents := dependentStepRefsByMap([]domain.WorkflowStep{
+		{StepRef: "root"},
+		{StepRef: "a", DependsOn: []string{"root"}},
+		{StepRef: "b", DependsOn: []string{"a"}},
+		{StepRef: "c", DependsOn: []string{"a", "b"}},
+	}, "root")
+	assert.ElementsMatch(t, []string{"a", "b", "c"}, dependents)
+}
+
+func TestMutationCoverage_ApprovalAuditActorBranches(t *testing.T) {
+	t.Parallel()
+
+	id, actorType := approvalAuditActor("system:scheduler")
+	assert.Equal(t, "system:scheduler", id)
+	assert.Equal(t, "system", actorType)
+
+	id, actorType = approvalAuditActor("apikey:key-1")
+	assert.Equal(t, "apikey:key-1", id)
+	assert.Equal(t, "api_key", actorType)
 }
 
 func TestMutationCoverage_StepStatusInResultBranches(t *testing.T) {
