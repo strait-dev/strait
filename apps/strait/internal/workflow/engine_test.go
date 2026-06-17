@@ -43,6 +43,7 @@ type mockEngineStore struct {
 	getWorkflowRunFn                  func(ctx context.Context, id string) (*domain.WorkflowRun, error)
 	listStepRunsByWorkflowRunFn       func(ctx context.Context, workflowRunID string, limit int, cursor *time.Time) ([]domain.WorkflowStepRun, error)
 	getWorkflowRunsByParentFn         func(ctx context.Context, parentWorkflowRunID string) ([]domain.WorkflowRun, error)
+	getJobCostEstimateFn              func(ctx context.Context, jobID string) (*domain.JobCostEstimate, error)
 	listEnabledNotificationChannelsFn func(projectID string) ([]domain.NotificationChannel, error)
 	createNotificationDeliveryFn      func(d *domain.NotificationDelivery) error
 }
@@ -185,7 +186,10 @@ func (m *mockEngineStore) CopyRunState(_ context.Context, _, _ string) error {
 	return nil
 }
 
-func (m *mockEngineStore) GetJobCostEstimate(_ context.Context, _ string) (*domain.JobCostEstimate, error) {
+func (m *mockEngineStore) GetJobCostEstimate(ctx context.Context, jobID string) (*domain.JobCostEstimate, error) {
+	if m.getJobCostEstimateFn != nil {
+		return m.getJobCostEstimateFn(ctx, jobID)
+	}
 	return nil, nil
 }
 
@@ -228,6 +232,240 @@ func (m *mockEngineQueue) Dequeue(context.Context) (*domain.JobRun, error) {
 
 func (m *mockEngineQueue) DequeueN(context.Context, int) ([]domain.JobRun, error) {
 	return nil, nil
+}
+
+type nonBootstrapEngineStore struct {
+	EngineStore
+
+	createWorkflowRunFn       func(ctx context.Context, run *domain.WorkflowRun) error
+	updateWorkflowRunStatusFn func(ctx context.Context, id string, from, to domain.WorkflowRunStatus, fields map[string]any) error
+	createWorkflowStepRunFn   func(ctx context.Context, sr *domain.WorkflowStepRun) error
+}
+
+func (s *nonBootstrapEngineStore) CreateWorkflowRun(ctx context.Context, run *domain.WorkflowRun) error {
+	if s.createWorkflowRunFn != nil {
+		return s.createWorkflowRunFn(ctx, run)
+	}
+	return nil
+}
+
+func (s *nonBootstrapEngineStore) UpdateWorkflowRunStatus(ctx context.Context, id string, from, to domain.WorkflowRunStatus, fields map[string]any) error {
+	if s.updateWorkflowRunStatusFn != nil {
+		return s.updateWorkflowRunStatusFn(ctx, id, from, to, fields)
+	}
+	return nil
+}
+
+func (s *nonBootstrapEngineStore) CreateWorkflowStepRun(ctx context.Context, sr *domain.WorkflowStepRun) error {
+	if s.createWorkflowStepRunFn != nil {
+		return s.createWorkflowStepRunFn(ctx, sr)
+	}
+	return nil
+}
+
+func TestBootstrapWorkflowRunFallsBackWhenStoreHasNoBootstrapMethod(t *testing.T) {
+	t.Parallel()
+
+	startedAt := time.Unix(1_704_067_200, 0).UTC()
+	wfRun := &domain.WorkflowRun{ID: "wr-fallback"}
+	stepRuns := []domain.WorkflowStepRun{
+		{ID: "sr-a", WorkflowRunID: wfRun.ID, StepRef: "a"},
+		{ID: "sr-b", WorkflowRunID: wfRun.ID, StepRef: "b"},
+	}
+	calls := make([]string, 0, 4)
+	createdStepRefs := make([]string, 0, len(stepRuns))
+
+	store := &nonBootstrapEngineStore{
+		createWorkflowRunFn: func(_ context.Context, run *domain.WorkflowRun) error {
+			calls = append(calls, "create-run")
+			assert.Equal(t, wfRun.ID, run.ID)
+			return nil
+		},
+		updateWorkflowRunStatusFn: func(_ context.Context, id string, from, to domain.WorkflowRunStatus, fields map[string]any) error {
+			calls = append(calls, "start-run")
+			assert.Equal(t, wfRun.ID, id)
+			assert.Equal(t, domain.WfStatusPending, from)
+			assert.Equal(t, domain.WfStatusRunning, to)
+			assert.Equal(t, startedAt, fields["started_at"])
+			return nil
+		},
+		createWorkflowStepRunFn: func(_ context.Context, sr *domain.WorkflowStepRun) error {
+			calls = append(calls, "create-step")
+			createdStepRefs = append(createdStepRefs, sr.StepRef)
+			return nil
+		},
+	}
+
+	engine := NewWorkflowEngine(store, &mockEngineQueue{}, slog.Default())
+	err := engine.bootstrapWorkflowRun(context.Background(), wfRun, stepRuns, startedAt)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"create-run", "start-run", "create-step", "create-step"}, calls)
+	assert.Equal(t, []string{"a", "b"}, createdStepRefs)
+}
+
+func TestBootstrapWorkflowRunFallbackReportsStepCreateError(t *testing.T) {
+	t.Parallel()
+
+	insertErr := errors.New("insert failed")
+	store := &nonBootstrapEngineStore{
+		createWorkflowStepRunFn: func(_ context.Context, sr *domain.WorkflowStepRun) error {
+			if sr.StepRef == "b" {
+				return insertErr
+			}
+			return nil
+		},
+	}
+	engine := NewWorkflowEngine(store, &mockEngineQueue{}, slog.Default())
+
+	err := engine.bootstrapWorkflowRun(context.Background(), &domain.WorkflowRun{ID: "wr-fallback"}, []domain.WorkflowStepRun{
+		{ID: "sr-a", StepRef: "a"},
+		{ID: "sr-b", StepRef: "b"},
+	}, time.Now())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "create step run b")
+	assert.ErrorIs(t, err, insertErr)
+}
+
+func TestStartRootWorkflowStepsRespectsMaxParallelSteps(t *testing.T) {
+	t.Parallel()
+
+	statuses := make(map[string]domain.StepRunStatus)
+	store := &mockEngineStore{
+		updateStepRunStatusFn: func(_ context.Context, id string, status domain.StepRunStatus, _ map[string]any) error {
+			statuses[id] = status
+			return nil
+		},
+	}
+	queue := &mockEngineQueue{
+		enqueueFn: func(_ context.Context, run *domain.JobRun) error {
+			run.ID = "jr-" + run.JobID
+			return nil
+		},
+	}
+	engine := NewWorkflowEngine(store, queue, slog.Default())
+	firstRun := domain.WorkflowStepRun{ID: "sr-a", Status: domain.StepPending, StepRef: "a"}
+	secondRun := domain.WorkflowStepRun{ID: "sr-b", Status: domain.StepPending, StepRef: "b"}
+	roots := []rootStepStart{
+		{
+			stepRun: &firstRun,
+			step:    &domain.WorkflowStep{ID: "s-a", StepRef: "a", JobID: "job-a"},
+		},
+		{
+			stepRun: &secondRun,
+			step:    &domain.WorkflowStep{ID: "s-b", StepRef: "b", JobID: "job-b"},
+		},
+	}
+
+	err := engine.startRootWorkflowSteps(context.Background(), &domain.WorkflowRun{
+		ID:               "wr-1",
+		ProjectID:        "proj-1",
+		MaxParallelSteps: 1,
+	}, roots)
+	require.NoError(t, err)
+
+	assert.Equal(t, domain.StepRunning, firstRun.Status)
+	assert.Equal(t, domain.StepWaiting, secondRun.Status)
+	assert.Equal(t, domain.StepRunning, statuses["sr-a"])
+	assert.Equal(t, domain.StepWaiting, statuses["sr-b"])
+}
+
+func TestStartStepCostGateRequestsApproval(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name               string
+		timeoutSecs        int
+		wantTimeoutSeconds int
+	}{
+		{
+			name:               "uses default timeout",
+			timeoutSecs:        0,
+			wantTimeoutSeconds: domain.DefaultEventTimeoutSecs,
+		},
+		{
+			name:               "caps timeout",
+			timeoutSecs:        domain.MaxEventTimeoutSecs + 10,
+			wantTimeoutSeconds: domain.MaxEventTimeoutSecs,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var approval *domain.WorkflowStepApproval
+			var startedAt time.Time
+			store := &mockEngineStore{
+				getJobCostEstimateFn: func(_ context.Context, jobID string) (*domain.JobCostEstimate, error) {
+					assert.Equal(t, "job-costly", jobID)
+					return &domain.JobCostEstimate{AvgCostMicrousd: 200}, nil
+				},
+				updateStepRunStatusFn: func(_ context.Context, id string, status domain.StepRunStatus, fields map[string]any) error {
+					assert.Equal(t, "sr-cost-gate", id)
+					assert.Equal(t, domain.StepWaiting, status)
+					var ok bool
+					startedAt, ok = fields["started_at"].(time.Time)
+					require.True(t, ok)
+					return nil
+				},
+				createWorkflowStepApprovalFn: func(_ context.Context, got *domain.WorkflowStepApproval) error {
+					approval = got
+					return nil
+				},
+			}
+			engine := NewWorkflowEngine(store, &mockEngineQueue{}, slog.Default())
+			stepRun := &domain.WorkflowStepRun{ID: "sr-cost-gate", Status: domain.StepPending}
+			step := &domain.WorkflowStep{
+				ID:                        "s-cost-gate",
+				StepRef:                   "cost-gate",
+				JobID:                     "job-costly",
+				CostGateThresholdMicrousd: 100,
+				CostGateTimeoutSecs:       tt.timeoutSecs,
+			}
+			wfRun := &domain.WorkflowRun{ID: "wr-cost-gate", ProjectID: "proj-1"}
+
+			err := engine.startStep(context.Background(), stepRun, step, wfRun, nil)
+			require.NoError(t, err)
+
+			require.NotNil(t, approval)
+			assert.Equal(t, workflowCostGateApprovalID(stepRun.ID), approval.ID)
+			assert.Equal(t, wfRun.ID, approval.WorkflowRunID)
+			assert.Equal(t, stepRun.ID, approval.WorkflowStepRunID)
+			assert.Equal(t, domain.ApprovalStatusPending, approval.Status)
+			require.NotNil(t, approval.ExpiresAt)
+			assert.Equal(t, startedAt.Add(time.Duration(tt.wantTimeoutSeconds)*time.Second), *approval.ExpiresAt)
+			assert.Equal(t, domain.StepWaiting, stepRun.Status)
+			require.NotNil(t, stepRun.StartedAt)
+			assert.Equal(t, startedAt, *stepRun.StartedAt)
+		})
+	}
+}
+
+func TestStartStepCostGateReturnsApprovalError(t *testing.T) {
+	t.Parallel()
+
+	createErr := errors.New("approval insert failed")
+	store := &mockEngineStore{
+		getJobCostEstimateFn: func(_ context.Context, _ string) (*domain.JobCostEstimate, error) {
+			return &domain.JobCostEstimate{AvgCostMicrousd: 200}, nil
+		},
+		createWorkflowStepApprovalFn: func(_ context.Context, _ *domain.WorkflowStepApproval) error {
+			return createErr
+		},
+	}
+	engine := NewWorkflowEngine(store, &mockEngineQueue{}, slog.Default())
+	stepRun := &domain.WorkflowStepRun{ID: "sr-cost-gate", Status: domain.StepPending}
+	step := &domain.WorkflowStep{
+		ID:                        "s-cost-gate",
+		StepRef:                   "cost-gate",
+		JobID:                     "job-costly",
+		CostGateThresholdMicrousd: 100,
+	}
+
+	err := engine.startStep(context.Background(), stepRun, step, &domain.WorkflowRun{ID: "wr-cost-gate", ProjectID: "proj-1"}, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "create cost gate approval")
+	assert.ErrorIs(t, err, createErr)
 }
 
 func (m *mockEngineQueue) DequeueNByProject(context.Context, int, string) ([]domain.JobRun, error) {
