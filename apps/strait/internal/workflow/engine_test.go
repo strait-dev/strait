@@ -1156,6 +1156,38 @@ func TestMergePayloads(t *testing.T) {
 		require.Equal(t,
 			"step", got["tenant-id"])
 	})
+
+	t.Run("non-object trigger falls back to object step payload", func(t *testing.T) {
+		t.Parallel()
+		out := mergePayloads(json.RawMessage(`"trigger"`), json.RawMessage(`{"step":true}`), nil)
+		require.Equal(t, `{"step":true}`, string(out))
+	})
+
+	t.Run("object trigger falls back to non-object step payload", func(t *testing.T) {
+		t.Parallel()
+		out := mergePayloads(json.RawMessage(`{"trigger":true}`), json.RawMessage(`"step"`), nil)
+		require.Equal(t, `"step"`, string(out))
+	})
+}
+
+func TestJSONScannerEscapedStrings(t *testing.T) {
+	t.Parallel()
+
+	t.Run("string scanner reports escaped bytes", func(t *testing.T) {
+		t.Parallel()
+		end, escaped, ok := scanJSONString([]byte(`"a\"b"`), 0)
+		require.True(t, ok)
+		assert.True(t, escaped)
+		assert.Equal(t, len(`"a\"b"`), end)
+	})
+
+	t.Run("object value scanner ignores escaped quote in string", func(t *testing.T) {
+		t.Parallel()
+		end, delimiter, ok := scanJSONObjectValue([]byte(`"a\"b",`), 0)
+		require.True(t, ok)
+		assert.Equal(t, len(`"a\"b"`), end)
+		assert.Equal(t, byte(','), delimiter)
+	})
 }
 
 func BenchmarkMergePayloads(b *testing.B) {
@@ -5207,6 +5239,41 @@ func TestRetryWorkflowRun(t *testing.T) {
 		assert.Contains(
 			t, err.Error(), "database connection error",
 		)
+	})
+
+	t.Run("retry returns transaction error", func(t *testing.T) {
+		t.Parallel()
+		txErr := errors.New("transaction failed")
+		ms := &mockEngineStore{
+			getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+				return &domain.WorkflowRun{
+					ID:              id,
+					WorkflowID:      "wf-1",
+					ProjectID:       "proj-1",
+					Status:          domain.WfStatusFailed,
+					WorkflowVersion: 1,
+				}, nil
+			},
+			getWorkflowFn: func(_ context.Context, _ string) (*domain.Workflow, error) {
+				return &domain.Workflow{ID: "wf-1", ProjectID: "proj-1", Enabled: true, Version: 1}, nil
+			},
+			listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+				return []domain.WorkflowStep{{ID: "step-a", JobID: "job-a", StepRef: "a"}}, nil
+			},
+			listStepRunsByWorkflowRunFn: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
+				return []domain.WorkflowStepRun{{ID: "orig-sr-a", StepRef: "a", Status: domain.StepFailed}}, nil
+			},
+		}
+		engine := NewWorkflowEngine(ms, &mockEngineQueue{}, slog.Default()).WithRunInTx(
+			func(context.Context, func(EngineStore) error) error {
+				return txErr
+			},
+		)
+
+		run, err := engine.RetryWorkflowRun(context.Background(), "orig-run")
+		require.Error(t, err)
+		assert.Nil(t, run)
+		assert.ErrorIs(t, err, txErr)
 	})
 
 	t.Run("retry with fan-out DAG: a->{b,c} where c failed", func(t *testing.T) {
