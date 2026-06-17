@@ -69,6 +69,7 @@ full mutation run with the default bounded settings:
 | Package | Dry-run runnable mutants | Not covered | Notes |
 | --- | ---: | ---: | --- |
 | `./internal/worker` | 997 | 0 | Baseline package tests take about two minutes, so a full one-worker mutation run needs separate scheduling. |
+| `./internal/workflow` | 1189 | 66 | Added condition, debug-view, template-cache, and workflow definition cache dry-run coverage; continue with engine step and retry clusters. |
 
 ## Current clean packages
 
