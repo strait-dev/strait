@@ -2,6 +2,7 @@ package workflow
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"strait/internal/domain"
@@ -64,6 +65,38 @@ func (s *fakeProgressionEventStore) ReleaseWorkflowProgressionEvent(_ context.Co
 func (s *fakeProgressionEventStore) ReleaseWorkflowProgressionEvents(_ context.Context, ids []int64) error {
 	s.released = append(s.released, ids...)
 	return nil
+}
+
+type fakeSingleProgressionEventStore struct {
+	events    []store.WorkflowProgressionEvent
+	processed []int64
+	released  []int64
+}
+
+func (s *fakeSingleProgressionEventStore) ClaimWorkflowProgressionEvents(context.Context, int) ([]store.WorkflowProgressionEvent, error) {
+	return s.events, nil
+}
+
+func (s *fakeSingleProgressionEventStore) MarkWorkflowProgressionEventProcessed(_ context.Context, id int64) error {
+	s.processed = append(s.processed, id)
+	return nil
+}
+
+func (s *fakeSingleProgressionEventStore) ReleaseWorkflowProgressionEvent(_ context.Context, id int64) error {
+	s.released = append(s.released, id)
+	return nil
+}
+
+type fakeNonBatchCallbackStore struct {
+	CallbackStore
+	getWorkflowStepRunFn func(ctx context.Context, id string) (*domain.WorkflowStepRun, error)
+}
+
+func (s fakeNonBatchCallbackStore) GetWorkflowStepRun(ctx context.Context, id string) (*domain.WorkflowStepRun, error) {
+	if s.getWorkflowStepRunFn != nil {
+		return s.getWorkflowStepRunFn(ctx, id)
+	}
+	return nil, nil
 }
 
 func TestWorkflowProgression_ProcessOnceBatchesWorkflowContextLoad(t *testing.T) {
@@ -140,6 +173,56 @@ func TestWorkflowProgression_ProcessOnceBatchesWorkflowContextLoad(t *testing.T)
 	require.Equal(t, []int64{1, 2}, eventStore.processed)
 	require.Empty(t, eventStore.
 		released)
+}
+
+func TestWorkflowProgression_LoadStepRunsFallbackErrors(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	events := []store.WorkflowProgressionEvent{{ID: 1, WorkflowRunID: "wf-run", StepRunID: "step-run-a"}}
+
+	processor := NewProgressionProcessor(
+		&fakeProgressionEventStore{},
+		NewStepCallback(fakeNonBatchCallbackStore{
+			getWorkflowStepRunFn: func(context.Context, string) (*domain.WorkflowStepRun, error) {
+				return nil, errors.New("lookup failed")
+			},
+		}, &WorkflowEngine{}, nil),
+		ProgressionProcessorConfig{},
+	)
+	_, err := processor.loadStepRuns(ctx, events)
+	require.ErrorContains(t, err, "get workflow step run")
+
+	processor = NewProgressionProcessor(
+		&fakeProgressionEventStore{},
+		NewStepCallback(fakeNonBatchCallbackStore{}, &WorkflowEngine{}, nil),
+		ProgressionProcessorConfig{},
+	)
+	_, err = processor.loadStepRuns(ctx, events)
+	require.ErrorContains(t, err, "workflow step run not found")
+}
+
+func TestWorkflowProgression_ProcessOnceMarksEventsWithoutBatchStore(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	events := []store.WorkflowProgressionEvent{
+		{ID: 1, WorkflowRunID: "wf-run", StepRunID: "step-run-a"},
+		{ID: 2, WorkflowRunID: "wf-run", StepRunID: "step-run-b"},
+	}
+	eventStore := &fakeSingleProgressionEventStore{events: events}
+	stepRuns := map[string]*domain.WorkflowStepRun{
+		"step-run-a": {ID: "step-run-a", WorkflowRunID: "wf-run", StepRef: "a", Status: domain.StepRunning},
+		"step-run-b": {ID: "step-run-b", WorkflowRunID: "wf-run", StepRef: "b", Status: domain.StepWaiting},
+	}
+	callbackStore := fakeNonBatchCallbackStore{
+		getWorkflowStepRunFn: func(_ context.Context, id string) (*domain.WorkflowStepRun, error) {
+			return stepRuns[id], nil
+		},
+	}
+
+	processor := NewProgressionProcessor(eventStore, NewStepCallback(callbackStore, &WorkflowEngine{}, nil), ProgressionProcessorConfig{Limit: 10})
+	require.NoError(t, processor.ProcessOnce(ctx))
+	require.Equal(t, []int64{1, 2}, eventStore.processed)
+	require.Empty(t, eventStore.released)
 }
 
 func FuzzWorkflowProgression(f *testing.F) {
