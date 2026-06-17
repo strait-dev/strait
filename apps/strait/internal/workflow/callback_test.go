@@ -878,7 +878,7 @@ func TestFanInAndStartReadyChildren_AcquiresAdvisoryXactLock(t *testing.T) {
 	err := cb.fanInAndStartReadyChildren(context.Background(), &domain.WorkflowStepRun{WorkflowRunID: "wr-1", StepRef: "step-a"}, &wfCtx{
 		run:   &domain.WorkflowRun{ID: "wr-1", Status: domain.WfStatusRunning},
 		steps: []domain.WorkflowStep{{StepRef: "step-a"}, {StepRef: "step-b"}},
-	})
+	}, false)
 	require.NoError(t,
 		err)
 	require.True(t, lockCalled)

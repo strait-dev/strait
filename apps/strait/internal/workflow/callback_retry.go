@@ -82,7 +82,7 @@ func (s *StepCallback) handleFailedStep(ctx context.Context, stepRun *domain.Wor
 		}
 		return s.checkWorkflowCompletion(ctx, stepRun.WorkflowRunID, wc)
 	case domain.Continue:
-		if err := s.fanInAndStartReadyChildren(ctx, stepRun, wc); err != nil {
+		if err := s.fanInAndStartReadyChildren(ctx, stepRun, wc, true); err != nil {
 			return fmt.Errorf("fan-in for continue policy on step %s: %w", stepRun.StepRef, err)
 		}
 		return s.checkWorkflowCompletion(ctx, stepRun.WorkflowRunID, wc)

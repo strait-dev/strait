@@ -1234,6 +1234,7 @@ type mockCallbackStore struct {
 	listWorkflowStepRunsByIDsFn         func(ctx context.Context, ids []string) ([]domain.WorkflowStepRun, error)
 	updateStepRunStatusFn               func(ctx context.Context, id string, status domain.StepRunStatus, fields map[string]any) error
 	incrementStepDepsFn                 func(ctx context.Context, workflowRunID string, completedStepRef string) ([]store.StepDepResult, error)
+	incrementStepDepsIncludingFailedFn  func(ctx context.Context, workflowRunID string, completedStepRef string) ([]store.StepDepResult, error)
 	incrementStepDepsBatchFn            func(ctx context.Context, workflowRunID string, completedStepRefs []string) ([]store.StepDepResult, error)
 	incrementStepRunAttemptFn           func(ctx context.Context, id string, newAttempt int) error
 	getWorkflowRunFn                    func(ctx context.Context, id string) (*domain.WorkflowRun, error)
@@ -1397,6 +1398,13 @@ func (m *mockCallbackStore) UpdateStepRunStatusFrom(ctx context.Context, id stri
 func (m *mockCallbackStore) IncrementStepDeps(ctx context.Context, workflowRunID string, completedStepRef string) ([]store.StepDepResult, error) {
 	if m.incrementStepDepsFn != nil {
 		return m.incrementStepDepsFn(ctx, workflowRunID, completedStepRef)
+	}
+	return nil, nil
+}
+
+func (m *mockCallbackStore) IncrementStepDepsIncludingFailed(ctx context.Context, workflowRunID string, completedStepRef string) ([]store.StepDepResult, error) {
+	if m.incrementStepDepsIncludingFailedFn != nil {
+		return m.incrementStepDepsIncludingFailedFn(ctx, workflowRunID, completedStepRef)
 	}
 	return nil, nil
 }
@@ -4687,7 +4695,7 @@ func TestStepCallback_FanInStartsWaitingRootsWithoutDependents(t *testing.T) {
 			{ID: "step-b", StepRef: "b", JobID: "job-b", ConcurrencyKey: "db"},
 		},
 	)
-	err := cb.fanInAndStartReadyChildren(context.Background(), &domain.WorkflowStepRun{ID: "sr-a", WorkflowRunID: "wr-1", StepRef: "a", Status: domain.StepCompleted}, wc)
+	err := cb.fanInAndStartReadyChildren(context.Background(), &domain.WorkflowStepRun{ID: "sr-a", WorkflowRunID: "wr-1", StepRef: "a", Status: domain.StepCompleted}, wc, false)
 	require.NoError(
 		t, err)
 	require.True(t,

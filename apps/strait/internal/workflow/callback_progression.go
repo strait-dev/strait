@@ -34,14 +34,20 @@ func init() {
 	)
 }
 
-func (s *StepCallback) fanInAndStartReadyChildren(ctx context.Context, stepRun *domain.WorkflowStepRun, wc *wfCtx) error {
+func (s *StepCallback) fanInAndStartReadyChildren(ctx context.Context, stepRun *domain.WorkflowStepRun, wc *wfCtx, failedCountsAsResolved bool) error {
 	lockID := advisoryXactLockIDForStepRun(stepRun.ID)
 	if err := s.store.AdvisoryXactLock(ctx, lockID); err != nil {
 		return fmt.Errorf("advisory xact lock for step %s: %w", stepRun.StepRef, err)
 	}
 
-	if _, err := s.store.IncrementStepDeps(ctx, stepRun.WorkflowRunID, stepRun.StepRef); err != nil {
-		return fmt.Errorf("increment step deps: %w", err)
+	var stepDepsErr error
+	if failedCountsAsResolved {
+		_, stepDepsErr = s.store.IncrementStepDepsIncludingFailed(ctx, stepRun.WorkflowRunID, stepRun.StepRef)
+	} else {
+		_, stepDepsErr = s.store.IncrementStepDeps(ctx, stepRun.WorkflowRunID, stepRun.StepRef)
+	}
+	if stepDepsErr != nil {
+		return fmt.Errorf("increment step deps: %w", stepDepsErr)
 	}
 
 	// Re-read workflow run status after acquiring the lock to prevent a race
@@ -447,7 +453,7 @@ func (s *StepCallback) propagateToParent(ctx context.Context, childRun *domain.W
 		if wcErr != nil {
 			return fmt.Errorf("load parent workflow context: %w", wcErr)
 		}
-		if err := s.fanInAndStartReadyChildren(ctx, parentStepRun, parentWc); err != nil {
+		if err := s.fanInAndStartReadyChildren(ctx, parentStepRun, parentWc, false); err != nil {
 			return fmt.Errorf("fan-in after sub-workflow completion for step %s: %w", parentStepRun.StepRef, err)
 		}
 		return s.checkWorkflowCompletion(ctx, parentRun.ID, parentWc)
@@ -614,7 +620,7 @@ func (s *StepCallback) ApproveStep(ctx context.Context, workflowRunID, stepRef, 
 			})
 	}
 
-	if err := s.fanInAndStartReadyChildren(ctx, stepRun, wc); err != nil {
+	if err := s.fanInAndStartReadyChildren(ctx, stepRun, wc, false); err != nil {
 		return fmt.Errorf("fan-in after approval for step %s: %w", stepRef, err)
 	}
 
@@ -682,7 +688,7 @@ func (s *StepCallback) SkipStep(ctx context.Context, workflowRunID, stepRef, rea
 	recordWorkflowStepDuration(ctx, workflowStepKind(wc, stepRun), workflowStepOutcome(domain.StepSkipped), stepRun.StartedAt, now)
 	stepRun.Status = domain.StepSkipped
 
-	if err := s.fanInAndStartReadyChildren(ctx, stepRun, wc); err != nil {
+	if err := s.fanInAndStartReadyChildren(ctx, stepRun, wc, false); err != nil {
 		return fmt.Errorf("fan-in after skip: %w", err)
 	}
 	return s.checkWorkflowCompletion(ctx, workflowRunID, wc)
@@ -716,7 +722,7 @@ func (s *StepCallback) ForceCompleteStep(ctx context.Context, workflowRunID, ste
 	}
 	recordWorkflowStepDuration(ctx, workflowStepKind(wc, stepRun), workflowStepOutcome(domain.StepCompleted), stepRun.StartedAt, now)
 
-	if err := s.fanInAndStartReadyChildren(ctx, stepRun, wc); err != nil {
+	if err := s.fanInAndStartReadyChildren(ctx, stepRun, wc, false); err != nil {
 		return fmt.Errorf("fan-in after force-complete: %w", err)
 	}
 	return s.checkWorkflowCompletion(ctx, workflowRunID, wc)
