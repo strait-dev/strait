@@ -92,3 +92,4 @@ default bounded settings and reached 100% efficacy and 100% mutant coverage:
 | `./internal/cache` | 301 | Added cache bus, read-model, registry, Redis L2, and consistency edge coverage; slow full run (~17m30s) |
 | `./cmd/gen-audit-schema` | 2 | Added writer-injected command harness coverage |
 | `./scripts/dump-openapi` | 5 | Added injected command runner coverage for output, random, fetch, and write paths |
+| `./scripts/format-benchmarks` | 40 | Added parser, runner, markdown, aggregate, and formatting coverage |
