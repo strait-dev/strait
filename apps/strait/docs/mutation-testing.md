@@ -63,13 +63,13 @@ until that package has an explicit target and stable runtime.
 
 ## In-progress packages
 
-These packages have reached 100% dry-run coverage, but have not yet completed a
+These packages are still active rollout targets, or have not yet completed a
 full mutation run with the default bounded settings:
 
 | Package | Dry-run runnable mutants | Not covered | Notes |
 | --- | ---: | ---: | --- |
 | `./internal/worker` | 997 | 0 | Baseline package tests take about two minutes, so a full one-worker mutation run needs separate scheduling. |
-| `./internal/workflow` | 1189 | 66 | Added condition, debug-view, template-cache, and workflow definition cache dry-run coverage; continue with engine step and retry clusters. |
+| `./internal/workflow` | 1213 | 42 | Added raw condition, JSON scanner, object payload merge, and step override filtering dry-run coverage; continue with callback progression, expected completion, and engine cost-gate clusters. |
 
 ## Current clean packages
 

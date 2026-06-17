@@ -1,6 +1,7 @@
 package workflow
 
 import (
+	"encoding/json"
 	"regexp"
 	"strconv"
 	"strings"
@@ -52,6 +53,178 @@ func TestMutationCoverage_ConditionResultHelpers(t *testing.T) {
 	assert.Contains(t, err.Error(), "unmarshal step_status condition")
 }
 
+func TestMutationCoverage_RawConditionBranches(t *testing.T) {
+	t.Parallel()
+
+	statuses := map[string]domain.StepRunStatus{"step": domain.StepCompleted}
+
+	got, err := evaluateStepStatusInCondition(
+		[]byte(`{"type":"step_status_in","step_ref":"step","statuses":["failed","completed"]}`),
+		statuses,
+	)
+	require.NoError(t, err)
+	assert.True(t, got)
+
+	got, err = evaluateStepStatusInCondition(
+		[]byte(`{"type":"step_status_in","step_ref":"step","statuses":["failed"]}`),
+		statuses,
+	)
+	require.NoError(t, err)
+	assert.False(t, got)
+
+	_, err = evaluateStepStatusInCondition(
+		[]byte(`{"type":"step_status_in","step_ref":"step","statuses":["failed",1]}`),
+		statuses,
+	)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unmarshal step_status_in condition")
+
+	got, err = evaluateBinaryCondition("eq", []byte(`{"type":"eq","left":1,"right":1}`), statuses)
+	require.NoError(t, err)
+	assert.True(t, got)
+
+	got, err = evaluateBinaryCondition("eq", []byte(`{"type":"eq","left":1,"right":2}`), statuses)
+	require.NoError(t, err)
+	assert.False(t, got)
+
+	got, err = evaluateBinaryCondition("ne", []byte(`{"type":"ne","left":1,"right":2}`), statuses)
+	require.NoError(t, err)
+	assert.True(t, got)
+
+	got, err = evaluateBinaryCondition("ne", []byte(`{"type":"ne","left":"same","right":"same"}`), statuses)
+	require.NoError(t, err)
+	assert.False(t, got)
+
+	got, err = evaluateBinaryCondition("eq", []byte(`{"type":"eq","left":[1],"right":[1]}`), statuses)
+	require.NoError(t, err)
+	assert.True(t, got)
+
+	got, err = evaluateBinaryCondition("ne", []byte(`{"type":"ne","left":[1],"right":[2]}`), statuses)
+	require.NoError(t, err)
+	assert.True(t, got)
+
+	got, err = evaluateRegexCondition("abc", "^z+$")
+	require.NoError(t, err)
+	assert.False(t, got)
+
+	_, err = evaluateRegexCondition("abc", strings.Repeat("a", maxRegexPatternLen+1))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "regex pattern exceeds")
+
+	_, err = evaluateRegexCondition(strings.Repeat("a", maxRegexInputLen+1), "a+")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "regex input exceeds")
+
+	_, err = evaluateRegexCondition("abc", "[")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid regex")
+}
+
+func TestMutationCoverage_JSONScannerBranches(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, 4, skipJSONSpaces([]byte(" \n\r\tvalue"), 0))
+	assert.Equal(t, 1, trimJSONRightSpaces([]byte("x \n\r\t"), 0, 5))
+
+	end, escaped, ok := scanJSONString([]byte(`"a\"b"`), 0)
+	require.True(t, ok)
+	assert.True(t, escaped)
+	assert.Equal(t, len(`"a\"b"`), end)
+
+	_, _, ok = scanJSONString([]byte(`"unterminated`), 0)
+	assert.False(t, ok)
+
+	end, delimiter, ok := scanJSONObjectValue([]byte(`[1,{"b":"c,d"}],"next":1}`), 0)
+	require.True(t, ok)
+	assert.Equal(t, byte(','), delimiter)
+	assert.Equal(t, len(`[1,{"b":"c,d"}]`), end)
+
+	end, delimiter, ok = scanJSONObjectValue([]byte(`"a,b",`), 0)
+	require.True(t, ok)
+	assert.Equal(t, byte(','), delimiter)
+	assert.Equal(t, len(`"a,b"`), end)
+
+	end, delimiter, ok = scanJSONObjectValue([]byte(`"a\"b",`), 0)
+	require.True(t, ok)
+	assert.Equal(t, byte(','), delimiter)
+	assert.Equal(t, len(`"a\"b"`), end)
+
+	end, delimiter, ok = scanJSONObjectValue([]byte(`{"nested":[1,2]}}`), 0)
+	require.True(t, ok)
+	assert.Equal(t, byte('}'), delimiter)
+	assert.Equal(t, len(`{"nested":[1,2]}`), end)
+
+	_, _, ok = scanJSONObjectValue([]byte(`]`), 0)
+	assert.False(t, ok)
+
+	_, _, ok = scanJSONObjectValue([]byte(`{"unterminated":`), 0)
+	assert.False(t, ok)
+}
+
+func TestMutationCoverage_ObjectPayloadMergeBranches(t *testing.T) {
+	t.Parallel()
+
+	fields, hasDuplicates, ok := splitTopLevelJSONObjectFields(json.RawMessage(`{"a":1,"a":2}`))
+	require.True(t, ok)
+	assert.True(t, hasDuplicates)
+	require.Len(t, fields, 2)
+	assert.Equal(t, "a", fields[0].key)
+	assert.Equal(t, "a", fields[1].key)
+
+	_, _, ok = splitTopLevelJSONObjectFields(json.RawMessage(`{"a":1,}`))
+	assert.False(t, ok)
+
+	out, ok := mergeJSONObjectPayloads(
+		json.RawMessage(`{"a":1,"a":2,"parent_outputs":"old"}`),
+		json.RawMessage(`{"b":1,"b":2}`),
+		json.RawMessage(`{"p":true}`),
+		true,
+	)
+	require.True(t, ok)
+	assert.JSONEq(t, `{"a":2,"b":2,"parent_outputs":{"p":true}}`, string(out))
+
+	_, ok = mergeJSONObjectPayloads(
+		json.RawMessage(`{"a":1}`),
+		json.RawMessage(`{"b":2}`),
+		json.RawMessage(`{invalid}`),
+		true,
+	)
+	assert.False(t, ok)
+}
+
+func TestMutationCoverage_StepOverrideFilteringBranches(t *testing.T) {
+	t.Parallel()
+
+	steps := []domain.WorkflowStep{
+		{ID: "step-a", JobID: "job-a", StepRef: "a"},
+		{ID: "step-b", JobID: "job-b", StepRef: "b"},
+		{ID: "step-c", JobID: "job-c", StepRef: "c"},
+		{ID: "step-d", JobID: "job-d", StepRef: "d", DependsOn: []string{"a", "b", "c", "external"}},
+	}
+
+	got, err := applyStepOverrides(steps, []domain.StepOverride{
+		{StepRef: "a", Enabled: false},
+		{StepRef: "b", Enabled: false},
+		{StepRef: "c", Enabled: false},
+		{StepRef: "d", Enabled: true},
+	})
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, "d", got[0].StepRef)
+	assert.Equal(t, []string{"external"}, got[0].DependsOn)
+
+	got, err = applyStepOverrides(steps, []domain.StepOverride{
+		{StepRef: "a", Enabled: true},
+		{StepRef: "b", Enabled: true},
+	})
+	require.NoError(t, err)
+	assert.Same(t, &steps[0], &got[0])
+
+	assert.True(t, stepRefDisabled([]string{"a"}, nil, "a"))
+	assert.False(t, stepRefDisabled([]string{"a"}, nil, "b"))
+	assert.True(t, stepRefDisabled(nil, map[string]struct{}{"a": {}}, "a"))
+}
+
 func TestMutationCoverage_StepStatusInResultBranches(t *testing.T) {
 	t.Parallel()
 
@@ -79,6 +252,13 @@ func TestMutationCoverage_StepStatusInResultBranches(t *testing.T) {
 
 	_, err = evaluateStepStatusInConditionResult(
 		gjson.Parse(`{"type":"step_status_in","step_ref":"step","statuses":["failed",1]}`),
+		statuses,
+	)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unmarshal step_status_in condition")
+
+	_, err = evaluateStepStatusInConditionResult(
+		gjson.Parse(`{"type":"step_status_in","step_ref":1,"statuses":["completed"]}`),
 		statuses,
 	)
 	require.Error(t, err)
@@ -144,6 +324,8 @@ func TestMutationCoverage_BinaryConditionResultBranches(t *testing.T) {
 		{name: "eq false", condType: "eq", cond: `{"type":"eq","left":1,"right":2}`},
 		{name: "ne true", condType: "ne", cond: `{"type":"ne","left":1,"right":2}`, want: true},
 		{name: "ne false", condType: "ne", cond: `{"type":"ne","left":"same","right":"same"}`},
+		{name: "eq array fallback", condType: "eq", cond: `{"type":"eq","left":[1],"right":[1]}`, want: true},
+		{name: "ne array fallback", condType: "ne", cond: `{"type":"ne","left":[1],"right":[2]}`, want: true},
 		{name: "gt", condType: "gt", cond: `{"type":"gt","left":3,"right":2}`, want: true},
 		{name: "gte equal", condType: "gte", cond: `{"type":"gte","left":2,"right":2}`, want: true},
 		{name: "lt", condType: "lt", cond: `{"type":"lt","left":1,"right":2}`, want: true},
