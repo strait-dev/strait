@@ -67,7 +67,7 @@ const (
 	defaultWebhookMaxPayloadBytes = 1 << 20 // 1 MB
 	defaultMaxBatchSize           = 50
 	defaultDeliveryClaimLimit     = 100
-	defaultDeliveryClaimLease     = 2 * time.Minute
+	defaultDeliveryClaimLease     = 120_000_000_000
 	maxResponseBodyDrainBytes     = 1 << 20 // 1 MB — cap response body drain to prevent memory exhaustion
 )
 
@@ -99,6 +99,10 @@ type claimedWebhookDeliveryUpdater interface {
 	UpdateClaimedWebhookDelivery(ctx context.Context, d *domain.WebhookDelivery) (bool, error)
 }
 
+type webhookDeliveryCostRecorder interface {
+	RecordWebhookDeliveryCost(ctx context.Context, orgID, projectID, deliveryID string) error
+}
+
 type DeliveryWorker struct {
 	client *http.Client
 	store  DeliveryStore
@@ -109,7 +113,7 @@ type DeliveryWorker struct {
 	circuitBreaker        WebhookCircuitBreaker
 	metrics               *telemetry.Metrics
 	chExporter            *clickhouse.Exporter
-	costRecorder          *billing.RunCostRecorder
+	costRecorder          webhookDeliveryCostRecorder
 	secretDecryptor       SecretDecryptor
 	maxPayloadBytes       int64
 	batchByURL            bool
@@ -1504,7 +1508,7 @@ func (n *DeliveryWorker) retryPolicyForDelivery(d *domain.WebhookDelivery) strin
 	}
 }
 
-const maxWebhookBackoff = 30 * time.Minute
+const maxWebhookBackoff time.Duration = 1_800_000_000_000
 
 func backoffForRetryPolicy(policy string, attempts int) time.Duration {
 	if attempts < 1 {

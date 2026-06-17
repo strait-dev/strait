@@ -1,0 +1,40 @@
+silent: false
+unleash:
+  integration: false
+  dry-run: false
+  tags: ""
+  output: ""
+  diff: ""
+  output-statuses: ""
+  workers: 1
+  test-cpu: 1
+  timeout-coefficient: 60
+  threshold:
+    efficacy: 0
+    mutant-coverage: 0
+  exclude-files:
+    - '(^|/)worker(_grpc)?\.pb\.go$'
+    - '(^|/)(catalog|plans)_generated\.go$'
+mutants:
+  arithmetic-base:
+    enabled: true
+  conditionals-boundary:
+    enabled: true
+  conditionals-negation:
+    enabled: true
+  increment-decrement:
+    enabled: true
+  invert-negatives:
+    enabled: true
+  invert-assignments:
+    enabled: false
+  invert-bitwise:
+    enabled: false
+  invert-bwassign:
+    enabled: false
+  invert-logical:
+    enabled: false
+  invert-loopctrl:
+    enabled: false
+  remove-self-assignments:
+    enabled: false

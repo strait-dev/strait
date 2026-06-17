@@ -27,10 +27,8 @@ import (
 // Default batching and flushing tunables for the SIEM drain. These are used
 // when the constructor receives zero values.
 const (
-	defaultSIEMBatchSize     = 100
-	defaultSIEMFlushInterval = 10 * time.Second
-	minSIEMBufferSize        = 256
-	siemShutdownTimeout      = 5 * time.Second
+	defaultSIEMBatchSize = 100
+	minSIEMBufferSize    = 256
 
 	// Resilience tunables. Retries follow 100ms → 400ms → 1.6s with full
 	// jitter, which is bounded above by roughly 2s + jitter — well under the
@@ -42,13 +40,18 @@ const (
 	siemSubDLQCapacity           = 1024
 )
 
+const (
+	defaultSIEMFlushInterval time.Duration = 10_000_000_000
+	siemShutdownTimeout      time.Duration = 5_000_000_000
+)
+
 // Tunables exposed as vars (not consts) so tests can shrink timings.
 var (
-	siemRetryInitialBackoff = 100 * time.Millisecond
-	siemRetryMaxBackoff     = 1600 * time.Millisecond
-	siemRetryBackoffFactor  = 4.0
-	siemBreakerOpenDuration = 30 * time.Second
-	newAuditSIEMTransport   = httputil.NewExternalTransport
+	siemRetryInitialBackoff time.Duration = 100_000_000
+	siemRetryMaxBackoff     time.Duration = 1_600_000_000
+	siemRetryBackoffFactor                = 4.0
+	siemBreakerOpenDuration time.Duration = 30_000_000_000
+	newAuditSIEMTransport                 = httputil.NewExternalTransport
 )
 
 // ErrSIEMCircuitOpen is returned when the SIEM circuit breaker is open and a

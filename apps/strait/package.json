@@ -4,6 +4,7 @@
   "scripts": {
     "build": "go build ./...",
     "test": "go test ./...",
+    "test:mutation": "./scripts/mutation-test.sh",
     "test:integration:fast": "./scripts/test-integration-fast.sh --all",
     "test:integration:clean": "./scripts/test-integration-clean.sh",
     "lint": "./scripts/lint-go.sh",

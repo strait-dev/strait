@@ -114,24 +114,32 @@ func SafeDialContext(allowPrivate bool) func(context.Context, string, string) (n
 		if lookupErr != nil {
 			return nil, fmt.Errorf("ssrf: DNS lookup failed")
 		}
-		var firstPublic net.IP
-		for _, addr := range addrs {
-			ip := net.ParseIP(addr)
-			if ip == nil {
-				continue
-			}
-			if isPrivateIP(ip) {
-				return nil, fmt.Errorf("ssrf: host resolves to private address")
-			}
-			if firstPublic == nil {
-				firstPublic = ip
-			}
-		}
-		if firstPublic == nil {
-			return nil, fmt.Errorf("ssrf: DNS lookup returned no usable IP addresses")
+		firstPublic, err := firstPublicResolvedIP(addrs)
+		if err != nil {
+			return nil, err
 		}
 		return dialer.DialContext(ctx, network, net.JoinHostPort(firstPublic.String(), port))
 	}
+}
+
+func firstPublicResolvedIP(addrs []string) (net.IP, error) {
+	var firstPublic net.IP
+	for _, addr := range addrs {
+		ip := net.ParseIP(addr)
+		if ip == nil {
+			continue
+		}
+		if isPrivateIP(ip) {
+			return nil, fmt.Errorf("ssrf: host resolves to private address")
+		}
+		if firstPublic == nil {
+			firstPublic = ip
+		}
+	}
+	if firstPublic == nil {
+		return nil, fmt.Errorf("ssrf: DNS lookup returned no usable IP addresses")
+	}
+	return firstPublic, nil
 }
 
 // NewExternalTransport returns an HTTP transport for untrusted, user-supplied

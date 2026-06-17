@@ -1028,14 +1028,14 @@ const DefaultSleepDurationSecs = 60
 // MaxSleepDurationSecs is the upper bound enforced on sleep steps (30 days).
 // Sleep steps create durable trigger rows; allowing unbounded durations lets a
 // workflow definition pin rows and workflow runs for years.
-const MaxSleepDurationSecs = 30 * 24 * 3600
+const MaxSleepDurationSecs = 2_592_000
 
 // MaxEventTimeoutSecs is the upper bound enforced on wait_for_event step
 // timeouts (30 days). Without a cap, a workflow author can pin a step in
 // 'waiting' for ~68 years (INT_MAX seconds), creating a permanently
 // occupied event_trigger row and an orphaned workflow_run that the reaper
 // will never clean up — a slow-burn resource exhaustion vector.
-const MaxEventTimeoutSecs = 30 * 24 * 3600
+const MaxEventTimeoutSecs = 2_592_000
 
 // SLO metric types.
 const (

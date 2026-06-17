@@ -567,14 +567,14 @@ func ValidateDatabaseSSLMode(databaseURL, environment string) error {
 		}
 		return nil
 	}
-	switch sslMode := databaseSSLMode(databaseURL); {
-	case sslMode == "":
+	sslMode := databaseSSLMode(databaseURL)
+	if sslMode == "" {
 		return &domain.ConfigError{Field: "DATABASE_URL", Message: "sslmode must be set to require, verify-ca, or verify-full in non-development environments (an unset sslmode defaults to 'prefer' and can use an unencrypted connection)"}
-	case insecureSSLModes[sslMode]:
-		return &domain.ConfigError{Field: "DATABASE_URL", Message: "sslmode=" + sslMode + " is not allowed in non-development environments; use require, verify-ca, or verify-full"}
-	default:
-		return nil
 	}
+	if insecureSSLModes[sslMode] {
+		return &domain.ConfigError{Field: "DATABASE_URL", Message: "sslmode=" + sslMode + " is not allowed in non-development environments; use require, verify-ca, or verify-full"}
+	}
+	return nil
 }
 
 func validateSequinConfig(cfg *Config) error {

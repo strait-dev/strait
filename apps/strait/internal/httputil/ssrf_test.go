@@ -1,10 +1,12 @@
 package httputil
 
 import (
+	"crypto/tls"
 	"fmt"
 	"net"
 	"net/url"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -191,6 +193,12 @@ func TestSanitizeHTTPClientError_RemovesNestedURLSecrets(t *testing.T) {
 	assert.NotContains(t, got, "redirect blocked")
 }
 
+func TestSanitizeHTTPClientError_Nil(t *testing.T) {
+	t.Parallel()
+
+	assert.Empty(t, SanitizeHTTPClientError(nil))
+}
+
 func TestValidateExternalURL_DNSResolvesToPrivate(t *testing.T) {
 	// Not parallel: modifies package-level lookupHost.
 	origLookup := lookupHost
@@ -216,6 +224,49 @@ func TestValidateExternalURL_DNSResolvesToPrivate(t *testing.T) {
 			assertExternalURLValidation(t, tt.url, tt.wantErr, tt.errMsg)
 		})
 	}
+}
+
+func TestSafeDialContext_RejectsUnusableDNSAnswers(t *testing.T) {
+	// Not parallel: modifies package-level lookupHost.
+	origLookup := lookupHost
+	t.Cleanup(func() { lookupHost = origLookup })
+	lookupHost = func(string) ([]string, error) {
+		return []string{"not-an-ip"}, nil
+	}
+
+	dial := SafeDialContext(false)
+	_, err := dial(t.Context(), "tcp", "bad-dns.example.com:443")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no usable IP addresses")
+}
+
+func TestFirstPublicResolvedIP(t *testing.T) {
+	t.Parallel()
+
+	got, err := firstPublicResolvedIP([]string{"not-an-ip", "93.184.216.34", "8.8.8.8"})
+	require.NoError(t, err)
+	assert.Equal(t, net.ParseIP("93.184.216.34"), got)
+
+	_, err = firstPublicResolvedIP([]string{"93.184.216.34", "10.0.0.1"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "resolves to private")
+
+	_, err = firstPublicResolvedIP([]string{"not-an-ip"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no usable IP addresses")
+}
+
+func TestNewExternalTransport_UsesSSRFHardenedDefaults(t *testing.T) {
+	t.Parallel()
+
+	tr := NewExternalTransport(false)
+	require.NotNil(t, tr.DialContext)
+	require.NotNil(t, tr.TLSClientConfig)
+	assert.Equal(t, uint16(tls.VersionTLS12), tr.TLSClientConfig.MinVersion)
+	assert.Equal(t, 100, tr.MaxIdleConns)
+	assert.Equal(t, 10, tr.MaxIdleConnsPerHost)
+	assert.Equal(t, 90*time.Second, tr.IdleConnTimeout)
+	assert.True(t, tr.ForceAttemptHTTP2)
 }
 
 func TestValidateExternalURL_DNSLookupFailure(t *testing.T) {

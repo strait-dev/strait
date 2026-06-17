@@ -16,6 +16,8 @@ const (
 
 var hmacSigningSeparator = []byte(".")
 
+type hmacSignatureHex [64]byte
+
 // SignWebhookRequest adds the canonical X-Strait-{Timestamp,Delivery-ID,Signature}
 // headers (plus X-Strait-Signature-256 for sha256 receivers) to req.
 //
@@ -43,14 +45,14 @@ func SignWebhookRequest(req *http.Request, secret []byte, body []byte, deliveryI
 	mac.Write(body)
 	var sum [sha256.Size]byte
 	mac.Sum(sum[:0])
-	var sigHex [sha256.Size * 2]byte
+	var sigHex hmacSignatureHex
 	hex.Encode(sigHex[:], sum[:])
 
 	bodyMac := hmac.New(sha256.New, secret)
 	bodyMac.Write(body)
 	var bodySum [sha256.Size]byte
 	bodyMac.Sum(bodySum[:0])
-	var bodySigHex [sha256.Size * 2]byte
+	var bodySigHex hmacSignatureHex
 	hex.Encode(bodySigHex[:], bodySum[:])
 
 	setCanonicalHeader(req.Header, headerStraitTimestamp, timestamp)
@@ -69,16 +71,10 @@ func setCanonicalHeader(header http.Header, key string, value string) {
 	header[key] = values[:1]
 }
 
-func webhookV1SignatureHeader(sigHex [sha256.Size * 2]byte) string {
-	var stack [len("v1=") + sha256.Size*2]byte
-	out := append(stack[:0], "v1="...)
-	out = append(out, sigHex[:]...)
-	return string(out)
+func webhookV1SignatureHeader(sigHex hmacSignatureHex) string {
+	return "v1=" + string(sigHex[:])
 }
 
-func webhookSHA256SignatureHeader(sigHex [sha256.Size * 2]byte) string {
-	var stack [len("sha256=") + sha256.Size*2]byte
-	out := append(stack[:0], "sha256="...)
-	out = append(out, sigHex[:]...)
-	return string(out)
+func webhookSHA256SignatureHeader(sigHex hmacSignatureHex) string {
+	return "sha256=" + string(sigHex[:])
 }

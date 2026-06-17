@@ -9,8 +9,8 @@ import (
 )
 
 const (
-	maxFilterBytes      = 64 * 1024
-	maxPayloadBytes     = 1024 * 1024
+	maxFilterBytes      = 65_536
+	maxPayloadBytes     = 1_048_576
 	maxFilterConditions = 256
 	maxFilterPathDepth  = 32
 	maxFilterPathLength = 512

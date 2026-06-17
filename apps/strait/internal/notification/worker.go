@@ -27,8 +27,9 @@ type Worker struct {
 	deliveriesCounter metric.Int64Counter
 }
 
+const deliveryLeaseDuration time.Duration = 120_000_000_000
+
 const (
-	deliveryLeaseDuration        = 2 * time.Minute
 	notificationClaimBatchSize   = 16
 	notificationWorkerConcurrent = 8
 )
