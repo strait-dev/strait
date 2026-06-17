@@ -87,3 +87,4 @@ default bounded settings and reached 100% efficacy and 100% mutant coverage:
 | `./internal/webhook` | 271 | Added cost-recorder and tenant-scope coverage; slow full run (~15m30s) |
 | `./internal/testutil/pgxslow` | 3 | No test changes required |
 | `./internal/workflow/testing` | 24 | No test changes required |
+| `./internal/cdc` | 359 | Added CDC edge coverage; slow full run (~21m47s) |

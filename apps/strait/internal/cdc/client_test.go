@@ -566,6 +566,109 @@ func TestNewClient_NoAuthToken_OmitsHeader(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+func TestClientWithDatabaseName(t *testing.T) {
+	t.Parallel()
+
+	defaultClient := NewClient("http://sequin.local", "consumer-1", "token", WithDatabaseName(""))
+	require.Equal(t, "strait-db", defaultClient.databaseName)
+
+	customClient := NewClient("http://sequin.local", "consumer-1", "token", WithDatabaseName("custom-db"))
+	require.Equal(t, "custom-db", customClient.databaseName)
+}
+
+func TestClientHealth(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		statusCode  int
+		wantErrPart string
+	}{
+		{
+			name:       "status ok lower bound",
+			statusCode: http.StatusOK,
+		},
+		{
+			name:       "status ok upper bound",
+			statusCode: http.StatusMultipleChoices - 1,
+		},
+		{
+			name:        "status below success range",
+			statusCode:  http.StatusOK - 1,
+			wantErrPart: "HTTP 199",
+		},
+		{
+			name:        "status above success range",
+			statusCode:  http.StatusMultipleChoices,
+			wantErrPart: "HTTP 300",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			client := NewClient("http://sequin.local/base", "consumer-1", "token")
+			client.httpClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				require.Equal(t, http.MethodGet, req.Method)
+				require.Equal(t, "/base/health", req.URL.Path)
+				return &http.Response{
+					StatusCode: tt.statusCode,
+					Body:       http.NoBody,
+				}, nil
+			})}
+
+			err := client.Health(context.Background())
+			if tt.wantErrPart == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			require.Contains(t, err.Error(), tt.wantErrPart)
+		})
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
+
+func TestClientHealthTransportError(t *testing.T) {
+	t.Parallel()
+
+	client := NewClient("http://sequin.local", "consumer-1", "token")
+	client.httpClient = &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return nil, errors.New("dial failed")
+	})}
+
+	err := client.Health(context.Background())
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "sequin health request")
+	require.Contains(t, err.Error(), "dial failed")
+}
+
+func TestConsumerReadyDelay(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		attempt int
+		want    time.Duration
+	}{
+		{attempt: -1, want: 0},
+		{attempt: 0, want: 250 * time.Millisecond},
+		{attempt: 1, want: 500 * time.Millisecond},
+		{attempt: 2, want: 750 * time.Millisecond},
+		{attempt: 3, want: time.Second},
+		{attempt: 29, want: time.Second},
+	}
+
+	for _, tt := range tests {
+		require.Equal(t, tt.want, consumerReadyDelay(tt.attempt))
+	}
+}
+
 func TestClientSinkConsumerHealth(t *testing.T) {
 	t.Parallel()
 
