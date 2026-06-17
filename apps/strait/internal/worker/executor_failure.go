@@ -64,15 +64,15 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 	sentryErrorClass := errClass
 	if e.dlqCapEnforcer != nil {
 		proceed, enforceErr := e.dlqCapEnforcer.EnforceBeforeTransition(ctx, job.ProjectID, job.ID)
-		switch {
-		case enforceErr == nil && proceed:
-		case errors.Is(enforceErr, ErrDLQOverflow):
+		if enforceErr == nil && proceed {
+			// Under cap; keep the normal dead-letter transition.
+		} else if errors.Is(enforceErr, ErrDLQOverflow) {
 			targetStatus = domain.StatusSystemFailed
 			eventType = EventSystemFailed
 			sentryErrorClass = "dlq_overflow"
 			fields["error"] = fmt.Sprintf("dlq overflow: cap reached before dead-lettering run: %s", errMsg)
 			fields["error_class"] = "dlq_overflow"
-		default:
+		} else {
 			e.logger.Warn("dlq cap check failed; allowing dead-letter transition",
 				"run_id", run.ID,
 				"job_id", run.JobID,

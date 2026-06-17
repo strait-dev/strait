@@ -61,6 +61,15 @@ For each package:
 The first gate is advisory. Do not add a blocking CI threshold for a package
 until that package has an explicit target and stable runtime.
 
+## In-progress packages
+
+These packages have reached 100% dry-run coverage, but have not yet completed a
+full mutation run with the default bounded settings:
+
+| Package | Dry-run runnable mutants | Not covered | Notes |
+| --- | ---: | ---: | --- |
+| `./internal/worker` | 997 | 0 | Baseline package tests take about two minutes, so a full one-worker mutation run needs separate scheduling. |
+
 ## Current clean packages
 
 These packages have been run through `./scripts/mutation-test.sh` with the

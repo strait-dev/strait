@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
 
 func TestMutationCoverage_AdaptiveConcurrencyQueueDepthBoundaries(t *testing.T) {
@@ -262,6 +263,16 @@ func TestMutationCoverage_RunSubscriptionWebhookDeliveries(t *testing.T) {
 		now,
 	)
 	require.Error(t, err)
+}
+
+func TestMutationCoverage_MappedPayloadFieldRawFallback(t *testing.T) {
+	t.Parallel()
+
+	rawValue := gjson.GetBytes([]byte(`{"name":"Ada"}`), "name")
+	assert.Equal(t, `"Ada"`, string(mappedPayloadFieldRaw(rawValue)))
+
+	rawEmptyValue := gjson.Result{Type: gjson.String, Str: "Ada"}
+	assert.Equal(t, `"Ada"`, string(mappedPayloadFieldRaw(rawEmptyValue)))
 }
 
 func TestMutationCoverage_RetryTerminalCompletionNegativeTimeout(t *testing.T) {

@@ -42,19 +42,22 @@ func applyPayloadMapping(result json.RawMessage, mapping json.RawMessage) (json.
 			out = append(out, ':')
 			if val.Raw != "" {
 				out = append(out, val.Raw...)
-				fieldCount++
-				continue
+			} else {
+				out = append(out, mappedPayloadFieldRaw(val)...)
 			}
-			raw, err := json.Marshal(val.Value())
-			if err != nil {
-				return nil, fmt.Errorf("marshal mapped payload field: %w", err)
-			}
-			out = append(out, raw...)
 			fieldCount++
 		}
 	}
 	out = append(out, '}')
 	return out, nil
+}
+
+func mappedPayloadFieldRaw(val gjson.Result) []byte {
+	if val.Raw != "" {
+		return []byte(val.Raw)
+	}
+	raw, _ := json.Marshal(val.Value())
+	return raw
 }
 
 type payloadMappingPath struct {

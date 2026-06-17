@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -130,6 +131,163 @@ func TestCompleteRunWithWebhook_TxBeginError(t *testing.T) {
 	require.True(t,
 		txPool.beginCalled,
 	)
+}
+
+func TestCompleteRunWithWebhook_WithTxPool_RecordsEndpointSuccess(t *testing.T) {
+	t.Parallel()
+
+	tx := &mockPgxTx{scanAttempt: 1}
+	exec := newCompletionTestExecutor(t, &mockExecutorStore{}, &mockTxBeginner{tx: tx})
+
+	run := &domain.JobRun{
+		ID:        "run-endpoint-success",
+		JobID:     "job-endpoint-success",
+		ProjectID: "project-endpoint-success",
+		Status:    domain.StatusExecuting,
+	}
+	job := &domain.Job{
+		ID:          run.JobID,
+		ProjectID:   run.ProjectID,
+		EndpointURL: "https://example.com/run",
+	}
+
+	err := exec.completeRunWithWebhook(context.Background(), run, job, domain.StatusCompleted, map[string]any{})
+	require.NoError(t, err)
+	require.Equal(t, 1, tx.circuitSuccessCalls)
+}
+
+func TestCompleteRunWithWebhook_WithTxPool_EndpointSuccessError(t *testing.T) {
+	t.Parallel()
+
+	tx := &mockPgxTx{
+		scanAttempt:       1,
+		circuitSuccessErr: errors.New("circuit update failed"),
+	}
+	exec := newCompletionTestExecutor(t, &mockExecutorStore{}, &mockTxBeginner{tx: tx})
+
+	run := &domain.JobRun{
+		ID:        "run-endpoint-success-error",
+		JobID:     "job-endpoint-success-error",
+		ProjectID: "project-endpoint-success-error",
+		Status:    domain.StatusExecuting,
+	}
+	job := &domain.Job{
+		ID:          run.JobID,
+		ProjectID:   run.ProjectID,
+		EndpointURL: "https://example.com/run",
+	}
+
+	err := exec.completeRunWithWebhook(context.Background(), run, job, domain.StatusCompleted, map[string]any{})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "record endpoint circuit success")
+	require.Equal(t, 1, tx.circuitSuccessCalls)
+}
+
+func TestCompleteRunWithWebhook_WithTxPool_RunWebhookEnqueueError(t *testing.T) {
+	t.Parallel()
+
+	tx := &mockPgxTx{
+		scanAttempt:       1,
+		enqueueWebhookErr: errors.New("enqueue failed"),
+	}
+	exec := newCompletionTestExecutor(t, &mockExecutorStore{}, &mockTxBeginner{tx: tx})
+
+	run := &domain.JobRun{
+		ID:        "run-webhook-error",
+		JobID:     "job-webhook-error",
+		ProjectID: "project-webhook-error",
+		Status:    domain.StatusExecuting,
+	}
+	job := &domain.Job{
+		ID:         run.JobID,
+		ProjectID:  run.ProjectID,
+		WebhookURL: "https://example.com/run-webhook",
+	}
+
+	err := exec.completeRunWithWebhook(context.Background(), run, job, domain.StatusCompleted, map[string]any{})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "enqueue run webhook")
+}
+
+func TestCompleteRunWithWebhook_WithTxPool_RunSubscriptionListError(t *testing.T) {
+	t.Parallel()
+
+	tx := &mockPgxTx{
+		scanAttempt:          1,
+		listSubscriptionsErr: errors.New("list subscriptions failed"),
+	}
+	exec := newCompletionTestExecutor(t, &mockExecutorStore{}, &mockTxBeginner{tx: tx})
+
+	run := &domain.JobRun{
+		ID:        "run-subscription-list-error",
+		JobID:     "job-subscription-list-error",
+		ProjectID: "project-subscription-list-error",
+		Status:    domain.StatusExecuting,
+	}
+	job := &domain.Job{ID: run.JobID, ProjectID: run.ProjectID}
+
+	err := exec.completeRunWithWebhook(context.Background(), run, job, domain.StatusCompleted, map[string]any{})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "list run webhook subscriptions")
+}
+
+func TestCompleteRunWithWebhook_WithTxPool_RunSubscriptionPayloadError(t *testing.T) {
+	t.Parallel()
+
+	tx := &mockPgxTx{scanAttempt: 1}
+	exec := newCompletionTestExecutor(t, &mockExecutorStore{}, &mockTxBeginner{tx: tx})
+
+	run := &domain.JobRun{
+		ID:        "run-subscription-payload-error",
+		JobID:     "job-subscription-payload-error",
+		ProjectID: "project-subscription-payload-error",
+		Status:    domain.StatusExecuting,
+	}
+	job := &domain.Job{ID: run.JobID, ProjectID: run.ProjectID}
+
+	err := exec.completeRunWithWebhookOnce(
+		context.Background(),
+		run,
+		job,
+		terminalRunCompletion{
+			from:       domain.StatusExecuting,
+			to:         domain.StatusCompleted,
+			fields:     map[string]any{},
+			webhookRun: &domain.JobRun{ID: run.ID, JobID: run.JobID, ProjectID: run.ProjectID, Status: domain.StatusCompleted, Result: json.RawMessage(`{`)},
+		},
+	)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "marshal run subscription webhook payload")
+}
+
+func TestCompleteRunWithWebhook_WithTxPool_RunSubscriptionDeliveryError(t *testing.T) {
+	t.Parallel()
+
+	tx := &mockPgxTx{
+		scanAttempt:              1,
+		createWebhookDeliveryErr: errors.New("create delivery failed"),
+		subscriptions: []domain.WebhookSubscription{{
+			ID:         "sub-1",
+			ProjectID:  "project-subscription-delivery-error",
+			WebhookURL: "https://example.com/subscription",
+			EventTypes: []string{domain.WebhookEventRunCompleted},
+			Active:     true,
+			CreatedAt:  time.Now(),
+		}},
+	}
+	exec := newCompletionTestExecutor(t, &mockExecutorStore{}, &mockTxBeginner{tx: tx})
+
+	run := &domain.JobRun{
+		ID:        "run-subscription-delivery-error",
+		JobID:     "job-subscription-delivery-error",
+		ProjectID: "project-subscription-delivery-error",
+		Status:    domain.StatusExecuting,
+	}
+	job := &domain.Job{ID: run.JobID, ProjectID: run.ProjectID}
+
+	err := exec.completeRunWithWebhook(context.Background(), run, job, domain.StatusCompleted, map[string]any{})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "create run subscription webhook delivery")
 }
 
 func TestCompleteRunWithWebhook_StoreError_Propagated(t *testing.T) {
@@ -439,6 +597,34 @@ func TestHandleFailure_DeadLetter_AtMaxAttempts(t *testing.T) {
 		foundDL)
 }
 
+func TestHandleFailure_DLQCapUnderCapDeadLetters(t *testing.T) {
+	t.Parallel()
+
+	store := &mockExecutorStore{}
+	exec := newSnoozeTestExecutor(t, store, 0)
+	exec.dlqCapEnforcer = NewDLQCapEnforcer(newFakeDLQStore(), DLQCapConfig{
+		MaxPerJob: 10,
+		Policy:    DLQOverflowReject,
+	}, nil)
+	getEvents := collectEvents(exec)
+	t.Cleanup(func() { close(exec.eventCh) })
+
+	run := testRun(3)
+	run.Status = domain.StatusExecuting
+	job := testJob("http://localhost", 3, 30)
+	policy := executionPolicy{maxAttempts: 3, timeoutSecs: 30}
+
+	require.True(t, exec.handleFailure(context.Background(), run, job, policy, errors.New("server error"), nil))
+
+	calls := store.statusUpdates()
+	require.NotEmpty(t, calls)
+	require.Equal(t, domain.StatusDeadLetter, calls[len(calls)-1].to)
+
+	events := getEvents()
+	require.NotEmpty(t, events)
+	require.Equal(t, EventDeadLettered, events[len(events)-1].Type)
+}
+
 func TestHandleTimeout_Terminal_AtMaxAttempts(t *testing.T) {
 	t.Parallel()
 	store := &mockExecutorStore{}
@@ -512,11 +698,17 @@ func (m *mockTxBeginner) Begin(_ context.Context) (pgx.Tx, error) {
 
 // mockPgxTx is a minimal pgx.Tx implementation for testing the transaction path.
 type mockPgxTx struct {
-	scanAttempt int
+	scanAttempt              int
+	circuitSuccessErr        error
+	circuitSuccessCalls      int
+	enqueueWebhookErr        error
+	createWebhookDeliveryErr error
+	listSubscriptionsErr     error
+	subscriptions            []domain.WebhookSubscription
 }
 
 func (m *mockPgxTx) Begin(_ context.Context) (pgx.Tx, error) {
-	return &mockPgxTx{scanAttempt: m.scanAttempt}, nil
+	return m, nil
 }
 func (m *mockPgxTx) Commit(_ context.Context) error { return nil }
 
@@ -533,13 +725,34 @@ func (m *mockPgxTx) LargeObjects() pgx.LargeObjects {
 func (m *mockPgxTx) Prepare(_ context.Context, _, _ string) (*pgconn.StatementDescription, error) {
 	return nil, nil
 }
-func (m *mockPgxTx) Exec(_ context.Context, _ string, _ ...any) (pgconn.CommandTag, error) {
+func (m *mockPgxTx) Exec(_ context.Context, query string, _ ...any) (pgconn.CommandTag, error) {
+	if strings.Contains(query, "endpoint_circuit_state") {
+		m.circuitSuccessCalls++
+		if m.circuitSuccessErr != nil {
+			return pgconn.CommandTag{}, m.circuitSuccessErr
+		}
+	}
 	return pgconn.NewCommandTag("UPDATE 1"), nil
 }
-func (m *mockPgxTx) Query(_ context.Context, _ string, _ ...any) (pgx.Rows, error) {
+func (m *mockPgxTx) Query(_ context.Context, query string, _ ...any) (pgx.Rows, error) {
+	if strings.Contains(query, "FROM webhook_subscriptions") {
+		if m.listSubscriptionsErr != nil {
+			return nil, m.listSubscriptionsErr
+		}
+		return &mockSubscriptionRows{subscriptions: m.subscriptions}, nil
+	}
 	return nil, errors.New("mock tx: query not implemented")
 }
-func (m *mockPgxTx) QueryRow(_ context.Context, _ string, _ ...any) pgx.Row {
+func (m *mockPgxTx) QueryRow(_ context.Context, query string, _ ...any) pgx.Row {
+	if strings.Contains(query, "INSERT INTO webhook_deliveries") {
+		if strings.Contains(query, "event_type") && m.enqueueWebhookErr != nil {
+			return &mockRow{err: m.enqueueWebhookErr}
+		}
+		if !strings.Contains(query, "event_type") && m.createWebhookDeliveryErr != nil {
+			return &mockRow{err: m.createWebhookDeliveryErr}
+		}
+		return &mockRow{timestamps: true}
+	}
 	return &mockRow{attempt: m.scanAttempt}
 }
 func (m *mockPgxTx) Conn() *pgx.Conn {
@@ -548,17 +761,109 @@ func (m *mockPgxTx) Conn() *pgx.Conn {
 
 // mockRow satisfies pgx.Row for QueryRow in the mock tx.
 type mockRow struct {
-	attempt int
+	attempt    int
+	timestamps bool
+	err        error
 }
 
 func (m *mockRow) Scan(dest ...any) error {
+	if m.err != nil {
+		return m.err
+	}
 	if m.attempt > 0 && len(dest) > 0 {
 		if p, ok := dest[0].(*int); ok {
 			*p = m.attempt
 			return nil
 		}
 	}
+	if m.timestamps {
+		now := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+		for _, d := range dest {
+			switch p := d.(type) {
+			case **time.Time:
+				*p = &now
+			case *time.Time:
+				*p = now
+			}
+		}
+		return nil
+	}
 	return errors.New("mock row: not implemented")
+}
+
+type mockSubscriptionRows struct {
+	subscriptions []domain.WebhookSubscription
+	index         int
+	closed        bool
+	err           error
+}
+
+func (m *mockSubscriptionRows) Close() {
+	m.closed = true
+}
+
+func (m *mockSubscriptionRows) Err() error {
+	return m.err
+}
+
+func (m *mockSubscriptionRows) CommandTag() pgconn.CommandTag {
+	return pgconn.NewCommandTag("SELECT")
+}
+
+func (m *mockSubscriptionRows) FieldDescriptions() []pgconn.FieldDescription {
+	return nil
+}
+
+func (m *mockSubscriptionRows) Next() bool {
+	if m.index >= len(m.subscriptions) {
+		m.Close()
+		return false
+	}
+	m.index++
+	return true
+}
+
+func (m *mockSubscriptionRows) Scan(dest ...any) error {
+	if m.index == 0 || m.index > len(m.subscriptions) {
+		return errors.New("mock subscription rows: scan without row")
+	}
+	sub := m.subscriptions[m.index-1]
+	values := []any{
+		sub.ID,
+		sub.ProjectID,
+		sub.WebhookURL,
+		sub.EventTypes,
+		sub.Secret,
+		sub.Active,
+		sub.CreatedAt,
+	}
+	for i := range dest {
+		switch p := dest[i].(type) {
+		case *string:
+			*p = values[i].(string)
+		case *[]string:
+			*p = append((*p)[:0], values[i].([]string)...)
+		case *bool:
+			*p = values[i].(bool)
+		case *time.Time:
+			*p = values[i].(time.Time)
+		default:
+			return fmt.Errorf("mock subscription rows: unsupported dest %T", dest[i])
+		}
+	}
+	return nil
+}
+
+func (m *mockSubscriptionRows) Values() ([]any, error) {
+	return nil, errors.New("mock subscription rows: values not implemented")
+}
+
+func (m *mockSubscriptionRows) RawValues() [][]byte {
+	return nil
+}
+
+func (m *mockSubscriptionRows) Conn() *pgx.Conn {
+	return nil
 }
 
 type retryableCompletionErr struct{}
