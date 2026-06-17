@@ -3,6 +3,7 @@ package workflow
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"regexp"
 	"strconv"
 	"strings"
@@ -10,11 +11,54 @@ import (
 	"time"
 
 	"strait/internal/domain"
+	storepkg "strait/internal/store"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 )
+
+type fallbackDependencyCallbackStore struct {
+	CallbackStore
+
+	incrementErr error
+}
+
+func (s fallbackDependencyCallbackStore) AdvisoryXactLock(context.Context, int64) error {
+	return nil
+}
+
+func (s fallbackDependencyCallbackStore) IncrementStepDeps(context.Context, string, string) ([]storepkg.StepDepResult, error) {
+	if s.incrementErr != nil {
+		return nil, s.incrementErr
+	}
+	return nil, nil
+}
+
+type fallbackCompletionCountStore struct {
+	CallbackStore
+
+	count               int
+	countErr            error
+	failedRefs          []string
+	failedRefsErr       error
+	listFailedRefsCalls int
+}
+
+func (s *fallbackCompletionCountStore) CountNonTerminalStepRuns(context.Context, string) (int, error) {
+	if s.countErr != nil {
+		return 0, s.countErr
+	}
+	return s.count, nil
+}
+
+func (s *fallbackCompletionCountStore) ListFailedStepRunRefs(context.Context, string) ([]string, error) {
+	s.listFailedRefsCalls++
+	if s.failedRefsErr != nil {
+		return nil, s.failedRefsErr
+	}
+	return s.failedRefs, nil
+}
 
 func TestMutationCoverage_ConditionResultHelpers(t *testing.T) {
 	t.Parallel()
@@ -309,9 +353,123 @@ func TestMutationCoverage_ApprovalAuditActorBranches(t *testing.T) {
 	assert.Equal(t, "system:scheduler", id)
 	assert.Equal(t, "system", actorType)
 
+	id, actorType = approvalAuditActor("system")
+	assert.Equal(t, "system", id)
+	assert.Equal(t, "system", actorType)
+
 	id, actorType = approvalAuditActor("apikey:key-1")
 	assert.Equal(t, "apikey:key-1", id)
 	assert.Equal(t, "api_key", actorType)
+}
+
+func TestMutationCoverage_FanInFallbackIncrementError(t *testing.T) {
+	t.Parallel()
+
+	incrementErr := errors.New("increment failed")
+	cb := &StepCallback{store: fallbackDependencyCallbackStore{incrementErr: incrementErr}}
+
+	err := cb.fanInBatchAndStartReadyChildren(context.Background(), "wr-1", []string{"a"}, &wfCtx{})
+	require.Error(t, err)
+	require.ErrorIs(t, err, incrementErr)
+	assert.Contains(t, err.Error(), "increment step deps")
+}
+
+func TestMutationCoverage_WorkflowCompletionParentListErrors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		failedRefs []string
+		wantStatus domain.WorkflowRunStatus
+	}{
+		{
+			name:       "failed parent propagation",
+			failedRefs: []string{"a"},
+			wantStatus: domain.WfStatusFailed,
+		},
+		{
+			name:       "completed parent propagation",
+			failedRefs: nil,
+			wantStatus: domain.WfStatusCompleted,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			listErr := errors.New("list failed")
+			store := &mockCallbackStore{
+				getWorkflowStepCompletionSummaryFn: func(context.Context, string) (storepkg.WorkflowStepCompletionSummary, error) {
+					return storepkg.WorkflowStepCompletionSummary{FailedStepRefs: tt.failedRefs}, nil
+				},
+				getWorkflowRunFn: func(context.Context, string) (*domain.WorkflowRun, error) {
+					return &domain.WorkflowRun{ID: "wr-1", ParentWorkflowRunID: "parent-wr", Status: domain.WfStatusRunning}, nil
+				},
+				updateWorkflowRunStatusFn: func(_ context.Context, _ string, _ domain.WorkflowRunStatus, to domain.WorkflowRunStatus, _ map[string]any) error {
+					assert.Equal(t, tt.wantStatus, to)
+					return nil
+				},
+				listStepRunsByWorkflowRun: func(context.Context, string, int, *time.Time) ([]domain.WorkflowStepRun, error) {
+					return nil, listErr
+				},
+			}
+			cb := NewStepCallback(store, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, nil), nil)
+
+			err := cb.checkWorkflowCompletion(context.Background(), "wr-1", &wfCtx{
+				steps: []domain.WorkflowStep{{StepRef: "a"}},
+			})
+			require.Error(t, err)
+			require.ErrorIs(t, err, listErr)
+			assert.Contains(t, err.Error(), "list step runs")
+		})
+	}
+}
+
+func TestMutationCoverage_WorkflowCompletionCountsFallbackErrors(t *testing.T) {
+	t.Parallel()
+
+	t.Run("count error", func(t *testing.T) {
+		t.Parallel()
+		countErr := errors.New("count failed")
+		cb := &StepCallback{store: &fallbackCompletionCountStore{countErr: countErr}}
+
+		count, refs, err := cb.workflowCompletionCounts(context.Background(), "wr-1")
+		require.Error(t, err)
+		assert.Zero(t, count)
+		assert.Nil(t, refs)
+		assert.ErrorIs(t, err, countErr)
+	})
+
+	t.Run("non-terminal count skips failed refs", func(t *testing.T) {
+		t.Parallel()
+		store := &fallbackCompletionCountStore{count: 1}
+		cb := &StepCallback{store: store}
+
+		count, refs, err := cb.workflowCompletionCounts(context.Background(), "wr-1")
+		require.NoError(t, err)
+		assert.Equal(t, 1, count)
+		assert.Nil(t, refs)
+		assert.Zero(t, store.listFailedRefsCalls)
+	})
+
+	t.Run("failed refs error", func(t *testing.T) {
+		t.Parallel()
+		failedRefsErr := errors.New("failed refs failed")
+		cb := &StepCallback{store: &fallbackCompletionCountStore{failedRefsErr: failedRefsErr}}
+
+		count, refs, err := cb.workflowCompletionCounts(context.Background(), "wr-1")
+		require.Error(t, err)
+		assert.Zero(t, count)
+		assert.Nil(t, refs)
+		assert.ErrorIs(t, err, failedRefsErr)
+	})
+}
+
+func TestMutationCoverage_RecordStepQueueDurationPositive(t *testing.T) {
+	t.Parallel()
+
+	recordStepQueueDuration(context.Background(), "queued-step", time.Now().Add(-time.Second))
 }
 
 func TestMutationCoverage_StepStatusInResultBranches(t *testing.T) {
