@@ -464,6 +464,34 @@ func TestPubSubSubscriber_NoErrorCounter_NoPanic(t *testing.T) {
 	})
 }
 
+func TestMetricsSubscriber_RecordsPositiveEndToEndLatency(t *testing.T) {
+	t.Parallel()
+
+	m, _, _, _ := telemetry.InitMetrics("test-metrics-e2e", "test")
+	sub := MetricsSubscriber(m)
+	created := time.Now().Add(-2 * time.Second)
+	finished := time.Now()
+
+	require.NotPanics(t, func() {
+		sub(context.Background(), RunLifecycleEvent{
+			Type:       EventCompleted,
+			FromStatus: domain.StatusExecuting,
+			ToStatus:   domain.StatusCompleted,
+			QueueWait:  time.Second,
+			Job:        &domain.Job{ExecutionMode: domain.ExecutionModeHTTP},
+			Run: &domain.JobRun{
+				ID:         "run-e2e",
+				JobID:      "job-e2e",
+				ProjectID:  "project-e2e",
+				Status:     domain.StatusCompleted,
+				CreatedAt:  created,
+				StartedAt:  &created,
+				FinishedAt: &finished,
+			},
+		})
+	})
+}
+
 func TestPubSubSubscriber_ChannelFormat(t *testing.T) {
 	t.Parallel()
 	pub := &mockPublisher{}

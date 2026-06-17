@@ -200,6 +200,70 @@ func TestMutationCoverage_RunSubscriptionWebhookPayload(t *testing.T) {
 	assert.Contains(t, string(payload), `"attempt":2`)
 }
 
+func TestMutationCoverage_RunSubscriptionWebhookDeliveries(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	run := &domain.JobRun{
+		ID:        "run-1",
+		JobID:     "job-1",
+		ProjectID: "project-1",
+		Status:    domain.StatusCompleted,
+		Result:    json.RawMessage(`{"ok":true}`),
+	}
+	subs := []domain.WebhookSubscription{
+		{
+			ID:         "sub-active",
+			ProjectID:  "project-1",
+			WebhookURL: "https://example.com/active",
+			EventTypes: []string{domain.WebhookEventRunCompleted},
+			Active:     true,
+		},
+		{
+			ID:         "sub-inactive",
+			ProjectID:  "project-1",
+			WebhookURL: "https://example.com/inactive",
+			EventTypes: []string{domain.WebhookEventRunCompleted},
+			Active:     false,
+		},
+		{
+			ID:         "sub-wrong-event",
+			ProjectID:  "project-1",
+			WebhookURL: "https://example.com/wrong",
+			EventTypes: []string{domain.WebhookEventRunFailed},
+			Active:     true,
+		},
+	}
+
+	deliveries, err := buildRunSubscriptionWebhookDeliveries(
+		run,
+		domain.WebhookEventRunCompleted,
+		subs,
+		4,
+		now,
+	)
+	require.NoError(t, err)
+	require.Len(t, deliveries, 1)
+	delivery := deliveries[0]
+	assert.Equal(t, "sub-active", delivery.SubscriptionID)
+	assert.Equal(t, run.ID, delivery.RunID)
+	assert.Equal(t, run.JobID, delivery.JobID)
+	assert.Equal(t, 4, delivery.MaxAttempts)
+	require.NotNil(t, delivery.NextRetryAt)
+	assert.True(t, delivery.NextRetryAt.Equal(now.Add(-time.Second)))
+	assert.Contains(t, string(delivery.Payload), `"type":"run.completed"`)
+	assert.Equal(t, "webhook_subscriptions:project-1", runWebhookSubscriptionsCacheKey("project-1"))
+
+	_, err = buildRunSubscriptionWebhookDeliveries(
+		&domain.JobRun{ID: "run-bad-payload", Result: json.RawMessage(`{`)},
+		domain.WebhookEventRunCompleted,
+		subs,
+		4,
+		now,
+	)
+	require.Error(t, err)
+}
+
 func TestMutationCoverage_RetryTerminalCompletionNegativeTimeout(t *testing.T) {
 	t.Parallel()
 

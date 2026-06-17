@@ -2,12 +2,14 @@ package worker
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
 
 	"strait/internal/domain"
 	orcstore "strait/internal/store"
+	"strait/internal/telemetry"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -170,6 +172,46 @@ func TestSuccessfulLatencyAnomaly_SkipsWithoutStartedStatsOrThreshold(t *testing
 	}
 }
 
+func TestRecordSuccessfulLatencyAnomaly_SwallowsStatsLookupError(t *testing.T) {
+	t.Parallel()
+
+	exec := NewExecutor(ExecutorConfig{
+		Store: &mockExecutorStore{
+			getJobHealthStatsFn: func(context.Context, string, time.Time) (*orcstore.JobHealthStats, error) {
+				return nil, errors.New("stats unavailable")
+			},
+		},
+		AdaptiveTimeoutEnabled: true,
+	})
+
+	require.NotPanics(t, func() {
+		exec.recordSuccessfulLatencyAnomaly(
+			context.Background(),
+			&domain.JobRun{ID: "run-stats-error", JobID: "job-stats-error"},
+			&domain.Job{ID: "job-stats-error"},
+			successfulRunTransition{started: true, execDur: 3 * time.Second},
+			nil,
+		)
+	})
+}
+
+func TestRecordSuccessfulLatencyAnomaly_RecordsMetricsWhenConfigured(t *testing.T) {
+	t.Parallel()
+
+	m, _, _, _ := telemetry.InitMetrics("test-latency-anomaly", "test")
+	exec := NewExecutor(ExecutorConfig{Metrics: m})
+
+	require.NotPanics(t, func() {
+		exec.recordSuccessfulLatencyAnomaly(
+			context.Background(),
+			&domain.JobRun{ID: "run-latency-anomaly", JobID: "job-latency-anomaly"},
+			&domain.Job{ID: "job-latency-anomaly"},
+			successfulRunTransition{started: true, execDur: 3 * time.Second},
+			&orcstore.JobHealthStats{P95DurationSecs: 1},
+		)
+	})
+}
+
 func TestFailedDispatchSignalPayload_Failure(t *testing.T) {
 	t.Parallel()
 
@@ -251,6 +293,28 @@ func TestFailedDispatchSignalPayload_Timeout(t *testing.T) {
 		result.
 		JobTimeoutMs, 1e-9,
 	)
+}
+
+func TestRecordFailedDispatchSignals_HandlesCircuitAndHealthErrors(t *testing.T) {
+	t.Parallel()
+
+	store := &mockExecutorStore{
+		recordFailureFn: func(context.Context, string, time.Time, int, time.Duration) error {
+			return errors.New("record circuit failure")
+		},
+		recordHealthResultErr: errors.New("record health failure"),
+	}
+	exec := NewExecutor(ExecutorConfig{Store: store})
+	job := &domain.Job{
+		ProjectID:   "project-signal-errors",
+		EndpointURL: "https://example.com/signal-errors",
+		TimeoutSecs: 30,
+	}
+
+	require.NotPanics(t, func() {
+		exec.recordFailedDispatchSignals(context.Background(), job, failedDispatchSignalFailure)
+	})
+	require.Equal(t, []string{endpointStateKey(job.ProjectID, job.EndpointURL)}, store.healthResults())
 }
 
 func TestDeepSecEndpointStateKeyScopesByProject(t *testing.T) {

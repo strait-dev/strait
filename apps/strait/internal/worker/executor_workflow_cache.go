@@ -90,6 +90,7 @@ func workerWorkflowStepsTierConfig(
 	ttl time.Duration,
 	l2 straitcache.L2[workflowStepsVersionKey, []domain.WorkflowStep],
 ) straitcache.TierConfig[workflowStepsVersionKey, []domain.WorkflowStep] {
+	disableL2 := l2 == nil
 	return straitcache.TierConfig[workflowStepsVersionKey, []domain.WorkflowStep]{
 		Name:          workerWorkflowStepsCacheNamespace,
 		L2:            l2,
@@ -106,7 +107,7 @@ func workerWorkflowStepsTierConfig(
 		},
 		TTL:       ttl,
 		TTLJitter: 0.1,
-		DisableL2: l2 == nil,
+		DisableL2: disableL2,
 		Clone:     domain.CloneWorkflowSteps,
 	}
 }

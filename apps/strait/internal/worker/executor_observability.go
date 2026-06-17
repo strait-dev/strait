@@ -102,16 +102,17 @@ func workerActorType(run *domain.JobRun) string {
 	if actorType := run.Metadata[domain.RunMetadataSentryActorType]; actorType != "" {
 		return actorType
 	}
-	switch {
-	case strings.HasPrefix(run.CreatedBy, "apikey:"):
+	if strings.HasPrefix(run.CreatedBy, "apikey:") {
 		return "api_key"
-	case strings.HasPrefix(run.CreatedBy, "run:"):
-		return "run_token"
-	case strings.HasPrefix(run.CreatedBy, "sse:"):
-		return "sse_token"
-	case run.CreatedBy != "":
-		return "user"
-	default:
-		return ""
 	}
+	if strings.HasPrefix(run.CreatedBy, "run:") {
+		return "run_token"
+	}
+	if strings.HasPrefix(run.CreatedBy, "sse:") {
+		return "sse_token"
+	}
+	if run.CreatedBy != "" {
+		return "user"
+	}
+	return ""
 }
