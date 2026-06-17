@@ -346,6 +346,9 @@ func (q *Queries) UpdateWorkflowRunStatus(ctx context.Context, id string, from, 
 		var currentStatus domain.WorkflowRunStatus
 		err := q.db.QueryRow(ctx, "SELECT status FROM workflow_runs WHERE id = $1", id).Scan(&currentStatus)
 		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return ErrWorkflowRunNotFound
+			}
 			return fmt.Errorf("checking current workflow status: %w", err)
 		}
 		if currentStatus == to {
