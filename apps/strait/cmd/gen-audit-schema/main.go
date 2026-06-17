@@ -16,6 +16,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"sort"
 
@@ -45,6 +46,17 @@ type schema struct {
 }
 
 func main() {
+	os.Exit(exitCode(os.Stdout, os.Stderr))
+}
+
+func exitCode(stdout io.Writer, stderr io.Writer) int {
+	if err := run(stdout, stderr); err != nil {
+		return 1
+	}
+	return 0
+}
+
+func run(stdout io.Writer, stderr io.Writer) error {
 	actions := domain.KnownAuditActions()
 	sort.Strings(actions)
 
@@ -52,7 +64,7 @@ func main() {
 	for _, action := range actions {
 		entry, ok := domain.AuditActionSchemas[action]
 		if !ok {
-			fmt.Fprintf(os.Stderr, "warning: no schema entry for action %q\n", action)
+			fmt.Fprintf(stderr, "warning: no schema entry for action %q\n", action)
 			continue
 		}
 		props := make(map[string]schema, len(entry.Required))
@@ -76,10 +88,11 @@ func main() {
 		Version: fmt.Sprintf("%d", domain.AuditEventSchemaVersionCurrent),
 	}
 
-	enc := json.NewEncoder(os.Stdout)
+	enc := json.NewEncoder(stdout)
 	enc.SetIndent("", "  ")
 	if err := enc.Encode(doc); err != nil {
-		fmt.Fprintln(os.Stderr, "encode:", err)
-		os.Exit(1)
+		fmt.Fprintln(stderr, "encode:", err)
+		return err
 	}
+	return nil
 }

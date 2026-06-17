@@ -90,3 +90,4 @@ default bounded settings and reached 100% efficacy and 100% mutant coverage:
 | `./internal/cdc` | 359 | Added CDC edge coverage; slow full run (~21m47s) |
 | `./internal/telemetry` | 263 | Added watchdog, pool sampler, Redis, and Sentry edge coverage; slow full run (~10m02s) |
 | `./internal/cache` | 301 | Added cache bus, read-model, registry, Redis L2, and consistency edge coverage; slow full run (~17m30s) |
+| `./cmd/gen-audit-schema` | 2 | Added writer-injected command harness coverage |
