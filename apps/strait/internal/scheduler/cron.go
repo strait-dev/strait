@@ -142,7 +142,7 @@ func (cs *CronScheduler) LoadJobs(ctx context.Context) error {
 			return fmt.Errorf("register cron job %s: %w", job.ID, err)
 		}
 		cs.entryIDs = append(cs.entryIDs, id)
-		cs.cacheDriftSchedule(job.Cron)
+		cs.cacheDriftSchedule(expr)
 	}
 
 	if cs.workflowTrigger != nil {
@@ -165,7 +165,7 @@ func (cs *CronScheduler) LoadJobs(ctx context.Context) error {
 				return fmt.Errorf("register cron workflow %s: %w", workflow.ID, err)
 			}
 			cs.entryIDs = append(cs.entryIDs, id)
-			cs.cacheDriftSchedule(workflow.Cron)
+			cs.cacheDriftSchedule(expr)
 		}
 	}
 
@@ -183,7 +183,11 @@ func (cs *CronScheduler) triggerJobLocked(ctx context.Context, job domain.Job, f
 	ctx, span := otel.Tracer("strait").Start(ctx, "cron.TriggerJob")
 	defer span.End()
 
-	cs.recordCronDrift(ctx, job.Cron)
+	expr, _ := cronExpressionWithValidatedTimezone(job.Cron, job.Timezone)
+	if expr == "" {
+		expr = job.Cron
+	}
+	cs.recordCronDrift(ctx, expr)
 
 	run := domain.JobRun{
 		ID:             uuid.Must(uuid.NewV7()).String(),
@@ -427,7 +431,11 @@ func (cs *CronScheduler) triggerWorkflowLocked(ctx context.Context, workflow dom
 	ctx, span := otel.Tracer("strait").Start(ctx, "cron.TriggerWorkflow")
 	defer span.End()
 
-	cs.recordCronDrift(ctx, workflow.Cron)
+	expr, _ := cronExpressionWithValidatedTimezone(workflow.Cron, workflow.CronTimezone)
+	if expr == "" {
+		expr = workflow.Cron
+	}
+	cs.recordCronDrift(ctx, expr)
 
 	if workflow.SkipIfRunning {
 		running, err := cs.store.CountRunningWorkflowRuns(ctx, workflow.ID)
@@ -653,7 +661,7 @@ func (cs *CronScheduler) getDriftSchedule(cronExpr string) cron.Schedule {
 }
 
 func parseDriftSchedule(cronExpr string) cron.Schedule {
-	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
+	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor)
 	schedule, err := parser.Parse(cronExpr)
 	if err != nil {
 		return nil
