@@ -3866,6 +3866,75 @@ func TestHandleListWorkflowRunsByProject_TagFilter(t *testing.T) {
 		t, called)
 }
 
+func TestListWorkflowRunsByProject_TagKeyAndStatusReturns400(t *testing.T) {
+	t.Parallel()
+	tagCalled := false
+	projectCalled := false
+	ms := &APIStoreMock{
+		ListWorkflowRunsByTagFunc: func(_ context.Context, _, _, _ string, _ int, _ *time.Time) ([]domain.WorkflowRun, error) {
+			tagCalled = true
+			return nil, nil
+		},
+		ListWorkflowRunsByProjectFunc: func(_ context.Context, _ string, _ *domain.WorkflowRunStatus, _ int, _ *time.Time) ([]domain.WorkflowRun, error) {
+			projectCalled = true
+			return nil, nil
+		},
+	}
+
+	srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/workflow-runs?tag_key=mytag&status=running", "", "proj-1"))
+	require.Equal(t, http.StatusBadRequest, w.Code)
+	require.False(t, tagCalled, "store should not be called when both tag_key and status are provided")
+	require.False(t, projectCalled, "store should not be called when both tag_key and status are provided")
+	var body map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	errObj, _ := body["error"].(map[string]any)
+	message, _ := errObj["message"].(string)
+	require.Contains(t, message, "tag_key")
+	require.Contains(t, message, "status")
+}
+
+func TestListWorkflowRunsByProject_TagKeyWithoutStatusSucceeds(t *testing.T) {
+	t.Parallel()
+	called := false
+	ms := &APIStoreMock{
+		ListWorkflowRunsByTagFunc: func(_ context.Context, projectID, tagKey, tagValue string, _ int, _ *time.Time) ([]domain.WorkflowRun, error) {
+			called = true
+			require.Equal(t, "proj-1", projectID)
+			require.Equal(t, "env", tagKey)
+			require.Equal(t, "", tagValue)
+			return []domain.WorkflowRun{{ID: "wr-1", ProjectID: projectID}}, nil
+		},
+	}
+
+	srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/workflow-runs?tag_key=env", "", "proj-1"))
+	require.Equal(t, http.StatusOK, w.Code)
+	require.True(t, called)
+}
+
+func TestListWorkflowRunsByProject_StatusWithoutTagKeySucceeds(t *testing.T) {
+	t.Parallel()
+	called := false
+	ms := &APIStoreMock{
+		ListWorkflowRunsByProjectFunc: func(_ context.Context, projectID string, status *domain.WorkflowRunStatus, _ int, _ *time.Time) ([]domain.WorkflowRun, error) {
+			called = true
+			require.Equal(t, "proj-1", projectID)
+			require.NotNil(t, status)
+			require.Equal(t, domain.WfStatusRunning, *status)
+			return []domain.WorkflowRun{{ID: "wr-1", ProjectID: projectID}}, nil
+		},
+	}
+
+	srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/workflow-runs?status=running", "", "proj-1"))
+	require.Equal(t, http.StatusOK, w.Code)
+	require.True(t, called)
+}
+
 func TestHandlePauseWorkflowRun_MarksJobRunsPaused(t *testing.T) {
 	t.Parallel()
 
