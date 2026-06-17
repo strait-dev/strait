@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"log"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -13,12 +13,13 @@ import (
 	"time"
 )
 
-func parseInput(path string) (map[string]*testResult, map[string]string) {
+func parseInputFile(path string) (map[string]*testResult, map[string]string, error) {
 	cleanPath := filepath.Clean(path)
 	f, err := os.Open(cleanPath)
 	if err != nil {
-		log.Fatalf("open input: %v", err)
+		return nil, nil, fmt.Errorf("open input: %w", err)
 	}
+	defer f.Close()
 
 	results := map[string]*testResult{}
 	packageStatus := map[string]string{}
@@ -63,12 +64,11 @@ func parseInput(path string) (map[string]*testResult, map[string]string) {
 	}
 
 	scanErr := scanner.Err()
-	_ = f.Close()
 	if scanErr != nil {
-		log.Fatalf("scan: %v", scanErr)
+		return nil, nil, fmt.Errorf("scan: %w", scanErr)
 	}
 
-	return results, packageStatus
+	return results, packageStatus, nil
 }
 
 type testEvent struct {
@@ -88,20 +88,46 @@ type testResult struct {
 }
 
 func main() {
-	inputFile := flag.String("input", "", "path to go test -json output (jsonl)")
-	outputFile := flag.String("output", "", "path to write markdown summary")
-	suite := flag.String("suite", "load", "suite name for the summary header")
-	flag.Parse()
+	os.Exit(exitCode(os.Args[1:], os.Stdout, os.Stderr, os.WriteFile))
+}
+
+type writeFileFunc func(string, []byte, os.FileMode) error
+
+func exitCode(args []string, stdout io.Writer, stderr io.Writer, writeFile writeFileFunc) int {
+	flags := flag.NewFlagSet("summary", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	inputFile := flags.String("input", "", "path to go test -json output (jsonl)")
+	outputFile := flags.String("output", "", "path to write markdown summary")
+	suite := flags.String("suite", "load", "suite name for the summary header")
+	if err := flags.Parse(args); err != nil {
+		return 1
+	}
 
 	if *inputFile == "" {
-		log.Fatal("required: -input <path>")
+		fmt.Fprintln(stderr, "required: -input <path>")
+		return 1
 	}
 	if *outputFile == "" {
-		log.Fatal("required: -output <path>")
+		fmt.Fprintln(stderr, "required: -output <path>")
+		return 1
 	}
 
-	results, packageStatus := parseInput(*inputFile)
+	results, packageStatus, err := parseInputFile(*inputFile)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
 
+	body := renderSummary(*suite, results, packageStatus)
+	if err := writeFile(*outputFile, []byte(body), 0o600); err != nil {
+		fmt.Fprintf(stderr, "write output: %v\n", err)
+		return 1
+	}
+	fmt.Fprintf(stdout, "Summary written to %s (%d tests)\n", *outputFile, len(results))
+	return 0
+}
+
+func renderSummary(suite string, results map[string]*testResult, packageStatus map[string]string) string {
 	packageResults := make([]string, 0, len(packageStatus))
 
 	var passed, failed, skipped int
@@ -128,7 +154,7 @@ func main() {
 
 	var b strings.Builder
 
-	title := strings.ToUpper(string((*suite)[0])) + (*suite)[1:]
+	title := suiteTitle(suite)
 	fmt.Fprintf(&b, "## %s Load Test Results\n\n", title)
 
 	statusIcon := "pass"
@@ -186,10 +212,14 @@ func main() {
 		}
 	}
 
-	if err := os.WriteFile(*outputFile, []byte(b.String()), 0o600); err != nil {
-		log.Fatalf("write output: %v", err)
+	return b.String()
+}
+
+func suiteTitle(suite string) string {
+	if suite == "" {
+		return "Load-test"
 	}
-	fmt.Printf("Summary written to %s (%d tests)\n", *outputFile, len(sorted))
+	return strings.ToUpper(string(suite[0])) + suite[1:]
 }
 
 type throughputLine struct {
