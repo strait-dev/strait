@@ -1,6 +1,7 @@
 package billing
 
 import (
+	"context"
 	"testing"
 
 	"strait/internal/domain"
@@ -165,6 +166,47 @@ func TestEffectiveLimits_History30dClampedToCatalogMaxTotal(t *testing.T) {
 	require.Equal(t,
 		want,
 		result.RetentionDays)
+}
+
+func TestReconcileActiveAddonsForPlan_GenericCatalogMaxTotal(t *testing.T) {
+	t.Parallel()
+
+	limits := OrgPlanLimits{
+		MaxAddonPacks: map[AddonType]int{
+			AddonComplianceArchive: -1,
+		},
+	}
+
+	t.Run("deactivates_addons_after_catalog_total_is_consumed", func(t *testing.T) {
+		t.Parallel()
+
+		store := &mockBillingStore{
+			activeAddons: []Addon{
+				{ID: "kept", OrgID: "org-1", AddonType: AddonComplianceArchive, Quantity: 1, Active: true},
+				{ID: "over-cap", OrgID: "org-1", AddonType: AddonComplianceArchive, Quantity: 1, Active: true},
+			},
+		}
+
+		deactivated, err := ReconcileActiveAddonsForPlan(context.Background(), store, "org-1", limits)
+		require.NoError(t, err)
+		require.Equal(t, 1, deactivated)
+		require.Equal(t, []string{"over-cap"}, store.deactivatedAddonIDs)
+	})
+
+	t.Run("deactivates_single_addon_quantity_above_catalog_total", func(t *testing.T) {
+		t.Parallel()
+
+		store := &mockBillingStore{
+			activeAddons: []Addon{
+				{ID: "too-large", OrgID: "org-1", AddonType: AddonComplianceArchive, Quantity: 2, Active: true},
+			},
+		}
+
+		deactivated, err := ReconcileActiveAddonsForPlan(context.Background(), store, "org-1", limits)
+		require.NoError(t, err)
+		require.Equal(t, 1, deactivated)
+		require.Equal(t, []string{"too-large"}, store.deactivatedAddonIDs)
+	})
 }
 
 func TestEffectiveLimits_ComplianceArchiveLaunchRoadmapNoEffect(t *testing.T) {
