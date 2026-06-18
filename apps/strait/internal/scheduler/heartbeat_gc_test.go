@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/sourcegraph/conc"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -219,4 +221,47 @@ func TestHeartbeatGC_RunExitsOnCancel(t *testing.T) {
 	}
 	assert.GreaterOrEqual(t, g.Iterations(),
 		int64(2))
+}
+
+type triggerPresenceDB struct {
+	row     pgx.Row
+	queries int
+}
+
+func (db *triggerPresenceDB) Exec(context.Context, string, ...any) (pgconn.CommandTag, error) {
+	return pgconn.CommandTag{}, nil
+}
+
+func (db *triggerPresenceDB) Query(context.Context, string, ...any) (pgx.Rows, error) {
+	return nil, nil
+}
+
+func (db *triggerPresenceDB) QueryRow(context.Context, string, ...any) pgx.Row {
+	db.queries++
+	return db.row
+}
+
+type triggerPresenceRow struct {
+	present bool
+	err     error
+}
+
+func (r triggerPresenceRow) Scan(dest ...any) error {
+	if r.err != nil {
+		return r.err
+	}
+	*(dest[0].(*bool)) = r.present
+	return nil
+}
+
+func TestEnsureQueueTriggersPresent_QueryError(t *testing.T) {
+	db := &triggerPresenceDB{
+		row: triggerPresenceRow{err: errors.New("catalog unavailable")},
+	}
+
+	err := EnsureQueueTriggersPresent(context.Background(), db)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "trigger presence check for trg_job_runs_queue_wake_insert_notify")
+	assert.Equal(t, 1, db.queries)
 }
