@@ -78,7 +78,7 @@ full mutation run with the default bounded settings:
 | `./cmd/strait` | 0 | 382 | Entrypoint wiring is not covered by current tests; needs command/service harness work before full mutation testing is useful. |
 | `./internal/api/grpc` | 278 | 248 | Broad worker-plane surface; split by auth, registry, dispatch, stream, and server helpers before a full run. |
 | `./internal/billing` | 1060 | 453 | Large default-edition surface; split by entitlement, enforcement, webhook, usage, and email subareas before a full run. |
-| `./internal/loadtest` | 266 | 667 | Broad load-test harness surface; split by reporting, runtime profiles, scenarios, and server helpers before a full run. |
+| `./internal/loadtest` | 280 | 653 | Broad load-test harness surface; runtime profile helper slice is clean with 30 killed mutants. Continue splitting by reporting, scenarios, and server helpers before a full run. |
 | `./internal/queue` | 515 | 262 | Broad queue surface; split by backpressure, retry, route selection, PgQue claim/dequeue/ready, and metrics helpers before a full run. |
 | `./internal/scheduler` | 995 | 243 | Broad scheduler surface; split by reapers, batch flusher, monitors, usage emailers, and reconciliation helpers before a full run. |
 | `./internal/store` | 402 | 2155 | Store package has many DB accessors with little direct self-coverage; target stable store areas with integration-backed tests before a full run. |
