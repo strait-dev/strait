@@ -40,14 +40,18 @@ func (c *WebhookMessageCleanup) Run(ctx context.Context) {
 			return
 		case <-ticker.C:
 			runSchedulerCycleCheckIn(ctx, c.interval, func() {
-				cutoff := time.Now().Add(-30 * 24 * time.Hour)
-				count, err := c.store.DeleteOldWebhookMessages(ctx, cutoff)
-				if err != nil {
-					c.logger.Warn("failed to clean up old webhook messages", "error", err)
-				} else if count > 0 {
-					c.logger.Info("cleaned up old webhook messages", "deleted", count)
-				}
+				c.cleanup(ctx, time.Now())
 			})
 		}
+	}
+}
+
+func (c *WebhookMessageCleanup) cleanup(ctx context.Context, now time.Time) {
+	cutoff := now.Add(-30 * 24 * time.Hour)
+	count, err := c.store.DeleteOldWebhookMessages(ctx, cutoff)
+	if err != nil {
+		c.logger.Warn("failed to clean up old webhook messages", "error", err)
+	} else if count > 0 {
+		c.logger.Info("cleaned up old webhook messages", "deleted", count)
 	}
 }
