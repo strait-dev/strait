@@ -197,19 +197,23 @@ func (s *Server) buildServer() (*grpc.Server, error) {
 	// or both are empty and Serve enforces the plaintext exposure policy.
 	// Partial config or load failure is a hard error so an operator who
 	// configured TLS never silently runs cleartext.
-	switch {
-	case s.cfg.GRPCTLSCertPath != "" && s.cfg.GRPCTLSKeyPath != "":
-		cert, err := tls.LoadX509KeyPair(s.cfg.GRPCTLSCertPath, s.cfg.GRPCTLSKeyPath)
+	certPath := s.cfg.GRPCTLSCertPath
+	keyPath := s.cfg.GRPCTLSKeyPath
+	if certPath != "" {
+		if keyPath == "" {
+			return nil, fmt.Errorf("grpc tls: both GRPC_TLS_CERT_PATH and GRPC_TLS_KEY_PATH must be set together")
+		}
+		cert, err := tls.LoadX509KeyPair(certPath, keyPath)
 		if err != nil {
-			return nil, fmt.Errorf("grpc tls: load cert %s: %w", s.cfg.GRPCTLSCertPath, err)
+			return nil, fmt.Errorf("grpc tls: load cert %s: %w", certPath, err)
 		}
 		tlsCfg := &tls.Config{
 			Certificates: []tls.Certificate{cert},
 			MinVersion:   tls.VersionTLS12,
 		}
 		opts = append(opts, grpc.Creds(credentials.NewTLS(tlsCfg)))
-		slog.Info("grpc TLS enabled", "cert", s.cfg.GRPCTLSCertPath)
-	case s.cfg.GRPCTLSCertPath != "" || s.cfg.GRPCTLSKeyPath != "":
+		slog.Info("grpc TLS enabled", "cert", certPath)
+	} else if keyPath != "" {
 		return nil, fmt.Errorf("grpc tls: both GRPC_TLS_CERT_PATH and GRPC_TLS_KEY_PATH must be set together")
 	}
 
