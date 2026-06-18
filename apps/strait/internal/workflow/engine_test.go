@@ -1271,6 +1271,7 @@ type mockCallbackStore struct {
 	countIncompleteCompensationRunsFn   func(ctx context.Context, workflowRunID string) (int, error)
 	requeuePausedJobRunsFn              func(ctx context.Context, workflowRunID string) (int64, error)
 	createWorkflowProgressionEventFn    func(ctx context.Context, workflowRunID, stepRunID, stepRef, status string) error
+	scheduleRetryFn                     func(ctx context.Context, runID string, at time.Time, attempt int) error
 }
 
 func (m *mockCallbackStore) GetEventTriggerByStepRunID(ctx context.Context, stepRunID string) (*domain.EventTrigger, error) {
@@ -1725,7 +1726,10 @@ func (m *mockCallbackStore) RequeuePausedJobRuns(ctx context.Context, workflowRu
 	return 0, nil
 }
 
-func (m *mockCallbackStore) ScheduleRetry(_ context.Context, _ string, _ time.Time, _ int) error {
+func (m *mockCallbackStore) ScheduleRetry(ctx context.Context, runID string, at time.Time, attempt int) error {
+	if m.scheduleRetryFn != nil {
+		return m.scheduleRetryFn(ctx, runID, at, attempt)
+	}
 	return nil
 }
 
@@ -2739,6 +2743,103 @@ func TestStepCallback_scheduleStepRetry(t *testing.T) {
 						0)
 		})
 	}
+}
+
+// TestScheduleStepRetry_AtomicOnSuccess, TestScheduleStepRetry_IncrementFailure_ScheduleRetryNotCalled,
+// and TestScheduleStepRetry_ScheduleRetryFailure_UpdateRunStatusNotCalled verify the sequencing contract
+// for scheduleStepRetry. The mock store does not implement stepRetryTransactioner, so these tests
+// exercise the sequential fallback path. True transactionality (all three writes in a single DB
+// transaction) is exercised in integration tests that use a real PostgreSQL connection.
+
+func TestScheduleStepRetry_AtomicOnSuccess(t *testing.T) {
+	t.Parallel()
+	var callOrder []string
+
+	ms := &mockCallbackStore{
+		incrementStepRunAttemptFn: func(_ context.Context, _ string, _ int) error {
+			callOrder = append(callOrder, "increment")
+			return nil
+		},
+		scheduleRetryFn: func(_ context.Context, _ string, _ time.Time, _ int) error {
+			callOrder = append(callOrder, "schedule")
+			return nil
+		},
+		updateRunStatusFn: func(_ context.Context, _ string, _, _ domain.RunStatus, _ map[string]any) error {
+			callOrder = append(callOrder, "updateStatus")
+			return nil
+		},
+	}
+
+	cb := NewStepCallback(ms, nil, slog.Default())
+	err := cb.scheduleStepRetry(
+		context.Background(),
+		&domain.JobRun{ID: "run-1", Status: domain.StatusFailed},
+		&domain.WorkflowStepRun{ID: "sr-1"},
+		time.Now().Add(5*time.Second),
+		2,
+	)
+	require.NoError(t, err)
+	require.Equal(t, []string{"increment", "schedule", "updateStatus"}, callOrder, "all three writes must be called in order")
+}
+
+func TestScheduleStepRetry_IncrementFailure_ScheduleRetryNotCalled(t *testing.T) {
+	t.Parallel()
+	scheduleCalled := false
+
+	ms := &mockCallbackStore{
+		incrementStepRunAttemptFn: func(_ context.Context, _ string, _ int) error {
+			return errors.New("db gone")
+		},
+		scheduleRetryFn: func(_ context.Context, _ string, _ time.Time, _ int) error {
+			scheduleCalled = true
+			return nil
+		},
+		updateRunStatusFn: func(_ context.Context, _ string, _, _ domain.RunStatus, _ map[string]any) error {
+			return nil
+		},
+	}
+
+	cb := NewStepCallback(ms, nil, slog.Default())
+	err := cb.scheduleStepRetry(
+		context.Background(),
+		&domain.JobRun{ID: "run-1", Status: domain.StatusFailed},
+		&domain.WorkflowStepRun{ID: "sr-1"},
+		time.Now().Add(5*time.Second),
+		2,
+	)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "increment step run attempt")
+	assert.False(t, scheduleCalled, "ScheduleRetry must not be called when IncrementStepRunAttempt fails")
+}
+
+func TestScheduleStepRetry_ScheduleRetryFailure_UpdateRunStatusNotCalled(t *testing.T) {
+	t.Parallel()
+	updateCalled := false
+
+	ms := &mockCallbackStore{
+		incrementStepRunAttemptFn: func(_ context.Context, _ string, _ int) error {
+			return nil
+		},
+		scheduleRetryFn: func(_ context.Context, _ string, _ time.Time, _ int) error {
+			return errors.New("db gone")
+		},
+		updateRunStatusFn: func(_ context.Context, _ string, _, _ domain.RunStatus, _ map[string]any) error {
+			updateCalled = true
+			return nil
+		},
+	}
+
+	cb := NewStepCallback(ms, nil, slog.Default())
+	err := cb.scheduleStepRetry(
+		context.Background(),
+		&domain.JobRun{ID: "run-1", Status: domain.StatusFailed},
+		&domain.WorkflowStepRun{ID: "sr-1"},
+		time.Now().Add(5*time.Second),
+		2,
+	)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "schedule step retry")
+	assert.False(t, updateCalled, "UpdateRunStatus must not be called when ScheduleRetry fails")
 }
 
 func TestStepCallback_OnJobRunTerminal_RetryIntegration(t *testing.T) {
