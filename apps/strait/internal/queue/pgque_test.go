@@ -285,6 +285,112 @@ func TestPgQueNextWorkerRouteStartHandlesSmallRouteCounts(t *testing.T) {
 	require.Equal(t, 1, q.nextWorkerRouteStart(2))
 }
 
+func TestPgQueEnsureCachedRouteKeyOnceSpillsToSeenMap(t *testing.T) {
+	ctx := context.Background()
+	db := &mockDBTX{
+		execFn: func(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
+			require.Failf(t, "test failure", "unexpected route setup SQL = %q", sql)
+			return pgconn.CommandTag{}, nil
+		},
+	}
+	q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
+	routeSet := &pgQueRouteEnsureSet{}
+
+	for i := range pgQueSmallRouteSetLimit + 1 {
+		routeKey := fmt.Sprintf("route-%d", i)
+		q.routeState(routeKey).configured.Store(true)
+		require.NoError(t, q.ensureCachedRouteKeyOnce(ctx, routeSet, routeKey))
+	}
+
+	require.Len(t, routeSet.seen, pgQueSmallRouteSetLimit+1)
+	require.Equal(t, pgQueSmallRouteSetLimit, routeSet.routeCount)
+
+	require.NoError(t, q.ensureCachedRouteKeyOnce(ctx, routeSet, "route-8"))
+	require.Len(t, routeSet.seen, pgQueSmallRouteSetLimit+1)
+}
+
+func TestPgQueRunTickerLogsTickerAndMaintenanceErrors(t *testing.T) {
+	t.Run("ticker error", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		tickerCalled := make(chan struct{}, 1)
+		db := &mockDBTX{
+			execFn: func(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
+				if strings.Contains(sql, "pgque.ticker()") {
+					select {
+					case tickerCalled <- struct{}{}:
+					default:
+					}
+					return pgconn.CommandTag{}, errors.New("ticker failed")
+				}
+				return pgconn.CommandTag{}, nil
+			},
+		}
+		q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{
+			TickInterval:        time.Millisecond,
+			MaintenanceInterval: time.Hour,
+		})
+
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			q.RunTicker(ctx)
+		}()
+
+		select {
+		case <-tickerCalled:
+		case <-time.After(time.Second):
+			t.Fatal("timed out waiting for ticker")
+		}
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Fatal("timed out waiting for RunTicker shutdown")
+		}
+	})
+
+	t.Run("maintenance error", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		maintenanceCalled := make(chan struct{}, 1)
+		db := &mockDBTX{
+			queryFn: func(_ context.Context, sql string, _ ...any) (pgx.Rows, error) {
+				if strings.Contains(sql, "pgque.maint_operations()") {
+					select {
+					case maintenanceCalled <- struct{}{}:
+					default:
+					}
+					return nil, errors.New("maintenance failed")
+				}
+				return routeErrorRows{}, nil
+			},
+		}
+		q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{
+			TickInterval:        time.Hour,
+			MaintenanceInterval: time.Millisecond,
+		})
+
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			q.RunTicker(ctx)
+		}()
+
+		select {
+		case <-maintenanceCalled:
+		case <-time.After(time.Second):
+			t.Fatal("timed out waiting for maintenance")
+		}
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Fatal("timed out waiting for RunTicker shutdown")
+		}
+	})
+}
+
 func TestPgQueScanWorkerRoutesRotatesAcrossManyRoutes(t *testing.T) {
 	q := NewPgQueQueue(&mockDBTX{}, nil, PgQueConfig{})
 	routes := []string{"route-a", "route-b", "route-c", "route-d"}
