@@ -31,9 +31,14 @@ type mockDebounceStore struct {
 	activeRuns        int
 	runsSince         int
 	dailyCost         int64
+	dailyCostTimezone string
 	tryAdvisoryLockFn func(ctx context.Context, lockID int64) (bool, error)
 	txCalls           int
 	txLockIDs         []int64
+}
+
+type nonTransactionalDebounceStore struct {
+	store.DebounceStore
 }
 
 type debounceReschedule struct {
@@ -148,7 +153,10 @@ func (m *mockDebounceStore) CountRunsForJobSince(context.Context, string, time.T
 	return m.runsSince, nil
 }
 
-func (m *mockDebounceStore) SumProjectDailyCostMicrousd(context.Context, string, string) (int64, error) {
+func (m *mockDebounceStore) SumProjectDailyCostMicrousd(_ context.Context, _ string, timezone string) (int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.dailyCostTimezone = timezone
 	return m.dailyCost, nil
 }
 
@@ -253,6 +261,47 @@ func TestDebouncePoller_FiresDuePending(t *testing.T) {
 	require.Empty(t, ds.restored)
 	require.Equal(t, 1, ds.txCalls)
 	require.Equal(t, []int64{cronAdmissionLockID("proj-1")}, ds.txLockIDs)
+}
+
+func TestDebouncePoller_FiresDuePendingWithoutTransactionalStore(t *testing.T) {
+	t.Parallel()
+
+	ds := &mockDebounceStore{
+		duePending: []domain.DebouncePending{
+			{
+				ID:          "dp-1",
+				JobID:       "job-1",
+				ProjectID:   "proj-1",
+				DebounceKey: "key-1",
+				Payload:     json.RawMessage(`{"action":"sync"}`),
+				FireAt:      time.Now().Add(-time.Second),
+			},
+		},
+		jobs: map[string]*domain.Job{
+			"job-1": {
+				ID:          "job-1",
+				ProjectID:   "proj-1",
+				Enabled:     true,
+				TimeoutSecs: 60,
+			},
+		},
+	}
+
+	var enqueued []*domain.JobRun
+	q := &mockQueue{
+		enqueueFn: func(_ context.Context, run *domain.JobRun) error {
+			enqueued = append(enqueued, run)
+			return nil
+		},
+	}
+	poller := NewDebouncePoller(nonTransactionalDebounceStore{DebounceStore: ds}, q, time.Second)
+	poller.poll(context.Background())
+
+	require.Len(t, enqueued, 1)
+	require.Equal(t, "dp-1", enqueued[0].ID)
+	require.Equal(t, []string{"dp-1"}, ds.completed)
+	require.Equal(t, 0, ds.txCalls)
+	require.Empty(t, ds.txLockIDs)
 }
 
 func TestDebouncePoller_SkipsDisabledJob(t *testing.T) {
@@ -387,6 +436,69 @@ func TestDebouncePoller_ReschedulesPendingWhenFireTimeProjectQuotaExceeded(t *te
 	require.Len(t, ds.duePending, 1)
 	require.Equal(t, "dp-1", ds.duePending[0].ID)
 	require.True(t, ds.duePending[0].FireAt.After(time.Now().UTC()))
+}
+
+func TestDebouncePoller_ReschedulesPendingWhenFireTimeActiveQuotaExceeded(t *testing.T) {
+	t.Parallel()
+
+	originalFireAt := time.Now().Add(-time.Second)
+	ds := &mockDebounceStore{
+		duePending: []domain.DebouncePending{
+			{ID: "dp-1", JobID: "job-1", ProjectID: "proj-1", FireAt: originalFireAt},
+		},
+		jobs: map[string]*domain.Job{
+			"job-1": {ID: "job-1", ProjectID: "proj-1", Enabled: true, TimeoutSecs: 60},
+		},
+		quota:      &store.ProjectQuota{MaxExecutingRuns: 1},
+		activeRuns: 1,
+	}
+
+	var enqueued int
+	q := &mockQueue{enqueueFn: func(context.Context, *domain.JobRun) error {
+		enqueued++
+		return nil
+	}}
+	poller := NewDebouncePoller(ds, q, time.Second)
+	poller.poll(context.Background())
+
+	require.Equal(t, 0, enqueued)
+	require.Empty(t, ds.completed)
+	require.Len(t, ds.rescheduled, 1)
+	require.Equal(t, "dp-1", ds.rescheduled[0].id)
+	require.True(t, ds.rescheduled[0].oldFireAt.Equal(originalFireAt))
+	require.True(t, ds.rescheduled[0].nextFireAt.After(time.Now().UTC()))
+}
+
+func TestDebouncePoller_ReschedulesPendingWhenFireTimeDailyCostQuotaExceeded(t *testing.T) {
+	t.Parallel()
+
+	originalFireAt := time.Now().Add(-time.Second)
+	ds := &mockDebounceStore{
+		duePending: []domain.DebouncePending{
+			{ID: "dp-1", JobID: "job-1", ProjectID: "proj-1", FireAt: originalFireAt},
+		},
+		jobs: map[string]*domain.Job{
+			"job-1": {ID: "job-1", ProjectID: "proj-1", Enabled: true, TimeoutSecs: 60},
+		},
+		quota:     &store.ProjectQuota{MaxDailyCostMicrousd: 100},
+		dailyCost: 100,
+	}
+
+	var enqueued int
+	q := &mockQueue{enqueueFn: func(context.Context, *domain.JobRun) error {
+		enqueued++
+		return nil
+	}}
+	poller := NewDebouncePoller(ds, q, time.Second)
+	poller.poll(context.Background())
+
+	require.Equal(t, 0, enqueued)
+	require.Empty(t, ds.completed)
+	require.Len(t, ds.rescheduled, 1)
+	require.Equal(t, "dp-1", ds.rescheduled[0].id)
+	require.Equal(t, "UTC", ds.dailyCostTimezone)
+	require.True(t, ds.rescheduled[0].oldFireAt.Equal(originalFireAt))
+	require.True(t, ds.rescheduled[0].nextFireAt.After(time.Now().UTC()))
 }
 
 func TestDebouncePoller_ReschedulesPendingWhenFireTimeRateLimitExceeded(t *testing.T) {
