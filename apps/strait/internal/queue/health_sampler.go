@@ -207,11 +207,8 @@ func (h *HealthSampler) sampleIndexHealth(ctx context.Context) {
 }
 
 func (h *HealthSampler) hasPgstatindex(ctx context.Context) bool {
-	switch h.pgstatindexAvailable.Load() {
-	case 1:
-		return true
-	case -1:
-		return false
+	if cached := h.pgstatindexAvailable.Load(); cached != 0 {
+		return cached > 0
 	}
 
 	const q = `SELECT to_regprocedure('pgstatindex(regclass)') IS NOT NULL`
