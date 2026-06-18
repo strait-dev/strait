@@ -3800,6 +3800,471 @@ func BenchmarkPgQueRecordReadyEmitBatch(b *testing.B) {
 	}
 }
 
+func TestPgQueEnqueueNonTxEmitsFreshReadyEventOnlyForReadyRuns(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("ready run", func(t *testing.T) {
+		var inserted bool
+		var sendCalls int
+		var recordCalls int
+		db := &mockDBTX{
+			queryRowFn: func(_ context.Context, sql string, _ ...any) pgx.Row {
+				require.Contains(t, sql, "INSERT INTO job_runs")
+				return &mockRow{scanFn: func(dest ...any) error {
+					inserted = true
+					return assignTimeDest(dest[0], time.Now())
+				}}
+			},
+			execFn: func(_ context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
+				switch {
+				case strings.Contains(sql, "pgque.send"):
+					sendCalls++
+					require.Equal(t, pgQueReadyEventType, args[1])
+					assertPgQueReadyEvent(t, args[2].(string), pgQueReadyEvent{
+						RunID:      "run-ready",
+						RouteKey:   pgQueHTTPRouteKey,
+						Generation: pgQueInitialReadyGeneration,
+						Priority:   3,
+					})
+				case strings.Contains(sql, "strait_pgque_ready_events"):
+					recordCalls++
+					require.True(t, slices.Equal(args[0].([]string), []string{"run-ready"}))
+					require.True(t, slices.Equal(args[1].([]int64), []int64{pgQueInitialReadyGeneration}))
+				default:
+					require.Failf(t, "test failure", "unexpected Exec SQL = %q", sql)
+				}
+				return pgconn.CommandTag{}, nil
+			},
+		}
+		q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
+		q.routeState(pgQueHTTPRouteKey).configured.Store(true)
+
+		err := q.Enqueue(ctx, &domain.JobRun{
+			ID:        "run-ready",
+			JobID:     "job-a",
+			ProjectID: "project-a",
+			Priority:  3,
+		})
+
+		require.NoError(t, err)
+		require.True(t, inserted)
+		require.Equal(t, 1, sendCalls)
+		require.Equal(t, 1, recordCalls)
+	})
+
+	t.Run("future scheduled run", func(t *testing.T) {
+		future := time.Now().Add(time.Hour)
+		var insertedStatus domain.RunStatus
+		var execCalls int
+		db := &mockDBTX{
+			queryRowFn: func(_ context.Context, sql string, args ...any) pgx.Row {
+				require.Contains(t, sql, "INSERT INTO job_runs")
+				insertedStatus = args[3].(domain.RunStatus)
+				return &mockRow{scanFn: func(dest ...any) error {
+					return assignTimeDest(dest[0], time.Now())
+				}}
+			},
+			execFn: func(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
+				execCalls++
+				require.Failf(t, "test failure", "unexpected Exec SQL = %q", sql)
+				return pgconn.CommandTag{}, nil
+			},
+		}
+		q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
+
+		run := &domain.JobRun{
+			ID:          "run-delayed",
+			JobID:       "job-a",
+			ProjectID:   "project-a",
+			ScheduledAt: &future,
+		}
+		err := q.Enqueue(ctx, run)
+
+		require.NoError(t, err)
+		require.Equal(t, domain.StatusDelayed, run.Status)
+		require.Equal(t, domain.StatusDelayed, insertedStatus)
+		require.Zero(t, execCalls)
+	})
+}
+
+func TestPgQueEnqueueTransactionalRouteBeginCommitAndSendErrors(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("route cache error prevents transaction", func(t *testing.T) {
+		wantErr := errors.New("route lookup failed")
+		var began bool
+		db := &mockTxDBTX{
+			beginFn: func(context.Context) (pgx.Tx, error) {
+				began = true
+				return &readyMockTx{}, nil
+			},
+		}
+		db.queryRowFn = func(_ context.Context, sql string, _ ...any) pgx.Row {
+			require.Contains(t, sql, "FROM jobs")
+			return &mockRow{scanFn: func(...any) error { return wantErr }}
+		}
+		q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
+
+		err := q.Enqueue(ctx, &domain.JobRun{
+			ID:            "run-worker",
+			JobID:         "job-a",
+			ProjectID:     "project-a",
+			ExecutionMode: domain.ExecutionModeWorker,
+		})
+
+		require.ErrorContains(t, err, "pgque worker route lookup")
+		require.ErrorIs(t, err, wantErr)
+		require.False(t, began)
+	})
+
+	t.Run("begin error", func(t *testing.T) {
+		wantErr := errors.New("begin failed")
+		db := &mockTxDBTX{
+			beginFn: func(context.Context) (pgx.Tx, error) {
+				return nil, wantErr
+			},
+		}
+		q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
+		q.routeState(pgQueHTTPRouteKey).configured.Store(true)
+
+		err := q.Enqueue(ctx, &domain.JobRun{ID: "run-a", JobID: "job-a", ProjectID: "project-a"})
+
+		require.ErrorContains(t, err, "pgque enqueue: begin tx")
+		require.ErrorIs(t, err, wantErr)
+	})
+
+	t.Run("commit error", func(t *testing.T) {
+		wantErr := errors.New("commit failed")
+		tx := &readyMockTx{
+			commitErr: wantErr,
+			queryRowFn: func(_ context.Context, sql string, _ ...any) pgx.Row {
+				require.Contains(t, sql, "INSERT INTO job_runs")
+				return &mockRow{scanFn: func(dest ...any) error {
+					return assignTimeDest(dest[0], time.Now())
+				}}
+			},
+		}
+		db := &mockTxDBTX{
+			beginFn: func(context.Context) (pgx.Tx, error) {
+				return tx, nil
+			},
+		}
+		q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
+
+		future := time.Now().Add(time.Hour)
+		err := q.Enqueue(ctx, &domain.JobRun{
+			ID:          "run-delayed",
+			JobID:       "job-a",
+			ProjectID:   "project-a",
+			ScheduledAt: &future,
+		})
+
+		require.ErrorContains(t, err, "pgque enqueue: commit")
+		require.ErrorIs(t, err, wantErr)
+		require.Equal(t, 1, tx.commitCalls)
+		require.Equal(t, 1, tx.rollbackCalls)
+	})
+}
+
+func TestPgQueEnqueueInTxHandlesMarkWriterAndNonReadyPaths(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("mark storage error", func(t *testing.T) {
+		wantErr := errors.New("set local failed")
+		tx := &readyMockTx{
+			execFn: func(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
+				require.Contains(t, sql, "SET LOCAL strait.queue_backend")
+				return pgconn.CommandTag{}, wantErr
+			},
+		}
+		q := NewPgQueQueue(tx, NewPostgresRunWriter(tx), PgQueConfig{})
+
+		err := q.EnqueueInTx(ctx, tx, &domain.JobRun{ID: "run-a", JobID: "job-a", ProjectID: "project-a"})
+
+		require.ErrorContains(t, err, "pgque mark queue storage")
+		require.ErrorIs(t, err, wantErr)
+	})
+
+	t.Run("run writer error", func(t *testing.T) {
+		wantErr := errors.New("insert failed")
+		tx := &readyMockTx{
+			queryRowFn: func(_ context.Context, sql string, _ ...any) pgx.Row {
+				require.Contains(t, sql, "INSERT INTO job_runs")
+				return &mockRow{scanFn: func(...any) error { return wantErr }}
+			},
+		}
+		q := NewPgQueQueue(tx, NewPostgresRunWriter(tx), PgQueConfig{})
+
+		err := q.EnqueueInTx(ctx, tx, &domain.JobRun{ID: "run-a", JobID: "job-a", ProjectID: "project-a"})
+
+		require.ErrorContains(t, err, "enqueue run in tx")
+		require.ErrorIs(t, err, wantErr)
+	})
+
+	t.Run("non ready run skips ready event", func(t *testing.T) {
+		future := time.Now().Add(time.Hour)
+		var inserted bool
+		var sendCalls int
+		tx := &readyMockTx{
+			execFn: func(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
+				if strings.Contains(sql, "pgque.send") || strings.Contains(sql, "strait_pgque_ready_events") {
+					sendCalls++
+				}
+				return pgconn.CommandTag{}, nil
+			},
+			queryRowFn: func(_ context.Context, sql string, _ ...any) pgx.Row {
+				require.Contains(t, sql, "INSERT INTO job_runs")
+				return &mockRow{scanFn: func(dest ...any) error {
+					inserted = true
+					return assignTimeDest(dest[0], time.Now())
+				}}
+			},
+		}
+		q := NewPgQueQueue(tx, NewPostgresRunWriter(tx), PgQueConfig{})
+
+		run := &domain.JobRun{ID: "run-delayed", JobID: "job-a", ProjectID: "project-a", ScheduledAt: &future}
+		err := q.EnqueueInTx(ctx, tx, run)
+
+		require.NoError(t, err)
+		require.True(t, inserted)
+		require.Equal(t, domain.StatusDelayed, run.Status)
+		require.Zero(t, sendCalls)
+	})
+}
+
+func TestPgQueEnqueueBatchHandlesEmptyNonTxAndTransactionalErrors(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("empty batch", func(t *testing.T) {
+		db := &mockBatchDB{}
+		q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
+
+		inserted, err := q.EnqueueBatch(ctx, nil)
+
+		require.NoError(t, err)
+		require.Zero(t, inserted)
+		require.Empty(t, db.getExecCalls())
+	})
+
+	t.Run("route cache error", func(t *testing.T) {
+		db := &mockBatchDB{}
+		q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
+
+		inserted, err := q.EnqueueBatch(ctx, []*domain.JobRun{{
+			ID:            "run-worker",
+			JobID:         "",
+			ProjectID:     "project-a",
+			ExecutionMode: domain.ExecutionModeWorker,
+		}})
+
+		require.ErrorContains(t, err, "missing job id")
+		require.Zero(t, inserted)
+	})
+
+	t.Run("non transactional writer error", func(t *testing.T) {
+		db := &mockNoCopyDB{}
+		q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
+		q.routeState(pgQueHTTPRouteKey).configured.Store(true)
+
+		inserted, err := q.EnqueueBatch(ctx, []*domain.JobRun{{
+			ID:        "run-a",
+			JobID:     "job-a",
+			ProjectID: "project-a",
+		}})
+
+		require.ErrorContains(t, err, "underlying db does not support CopyFrom")
+		require.Zero(t, inserted)
+	})
+
+	t.Run("non transactional ready event error", func(t *testing.T) {
+		wantErr := errors.New("send failed")
+		db := &mockBatchDB{
+			execFn: func(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
+				if strings.Contains(sql, "pgque.send_batch") {
+					return pgconn.CommandTag{}, wantErr
+				}
+				return pgconn.CommandTag{}, nil
+			},
+		}
+		q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
+		q.routeState(pgQueHTTPRouteKey).configured.Store(true)
+
+		inserted, err := q.EnqueueBatch(ctx, []*domain.JobRun{{
+			ID:        "run-a",
+			JobID:     "job-a",
+			ProjectID: "project-a",
+		}})
+
+		require.ErrorContains(t, err, "pgque send ready event batch")
+		require.ErrorIs(t, err, wantErr)
+		require.Zero(t, inserted)
+	})
+
+	t.Run("transaction begin error", func(t *testing.T) {
+		wantErr := errors.New("begin failed")
+		db := &mockTxDBTX{
+			beginFn: func(context.Context) (pgx.Tx, error) {
+				return nil, wantErr
+			},
+		}
+		q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
+		q.routeState(pgQueHTTPRouteKey).configured.Store(true)
+
+		inserted, err := q.EnqueueBatch(ctx, []*domain.JobRun{{ID: "run-a", JobID: "job-a", ProjectID: "project-a"}})
+
+		require.ErrorContains(t, err, "pgque enqueue batch: begin tx")
+		require.ErrorIs(t, err, wantErr)
+		require.Zero(t, inserted)
+	})
+
+	t.Run("transaction mark storage error", func(t *testing.T) {
+		wantErr := errors.New("set local failed")
+		tx := &readyMockTx{
+			execFn: func(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
+				require.Contains(t, sql, "SET LOCAL strait.queue_backend")
+				return pgconn.CommandTag{}, wantErr
+			},
+		}
+		db := &mockTxDBTX{
+			beginFn: func(context.Context) (pgx.Tx, error) {
+				return tx, nil
+			},
+		}
+		q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
+		q.routeState(pgQueHTTPRouteKey).configured.Store(true)
+
+		inserted, err := q.EnqueueBatch(ctx, []*domain.JobRun{{ID: "run-a", JobID: "job-a", ProjectID: "project-a"}})
+
+		require.ErrorContains(t, err, "pgque mark queue storage")
+		require.ErrorIs(t, err, wantErr)
+		require.Zero(t, inserted)
+	})
+
+	t.Run("transaction writer error", func(t *testing.T) {
+		wantErr := errors.New("copy failed")
+		tx := &readyMockTx{
+			copyFromFn: func(context.Context, pgx.Identifier, []string, pgx.CopyFromSource) (int64, error) {
+				return 0, wantErr
+			},
+		}
+		db := &mockTxDBTX{
+			beginFn: func(context.Context) (pgx.Tx, error) {
+				return tx, nil
+			},
+		}
+		q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
+		q.routeState(pgQueHTTPRouteKey).configured.Store(true)
+
+		inserted, err := q.EnqueueBatch(ctx, []*domain.JobRun{{ID: "run-a", JobID: "job-a", ProjectID: "project-a"}})
+
+		require.ErrorContains(t, err, "enqueue batch: copy from")
+		require.ErrorIs(t, err, wantErr)
+		require.Zero(t, inserted)
+	})
+
+	t.Run("transaction ready event error", func(t *testing.T) {
+		wantErr := errors.New("send failed")
+		tx := &readyMockTx{
+			copyFromFn: func(_ context.Context, _ pgx.Identifier, _ []string, rowSrc pgx.CopyFromSource) (int64, error) {
+				var count int64
+				for rowSrc.Next() {
+					count++
+				}
+				return count, rowSrc.Err()
+			},
+			execFn: func(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
+				if strings.Contains(sql, "pgque.send_batch") {
+					return pgconn.CommandTag{}, wantErr
+				}
+				return pgconn.CommandTag{}, nil
+			},
+		}
+		db := &mockTxDBTX{
+			beginFn: func(context.Context) (pgx.Tx, error) {
+				return tx, nil
+			},
+		}
+		q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
+		q.routeState(pgQueHTTPRouteKey).configured.Store(true)
+
+		inserted, err := q.EnqueueBatch(ctx, []*domain.JobRun{{ID: "run-a", JobID: "job-a", ProjectID: "project-a"}})
+
+		require.ErrorContains(t, err, "pgque send ready event batch")
+		require.ErrorIs(t, err, wantErr)
+		require.Zero(t, inserted)
+	})
+
+	t.Run("transaction commit error", func(t *testing.T) {
+		wantErr := errors.New("commit failed")
+		future := time.Now().Add(time.Hour)
+		tx := &readyMockTx{
+			commitErr: wantErr,
+			copyFromFn: func(_ context.Context, _ pgx.Identifier, _ []string, rowSrc pgx.CopyFromSource) (int64, error) {
+				var count int64
+				for rowSrc.Next() {
+					count++
+				}
+				return count, rowSrc.Err()
+			},
+		}
+		db := &mockTxDBTX{
+			beginFn: func(context.Context) (pgx.Tx, error) {
+				return tx, nil
+			},
+		}
+		q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
+
+		inserted, err := q.EnqueueBatch(ctx, []*domain.JobRun{{
+			ID:          "run-delayed",
+			JobID:       "job-a",
+			ProjectID:   "project-a",
+			ScheduledAt: &future,
+		}})
+
+		require.ErrorContains(t, err, "pgque enqueue batch: commit")
+		require.ErrorIs(t, err, wantErr)
+		require.Zero(t, inserted)
+		require.Equal(t, 1, tx.commitCalls)
+		require.Equal(t, 1, tx.rollbackCalls)
+	})
+}
+
+func TestNormalizePgQueEnqueueStatus(t *testing.T) {
+	t.Run("nil run", func(t *testing.T) {
+		require.False(t, normalizePgQueEnqueueStatus(nil))
+	})
+
+	t.Run("terminal run is not ready", func(t *testing.T) {
+		run := &domain.JobRun{Status: domain.StatusCompleted}
+
+		require.False(t, normalizePgQueEnqueueStatus(run))
+		require.Equal(t, domain.StatusCompleted, run.Status)
+	})
+
+	t.Run("blank status becomes queued", func(t *testing.T) {
+		run := &domain.JobRun{}
+
+		require.True(t, normalizePgQueEnqueueStatus(run))
+		require.Equal(t, domain.StatusQueued, run.Status)
+	})
+
+	t.Run("future schedule becomes delayed", func(t *testing.T) {
+		future := time.Now().Add(time.Hour)
+		run := &domain.JobRun{ScheduledAt: &future}
+
+		require.False(t, normalizePgQueEnqueueStatus(run))
+		require.Equal(t, domain.StatusDelayed, run.Status)
+	})
+
+	t.Run("past schedule stays queued", func(t *testing.T) {
+		past := time.Now().Add(-time.Hour)
+		run := &domain.JobRun{ScheduledAt: &past}
+
+		require.True(t, normalizePgQueEnqueueStatus(run))
+		require.Equal(t, domain.StatusQueued, run.Status)
+	})
+}
+
 func TestPgQueEnqueueExistingSendsReadyEventForQueuedRun(t *testing.T) {
 	ctx := context.Background()
 	var sentPayload string
@@ -4291,6 +4756,7 @@ type readyMockTx struct {
 	queryFn       func(context.Context, string, ...any) (pgx.Rows, error)
 	execFn        func(context.Context, string, ...any) (pgconn.CommandTag, error)
 	queryRowFn    func(context.Context, string, ...any) pgx.Row
+	copyFromFn    func(context.Context, pgx.Identifier, []string, pgx.CopyFromSource) (int64, error)
 	commitErr     error
 	rollbackErr   error
 	batchResults  pgx.BatchResults
@@ -4308,7 +4774,15 @@ func (m *readyMockTx) Rollback(context.Context) error {
 	m.rollbackCalls++
 	return m.rollbackErr
 }
-func (m *readyMockTx) CopyFrom(context.Context, pgx.Identifier, []string, pgx.CopyFromSource) (int64, error) {
+func (m *readyMockTx) CopyFrom(
+	ctx context.Context,
+	tableName pgx.Identifier,
+	columnNames []string,
+	rowSrc pgx.CopyFromSource,
+) (int64, error) {
+	if m.copyFromFn != nil {
+		return m.copyFromFn(ctx, tableName, columnNames, rowSrc)
+	}
 	return 0, nil
 }
 func (m *readyMockTx) SendBatch(_ context.Context, b *pgx.Batch) pgx.BatchResults {
