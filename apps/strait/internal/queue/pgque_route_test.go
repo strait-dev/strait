@@ -2,6 +2,7 @@ package queue
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"strings"
 	"testing"
@@ -10,6 +11,7 @@ import (
 	"strait/internal/domain"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/require"
 )
 
@@ -330,6 +332,32 @@ func TestPgQueWorkerRouteKeysCachesMultiRefLookups(t *testing.T) {
 	require.Equal(t, 2, queryCount)
 }
 
+func TestPgQueWorkerJobRouteNoRowsPropagatesRowsError(t *testing.T) {
+	t.Parallel()
+
+	wantErr := errors.New("rows failed")
+	db := &mockDBTX{
+		queryFn: func(context.Context, string, ...any) (pgx.Rows, error) {
+			return routeErrorRows{err: wantErr}, nil
+		},
+	}
+	q := NewPgQueQueue(db, nil, PgQueConfig{})
+
+	route, ok, err := q.workerJobRoute(context.Background(), db, "job-missing")
+	require.ErrorContains(t, err, "pgque worker route rows")
+	require.ErrorIs(t, err, wantErr)
+	require.False(t, ok)
+	require.Equal(t, pgQueWorkerJobRoute{}, route)
+}
+
+func TestRouteSeenCapacityIncludesExistingRoutesAndCandidates(t *testing.T) {
+	t.Parallel()
+
+	routes := []string{"route-a", "route-b"}
+	candidates := []string{"route-c", "route-d", "route-e"}
+	require.Equal(t, 5, routeSeenCapacity(routes, candidates))
+}
+
 func BenchmarkPgQueWorkerRouteKeysWildcardCached(b *testing.B) {
 	ctx := context.Background()
 	prefix := pgQueWorkerRouteKey("project-a", "priority", "")
@@ -500,3 +528,25 @@ func TestPgQueWorkerRouteKeysReloadsExpiredWildcardCache(t *testing.T) {
 			want))
 	require.Equal(t, 2, queryCount)
 }
+
+type routeErrorRows struct {
+	err error
+}
+
+func (r routeErrorRows) Close() {}
+
+func (r routeErrorRows) Err() error { return r.err }
+
+func (r routeErrorRows) CommandTag() pgconn.CommandTag { return pgconn.CommandTag{} }
+
+func (r routeErrorRows) FieldDescriptions() []pgconn.FieldDescription { return nil }
+
+func (r routeErrorRows) Next() bool { return false }
+
+func (r routeErrorRows) Scan(...any) error { return errors.New("routeErrorRows: unexpected scan") }
+
+func (r routeErrorRows) Values() ([]any, error) { return nil, nil }
+
+func (r routeErrorRows) RawValues() [][]byte { return nil }
+
+func (r routeErrorRows) Conn() *pgx.Conn { return nil }
