@@ -69,6 +69,7 @@ func (m *mockAdvisoryLocker) ReleaseAdvisoryLock(ctx context.Context, lockID int
 func TestStatsAggregator_AggregatesPreviousHour(t *testing.T) {
 	t.Parallel()
 
+	now := time.Date(2026, 6, 18, 14, 37, 0, 0, time.UTC)
 	var aggregatedHour time.Time
 	var called atomic.Int32
 	store := &mockStatsStore{
@@ -79,24 +80,18 @@ func TestStatsAggregator_AggregatesPreviousHour(t *testing.T) {
 		},
 	}
 
-	// Create aggregator and run the task function directly (without the maintenance loop).
 	a := NewStatsAggregator(store)
+	a.now = func() time.Time { return now }
+	a.runCycle(context.Background())
 
-	// Simulate what the maintenance loop callback does.
-	previousHour := time.Now().Add(-time.Hour).Truncate(time.Hour)
-	require.NoError(t,
-		a.store.AggregateHourlyStats(context.
-			Background(), previousHour))
 	require.EqualValues(t, 1,
 		called.Load())
 	require.True(t, aggregatedHour.
-		Equal(previousHour))
+		Equal(now.Add(-time.Hour).Truncate(time.Hour)))
 	require.False(t, aggregatedHour.
 		Minute() !=
 		0 || aggregatedHour.
 		Second() != 0)
-
-	// Verify hour is truncated.
 }
 
 func TestStatsAggregator_LockNotAcquired_Skips(t *testing.T) {
@@ -112,22 +107,34 @@ func TestStatsAggregator_LockNotAcquired_Skips(t *testing.T) {
 
 	a := NewStatsAggregator(store).WithAdvisoryLocker(&mockAdvisoryLocker{
 		acquireFn: func(context.Context, int64) (bool, error) {
-			return false, nil // lock held by another instance
+			return false, nil
 		},
 	})
 
-	// Run with a context that cancels after one tick.
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-	defer cancel()
-	require.Equal(t, int64(0x5374726169745361),
+	a.runCycle(context.Background())
 
-		statsAggregatorLockID,
-	)
+	require.EqualValues(t, 0, called.Load())
+}
 
-	// We can't easily test Run() because it blocks, but we can verify the lock ID is correct.
+func TestStatsAggregator_LockErrorSkipsAggregation(t *testing.T) {
+	t.Parallel()
 
-	_ = ctx
-	_ = a
+	var called atomic.Int32
+	store := &mockStatsStore{
+		aggregateFn: func(context.Context, time.Time) error {
+			called.Add(1)
+			return nil
+		},
+	}
+	a := NewStatsAggregator(store).WithAdvisoryLocker(&mockAdvisoryLocker{
+		acquireFn: func(context.Context, int64) (bool, error) {
+			return false, errors.New("lock unavailable")
+		},
+	})
+
+	a.runCycle(context.Background())
+
+	require.EqualValues(t, 0, called.Load())
 }
 
 func TestStatsAggregator_RetriesFailedHourAfterClockAdvances(t *testing.T) {
