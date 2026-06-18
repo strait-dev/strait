@@ -82,7 +82,7 @@ full mutation run with the default bounded settings:
 | `./internal/queue` | 515 | 262 | Broad queue surface; split by backpressure, retry, route selection, PgQue claim/dequeue/ready, and metrics helpers before a full run. |
 | `./internal/scheduler` | 995 | 243 | Broad scheduler surface; split by reapers, batch flusher, monitors, usage emailers, and reconciliation helpers before a full run. |
 | `./internal/store` | 402 | 2155 | Store package has many DB accessors with little direct self-coverage; target stable store areas with integration-backed tests before a full run. |
-| `./internal/testutil` | 15 | 251 | Test helper package has little direct self-coverage; target only stable helpers before considering a package-level gate. |
+| `./internal/testutil` | 15 | 251 | Test helper package has little direct self-coverage; existing testcrypto and pgxslow runnable helper slices are clean with 15 killed mutants. Remaining gaps are mostly DB, Redis, factory, and assertion helper setup paths. |
 | `./internal/worker` | 997 | 0 | Baseline package tests take about two minutes, so a full one-worker mutation run needs separate scheduling. |
 
 ## Current clean packages
