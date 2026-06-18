@@ -683,6 +683,152 @@ func TestSelectPgQueClaimCandidates(t *testing.T) {
 			Candidates, 2)
 }
 
+func TestClaimReservedCandidatesEmptySkipsClaim(t *testing.T) {
+	t.Parallel()
+
+	q := NewPgQueQueue(&mockDBTX{
+		queryFn: func(context.Context, string, ...any) (pgx.Rows, error) {
+			t.Fatal("empty candidate set must not query claims")
+			return nil, nil
+		},
+	}, nil, PgQueConfig{})
+
+	runs, unclaimed, retry, err := q.claimReservedCandidates(context.Background(), nil, 1, pgQueClaimFilter{})
+	require.NoError(t, err)
+	require.Nil(t, runs)
+	require.Nil(t, unclaimed)
+	require.False(t, retry)
+}
+
+func TestClaimReservedCandidatesReturnsRetryableSelectionWhenNothingClaimed(t *testing.T) {
+	t.Parallel()
+
+	q := NewPgQueQueue(&mockDBTX{
+		queryFn: func(context.Context, string, ...any) (pgx.Rows, error) {
+			return routeErrorRows{}, nil
+		},
+	}, nil, PgQueConfig{})
+	candidates := []pgQueCandidate{
+		{Event: pgQueReadyEvent{RunID: "run-1", Generation: 1}},
+		{Event: pgQueReadyEvent{RunID: "run-2", Generation: 2}},
+	}
+
+	runs, unclaimed, retry, err := q.claimReservedCandidates(context.Background(), candidates, 1, pgQueClaimFilter{})
+	require.NoError(t, err)
+	require.Nil(t, runs)
+	require.True(t, retry)
+	require.Len(t, unclaimed, 1)
+	require.Equal(t, "run-1", unclaimed[0].Event.RunID)
+}
+
+func TestClaimReservedCandidatesPropagatesClaimError(t *testing.T) {
+	t.Parallel()
+
+	wantErr := errors.New("claim failed")
+	q := NewPgQueQueue(&mockDBTX{
+		queryFn: func(context.Context, string, ...any) (pgx.Rows, error) {
+			return nil, wantErr
+		},
+	}, nil, PgQueConfig{})
+	candidates := []pgQueCandidate{{Event: pgQueReadyEvent{RunID: "run-1", Generation: 1}}}
+
+	runs, unclaimed, retry, err := q.claimReservedCandidates(context.Background(), candidates, 1, pgQueClaimFilter{})
+	require.ErrorIs(t, err, wantErr)
+	require.Nil(t, runs)
+	require.Nil(t, unclaimed)
+	require.False(t, retry)
+}
+
+func TestClaimRunsValidatesRequestShape(t *testing.T) {
+	t.Parallel()
+
+	q := NewPgQueQueue(&mockDBTX{
+		queryFn: func(context.Context, string, ...any) (pgx.Rows, error) {
+			t.Fatal("invalid request must not query claims")
+			return nil, nil
+		},
+	}, nil, PgQueConfig{})
+
+	runs, err := q.claimRuns(context.Background(), pgQueClaimRunRequest{})
+	require.NoError(t, err)
+	require.Nil(t, runs)
+
+	runs, err = q.claimRuns(context.Background(), pgQueClaimRunRequest{
+		RunIDs:      []string{"run-1"},
+		Generations: nil,
+		Limit:       1,
+	})
+	require.ErrorContains(t, err, "mismatched id/generation counts")
+	require.Nil(t, runs)
+}
+
+func TestClaimRunsWrapsQueryErrors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name                string
+		hasConcurrencyLimit bool
+		want                string
+	}{
+		{
+			name: "unconstrained",
+			want: "pgque claim unconstrained runs",
+		},
+		{
+			name:                "with concurrency",
+			hasConcurrencyLimit: true,
+			want:                "pgque claim runs",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			wantErr := errors.New("query failed")
+			q := NewPgQueQueue(&mockDBTX{
+				queryFn: func(context.Context, string, ...any) (pgx.Rows, error) {
+					return nil, wantErr
+				},
+			}, nil, PgQueConfig{})
+
+			runs, err := q.claimRuns(context.Background(), pgQueClaimRunRequest{
+				RunIDs:              []string{"run-1"},
+				Generations:         []int64{1},
+				Limit:               1,
+				HasConcurrencyLimit: tt.hasConcurrencyLimit,
+			})
+			require.ErrorContains(t, err, tt.want)
+			require.ErrorIs(t, err, wantErr)
+			require.Nil(t, runs)
+		})
+	}
+}
+
+func TestScanPgQueClaimedRunsWrapsScanAndRowsErrors(t *testing.T) {
+	t.Parallel()
+
+	t.Run("scan error", func(t *testing.T) {
+		t.Parallel()
+
+		wantErr := errors.New("scan failed")
+		runs, err := scanPgQueClaimedRuns(&claimScanErrorRows{err: wantErr}, 1, "claim test")
+		require.ErrorContains(t, err, "claim test scan")
+		require.ErrorIs(t, err, wantErr)
+		require.Nil(t, runs)
+	})
+
+	t.Run("rows error", func(t *testing.T) {
+		t.Parallel()
+
+		wantErr := errors.New("rows failed")
+		runs, err := scanPgQueClaimedRuns(routeErrorRows{err: wantErr}, 1, "claim test")
+		require.ErrorContains(t, err, "claim test rows")
+		require.ErrorIs(t, err, wantErr)
+		require.Nil(t, runs)
+	})
+}
+
 func TestMarshalPgQueReadyEventEscapesFields(t *testing.T) {
 	want := pgQueReadyEvent{
 		RunID:      "run-\"\\\n\u2603",
@@ -2098,6 +2244,27 @@ func (r *pgQueCandidateClaimStateRows) Scan(dest ...any) error {
 func (r *pgQueCandidateClaimStateRows) Values() ([]any, error) { return nil, nil }
 func (r *pgQueCandidateClaimStateRows) RawValues() [][]byte    { return nil }
 func (r *pgQueCandidateClaimStateRows) Conn() *pgx.Conn        { return nil }
+
+type claimScanErrorRows struct {
+	err     error
+	scanned bool
+}
+
+func (r *claimScanErrorRows) Close()                                       {}
+func (r *claimScanErrorRows) Err() error                                   { return nil }
+func (r *claimScanErrorRows) CommandTag() pgconn.CommandTag                { return pgconn.CommandTag{} }
+func (r *claimScanErrorRows) FieldDescriptions() []pgconn.FieldDescription { return nil }
+func (r *claimScanErrorRows) Next() bool {
+	if r.scanned {
+		return false
+	}
+	r.scanned = true
+	return true
+}
+func (r *claimScanErrorRows) Scan(...any) error      { return r.err }
+func (r *claimScanErrorRows) Values() ([]any, error) { return nil, nil }
+func (r *claimScanErrorRows) RawValues() [][]byte    { return nil }
+func (r *claimScanErrorRows) Conn() *pgx.Conn        { return nil }
 
 type pgQueGenerationRows struct {
 	values []pgQueGenerationRow
