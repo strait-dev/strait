@@ -3,6 +3,7 @@ package billing
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"sync"
 	"testing"
 	"time"
@@ -50,6 +51,19 @@ type fakeSLAStore struct {
 	mu        sync.Mutex
 	contracts []EnterpriseContract
 	credits   map[string]SLACreditRow // key = orgID|start|end
+}
+
+type erroringSLAStore struct {
+	*fakeSLAStore
+	cancel context.CancelFunc
+	err    error
+}
+
+func (f *erroringSLAStore) ListEnterpriseContractsOverlappingPeriod(_ context.Context, _, _ time.Time) ([]EnterpriseContract, error) {
+	if f.cancel != nil {
+		f.cancel()
+	}
+	return nil, f.err
 }
 
 func newFakeSLAStore(contracts ...EnterpriseContract) *fakeSLAStore {
@@ -146,6 +160,54 @@ func newTestContract(orgID string, tier EnterpriseTier) EnterpriseContract {
 }
 
 func fixedClock(t time.Time) func() time.Time { return func() time.Time { return t } }
+
+type captureSlogHandler struct {
+	mu      sync.Mutex
+	records []slog.Record
+}
+
+func (h *captureSlogHandler) Enabled(context.Context, slog.Level) bool { return true }
+
+func (h *captureSlogHandler) Handle(_ context.Context, r slog.Record) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.records = append(h.records, r.Clone())
+	return nil
+}
+
+func (h *captureSlogHandler) WithAttrs([]slog.Attr) slog.Handler { return h }
+
+func (h *captureSlogHandler) WithGroup(string) slog.Handler { return h }
+
+func (h *captureSlogHandler) hasMessage(msg string) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for _, record := range h.records {
+		if record.Message == msg {
+			return true
+		}
+	}
+	return false
+}
+
+func TestSLACalculator_RunLogsTickErrors(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	handler := &captureSlogHandler{}
+	store := &erroringSLAStore{
+		fakeSLAStore: newFakeSLAStore(),
+		cancel:       cancel,
+		err:          errors.New("contract listing unavailable"),
+	}
+	calc := NewSLACalculator(store, fakeUptimeSource{pct: 100}, time.Millisecond, slog.New(handler))
+
+	calc.Run(ctx)
+
+	assert.True(t, handler.hasMessage("sla calculator tick failed"))
+}
 
 // 100% uptime → no credit issued, no row inserted.
 func TestSLACalculator_HealthyUptime_NoCredit(t *testing.T) {
@@ -425,6 +487,29 @@ func TestSLACalculator_ClampsOutOfRangeUptime(t *testing.T) {
 			Background()))
 	assert.Equal(t, 0,
 		storeB.count())
+}
+
+func TestClampUptimeBoundaries(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		uptime float64
+		want   float64
+	}{
+		{name: "negative", uptime: -0.01, want: 0},
+		{name: "zero", uptime: 0, want: 0},
+		{name: "inside", uptime: 99.95, want: 99.95},
+		{name: "hundred", uptime: 100, want: 100},
+		{name: "above_hundred", uptime: 100.01, want: 100},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.InDelta(t, tt.want, clampUptime(tt.uptime), 1e-9)
+		})
+	}
 }
 
 // previousCalendarMonth returns the prior month's [start, end) window
