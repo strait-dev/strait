@@ -33,6 +33,23 @@ type usagePeriodCall struct {
 	to    time.Time
 }
 
+type legacyUsageReportStore struct {
+	billing.Store
+	alreadySent bool
+	hasSentErr  error
+	recordErr   error
+	recordCalls int
+}
+
+func (s *legacyUsageReportStore) HasSentUsageReport(context.Context, string, time.Time) (bool, error) {
+	return s.alreadySent, s.hasSentErr
+}
+
+func (s *legacyUsageReportStore) RecordSentUsageReport(context.Context, string, time.Time) error {
+	s.recordCalls++
+	return s.recordErr
+}
+
 func (m *mockReportStore) ListAllSubscribedOrgIDs(context.Context) ([]string, error) {
 	return m.orgIDs, nil
 }
@@ -596,6 +613,60 @@ func TestUsageReportEmailer_ClaimPreventsDuplicateEmailSideEffect(t *testing.T) 
 	require.Len(t, emailAPI.
 		sent,
 		1)
+}
+
+func TestUsageReportEmailer_ClaimReportSendLegacyStore(t *testing.T) {
+	t.Parallel()
+
+	periodEnd := time.Date(2026, 5, 31, 0, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name            string
+		store           *legacyUsageReportStore
+		wantClaimed     bool
+		wantErrContains string
+		wantRecordCalls int
+	}{
+		{
+			name:            "has sent error",
+			store:           &legacyUsageReportStore{hasSentErr: errors.New("read failed")},
+			wantErrContains: "read failed",
+		},
+		{
+			name:        "already sent",
+			store:       &legacyUsageReportStore{alreadySent: true},
+			wantClaimed: false,
+		},
+		{
+			name:            "record error",
+			store:           &legacyUsageReportStore{recordErr: errors.New("record failed")},
+			wantErrContains: "record failed",
+			wantRecordCalls: 1,
+		},
+		{
+			name:            "claim recorded",
+			store:           &legacyUsageReportStore{},
+			wantClaimed:     true,
+			wantRecordCalls: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			emailer := NewUsageReportEmailer(tt.store, &mockResendAPI{}, "billing@test.dev", time.Hour)
+			claimed, err := emailer.claimReportSend(context.Background(), "org-legacy", periodEnd)
+
+			if tt.wantErrContains != "" {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tt.wantErrContains)
+			} else {
+				require.NoError(t, err)
+			}
+			assert.Equal(t, tt.wantClaimed, claimed)
+			assert.Equal(t, tt.wantRecordCalls, tt.store.recordCalls)
+		})
+	}
 }
 
 func TestUsageReportEmailer_FinalizesClaimOnlyAfterSuccessfulSend(t *testing.T) {
