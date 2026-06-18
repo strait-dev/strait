@@ -2,10 +2,13 @@ package billing
 
 import (
 	"context"
+	"errors"
+	"log/slog"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/resend/resend-go/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -78,13 +81,20 @@ func TestBillingEmailSender_NilSafety(t *testing.T) {
 	s.SendPlanChanged(context.Background(), nil, "", "")
 	s.SendEnterpriseContractReminder(context.Background(), nil, "", true, 30)
 	s.SendDowngradeHTTPJobsWarning(context.Background(), nil, "", 0)
+	s.SendContractExpired(context.Background(), nil, "")
+	s.SendTrialEndingSoon(context.Background(), nil, "", 0)
+	s.SendDisputeAlert(context.Background(), nil, "")
+	s.SendInvoiceUpcoming(context.Background(), nil, "", "")
+	s.SendDunningStep(context.Background(), nil, "", 0)
 }
 
 func TestBillingEmailSender_EmptyRecipients(t *testing.T) {
 	t.Parallel()
-	s := NewBillingEmailSender("re_test_key", "", nil)
-	require.NotNil(t,
-		s)
+	calls := 0
+	s := testBillingEmailSender(func(context.Context, *resend.SendEmailRequest) error {
+		calls++
+		return nil
+	})
 
 	// Empty to slice should not panic or send.
 	s.SendSpendingLimitWarning(context.Background(), []string{}, "Pro", "$50", "$100", "80%")
@@ -93,6 +103,12 @@ func TestBillingEmailSender_EmptyRecipients(t *testing.T) {
 	s.SendPlanChanged(context.Background(), []string{}, "Pro", "Scale")
 	s.SendEnterpriseContractReminder(context.Background(), []string{}, "2026-12-31", false, 30)
 	s.SendDowngradeHTTPJobsWarning(context.Background(), []string{}, "2026-05-01", 3)
+	s.SendContractExpired(context.Background(), []string{}, "2026-12-31")
+	s.SendTrialEndingSoon(context.Background(), []string{}, "2026-12-31", 7)
+	s.SendDisputeAlert(context.Background(), []string{}, "$25.00")
+	s.SendInvoiceUpcoming(context.Background(), []string{}, "$100.00", "2026-05-01")
+	s.SendDunningStep(context.Background(), []string{}, "Pro", 1)
+	assert.Zero(t, calls)
 }
 
 func TestNewBillingEmailSender_DefaultFromEmail(t *testing.T) {
@@ -124,6 +140,166 @@ func TestDowngradeHTTPJobsWarningHTML_EscapesHTML(t *testing.T) {
 	html := downgradeHTTPJobsWarningHTML("<script>alert(1)</script>", 3)
 	require.NotContains(t,
 		html, "<script>")
+}
+
+func TestBillingEmailSender_SendsExpectedMessages(t *testing.T) {
+	t.Parallel()
+
+	graceEnd := time.Date(2026, time.April, 15, 12, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name         string
+		send         func(*BillingEmailSender)
+		wantSubject  string
+		wantContains []string
+	}{
+		{
+			name: "spending limit warning",
+			send: func(sender *BillingEmailSender) {
+				sender.SendSpendingLimitWarning(context.Background(), []string{"admin@example.com"}, "Pro", "$80.00", "$100.00", "80%")
+			},
+			wantSubject:  "Spending limit warning - 80% used",
+			wantContains: []string{"Pro", "$80.00", "$100.00", "80%"},
+		},
+		{
+			name: "overage alert",
+			send: func(sender *BillingEmailSender) {
+				sender.SendOverageAlert(context.Background(), []string{"admin@example.com"}, "Scale", "$25.00", "100000")
+			},
+			wantSubject:  "Overage alert - Scale plan",
+			wantContains: []string{"Scale", "$25.00", "100000"},
+		},
+		{
+			name: "payment failed",
+			send: func(sender *BillingEmailSender) {
+				sender.SendPaymentFailed(context.Background(), []string{"admin@example.com"}, "Starter", graceEnd)
+			},
+			wantSubject:  "Action required: payment failed",
+			wantContains: []string{"Starter", "April 15, 2026"},
+		},
+		{
+			name: "plan changed",
+			send: func(sender *BillingEmailSender) {
+				sender.SendPlanChanged(context.Background(), []string{"admin@example.com"}, "Starter", "Pro")
+			},
+			wantSubject:  "Plan changed to Pro",
+			wantContains: []string{"Starter", "Pro"},
+		},
+		{
+			name: "contract renewal",
+			send: func(sender *BillingEmailSender) {
+				sender.SendEnterpriseContractReminder(context.Background(), []string{"admin@example.com"}, "2026-12-31", true, 30)
+			},
+			wantSubject:  "Enterprise contract renewing in 30 days",
+			wantContains: []string{"2026-12-31", "auto-renew"},
+		},
+		{
+			name: "contract expiry",
+			send: func(sender *BillingEmailSender) {
+				sender.SendEnterpriseContractReminder(context.Background(), []string{"admin@example.com"}, "2026-12-31", false, 7)
+			},
+			wantSubject:  "Enterprise contract expiring in 7 days",
+			wantContains: []string{"2026-12-31", "expires"},
+		},
+		{
+			name: "http jobs downgrade",
+			send: func(sender *BillingEmailSender) {
+				sender.SendDowngradeHTTPJobsWarning(context.Background(), []string{"admin@example.com"}, "2026-05-01", 3)
+			},
+			wantSubject:  "Your 3 HTTP-mode jobs will be paused on 2026-05-01",
+			wantContains: []string{"2026-05-01", "3 HTTP-mode job(s)"},
+		},
+		{
+			name: "contract expired",
+			send: func(sender *BillingEmailSender) {
+				sender.SendContractExpired(context.Background(), []string{"admin@example.com"}, "2026-01-31")
+			},
+			wantSubject:  "Your enterprise contract has expired",
+			wantContains: []string{"2026-01-31", "restricted mode"},
+		},
+		{
+			name: "trial ending",
+			send: func(sender *BillingEmailSender) {
+				sender.SendTrialEndingSoon(context.Background(), []string{"admin@example.com"}, "2026-06-30", 5)
+			},
+			wantSubject:  "Temporary access ends in 5 days",
+			wantContains: []string{"2026-06-30", "5 days from now"},
+		},
+		{
+			name: "dispute alert",
+			send: func(sender *BillingEmailSender) {
+				sender.SendDisputeAlert(context.Background(), []string{"admin@example.com"}, "$25.00")
+			},
+			wantSubject:  "Payment dispute received",
+			wantContains: []string{"$25.00", "dispute"},
+		},
+		{
+			name: "invoice upcoming",
+			send: func(sender *BillingEmailSender) {
+				sender.SendInvoiceUpcoming(context.Background(), []string{"admin@example.com"}, "$125.00", "2026-07-01")
+			},
+			wantSubject:  "Upcoming invoice",
+			wantContains: []string{"$125.00", "2026-07-01"},
+		},
+		{
+			name: "dunning step",
+			send: func(sender *BillingEmailSender) {
+				sender.SendDunningStep(context.Background(), []string{"admin@example.com"}, "Business", 4)
+			},
+			wantSubject:  "Access restricted — payment required",
+			wantContains: []string{"Business", "restricted mode"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			var got *resend.SendEmailRequest
+			sender := testBillingEmailSender(func(_ context.Context, req *resend.SendEmailRequest) error {
+				got = req
+				return nil
+			})
+
+			tc.send(sender)
+
+			require.NotNil(t, got)
+			assert.Equal(t, "billing@example.com", got.From)
+			assert.Equal(t, []string{"admin@example.com"}, got.To)
+			assert.Equal(t, tc.wantSubject, got.Subject)
+			for _, want := range tc.wantContains {
+				assert.Contains(t, got.Html, want)
+			}
+		})
+	}
+}
+
+func TestBillingEmailSender_SendHandlesTransportEdges(t *testing.T) {
+	t.Parallel()
+
+	noTransport := &BillingEmailSender{
+		fromEmail: "billing@example.com",
+		logger:    slog.New(slog.DiscardHandler),
+	}
+	assert.NotPanics(t, func() {
+		noTransport.SendDisputeAlert(context.Background(), []string{"admin@example.com"}, "$25.00")
+	})
+
+	sendErr := errors.New("resend unavailable")
+	failing := testBillingEmailSender(func(context.Context, *resend.SendEmailRequest) error {
+		return sendErr
+	})
+	failing.logger = nil
+	assert.NotPanics(t, func() {
+		failing.SendInvoiceUpcoming(context.Background(), []string{"admin@example.com"}, "$125.00", "2026-07-01")
+	})
+}
+
+func testBillingEmailSender(send billingEmailSendFunc) *BillingEmailSender {
+	return &BillingEmailSender{
+		fromEmail: "billing@example.com",
+		logger:    slog.New(slog.DiscardHandler),
+		sendEmail: send,
+	}
 }
 
 func FuzzBillingEmailHTML(f *testing.F) {
