@@ -88,6 +88,25 @@ func TestDispatchBillingWebhook_PayloadShape(t *testing.T) {
 		env.Detail["spend_pct"])
 }
 
+func TestBillingWebhookMaxPayloadBytes_MatchesWebhookCeiling(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, 64*1024, BillingWebhookMaxPayloadBytes)
+}
+
+func TestDispatchBillingWebhook_RejectsOversizedPayload(t *testing.T) {
+	t.Parallel()
+
+	d := &fakeDispatcher{}
+	err := DispatchBillingWebhook(context.Background(), d,
+		"org_oversized", domain.PlanPro, domain.WebhookEventBillingCapReached,
+		map[string]any{"blob": string(make([]byte, BillingWebhookMaxPayloadBytes))},
+	)
+	require.Error(t, err)
+	require.ErrorContains(t, err, "exceeds 65536-byte cap")
+	assert.Empty(t, d.calls)
+}
+
 func TestDispatchBillingWebhook_PropagatesDispatcherError(t *testing.T) {
 	t.Parallel()
 
