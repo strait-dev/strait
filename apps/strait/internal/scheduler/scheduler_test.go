@@ -1,9 +1,12 @@
 package scheduler
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
+	"sync"
 	"testing"
 	"time"
 
@@ -15,6 +18,23 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+type lockedTestBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *lockedTestBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *lockedTestBuffer) Contains(substr string) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return bytes.Contains(b.buf.Bytes(), []byte(substr))
+}
 
 type mockSchedulerStore struct {
 	cron   *mockCronStore
@@ -513,6 +533,65 @@ func TestScheduler_Start_LoadJobsError(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.
 		Error(), "load cron jobs")
+}
+
+func TestScheduler_RunCronReloader_LogsReloadError(t *testing.T) {
+	var logs lockedTestBuffer
+	prevLogger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	t.Cleanup(func() {
+		slog.SetDefault(prevLogger)
+	})
+
+	reloadErr := errors.New("reload failed")
+	reloadCalls := make(chan struct{}, 1)
+	store := &mockSchedulerStore{
+		cron: &mockCronStore{
+			listCronJobsFn: func(context.Context) ([]domain.Job, error) {
+				select {
+				case reloadCalls <- struct{}{}:
+				default:
+				}
+				return nil, reloadErr
+			},
+		},
+		poller: &mockPollerStore{},
+		reaper: &mockReaperStore{},
+		index:  &mockIndexMaintenanceStore{},
+	}
+
+	s := New(
+		context.Background(),
+		testSchedulerConfig(),
+		store,
+		&mockQueue{},
+		nil,
+		nil,
+		WithCronReloadInterval(time.Millisecond),
+	)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		s.runCronReloader(ctx)
+		close(done)
+	}()
+
+	select {
+	case <-reloadCalls:
+	case <-time.After(time.Second):
+		cancel()
+		require.Fail(t, "cron reloader did not attempt reload")
+	}
+	require.Eventually(t, func() bool {
+		return logs.Contains("cron reload failed")
+	}, time.Second, time.Millisecond)
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		require.Fail(t, "cron reloader did not stop after context cancellation")
+	}
 }
 
 func TestScheduler_Stop(t *testing.T) {
