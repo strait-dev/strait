@@ -72,6 +72,25 @@ func TestAuditEmitHarness_WaitDrainWaitsForInFlightEvent(t *testing.T) {
 			Second))
 }
 
+func TestAuditEmitHarness_LatencyPercentileBoundaries(t *testing.T) {
+	t.Parallel()
+
+	h := NewAuditEmitHarness(NewMemoryAuditStore(), nil, AuditEmitHarnessConfig{
+		LatencySamples: 3,
+	})
+
+	require.Zero(t, h.LatencyPercentile(50))
+	require.Zero(t, h.LatencyPercentile(0))
+	require.Zero(t, h.LatencyPercentile(101))
+
+	h.recordLatency(time.Millisecond)
+	h.recordLatency(2 * time.Millisecond)
+	h.recordLatency(3 * time.Millisecond)
+
+	require.Equal(t, 2*time.Millisecond, h.LatencyPercentile(50))
+	require.Equal(t, 3*time.Millisecond, h.LatencyPercentile(100))
+}
+
 func TestAuditEmitHarness_ConcurrentEmitAndStopDoesNotPanic(t *testing.T) {
 	var concWG conc.WaitGroup
 	defer concWG.Wait()
