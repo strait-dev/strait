@@ -17,7 +17,9 @@ Environment:
   GREMLINS_TEST_CPU             CPUs available to each go test process. Default: 1
   GREMLINS_TIMEOUT_COEFFICIENT  Test timeout multiplier. Default: 60
   GREMLINS_OUTPUT_DIR           JSON output directory. Default: .cache/gremlins
+  GREMLINS_OUTPUT_LABEL         Optional output filename suffix for package slices.
   GREMLINS_OUTPUT_STATUSES      Optional stdout status filter, such as lctv.
+  GREMLINS_EXCLUDE_FILES        Optional comma-separated filepath regexes to exclude.
   GREMLINS_DRY_RUN              Set to 1 to discover mutants without testing.
   GREMLINS_TAGS                 Optional comma-separated Go build tags.
 USAGE
@@ -33,7 +35,9 @@ workers="${GREMLINS_WORKERS:-1}"
 test_cpu="${GREMLINS_TEST_CPU:-1}"
 timeout_coefficient="${GREMLINS_TIMEOUT_COEFFICIENT:-60}"
 output_dir="${GREMLINS_OUTPUT_DIR:-.cache/gremlins}"
+output_label="${GREMLINS_OUTPUT_LABEL:-}"
 output_statuses="${GREMLINS_OUTPUT_STATUSES:-}"
+exclude_files="${GREMLINS_EXCLUDE_FILES:-}"
 dry_run="${GREMLINS_DRY_RUN:-0}"
 tags="${GREMLINS_TAGS:-}"
 
@@ -70,6 +74,23 @@ if (( timeout_coefficient < 1 )); then
   exit 2
 fi
 
+if [[ -n "$output_label" && ! "$output_label" =~ ^[A-Za-z0-9_.-]+$ ]]; then
+  echo "GREMLINS_OUTPUT_LABEL may only contain letters, numbers, dots, underscores, and hyphens" >&2
+  exit 2
+fi
+
+exclude_args=()
+if [[ -n "$exclude_files" ]]; then
+  IFS=',' read -r -a exclude_patterns <<< "$exclude_files"
+  for pattern in "${exclude_patterns[@]}"; do
+    if [[ -z "$pattern" ]]; then
+      echo "GREMLINS_EXCLUDE_FILES contains an empty pattern" >&2
+      exit 2
+    fi
+    exclude_args+=("--exclude-files=${pattern}")
+  done
+fi
+
 mkdir -p "$output_dir"
 
 for pkg in "$@"; do
@@ -84,6 +105,9 @@ for pkg in "$@"; do
   fi
 
   safe_pkg="$(printf '%s' "$pkg" | sed -E 's#^\./##; s#[^A-Za-z0-9_.-]+#_#g; s#_+$##')"
+  if [[ -n "$output_label" ]]; then
+    safe_pkg="${safe_pkg}_${output_label}"
+  fi
   output_file="${output_dir}/gremlins_${safe_pkg}.json"
 
   args=(
@@ -103,6 +127,9 @@ for pkg in "$@"; do
   fi
   if [[ -n "$tags" ]]; then
     args+=("--tags=${tags}")
+  fi
+  if (( ${#exclude_args[@]} > 0 )); then
+    args+=("${exclude_args[@]}")
   fi
 
   args+=("$pkg")

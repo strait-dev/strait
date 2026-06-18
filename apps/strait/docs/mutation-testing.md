@@ -39,12 +39,19 @@ Useful overrides:
 GREMLINS_WORKERS=2 ./scripts/mutation-test.sh ./internal/errors
 GREMLINS_OUTPUT_STATUSES=lctv ./scripts/mutation-test.sh ./internal/errors
 GREMLINS_TAGS=cloud ./scripts/mutation-test.sh ./internal/billing
+GREMLINS_OUTPUT_LABEL=route \
+  GREMLINS_EXCLUDE_FILES='pgque_dequeue.go,pgque_ready.go' \
+  ./scripts/mutation-test.sh ./internal/queue
 ```
 
 Keep `GREMLINS_WORKERS` and `GREMLINS_TEST_CPU` low. If a package times out
 because its baseline tests are very fast relative to Go startup and compile
 time, raise `GREMLINS_TIMEOUT_COEFFICIENT` for that package before treating the
 timeouts as real findings.
+For broad packages, use `GREMLINS_EXCLUDE_FILES` with filepath regexes to run a
+bounded file slice while keeping the package argument explicit. Set
+`GREMLINS_OUTPUT_LABEL` for every slice so the JSON result does not overwrite
+the package-level result.
 
 ## Package rollout
 
@@ -72,6 +79,9 @@ full mutation run with the default bounded settings:
 | `./internal/api/grpc` | 278 | 248 | Broad worker-plane surface; split by auth, registry, dispatch, stream, and server helpers before a full run. |
 | `./internal/billing` | 1060 | 453 | Large default-edition surface; split by entitlement, enforcement, webhook, usage, and email subareas before a full run. |
 | `./internal/loadtest` | 266 | 667 | Broad load-test harness surface; split by reporting, runtime profiles, scenarios, and server helpers before a full run. |
+| `./internal/queue` | 515 | 262 | Broad queue surface; split by backpressure, retry, route selection, PgQue claim/dequeue/ready, and metrics helpers before a full run. |
+| `./internal/scheduler` | 995 | 243 | Broad scheduler surface; split by reapers, batch flusher, monitors, usage emailers, and reconciliation helpers before a full run. |
+| `./internal/store` | 402 | 2155 | Store package has many DB accessors with little direct self-coverage; target stable store areas with integration-backed tests before a full run. |
 | `./internal/testutil` | 15 | 251 | Test helper package has little direct self-coverage; target only stable helpers before considering a package-level gate. |
 | `./internal/worker` | 997 | 0 | Baseline package tests take about two minutes, so a full one-worker mutation run needs separate scheduling. |
 
