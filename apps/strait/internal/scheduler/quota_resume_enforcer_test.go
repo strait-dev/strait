@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -142,4 +143,18 @@ func TestQuotaResumeEnforcer_DoesNotMarkPeriodResumedWhenNoRowsMatched(t *testin
 	require.False(t, len(store.boundaries) !=
 		2 || !store.boundaries[0].
 		Equal(periodEnd) || !store.boundaries[1].Equal(periodEnd))
+}
+
+func TestQuotaResumeEnforcer_AdvisoryLockErrorSkipsStore(t *testing.T) {
+	t.Parallel()
+
+	store := &mockQuotaResumeStore{orgIDs: []string{"org-1"}}
+	enforcer := NewQuotaResumeEnforcer(store, nil, time.Minute).WithAdvisoryLocker(&mockAdvisoryLocker{
+		acquireFn: func(context.Context, int64) (bool, error) {
+			return false, errors.New("lock unavailable")
+		},
+	})
+
+	enforcer.enforce(context.Background())
+	require.Equal(t, 0, store.unpauseCalls)
 }
