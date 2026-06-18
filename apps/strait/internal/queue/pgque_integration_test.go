@@ -109,10 +109,14 @@ func TestPgQue_EnqueueInTxWorkerRunOnFreshRouteIsClaimable(t *testing.T) {
 	}
 	require.NoError(t, tx.Commit(ctx))
 
-	claimed, err := q.DequeueNForWorkerQueues(ctx, 1, []domain.WorkerQueueRef{{
-		ProjectID: projectID,
-		QueueName: "tx-worker",
-	}})
+	var claimed []domain.JobRun
+	require.Eventually(t, func() bool {
+		claimed, err = q.DequeueNForWorkerQueues(ctx, 1, []domain.WorkerQueueRef{{
+			ProjectID: projectID,
+			QueueName: "tx-worker",
+		}})
+		return err == nil && len(claimed) == 1
+	}, 5*time.Second, 25*time.Millisecond)
 	require.NoError(t, err)
 	require.Len(t, claimed,
 
