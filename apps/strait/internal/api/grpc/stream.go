@@ -405,6 +405,9 @@ func (s *workerService) registerWorkerStream(
 }
 
 func workerRegistrationFromFirstMessage(msg *workerv1.WorkerMessage) (*workerv1.WorkerRegistration, error) {
+	if msg == nil {
+		return nil, status.Error(codes.InvalidArgument, "first message must be WorkerRegistration")
+	}
 	regPayload, ok := msg.Payload.(*workerv1.WorkerMessage_Registration)
 	if !ok || regPayload.Registration == nil {
 		return nil, status.Error(codes.InvalidArgument, "first message must be WorkerRegistration")
