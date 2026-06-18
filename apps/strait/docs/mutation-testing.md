@@ -76,7 +76,7 @@ full mutation run with the default bounded settings:
 | Package | Dry-run runnable mutants | Not covered | Notes |
 | --- | ---: | ---: | --- |
 | `./cmd/strait` | 0 | 382 | Entrypoint wiring is not covered by current tests; needs command/service harness work before full mutation testing is useful. |
-| `./internal/api/grpc` | 278 | 248 | Broad worker-plane surface; split by auth, registry, dispatch, stream, and server helpers before a full run. |
+| `./internal/api/grpc` | 280 | 246 | Broad worker-plane surface; worker metrics helper slice is clean with 4 killed mutants. Continue splitting by auth, registry, dispatch, stream, and server helpers before a full run. |
 | `./internal/billing` | 1060 | 453 | Large default-edition surface; split by entitlement, enforcement, webhook, usage, and email subareas before a full run. |
 | `./internal/loadtest` | 295 | 638 | Broad load-test harness surface; untagged runtime profile, audit emit harness, queue bloat gate, queue benchmark report, and performance baseline report helper slices are clean with 295 killed mutants. Remaining gaps are mostly build-tagged reporting, scenarios, and server helpers. |
 | `./internal/queue` | 515 | 262 | Broad queue surface; split by backpressure, retry, route selection, PgQue claim/dequeue/ready, and metrics helpers before a full run. |
