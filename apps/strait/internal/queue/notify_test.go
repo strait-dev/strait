@@ -12,14 +12,14 @@ func TestQueueNotifier_BackoffDelay_ExponentialGrowth(t *testing.T) {
 
 	n := &QueueNotifier{
 		initialDelay: time.Second,
-		maxDelay:     30 * time.Second,
+		maxDelay:     defaultMaxReconnectDelay(),
 	}
 
 	// Sample many times to account for jitter.
 	for attempt := range 6 {
 		expectedBase := min(
 			time.Duration(float64(time.Second)*float64(int(1)<<attempt)),
-			30*time.Second,
+			defaultMaxReconnectDelay(),
 		)
 
 		minExpected := time.Duration(float64(expectedBase) * 0.75)
@@ -40,7 +40,7 @@ func TestQueueNotifier_BackoffDelay_CappedAtMax(t *testing.T) {
 
 	n := &QueueNotifier{
 		initialDelay: time.Second,
-		maxDelay:     30 * time.Second,
+		maxDelay:     defaultMaxReconnectDelay(),
 	}
 
 	// At attempt 100, the base would be huge without capping.
@@ -49,11 +49,11 @@ func TestQueueNotifier_BackoffDelay_CappedAtMax(t *testing.T) {
 		require.LessOrEqual(t,
 			delay,
 
-			time.Duration(float64(30*time.Second)*1.26))
+			time.Duration(float64(defaultMaxReconnectDelay())*1.26))
 		require.GreaterOrEqual(
 			t,
 
-			delay, time.Duration(float64(30*time.Second)*0.74))
+			delay, time.Duration(float64(defaultMaxReconnectDelay())*0.74))
 
 		// With jitter: max is 30s * 1.25 = 37.5s.
 	}
@@ -64,7 +64,7 @@ func TestQueueNotifier_BackoffDelay_Jitter(t *testing.T) {
 
 	n := &QueueNotifier{
 		initialDelay: time.Second,
-		maxDelay:     30 * time.Second,
+		maxDelay:     defaultMaxReconnectDelay(),
 	}
 
 	// Verify that repeated calls produce varying delays (jitter).
@@ -86,7 +86,7 @@ func TestQueueNotifier_BackoffDelay_AttemptZero(t *testing.T) {
 
 	n := &QueueNotifier{
 		initialDelay: 500 * time.Millisecond,
-		maxDelay:     30 * time.Second,
+		maxDelay:     defaultMaxReconnectDelay(),
 	}
 
 	for range 20 {

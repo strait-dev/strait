@@ -1,11 +1,14 @@
 package queue
 
 import (
+	"context"
+	"errors"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -17,12 +20,31 @@ func TestQueueNotifier_InitialStateIsClean(t *testing.T) {
 	n := NewQueueNotifier("postgres://unused", nil)
 	assert.EqualValues(t, 0, n.Reconnects())
 	assert.EqualValues(t, 0, n.ConnectionAge())
+	assert.Equal(t, defaultInitialDelay, n.initialDelay)
+	assert.Equal(t, defaultMaxReconnectDelay(), n.maxDelay)
+	assert.Equal(t, defaultDegradedAfter(), n.degradedAfter)
+	require.NotNil(t, n.connect)
 
 	select {
 	case <-n.Degraded():
 		assert.Fail(t, "Degraded channel should not be closed on fresh notifier")
 	default:
 	}
+}
+
+func TestQueueNotifier_BackoffDelayUsesJitterAndMaxDelay(t *testing.T) {
+	n := &QueueNotifier{
+		initialDelay: time.Second,
+		maxDelay:     defaultMaxReconnectDelay(),
+	}
+
+	first := n.backoffDelay(0)
+	require.GreaterOrEqual(t, first, 750*time.Millisecond)
+	require.LessOrEqual(t, first, 1250*time.Millisecond)
+
+	capped := n.backoffDelay(10)
+	require.GreaterOrEqual(t, capped, 22*time.Second)
+	require.LessOrEqual(t, capped, 38*time.Second)
 }
 
 func TestQueueNotifier_MarkDegradedIsIdempotent(t *testing.T) {
@@ -213,4 +235,182 @@ func TestQueueNotifier_ConnectionAgeAfterSet(t *testing.T) {
 		ConnectionAge(), 5*
 		time.
 			Millisecond)
+}
+
+func TestQueueNotifierRunHandlesCancellationNilErrorReconnectAndDegraded(t *testing.T) {
+	t.Run("context canceled before listen", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		var connects int
+		n := NewQueueNotifier("postgres://unused", nil)
+		n.connect = func(context.Context, string) (queueNotifyConn, error) {
+			connects++
+			return nil, errors.New("unexpected connect")
+		}
+
+		n.Run(ctx)
+
+		require.Zero(t, connects)
+	})
+
+	t.Run("nil listen error exits", func(t *testing.T) {
+		n := NewQueueNotifier("postgres://unused", nil)
+		n.listen = func(context.Context) (bool, error) {
+			return false, nil
+		}
+
+		n.Run(context.Background())
+
+		require.Zero(t, n.Reconnects())
+	})
+
+	t.Run("successful connection failure records reconnect", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		var calls int
+		n := NewQueueNotifier("postgres://unused", nil)
+		n.initialDelay = time.Nanosecond
+		n.maxDelay = time.Nanosecond
+		n.listen = func(context.Context) (bool, error) {
+			calls++
+			if calls == 1 {
+				return true, errors.New("wait failed")
+			}
+			cancel()
+			return false, context.Canceled
+		}
+
+		n.Run(ctx)
+
+		require.EqualValues(t, 1, n.Reconnects())
+	})
+
+	t.Run("extended failed listen marks degraded", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		n := NewQueueNotifier("postgres://unused", nil)
+		n.initialDelay = time.Nanosecond
+		n.maxDelay = time.Nanosecond
+		n.degradedAfter = time.Nanosecond
+		n.listen = func(context.Context) (bool, error) {
+			return false, errors.New("connect failed")
+		}
+
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			n.Run(ctx)
+		}()
+
+		select {
+		case <-n.Degraded():
+		case <-time.After(time.Second):
+			t.Fatal("timed out waiting for degraded notifier")
+		}
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Fatal("timed out waiting for notifier shutdown")
+		}
+	})
+}
+
+func TestQueueNotifierListenLoopHandlesConnectListenWaitAndNotifications(t *testing.T) {
+	t.Run("connect error", func(t *testing.T) {
+		wantErr := errors.New("connect failed")
+		n := NewQueueNotifier("postgres://unused", nil)
+		n.connect = func(context.Context, string) (queueNotifyConn, error) {
+			return nil, wantErr
+		}
+
+		connected, err := n.listenLoop(context.Background())
+
+		require.False(t, connected)
+		require.ErrorIs(t, err, wantErr)
+	})
+
+	t.Run("listen error", func(t *testing.T) {
+		wantErr := errors.New("listen failed")
+		conn := &queueNotifyFakeConn{
+			execFn: func(context.Context, string, ...any) (pgconn.CommandTag, error) {
+				return pgconn.CommandTag{}, wantErr
+			},
+		}
+		n := NewQueueNotifier("postgres://unused", nil)
+		n.connect = func(context.Context, string) (queueNotifyConn, error) {
+			return conn, nil
+		}
+
+		connected, err := n.listenLoop(context.Background())
+
+		require.False(t, connected)
+		require.ErrorIs(t, err, wantErr)
+		require.True(t, conn.closed)
+	})
+
+	t.Run("wait nil wrong channel delivered dropped and error", func(t *testing.T) {
+		wantErr := errors.New("wait failed")
+		conn := &queueNotifyFakeConn{
+			notifications: []*pgconn.Notification{
+				nil,
+				{Channel: "other"},
+				{Channel: QueueWakeChannel},
+				{Channel: QueueWakeChannel},
+			},
+			waitErr: wantErr,
+		}
+		n := NewQueueNotifier("postgres://unused", nil)
+		n.metrics = nil
+		n.connect = func(context.Context, string) (queueNotifyConn, error) {
+			return conn, nil
+		}
+
+		connected, err := n.listenLoop(context.Background())
+
+		require.True(t, connected)
+		require.ErrorIs(t, err, wantErr)
+		require.Equal(t, "LISTEN "+QueueWakeChannel, conn.listenSQL)
+		require.True(t, conn.closed)
+		require.EqualValues(t, 1, n.DroppedNotifications())
+		select {
+		case <-n.Wake():
+		default:
+			t.Fatal("expected one delivered wake")
+		}
+	})
+}
+
+type queueNotifyFakeConn struct {
+	execFn        func(context.Context, string, ...any) (pgconn.CommandTag, error)
+	waitFn        func(context.Context) (*pgconn.Notification, error)
+	notifications []*pgconn.Notification
+	waitErr       error
+	listenSQL     string
+	closed        bool
+}
+
+func (c *queueNotifyFakeConn) Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
+	c.listenSQL = sql
+	if c.execFn != nil {
+		return c.execFn(ctx, sql, args...)
+	}
+	return pgconn.CommandTag{}, nil
+}
+
+func (c *queueNotifyFakeConn) WaitForNotification(ctx context.Context) (*pgconn.Notification, error) {
+	if c.waitFn != nil {
+		return c.waitFn(ctx)
+	}
+	if len(c.notifications) == 0 {
+		return nil, c.waitErr
+	}
+	notification := c.notifications[0]
+	c.notifications = c.notifications[1:]
+	return notification, nil
+}
+
+func (c *queueNotifyFakeConn) Close(context.Context) error {
+	c.closed = true
+	return nil
 }
