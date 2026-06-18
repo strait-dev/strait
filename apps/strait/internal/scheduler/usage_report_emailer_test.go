@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"strait/internal/billing"
+	"strait/internal/domain"
 
 	"github.com/resend/resend-go/v2"
 	"github.com/stretchr/testify/assert"
@@ -18,12 +19,18 @@ type mockReportStore struct {
 	orgIDs               []string
 	subscriptions        map[string]*billing.OrgSubscription
 	adminEmails          map[string][]string
+	projectIDsByOrg      map[string][]string
+	channelsByProject    map[string][]domain.NotificationChannel
+	deliveries           []*domain.NotificationDelivery
 	usageRecords         []billing.UsageRecord
 	usagePeriodCalls     []usagePeriodCall
 	sentReports          map[string]bool // key: "orgID|periodEnd"
 	recordSentCalls      []string        // tracks orgIDs for RecordSentUsageReport calls
 	finalizeCalls        []string
 	releaseCalls         []string
+	listProjectsErr      error
+	channelBulkErr       error
+	createDeliveryErr    error
 	hasSentUsageReportFn func(ctx context.Context, orgID string, periodEnd time.Time) (bool, error)
 }
 
@@ -98,6 +105,29 @@ func (m *mockReportStore) ListOrgAdminEmails(_ context.Context, orgID string) ([
 	return m.adminEmails[orgID], nil
 }
 
+func (m *mockReportStore) ListEnabledNotificationChannels(context.Context, string) ([]domain.NotificationChannel, error) {
+	return nil, nil
+}
+
+func (m *mockReportStore) ListEnabledNotificationChannelsByProjectIDs(_ context.Context, projectIDs []string) (map[string][]domain.NotificationChannel, error) {
+	if m.channelBulkErr != nil {
+		return nil, m.channelBulkErr
+	}
+	channels := make(map[string][]domain.NotificationChannel, len(projectIDs))
+	for _, projectID := range projectIDs {
+		channels[projectID] = append([]domain.NotificationChannel(nil), m.channelsByProject[projectID]...)
+	}
+	return channels, nil
+}
+
+func (m *mockReportStore) CreateNotificationDelivery(_ context.Context, d *domain.NotificationDelivery) error {
+	if m.createDeliveryErr != nil {
+		return m.createDeliveryErr
+	}
+	m.deliveries = append(m.deliveries, d)
+	return nil
+}
+
 func (m *mockReportStore) TryMarkBillingCapEvent(context.Context, string, billing.BillingCapEvent) (bool, error) {
 	return false, nil
 }
@@ -138,8 +168,11 @@ func (m *mockReportStore) GetProjectOrgID(context.Context, string) (string, erro
 func (m *mockReportStore) GetActiveProjectOrgID(context.Context, string) (string, error) {
 	return "", nil
 }
-func (m *mockReportStore) ListProjectsByOrg(context.Context, string) ([]string, error) {
-	return nil, nil
+func (m *mockReportStore) ListProjectsByOrg(_ context.Context, orgID string) ([]string, error) {
+	if m.listProjectsErr != nil {
+		return nil, m.listProjectsErr
+	}
+	return m.projectIDsByOrg[orgID], nil
 }
 func (m *mockReportStore) CountProjectsByOrg(context.Context, string) (int, error) { return 0, nil }
 func (m *mockReportStore) CountMembersByOrg(context.Context, string) (int, error)  { return 0, nil }

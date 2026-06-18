@@ -18,11 +18,15 @@ type UsageForecastEmailerStore interface {
 	CreateNotificationDelivery(ctx context.Context, d *domain.NotificationDelivery) error
 }
 
+type UsageForecaster interface {
+	GetUsageForecast(ctx context.Context, orgID string) (*billing.UsageForecastResponse, error)
+}
+
 // UsageForecastEmailer sends daily emails to subscribed orgs when their
 // projected usage will hit a limit within 3 days.
 type UsageForecastEmailer struct {
 	store    UsageForecastEmailerStore
-	usage    *billing.UsageService
+	usage    UsageForecaster
 	interval time.Duration
 	logger   *slog.Logger
 	// lastRunDate prevents running more than once per day.
@@ -30,7 +34,7 @@ type UsageForecastEmailer struct {
 }
 
 // NewUsageForecastEmailer creates a new forecast emailer.
-func NewUsageForecastEmailer(store UsageForecastEmailerStore, usage *billing.UsageService, interval time.Duration) *UsageForecastEmailer {
+func NewUsageForecastEmailer(store UsageForecastEmailerStore, usage UsageForecaster, interval time.Duration) *UsageForecastEmailer {
 	if interval <= 0 {
 		interval = time.Hour
 	}
