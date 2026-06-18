@@ -33,6 +33,15 @@ var pgQueSendReadyEventsErrBenchmarkSink error
 var pgQueScanWorkerRoutesBenchmarkSink []domain.JobRun
 var pgQueWorkerRefsBenchmarkSink []domain.WorkerQueueRef
 
+func TestPgQueConfigNormalizedUsesMaintenanceDefaults(t *testing.T) {
+	t.Parallel()
+
+	cfg := PgQueConfig{}.normalized()
+
+	require.Equal(t, 30*time.Second, cfg.MaintenanceInterval)
+	require.Equal(t, 5*time.Minute, cfg.RotationPeriod)
+}
+
 func TestPgQueFinishBatchReservationReopensAfterAckFailure(t *testing.T) {
 	ctx := context.Background()
 	ackErr := errors.New("temporary ack failure")
