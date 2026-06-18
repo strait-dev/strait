@@ -317,6 +317,42 @@ func defaultOrgSub(orgID string) *billing.OrgSubscription {
 
 // Tests.
 
+func TestNewMemoryAnomalyCooldown_DefaultsNonPositiveTTL(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		ttl  time.Duration
+		want time.Duration
+	}{
+		{
+			name: "zero ttl",
+			ttl:  0,
+			want: 4 * time.Hour,
+		},
+		{
+			name: "negative ttl",
+			ttl:  -time.Second,
+			want: 4 * time.Hour,
+		},
+		{
+			name: "explicit ttl",
+			ttl:  time.Minute,
+			want: time.Minute,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cooldown := newMemoryAnomalyCooldown(tt.ttl)
+			require.Equal(t, tt.want, cooldown.ttl)
+			require.NotNil(t, cooldown.entries)
+		})
+	}
+}
+
 func TestAnomalyMonitor_SpikeDetected_AlertFires(t *testing.T) {
 	t.Parallel()
 
