@@ -16,17 +16,25 @@ import (
 
 // SLOEvaluator periodically evaluates all job SLOs and records results.
 type SLOEvaluator struct {
-	store          *store.Queries
+	store          sloEvaluationStore
 	logger         *slog.Logger
 	notifier       SLOWebhookNotifier
 	advisoryLocker AdvisoryLocker
+}
+
+type sloEvaluationStore interface {
+	ListAllJobSLOs(ctx context.Context) ([]domain.JobSLO, error)
+	GetJobHealthCounts(ctx context.Context, jobID string, since time.Time) (*store.JobHealthStats, error)
+	GetJobHealthStats(ctx context.Context, jobID string, since time.Time) (*store.JobHealthStats, error)
+	InsertSLOEvaluation(ctx context.Context, eval *domain.JobSLOEvaluation) error
+	PruneSLOEvaluations(ctx context.Context, keepPerSLO int) (int64, error)
 }
 
 // sloEvaluatorLockID is the advisory lock key for single-leader SLO evaluation.
 const sloEvaluatorLockID int64 = 900_100_022
 
 // NewSLOEvaluator creates a new SLO evaluator.
-func NewSLOEvaluator(store *store.Queries, logger *slog.Logger, opts ...SLOEvaluatorOption) *SLOEvaluator {
+func NewSLOEvaluator(store sloEvaluationStore, logger *slog.Logger, opts ...SLOEvaluatorOption) *SLOEvaluator {
 	if logger == nil {
 		logger = slog.Default()
 	}

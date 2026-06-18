@@ -3,8 +3,10 @@ package scheduler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"testing"
+	"time"
 
 	"strait/internal/domain"
 	"strait/internal/store"
@@ -189,6 +191,7 @@ func TestSLOMetricConstants(t *testing.T) {
 
 type mockSLOWebhookNotifier struct {
 	calls []sloWebhookCall
+	err   error
 }
 
 type sloWebhookCall struct {
@@ -198,7 +201,282 @@ type sloWebhookCall struct {
 
 func (m *mockSLOWebhookNotifier) NotifySLOBudgetWarning(_ context.Context, projectID string, payload json.RawMessage) error {
 	m.calls = append(m.calls, sloWebhookCall{projectID: projectID, payload: payload})
+	return m.err
+}
+
+type mockSLOEvaluationStore struct {
+	slos        []domain.JobSLO
+	listErr     error
+	countsStats *store.JobHealthStats
+	healthStats *store.JobHealthStats
+	statsErr    error
+	insertErr   error
+	pruneRows   int64
+	pruneErr    error
+
+	countsCalls int
+	statsCalls  int
+	inserted    []*domain.JobSLOEvaluation
+	pruneCalls  int
+	keepPerSLO  int
+}
+
+func (m *mockSLOEvaluationStore) ListAllJobSLOs(context.Context) ([]domain.JobSLO, error) {
+	if m.listErr != nil {
+		return nil, m.listErr
+	}
+	return m.slos, nil
+}
+
+func (m *mockSLOEvaluationStore) GetJobHealthCounts(context.Context, string, time.Time) (*store.JobHealthStats, error) {
+	m.countsCalls++
+	if m.statsErr != nil {
+		return nil, m.statsErr
+	}
+	return m.countsStats, nil
+}
+
+func (m *mockSLOEvaluationStore) GetJobHealthStats(context.Context, string, time.Time) (*store.JobHealthStats, error) {
+	m.statsCalls++
+	if m.statsErr != nil {
+		return nil, m.statsErr
+	}
+	return m.healthStats, nil
+}
+
+func (m *mockSLOEvaluationStore) InsertSLOEvaluation(_ context.Context, eval *domain.JobSLOEvaluation) error {
+	if m.insertErr != nil {
+		return m.insertErr
+	}
+	m.inserted = append(m.inserted, eval)
 	return nil
+}
+
+func (m *mockSLOEvaluationStore) PruneSLOEvaluations(_ context.Context, keepPerSLO int) (int64, error) {
+	m.pruneCalls++
+	m.keepPerSLO = keepPerSLO
+	if m.pruneErr != nil {
+		return 0, m.pruneErr
+	}
+	return m.pruneRows, nil
+}
+
+var _ sloEvaluationStore = (*mockSLOEvaluationStore)(nil)
+
+func TestSLOEvaluator_EvaluateListError(t *testing.T) {
+	t.Parallel()
+
+	wantErr := errors.New("database unavailable")
+	evaluator := NewSLOEvaluator(&mockSLOEvaluationStore{listErr: wantErr}, nil)
+
+	err := evaluator.Evaluate(context.Background())
+	require.ErrorIs(t, err, wantErr)
+	require.ErrorContains(t, err, "list slos")
+}
+
+func TestSLOEvaluator_EvaluateEmptyListSkipsPrune(t *testing.T) {
+	t.Parallel()
+
+	store := &mockSLOEvaluationStore{}
+	evaluator := NewSLOEvaluator(store, nil)
+
+	require.NoError(t, evaluator.Evaluate(context.Background()))
+	require.Equal(t, 0, store.countsCalls)
+	require.Equal(t, 0, store.statsCalls)
+	require.Equal(t, 0, store.pruneCalls)
+}
+
+func TestSLOEvaluator_EvaluateCanceledContextSkipsEvaluation(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	store := &mockSLOEvaluationStore{
+		slos: []domain.JobSLO{{
+			ID:          "slo-1",
+			JobID:       "job-1",
+			ProjectID:   "proj-1",
+			Metric:      domain.SLOMetricSuccessRate,
+			Target:      0.99,
+			WindowHours: 1,
+		}},
+	}
+	evaluator := NewSLOEvaluator(store, nil)
+
+	err := evaluator.Evaluate(ctx)
+	require.ErrorIs(t, err, context.Canceled)
+	require.Equal(t, 0, store.countsCalls)
+	require.Equal(t, 0, store.pruneCalls)
+}
+
+func TestSLOEvaluator_EvaluateSkipsSLOsWithoutUsableData(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		slo         domain.JobSLO
+		countsStats *store.JobHealthStats
+		healthStats *store.JobHealthStats
+		wantCounts  int
+		wantStats   int
+	}{
+		{
+			name: "nil success stats",
+			slo: domain.JobSLO{
+				ID:          "slo-1",
+				JobID:       "job-1",
+				ProjectID:   "proj-1",
+				Metric:      domain.SLOMetricSuccessRate,
+				Target:      0.99,
+				WindowHours: 1,
+			},
+			wantCounts: 1,
+		},
+		{
+			name: "zero run latency stats",
+			slo: domain.JobSLO{
+				ID:          "slo-2",
+				JobID:       "job-2",
+				ProjectID:   "proj-1",
+				Metric:      domain.SLOMetricP95LatencySecs,
+				Target:      1,
+				WindowHours: 1,
+			},
+			healthStats: &store.JobHealthStats{},
+			wantStats:   1,
+		},
+		{
+			name: "unknown metric",
+			slo: domain.JobSLO{
+				ID:          "slo-3",
+				JobID:       "job-3",
+				ProjectID:   "proj-1",
+				Metric:      "custom_metric",
+				Target:      1,
+				WindowHours: 1,
+			},
+			healthStats: &store.JobHealthStats{TotalRuns: 1},
+			wantStats:   1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			store := &mockSLOEvaluationStore{
+				slos:        []domain.JobSLO{tt.slo},
+				countsStats: tt.countsStats,
+				healthStats: tt.healthStats,
+			}
+			evaluator := NewSLOEvaluator(store, nil)
+
+			require.NoError(t, evaluator.Evaluate(context.Background()))
+			require.Empty(t, store.inserted)
+			require.Equal(t, tt.wantCounts, store.countsCalls)
+			require.Equal(t, tt.wantStats, store.statsCalls)
+			require.Equal(t, 1, store.pruneCalls)
+			require.Equal(t, 288, store.keepPerSLO)
+		})
+	}
+}
+
+func TestSLOEvaluator_EvaluateSuccessRateRecordsAndNotifiesLowBudget(t *testing.T) {
+	t.Parallel()
+
+	store := &mockSLOEvaluationStore{
+		slos: []domain.JobSLO{{
+			ID:          "slo-1",
+			JobID:       "job-1",
+			ProjectID:   "proj-1",
+			Metric:      domain.SLOMetricSuccessRate,
+			Target:      0.99,
+			WindowHours: 24,
+		}},
+		countsStats: &store.JobHealthStats{
+			TotalRuns:   10,
+			SuccessRate: 90,
+		},
+		pruneRows: 2,
+	}
+	notifier := &mockSLOWebhookNotifier{}
+	evaluator := NewSLOEvaluator(store, nil, WithSLOWebhookNotifier(notifier))
+
+	require.NoError(t, evaluator.Evaluate(context.Background()))
+	require.Equal(t, 1, store.countsCalls)
+	require.Equal(t, 0, store.statsCalls)
+	require.Len(t, store.inserted, 1)
+	require.Equal(t, "slo-1", store.inserted[0].SLOID)
+	require.InDelta(t, 0.90, store.inserted[0].CurrentValue, 1e-9)
+	require.InDelta(t, 0, store.inserted[0].BudgetRemaining, 1e-9)
+	require.Equal(t, 1, store.pruneCalls)
+	require.Equal(t, 288, store.keepPerSLO)
+	require.Len(t, notifier.calls, 1)
+	require.Equal(t, "proj-1", notifier.calls[0].projectID)
+
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(notifier.calls[0].payload, &payload))
+	require.Equal(t, domain.WebhookEventSLOBudgetWarning, payload["event"])
+	require.Equal(t, "slo-1", payload["slo_id"])
+	require.Equal(t, "job-1", payload["job_id"])
+}
+
+func TestSLOEvaluator_EvaluateLatencyUsesHealthStatsWithoutNotification(t *testing.T) {
+	t.Parallel()
+
+	store := &mockSLOEvaluationStore{
+		slos: []domain.JobSLO{{
+			ID:          "slo-1",
+			JobID:       "job-1",
+			ProjectID:   "proj-1",
+			Metric:      domain.SLOMetricP99LatencySecs,
+			Target:      2,
+			WindowHours: 6,
+		}},
+		healthStats: &store.JobHealthStats{
+			TotalRuns:       4,
+			P99DurationSecs: 0.5,
+		},
+	}
+	notifier := &mockSLOWebhookNotifier{}
+	evaluator := NewSLOEvaluator(store, nil, WithSLOWebhookNotifier(notifier))
+
+	require.NoError(t, evaluator.Evaluate(context.Background()))
+	require.Equal(t, 0, store.countsCalls)
+	require.Equal(t, 1, store.statsCalls)
+	require.Len(t, store.inserted, 1)
+	require.InDelta(t, 0.5, store.inserted[0].CurrentValue, 1e-9)
+	require.InDelta(t, 0.75, store.inserted[0].BudgetRemaining, 1e-9)
+	require.Empty(t, notifier.calls)
+}
+
+func TestSLOEvaluator_EvaluateContinuesAfterEvaluationErrors(t *testing.T) {
+	t.Parallel()
+
+	insertErr := errors.New("insert failed")
+	pruneErr := errors.New("prune failed")
+	store := &mockSLOEvaluationStore{
+		slos: []domain.JobSLO{{
+			ID:          "slo-1",
+			JobID:       "job-1",
+			ProjectID:   "proj-1",
+			Metric:      domain.SLOMetricSuccessRate,
+			Target:      0.99,
+			WindowHours: 1,
+		}},
+		countsStats: &store.JobHealthStats{
+			TotalRuns:   1,
+			SuccessRate: 100,
+		},
+		insertErr: insertErr,
+		pruneErr:  pruneErr,
+	}
+	evaluator := NewSLOEvaluator(store, nil)
+
+	require.NoError(t, evaluator.Evaluate(context.Background()))
+	require.Equal(t, 1, store.countsCalls)
+	require.Empty(t, store.inserted)
+	require.Equal(t, 1, store.pruneCalls)
 }
 
 func TestSLOEvaluator_WebhookFiredWhenBudgetLow(t *testing.T) {
