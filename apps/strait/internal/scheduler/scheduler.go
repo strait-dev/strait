@@ -450,7 +450,7 @@ func (s *Scheduler) Stop() {
 
 	timeout := s.componentShutdownTimeout
 	if timeout <= 0 {
-		timeout = defaultComponentShutdownTimeout
+		timeout = defaultComponentShutdownTimeout()
 	}
 
 	// Wait per-component with a bounded deadline so a single stuck goroutine

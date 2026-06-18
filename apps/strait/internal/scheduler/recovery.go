@@ -312,7 +312,7 @@ func (t *componentTracker) waitWithTimeout(parent context.Context, timeout time.
 	t.mu.Unlock()
 
 	if timeout <= 0 {
-		timeout = defaultComponentShutdownTimeout
+		timeout = defaultComponentShutdownTimeout()
 	}
 	if len(handles) == 0 {
 		return 0
@@ -373,4 +373,6 @@ func (t *componentTracker) waitWithTimeout(parent context.Context, timeout time.
 	return 0
 }
 
-const defaultComponentShutdownTimeout = 15 * time.Second
+func defaultComponentShutdownTimeout() time.Duration {
+	return 15 * time.Second
+}

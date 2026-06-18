@@ -81,6 +81,12 @@ func TestComponentTracker_WaitWithTimeout(t *testing.T) {
 	}
 }
 
+func TestComponentTracker_DefaultShutdownTimeout(t *testing.T) {
+	t.Parallel()
+
+	require.Equal(t, 15*time.Second, defaultComponentShutdownTimeout())
+}
+
 // TestComponentTracker_TrackCountsInvocations verifies track actually registers
 // each component and that the fn body runs.
 func TestComponentTracker_TrackCountsInvocations(t *testing.T) {
