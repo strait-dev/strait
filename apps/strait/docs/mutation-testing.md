@@ -68,6 +68,11 @@ full mutation run with the default bounded settings:
 
 | Package | Dry-run runnable mutants | Not covered | Notes |
 | --- | ---: | ---: | --- |
+| `./cmd/strait` | 0 | 382 | Entrypoint wiring is not covered by current tests; needs command/service harness work before full mutation testing is useful. |
+| `./internal/api/grpc` | 278 | 248 | Broad worker-plane surface; split by auth, registry, dispatch, stream, and server helpers before a full run. |
+| `./internal/billing` | 1060 | 453 | Large default-edition surface; split by entitlement, enforcement, webhook, usage, and email subareas before a full run. |
+| `./internal/loadtest` | 266 | 667 | Broad load-test harness surface; split by reporting, runtime profiles, scenarios, and server helpers before a full run. |
+| `./internal/testutil` | 15 | 251 | Test helper package has little direct self-coverage; target only stable helpers before considering a package-level gate. |
 | `./internal/worker` | 997 | 0 | Baseline package tests take about two minutes, so a full one-worker mutation run needs separate scheduling. |
 
 ## Current clean packages
