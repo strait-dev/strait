@@ -69,7 +69,6 @@ full mutation run with the default bounded settings:
 | Package | Dry-run runnable mutants | Not covered | Notes |
 | --- | ---: | ---: | --- |
 | `./internal/worker` | 997 | 0 | Baseline package tests take about two minutes, so a full one-worker mutation run needs separate scheduling. |
-| `./internal/workflow` | 1255 | 0 | Dry-run coverage is complete after adding raw condition, JSON scanner, object payload merge, step override filtering, expected-completion, simulator conditional, workflow run helper, topological helper, progression fallback, bootstrap fallback, root max-parallel, cost-gate, retry transaction, payload scanner, and callback progression coverage. Full one-worker mutation run still pending. |
 
 ## Current clean packages
 
@@ -106,3 +105,4 @@ default bounded settings and reached 100% efficacy and 100% mutant coverage:
 | `./scripts/format-benchmarks` | 40 | Added parser, runner, markdown, aggregate, and formatting coverage |
 | `./test/loadtest/cmd/summary` | 35 | Added parser, renderer, command, and throughput summary coverage |
 | `./scripts/check-openapi-parity` | 39 | Added command, comparison, parser, and path-normalization coverage |
+| `./internal/workflow` | 1255 | Added raw condition, JSON scanner, object payload merge, step override filtering, expected-completion, simulator conditional, workflow run helper, topological helper, progression fallback, bootstrap fallback, root max-parallel, cost-gate, retry transaction, payload scanner, and callback progression coverage; slow full run (~1h31m) |
