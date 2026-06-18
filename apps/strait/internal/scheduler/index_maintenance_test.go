@@ -84,7 +84,7 @@ func TestIndexMaintainer_DefaultInterval(t *testing.T) {
 	t.Parallel()
 
 	maintainer := NewIndexMaintainer(&mockIndexMaintenanceStore{}, 0)
-	require.Equal(t, defaultIndexMaintenanceInterval,
+	require.Equal(t, 24*time.Hour,
 
 		maintainer.
 			interval)
