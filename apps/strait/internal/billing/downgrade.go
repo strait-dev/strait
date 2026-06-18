@@ -118,20 +118,9 @@ func PreviewDowngrade(ctx context.Context, store Store, orgID string, targetTier
 		int64(targetLimits.RetentionDays),
 	))
 
-	// HTTP-mode jobs (losing HTTP mode on downgrade = jobs auto-paused).
-	if currentLimits.AllowsHTTPMode && !targetLimits.AllowsHTTPMode {
-		httpJobs, err := store.CountHTTPJobsByOrg(ctx, orgID)
-		if err != nil {
-			return nil, fmt.Errorf("counting HTTP jobs for downgrade preview: %w", err)
-		}
-		if httpJobs > 0 {
-			impact.Impacts = append(impact.Impacts, ResourceImpact{
-				Resource: "http_mode_jobs",
-				Current:  int64(httpJobs),
-				Limit:    0,
-				Action:   ResourceActionRemove,
-			})
-		}
+	impact.Impacts, err = appendHTTPModeDowngradeImpact(ctx, store, orgID, currentLimits, targetLimits, impact.Impacts)
+	if err != nil {
+		return nil, err
 	}
 
 	// Separate impacts into manual actions vs auto-disabled.
@@ -156,6 +145,33 @@ func AutoDisableResources(impacts []ResourceImpact) (manualActions []ResourceImp
 		}
 	}
 	return manualActions, autoDisabled
+}
+
+func appendHTTPModeDowngradeImpact(
+	ctx context.Context,
+	store Store,
+	orgID string,
+	currentLimits OrgPlanLimits,
+	targetLimits OrgPlanLimits,
+	impacts []ResourceImpact,
+) ([]ResourceImpact, error) {
+	if !currentLimits.AllowsHTTPMode || targetLimits.AllowsHTTPMode {
+		return impacts, nil
+	}
+
+	httpJobs, err := store.CountHTTPJobsByOrg(ctx, orgID)
+	if err != nil {
+		return nil, fmt.Errorf("counting HTTP jobs for downgrade preview: %w", err)
+	}
+	if httpJobs <= 0 {
+		return impacts, nil
+	}
+	return append(impacts, ResourceImpact{
+		Resource: "http_mode_jobs",
+		Current:  int64(httpJobs),
+		Limit:    0,
+		Action:   ResourceActionRemove,
+	}), nil
 }
 
 func buildImpact(resource string, current, limit int64) ResourceImpact {

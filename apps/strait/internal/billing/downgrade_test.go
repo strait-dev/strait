@@ -2,6 +2,7 @@ package billing
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -238,6 +239,81 @@ func TestPreviewDowngrade_HTTPJobsImpact(t *testing.T) {
 			"http_mode_jobs",
 
 			imp.Resource)
+	}
+}
+
+func TestAppendHTTPModeDowngradeImpact(t *testing.T) {
+	t.Parallel()
+
+	losesHTTPMode := OrgPlanLimits{AllowsHTTPMode: false}
+	keepsHTTPMode := OrgPlanLimits{AllowsHTTPMode: true}
+
+	tests := []struct {
+		name        string
+		store       *mockDowngradeStore
+		current     OrgPlanLimits
+		target      OrgPlanLimits
+		wantImpact  bool
+		wantCurrent int64
+		wantErr     string
+	}{
+		{
+			name:    "current tier does not allow http mode",
+			store:   &mockDowngradeStore{mockBillingStore: mockBillingStore{httpJobCount: 3}},
+			current: losesHTTPMode,
+			target:  losesHTTPMode,
+		},
+		{
+			name:    "target tier still allows http mode",
+			store:   &mockDowngradeStore{mockBillingStore: mockBillingStore{httpJobCount: 3}},
+			current: keepsHTTPMode,
+			target:  keepsHTTPMode,
+		},
+		{
+			name:    "zero http jobs has no impact",
+			store:   &mockDowngradeStore{mockBillingStore: mockBillingStore{httpJobCount: 0}},
+			current: keepsHTTPMode,
+			target:  losesHTTPMode,
+		},
+		{
+			name:        "positive http jobs are removed",
+			store:       &mockDowngradeStore{mockBillingStore: mockBillingStore{httpJobCount: 3}},
+			current:     keepsHTTPMode,
+			target:      losesHTTPMode,
+			wantImpact:  true,
+			wantCurrent: 3,
+		},
+		{
+			name:    "count error is wrapped",
+			store:   &mockDowngradeStore{mockBillingStore: mockBillingStore{countHTTPJobsErr: errors.New("store unavailable")}},
+			current: keepsHTTPMode,
+			target:  losesHTTPMode,
+			wantErr: "counting HTTP jobs for downgrade preview",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := appendHTTPModeDowngradeImpact(context.Background(), tt.store, "org-1", tt.current, tt.target, nil)
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			if !tt.wantImpact {
+				assert.Empty(t, got)
+				return
+			}
+			require.Len(t, got, 1)
+			assert.Equal(t, ResourceImpact{
+				Resource: "http_mode_jobs",
+				Current:  tt.wantCurrent,
+				Limit:    0,
+				Action:   ResourceActionRemove,
+			}, got[0])
+		})
 	}
 }
 
