@@ -9,9 +9,11 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+	"strait/internal/telemetry"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	metricnoop "go.opentelemetry.io/otel/metric/noop"
 )
 
 // fakeAuditReclaimerStore is a minimal ReaperStore implementation that
@@ -314,6 +316,29 @@ func TestReclaimAuditDeadletter_IdempotentWhenAlreadyReclaimed(t *testing.T) {
 	// row only triggers a delete.
 }
 
+func TestReclaimAuditDeadletter_PreviouslyReclaimedDeleteFailure(t *testing.T) {
+	ctx := context.Background()
+	events, ids := newFakeDLQEvents(1)
+	prevEventID := "previously-inserted-id"
+	fake := &fakeAuditReclaimerStore{}
+	fake.listFn = func(_ context.Context, _ int) ([]domain.AuditEvent, []string, []store.AuditDeadletterAttemptInfo, error) {
+		return events, ids, []store.AuditDeadletterAttemptInfo{{
+			AttemptCount:     1,
+			ReclaimedEventID: &prevEventID,
+		}}, nil
+	}
+	fake.deleteFn = func(context.Context, string, string) error {
+		return errors.New("delete failed")
+	}
+
+	r := NewReaper(fake, time.Second, time.Minute, 0, 0, false, nil)
+	r.reclaimAuditDeadletter(ctx)
+
+	require.EqualValues(t, 0, fake.createCalls.Load())
+	require.EqualValues(t, 1, fake.deleteCalls.Load())
+	require.EqualValues(t, 0, fake.incCalls.Load())
+}
+
 // TestReapDeadletter_DropsAgedRows_CallsDelete asserts the retention reaper
 // delegates to the atomic store path that writes audit.deadletter_aged markers
 // in the same transaction as the delete.
@@ -464,6 +489,25 @@ func TestReapAuditEvents_RejectsOverflowDefaultRetentionDays(t *testing.T) {
 	r.reapAuditEvents(ctx)
 	require.Empty(t, fake.
 		excludingCalls)
+}
+
+func TestRecordAuditRetentionDeleted_GuardsMetricInputs(t *testing.T) {
+	ctx := context.Background()
+	meter := metricnoop.NewMeterProvider().Meter("audit-reaper-test")
+	counter, err := meter.Int64Counter("audit_retention_deleted_test")
+	require.NoError(t, err)
+
+	r := NewReaper(&mockReaperStore{}, time.Second, time.Minute, 0, 0, false, nil)
+	require.NotPanics(t, func() {
+		r.recordAuditRetentionDeleted(ctx, "project-without-metrics", 1)
+	})
+
+	r.metrics = &telemetry.Metrics{AuditRetentionDeleted: counter}
+	require.NotPanics(t, func() {
+		r.recordAuditRetentionDeleted(ctx, "project-zero", 0)
+		r.recordAuditRetentionDeleted(ctx, "project-negative", -1)
+		r.recordAuditRetentionDeleted(ctx, "project-positive", 2)
+	})
 }
 
 // TestReclaimAuditDeadletter_PerEventTimeout asserts that a single wedged
