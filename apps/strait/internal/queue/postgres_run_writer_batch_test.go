@@ -22,6 +22,7 @@ type mockBatchDB struct {
 	mu          sync.Mutex
 	copyFromFn  func(ctx context.Context, tableName pgx.Identifier, columnNames []string, rowSrc pgx.CopyFromSource) (int64, error)
 	execFn      func(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+	queryRowFn  func(ctx context.Context, sql string, args ...any) pgx.Row
 	execCalls   []execCall
 	copyFromN   int64
 	copyFromErr error
@@ -70,7 +71,10 @@ func (m *mockBatchDB) Query(_ context.Context, _ string, _ ...any) (pgx.Rows, er
 	return nil, nil
 }
 
-func (m *mockBatchDB) QueryRow(_ context.Context, _ string, _ ...any) pgx.Row {
+func (m *mockBatchDB) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
+	if m.queryRowFn != nil {
+		return m.queryRowFn(ctx, sql, args...)
+	}
 	return nil
 }
 
