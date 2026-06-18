@@ -291,6 +291,64 @@ func TestComparePerformanceBaselineReports_ComplexityRegression(t *testing.T) {
 			ComplexityRegressions[0].Area)
 }
 
+func TestPerformanceBaselineComparisonMarkdown(t *testing.T) {
+	comparison := PerformanceBaselineComparison{
+		Name:      "phase-delta",
+		Baseline:  PerformanceBaselineReport{Name: "baseline"},
+		Candidate: PerformanceBaselineReport{Name: "candidate"},
+		ScenarioDeltas: []ScenarioDelta{{
+			Name:           "core-api",
+			RPSDelta:       30,
+			ErrorRateDelta: -0.01,
+			P95Delta:       -640 * time.Millisecond,
+			P99Delta:       -910 * time.Millisecond,
+		}},
+		SQLDeltas: []SQLStatementDelta{{
+			Name:           "trigger advisory lock",
+			CallsDelta:     -100,
+			TotalTimeDelta: -10 * time.Second,
+			MeanTimeDelta:  -100 * time.Millisecond,
+			WALBytesDelta:  -6,
+		}},
+		TransactionDeltas: []TransactionDelta{{
+			Name:                   "trigger",
+			TransactionsPerOpDelta: -5,
+			StatementsPerOpDelta:   -16,
+		}},
+		RuntimeDeltas: []RuntimeDelta{{
+			Name:               "trigger",
+			AllocsPerOpDelta:   -4,
+			BytesPerOpDelta:    -307.2,
+			SpansPerOpDelta:    -1.7,
+			RedisOpsPerOpDelta: -1,
+			LogLinesPerOpDelta: -0.4,
+		}},
+		ComplexityRegressions: []ComplexityLedgerEntry{{
+			Area:    "health stats",
+			Current: ComplexityJobHistory,
+			Target:  ComplexityConstant,
+		}},
+	}
+
+	md := comparison.Markdown()
+	for _, want := range []string{
+		"# phase-delta",
+		"Baseline: `baseline`",
+		"Scenario Deltas",
+		"| `core-api` | 30.00 | -1.000 | -640ms | -910ms |",
+		"SQL Deltas",
+		"| `trigger advisory lock` | -100 | -10s | -100ms | -6 |",
+		"Transaction Deltas",
+		"| `trigger` | -5.00 | -16.00 |",
+		"Runtime Deltas",
+		"| `trigger` | -4.00 | -307.20 | -1.70 | -1.00 | -0.40 |",
+		"Complexity Regressions",
+		"`health stats`: current `O(job_history)`, target `O(1)`",
+	} {
+		require.Contains(t, md, want)
+	}
+}
+
 func BenchmarkPerformanceBaselineReportMarkdown(b *testing.B) {
 	report := PerformanceBaselineReport{
 		Name:     "benchmark",
