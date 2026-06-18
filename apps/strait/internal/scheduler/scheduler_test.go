@@ -369,6 +369,12 @@ func TestScheduler_Components_SkipsUnsetOptionalLoops(t *testing.T) {
 	}
 }
 
+func TestScheduler_DefaultSLOEvaluatorInterval(t *testing.T) {
+	t.Parallel()
+
+	require.Equal(t, 5*time.Minute, defaultSLOEvaluatorInterval())
+}
+
 func TestScheduler_TrackComponents_SkipsInvalidComponents(t *testing.T) {
 	t.Parallel()
 
