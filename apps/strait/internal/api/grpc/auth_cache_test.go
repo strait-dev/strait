@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"strait/internal/domain"
+	"strait/internal/store"
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
@@ -56,6 +57,51 @@ func TestCachedAPIKeyResolver_CacheEnabled(t *testing.T) {
 			require.Equal(t, tt.want, tt.resolver.cacheEnabled())
 		})
 	}
+}
+
+func TestNewCachedAPIKeyResolver_DisabledFallsBack(t *testing.T) {
+	t.Parallel()
+
+	fallback := apiKeyResolverFunc(func(context.Context, string) (*domain.APIKey, error) {
+		return &domain.APIKey{ID: "key-1"}, nil
+	})
+
+	for _, resolver := range []apiKeyResolver{
+		newCachedAPIKeyResolver(nil, time.Minute, fallback),
+		newCachedAPIKeyResolver(redis.NewClient(&redis.Options{}), 0, fallback),
+	} {
+		got, err := resolver.LookupAPIKeyByHash(t.Context(), "hash-1")
+		require.NoError(t, err)
+		require.Equal(t, "key-1", got.ID)
+	}
+	require.Nil(t, newCachedAPIKeyResolver(redis.NewClient(&redis.Options{}), time.Minute, nil))
+}
+
+func TestCachedAPIKeyResolver_DisabledLookupUsesFallback(t *testing.T) {
+	t.Parallel()
+
+	key := &domain.APIKey{ID: "key-1"}
+	resolver := &cachedAPIKeyResolver{
+		fallback: apiKeyResolverFunc(func(context.Context, string) (*domain.APIKey, error) {
+			return key, nil
+		}),
+	}
+
+	got, err := resolver.LookupAPIKeyByHash(t.Context(), "hash-1")
+	require.NoError(t, err)
+	require.Same(t, key, got)
+}
+
+func TestCachedAPIKeyResolver_DisabledLookupWithoutFallbackReturnsNotFound(t *testing.T) {
+	t.Parallel()
+
+	got, err := (*cachedAPIKeyResolver)(nil).LookupAPIKeyByHash(t.Context(), "hash-1")
+	require.ErrorIs(t, err, store.ErrAPIKeyNotFound)
+	require.Nil(t, got)
+
+	got, err = (&cachedAPIKeyResolver{}).LookupAPIKeyByHash(t.Context(), "hash-1")
+	require.ErrorIs(t, err, store.ErrAPIKeyNotFound)
+	require.Nil(t, got)
 }
 
 func TestCachedAPIKeyResolver_UsesRedisL2AndSanitizesSecrets(t *testing.T) {
