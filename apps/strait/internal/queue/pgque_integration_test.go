@@ -86,9 +86,10 @@ func TestPgQue_EnqueueInTxWorkerRunOnFreshRouteIsClaimable(t *testing.T) {
 	defer cancel()
 	mustClean(t, ctx)
 	st := mustStore(t)
-	projectID := "project-pgque-worker-tx"
+	projectID := "project-pgque-worker-tx-" + newID()
+	queueName := "tx-worker-" + newID()
 	job := mustCreateJob(t, ctx, st, projectID)
-	markWorkerJobQueue(t, ctx, job, "tx-worker")
+	markWorkerJobQueue(t, ctx, job, queueName)
 	q := mustPgQueQueue(t)
 
 	tx, err := testDB.Pool.Begin(ctx)
@@ -99,7 +100,7 @@ func TestPgQue_EnqueueInTxWorkerRunOnFreshRouteIsClaimable(t *testing.T) {
 		JobID:         job.ID,
 		ProjectID:     projectID,
 		ExecutionMode: domain.ExecutionModeWorker,
-		QueueName:     "tx-worker",
+		QueueName:     queueName,
 	}
 	if err := q.EnqueueInTx(ctx, tx, run); err != nil {
 		_ = tx.Rollback(ctx)
@@ -113,7 +114,7 @@ func TestPgQue_EnqueueInTxWorkerRunOnFreshRouteIsClaimable(t *testing.T) {
 	require.Eventually(t, func() bool {
 		claimed, err = q.DequeueNForWorkerQueues(ctx, 1, []domain.WorkerQueueRef{{
 			ProjectID: projectID,
-			QueueName: "tx-worker",
+			QueueName: queueName,
 		}})
 		return err == nil && len(claimed) == 1
 	}, 5*time.Second, 25*time.Millisecond)
