@@ -2,10 +2,12 @@ package billing
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"strait/internal/domain"
 
+	"github.com/resend/resend-go/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -189,4 +191,74 @@ func TestNewResendWelcomeEmailFunc_DefaultFromEmail(t *testing.T) {
 	t.Parallel()
 	_ = NewResendWelcomeEmailFunc("re_test_key", "")
 	// Just verifying no panic with empty fromEmail (defaults to "noreply@strait.dev").
+}
+
+func TestNewWelcomeEmailFunc_SendsExpectedEmail(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		fromEmail    string
+		tier         domain.PlanTier
+		wantFrom     string
+		wantSubject  string
+		wantContains []string
+	}{
+		{
+			name:        "starter uses default sender",
+			tier:        domain.PlanStarter,
+			wantFrom:    "noreply@strait.dev",
+			wantSubject: "Welcome to Strait Starter!",
+			wantContains: []string{
+				"Thank you for upgrading to the Starter plan.",
+				"50000",
+			},
+		},
+		{
+			name:        "enterprise uses custom sender and enterprise copy",
+			fromEmail:   "welcome@example.com",
+			tier:        domain.PlanEnterprise,
+			wantFrom:    "welcome@example.com",
+			wantSubject: "Welcome to Strait Enterprise!",
+			wantContains: []string{
+				"Customer Success Manager",
+				"Custom orchestration run allowance",
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			var got *resend.SendEmailRequest
+			fn := newWelcomeEmailFunc(tc.fromEmail, func(_ context.Context, req *resend.SendEmailRequest) error {
+				got = req
+				return nil
+			})
+
+			err := fn(context.Background(), "org-1", tc.tier, "customer@example.com")
+			require.NoError(t, err)
+			require.NotNil(t, got)
+			assert.Equal(t, tc.wantFrom, got.From)
+			assert.Equal(t, []string{"customer@example.com"}, got.To)
+			assert.Equal(t, tc.wantSubject, got.Subject)
+			for _, want := range tc.wantContains {
+				assert.Contains(t, got.Html, want)
+			}
+		})
+	}
+}
+
+func TestNewWelcomeEmailFunc_ReturnsSendError(t *testing.T) {
+	t.Parallel()
+
+	sendErr := errors.New("resend unavailable")
+	fn := newWelcomeEmailFunc("", func(context.Context, *resend.SendEmailRequest) error {
+		return sendErr
+	})
+
+	err := fn(context.Background(), "org-1", domain.PlanPro, "customer@example.com")
+	require.ErrorIs(t, err, sendErr)
+	require.ErrorContains(t, err, "send welcome email via resend")
 }

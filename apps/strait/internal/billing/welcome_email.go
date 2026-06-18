@@ -39,10 +39,19 @@ func planDisplayName(tier domain.PlanTier) string {
 // NewResendWelcomeEmailFunc creates a WelcomeEmailFunc that sends a welcome
 // email via Resend when a user subscribes to a paid plan.
 func NewResendWelcomeEmailFunc(apiKey, fromEmail string) WelcomeEmailFunc {
+	client := resend.NewClient(apiKey)
+	return newWelcomeEmailFunc(fromEmail, func(ctx context.Context, req *resend.SendEmailRequest) error {
+		_, err := client.Emails.SendWithContext(ctx, req)
+		return err
+	})
+}
+
+type welcomeEmailSendFunc func(context.Context, *resend.SendEmailRequest) error
+
+func newWelcomeEmailFunc(fromEmail string, sendEmail welcomeEmailSendFunc) WelcomeEmailFunc {
 	if fromEmail == "" {
 		fromEmail = "noreply@strait.dev"
 	}
-	client := resend.NewClient(apiKey)
 
 	return func(ctx context.Context, _ string, tier domain.PlanTier, customerEmail string) error {
 		if !isValidEmail(customerEmail) {
@@ -59,7 +68,7 @@ func NewResendWelcomeEmailFunc(apiKey, fromEmail string) WelcomeEmailFunc {
 			body = welcomeEmailHTML(name, runAllowance)
 		}
 
-		_, err := client.Emails.SendWithContext(ctx, &resend.SendEmailRequest{
+		err := sendEmail(ctx, &resend.SendEmailRequest{
 			From:    fromEmail,
 			To:      []string{customerEmail},
 			Subject: subject,
