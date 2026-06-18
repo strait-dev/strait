@@ -48,7 +48,9 @@ func usageThresholdKey(orgID, metricName string, pct int, period string) string 
 // enough to outlast any single billing month. 62 days covers monthly windows
 // even when a billing period straddles a 31-day month with a few hours of
 // clock skew on either side.
-const usageThresholdMonthlyTTL = 62 * 24 * time.Hour
+func usageThresholdMonthlyTTL() time.Duration {
+	return 62 * 24 * time.Hour
+}
 
 // usageThresholdDailyTTL keeps a daily-window dedupe entry alive 36 hours.
 // The period component (e.g. "2026-05-10") rotates at UTC midnight so the
@@ -57,23 +59,27 @@ const usageThresholdMonthlyTTL = 62 * 24 * time.Hour
 // the previous day's key. Sticking the previous monthly TTL on a daily key
 // would leave 90% of the keyspace as garbage that Redis must eventually
 // evict, costing memory for nothing.
-const usageThresholdDailyTTL = 36 * time.Hour
+func usageThresholdDailyTTL() time.Duration {
+	return 36 * time.Hour
+}
 
 // dailyPeriodLen is len("YYYY-MM-DD"). Monthly periods use len("YYYY-MM")
 // (7 chars). The period string is the only signal we have at the dedupe
 // site; treat any length other than the daily one as monthly so an unknown
 // future cadence defaults to the longer, safer TTL.
-const dailyPeriodLen = len("2006-01-02")
+func dailyPeriodLen() int {
+	return len("2006-01-02")
+}
 
 // usageThresholdTTLFor selects the dedupe TTL based on the period string
 // shape. Centralising the choice here means a future cadence (hourly,
 // weekly) lands in one place instead of being scattered through the emit
 // path.
 func usageThresholdTTLFor(period string) time.Duration {
-	if len(period) == dailyPeriodLen {
-		return usageThresholdDailyTTL
+	if len(period) == dailyPeriodLen() {
+		return usageThresholdDailyTTL()
 	}
-	return usageThresholdMonthlyTTL
+	return usageThresholdMonthlyTTL()
 }
 
 // maybeEmitUsageThreshold records a one-shot 80/90/100% threshold notification

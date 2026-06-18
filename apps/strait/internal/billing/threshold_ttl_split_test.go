@@ -16,7 +16,7 @@ import (
 // detection: a "YYYY-MM-DD" period is daily and should select the 36h TTL.
 func TestUsageThresholdTTLFor_DailyPeriodReturnsShortTTL(t *testing.T) {
 	t.Parallel()
-	assert.Equal(t, usageThresholdDailyTTL,
+	assert.Equal(t, usageThresholdDailyTTL(),
 
 		usageThresholdTTLFor("2026-05-10"))
 }
@@ -26,7 +26,7 @@ func TestUsageThresholdTTLFor_DailyPeriodReturnsShortTTL(t *testing.T) {
 // plus clock skew.
 func TestUsageThresholdTTLFor_MonthlyPeriodReturnsLongTTL(t *testing.T) {
 	t.Parallel()
-	assert.Equal(t, usageThresholdMonthlyTTL,
+	assert.Equal(t, usageThresholdMonthlyTTL(),
 
 		usageThresholdTTLFor("2026-05"))
 }
@@ -37,7 +37,7 @@ func TestUsageThresholdTTLFor_MonthlyPeriodReturnsLongTTL(t *testing.T) {
 func TestUsageThresholdTTLFor_UnknownShapeFallsBackToMonthly(t *testing.T) {
 	t.Parallel()
 	for _, p := range []string{"", "2026", "2026-W19", "2026-05-10T00", "weird"} {
-		assert.Equal(t, usageThresholdMonthlyTTL,
+		assert.Equal(t, usageThresholdMonthlyTTL(),
 
 			usageThresholdTTLFor(p))
 	}
@@ -49,7 +49,7 @@ func TestUsageThresholdTTLFor_UnknownShapeFallsBackToMonthly(t *testing.T) {
 // monthly TTL the savings vanish — fail the build before that lands.
 func TestUsageThresholdTTLFor_DailyTTLNoLongerThan48h(t *testing.T) {
 	t.Parallel()
-	assert.LessOrEqual(t, usageThresholdDailyTTL,
+	assert.LessOrEqual(t, usageThresholdDailyTTL(),
 
 		48*
 			time.Hour)
@@ -61,7 +61,7 @@ func TestUsageThresholdTTLFor_DailyTTLNoLongerThan48h(t *testing.T) {
 // billing window.
 func TestUsageThresholdTTLFor_MonthlyTTLAtLeast31DaysPlusSkew(t *testing.T) {
 	t.Parallel()
-	assert.GreaterOrEqual(t, usageThresholdMonthlyTTL,
+	assert.GreaterOrEqual(t, usageThresholdMonthlyTTL(),
 
 		32*24*time.Hour)
 }
@@ -85,10 +85,10 @@ func TestMaybeEmitUsageThreshold_DailyKeyHasShortTTL(t *testing.T) {
 	ttl := mr.TTL(key)
 	require.NotEqual(
 		t, 0, ttl)
-	assert.LessOrEqual(t, ttl, usageThresholdDailyTTL+
+	assert.LessOrEqual(t, ttl, usageThresholdDailyTTL()+
 		time.Minute)
 	assert.GreaterOrEqual(t, ttl,
-		usageThresholdDailyTTL-
+		usageThresholdDailyTTL()-
 			time.Minute)
 
 	// miniredis returns the *remaining* TTL on read; allow some slack but
@@ -112,9 +112,9 @@ func TestMaybeEmitUsageThreshold_MonthlyKeyHasLongTTL(t *testing.T) {
 	ttl := mr.TTL(key)
 	require.NotEqual(
 		t, 0, ttl)
-	assert.LessOrEqual(t, ttl, usageThresholdMonthlyTTL+
+	assert.LessOrEqual(t, ttl, usageThresholdMonthlyTTL()+
 		time.Minute)
 	assert.GreaterOrEqual(t, ttl,
-		usageThresholdMonthlyTTL-
+		usageThresholdMonthlyTTL()-
 			time.Minute)
 }
