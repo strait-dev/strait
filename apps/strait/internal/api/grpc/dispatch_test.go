@@ -10,6 +10,7 @@ import (
 	workerv1 "strait/internal/api/grpc/proto/workerv1"
 	straitcrypto "strait/internal/crypto"
 	"strait/internal/domain"
+	"strait/internal/store"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/assert"
@@ -244,6 +245,92 @@ func TestResultChannelRegistry_Deregister(t *testing.T) {
 			"worker-1",
 
 			result))
+}
+
+func TestResultChannelRegistry_SendAfterHandoff(t *testing.T) {
+	t.Parallel()
+
+	t.Run("success", func(t *testing.T) {
+		t.Parallel()
+
+		r := NewResultChannelRegistry()
+		ch := r.Register("run-1", "proj-1", "worker-1", "task-1", 1)
+		result := &workerv1.TaskResult{RunId: "run-1", Status: "success", AssignmentId: "task-1", Attempt: 1}
+		called := false
+
+		ok, err := r.SendAfterHandoff("run-1", "proj-1", "worker-1", result, func() (bool, error) {
+			called = true
+			return true, nil
+		})
+		require.NoError(t, err)
+		require.True(t, ok)
+		require.True(t, called)
+		require.Same(t, result, <-ch)
+	})
+
+	t.Run("full channel skips handoff", func(t *testing.T) {
+		t.Parallel()
+
+		r := NewResultChannelRegistry()
+		_ = r.Register("run-1", "proj-1", "worker-1", "task-1", 1)
+		result := &workerv1.TaskResult{RunId: "run-1", Status: "success", AssignmentId: "task-1", Attempt: 1}
+		require.True(t, r.Send("run-1", "proj-1", "worker-1", result))
+
+		called := false
+		ok, err := r.SendAfterHandoff("run-1", "proj-1", "worker-1", result, func() (bool, error) {
+			called = true
+			return true, nil
+		})
+		require.NoError(t, err)
+		require.False(t, ok)
+		require.False(t, called)
+	})
+
+	t.Run("handoff declines", func(t *testing.T) {
+		t.Parallel()
+
+		r := NewResultChannelRegistry()
+		_ = r.Register("run-1", "proj-1", "worker-1", "task-1", 1)
+		result := &workerv1.TaskResult{RunId: "run-1", Status: "success", AssignmentId: "task-1", Attempt: 1}
+
+		ok, err := r.SendAfterHandoff("run-1", "proj-1", "worker-1", result, func() (bool, error) {
+			return false, nil
+		})
+		require.NoError(t, err)
+		require.False(t, ok)
+	})
+
+	t.Run("handoff error", func(t *testing.T) {
+		t.Parallel()
+
+		r := NewResultChannelRegistry()
+		_ = r.Register("run-1", "proj-1", "worker-1", "task-1", 1)
+		result := &workerv1.TaskResult{RunId: "run-1", Status: "success", AssignmentId: "task-1", Attempt: 1}
+		handoffErr := errors.New("handoff failed")
+
+		ok, err := r.SendAfterHandoff("run-1", "proj-1", "worker-1", result, func() (bool, error) {
+			return true, handoffErr
+		})
+		require.ErrorIs(t, err, handoffErr)
+		require.False(t, ok)
+	})
+
+	t.Run("mismatch skips handoff", func(t *testing.T) {
+		t.Parallel()
+
+		r := NewResultChannelRegistry()
+		_ = r.Register("run-1", "proj-1", "worker-1", "task-1", 1)
+		result := &workerv1.TaskResult{RunId: "run-1", Status: "success", AssignmentId: "task-1", Attempt: 1}
+		called := false
+
+		ok, err := r.SendAfterHandoff("run-1", "proj-2", "worker-1", result, func() (bool, error) {
+			called = true
+			return true, nil
+		})
+		require.NoError(t, err)
+		require.False(t, ok)
+		require.False(t, called)
+	})
 }
 
 // TestDispatchHMAC_Format verifies that dispatchHMAC returns the v1= prefix.
@@ -481,6 +568,38 @@ func TestTaskResultHelpers_UnwrapWorkerTaskResult(t *testing.T) {
 	}
 }
 
+func TestTaskResultHelpers_NilWorkerTaskResult(t *testing.T) {
+	t.Parallel()
+
+	var wrapped *WorkerTaskResult
+	require.Empty(t, TaskResultStatus(wrapped))
+	require.Empty(t, TaskResultError(wrapped))
+	require.Nil(t, TaskResultOutput(wrapped))
+
+	require.Empty(t, TaskResultStatus(&WorkerTaskResult{}))
+	require.Empty(t, TaskResultError(&WorkerTaskResult{}))
+	require.Nil(t, TaskResultOutput(&WorkerTaskResult{}))
+}
+
+func TestWorkerDispatcher_ResultAccessorsDelegateToTaskResultHelpers(t *testing.T) {
+	t.Parallel()
+
+	d := &WorkerDispatcher{}
+	result := &WorkerTaskResult{
+		TaskID: "task-1",
+		Result: &workerv1.TaskResult{
+			RunId:        "run-1",
+			Status:       "success",
+			ErrorMessage: "ignored",
+			OutputJson:   []byte(`{"ok":true}`),
+		},
+	}
+
+	require.Equal(t, "success", d.ResultStatus(result))
+	require.Equal(t, "ignored", d.ResultError(result))
+	require.JSONEq(t, `{"ok":true}`, string(d.ResultOutput(result)))
+}
+
 func TestIsTerminalWorkerTaskCompletionStatus(t *testing.T) {
 	t.Parallel()
 
@@ -679,4 +798,57 @@ func TestWorkerDispatch_MarkTaskFailedAfterAbort_NilQueriesSafe(t *testing.T) {
 	cancel()
 
 	d.markWorkerTaskFailedAfterAbort(ctx, "task-1", "run-1")
+}
+
+func TestWorkerDispatch_MarkTaskHelpers_EmptyTaskIDSafe(t *testing.T) {
+	t.Parallel()
+
+	d := &WorkerDispatcher{queries: &store.Queries{}}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	marked, err := d.markWorkerTaskResultReceived(ctx, "", "run-1")
+	require.NoError(t, err)
+	require.True(t, marked)
+	d.markWorkerTaskFailedAfterAbort(ctx, "", "run-1")
+}
+
+func TestWorkerDispatch_EmitTaskRoutedAudit_NilInputsSafe(t *testing.T) {
+	t.Parallel()
+
+	d := &WorkerDispatcher{queries: &store.Queries{}}
+	job := &domain.Job{ID: "job-1", Queue: "q"}
+	run := &domain.JobRun{ID: "run-1", ProjectID: "proj-1"}
+
+	d.emitTaskRoutedAudit(context.Background(), nil, job, "worker-1")
+	d.emitTaskRoutedAudit(context.Background(), run, nil, "worker-1")
+	(&WorkerDispatcher{}).emitTaskRoutedAudit(context.Background(), run, job, "worker-1")
+}
+
+func TestWorkerDispatcher_CompleteWorkerTask_NilSafeInputs(t *testing.T) {
+	t.Parallel()
+
+	d := &WorkerDispatcher{queries: &store.Queries{}}
+	require.NoError(t, d.CompleteWorkerTask(context.Background(), nil, domain.WorkerTaskStatusCompleted))
+	require.NoError(t, d.CompleteWorkerTask(context.Background(), "wrong", domain.WorkerTaskStatusCompleted))
+	require.NoError(t, d.CompleteWorkerTask(context.Background(), (*WorkerTaskResult)(nil), domain.WorkerTaskStatusCompleted))
+	require.NoError(t, d.CompleteWorkerTask(context.Background(), &WorkerTaskResult{}, domain.WorkerTaskStatusCompleted))
+	require.NoError(t, (&WorkerDispatcher{}).CompleteWorkerTask(
+		context.Background(),
+		&WorkerTaskResult{TaskID: "task-1"},
+		domain.WorkerTaskStatusCompleted,
+	))
+}
+
+func TestWorkerDispatcher_CompleteWorkerTask_RejectsNonTerminalStatus(t *testing.T) {
+	t.Parallel()
+
+	d := &WorkerDispatcher{queries: &store.Queries{}}
+	err := d.CompleteWorkerTask(
+		context.Background(),
+		&WorkerTaskResult{TaskID: "task-1"},
+		domain.WorkerTaskStatusAssigned,
+	)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "unsupported terminal worker task status")
 }
