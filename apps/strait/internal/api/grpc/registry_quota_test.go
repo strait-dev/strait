@@ -99,3 +99,29 @@ func TestRegistry_ReservePendingStream_ActiveStreamsCountTowardQuota(t *testing.
 			"pending over active api-key quota error = %v, want ErrWorkerStreamQuotaExceeded", err)
 	}
 }
+
+func TestRegistry_ReleasePendingStream_DecrementsMultipleReservations(t *testing.T) {
+	t.Parallel()
+
+	r := NewConnectionRegistry()
+	require.NoError(t, r.ReservePendingStream("proj-a", "key-1"))
+	require.NoError(t, r.ReservePendingStream("proj-a", "key-1"))
+
+	r.ReleasePendingStream("proj-a", "key-1")
+
+	r.mu.RLock()
+	projectPending := r.pendingByProject["proj-a"]
+	apiKeyPending := r.pendingByAPIKey["key-1"]
+	r.mu.RUnlock()
+	require.Equal(t, 1, projectPending)
+	require.Equal(t, 1, apiKeyPending)
+
+	r.ReleasePendingStream("proj-a", "key-1")
+
+	r.mu.RLock()
+	_, projectExists := r.pendingByProject["proj-a"]
+	_, apiKeyExists := r.pendingByAPIKey["key-1"]
+	r.mu.RUnlock()
+	require.False(t, projectExists)
+	require.False(t, apiKeyExists)
+}
