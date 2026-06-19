@@ -527,10 +527,10 @@ func (q *Queries) RetryQuarantinedOutbox(ctx context.Context, projectID, id stri
 			  AND consumed_at IS NULL
 			LIMIT 1
 		`, source.ID).Scan(&existingID)
-		switch {
-		case err == nil:
+		if err == nil {
 			return fmt.Errorf("%w: active retry clone %s already exists for outbox row %s", ErrOutboxRowConflict, existingID, source.ID)
-		case !errors.Is(err, pgx.ErrNoRows):
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
 			return fmt.Errorf("retry quarantined outbox: check active clone: %w", err)
 		}
 

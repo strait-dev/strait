@@ -97,10 +97,7 @@ func (q *Queries) EnsureOutboxHistoryPartitions(ctx context.Context, monthsAhead
 		end := start.AddDate(0, 1, 0)
 		name := fmt.Sprintf("enqueue_outbox_history_p%04d_%02d", start.Year(), start.Month())
 
-		quoted, err := SafeQuoteIdent(name)
-		if err != nil {
-			return fmt.Errorf("ensure outbox history partition: %w", err)
-		}
+		quoted := `"` + name + `"`
 		query := fmt.Sprintf(
 			`CREATE TABLE IF NOT EXISTS %s PARTITION OF enqueue_outbox_history FOR VALUES FROM ('%s') TO ('%s')`,
 			quoted,

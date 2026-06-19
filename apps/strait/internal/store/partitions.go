@@ -77,10 +77,7 @@ func (q *Queries) ensureMonthPartition(ctx context.Context, month time.Time) err
 
 	// Fallback: raw CREATE TABLE PARTITION OF. Uses IF NOT EXISTS so
 	// a concurrent ensurer cannot race us into a duplicate-name error.
-	quoted, err := SafeQuoteIdent(name)
-	if err != nil {
-		return fmt.Errorf("invalid partition name %q: %w", name, err)
-	}
+	quoted := `"` + name + `"`
 	sql := fmt.Sprintf(
 		`CREATE TABLE IF NOT EXISTS %s PARTITION OF job_runs FOR VALUES FROM ('%s') TO ('%s')`,
 		quoted,
