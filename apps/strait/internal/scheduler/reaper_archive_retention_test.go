@@ -1,8 +1,10 @@
 package scheduler
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"testing"
 	"time"
 
@@ -153,4 +155,25 @@ func TestReaper_ArchiveRetentionRecordsEachStoreError(t *testing.T) {
 	require.Equal(t, 7, store.historyCalls[0].batchSize)
 	require.Len(t, store.outboxHistoryCalls, 1)
 	require.Equal(t, 7, store.outboxHistoryCalls[0].batchSize)
+}
+
+func TestReaper_ReapHistoryRetentionErrorDoesNotReportDeletedRows(t *testing.T) {
+	var logs bytes.Buffer
+	previousLogger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(previousLogger) })
+
+	store := &recordingArchiveRetentionStore{
+		mockReaperStore: &mockReaperStore{},
+		historyRows:     9,
+		historyErr:      errors.New("history delete failed"),
+	}
+	reaper := NewReaper(store, time.Second, 30*time.Second, time.Hour, 2*time.Hour, true, nil).
+		WithDeleteBatchSize(7)
+
+	reaper.reapHistoryRetention(context.Background())
+
+	require.Len(t, store.historyCalls, 1)
+	require.Contains(t, logs.String(), "failed to delete history runs past retention")
+	require.NotContains(t, logs.String(), "deleted history runs past retention")
 }

@@ -1683,13 +1683,7 @@ func (r *Reaper) notifyRotationWebhookRequest(ctx context.Context, webhook apiKe
 	timestamp := time.Now().UTC().Format(time.RFC3339)
 	straitcrypto.SignWebhookRequest(req, signingSecret, payload, deliveryID, timestamp)
 
-	client := r.rotationWebhookClient
-	if client == nil {
-		client = &http.Client{
-			Timeout:   10 * time.Second,
-			Transport: httputil.NewExternalTransport(r.allowPrivateEndpoints),
-		}
-	}
+	client := r.rotationWebhookClientForRequest()
 	requestClient := *client
 	requestClient.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
 		return http.ErrUseLastResponse
@@ -1710,11 +1704,21 @@ func (r *Reaper) notifyRotationWebhookRequest(ctx context.Context, webhook apiKe
 	return nil
 }
 
+func (r *Reaper) rotationWebhookClientForRequest() *http.Client {
+	if r.rotationWebhookClient != nil {
+		return r.rotationWebhookClient
+	}
+	return &http.Client{
+		Timeout:   10 * time.Second,
+		Transport: httputil.NewExternalTransport(r.allowPrivateEndpoints),
+	}
+}
+
 func (r *Reaper) rotationWebhookSigningSecret(encryptedSecret []byte, oldKeyID, projectID string) ([]byte, error) {
-	switch {
-	case len(encryptedSecret) == 0:
+	if len(encryptedSecret) == 0 {
 		return nil, fmt.Errorf("api key %s in project %s has no rotation webhook signing secret", oldKeyID, projectID)
-	case r.rotationSecretDecryptor == nil:
+	}
+	if r.rotationSecretDecryptor == nil {
 		return nil, fmt.Errorf("rotation webhook signing secret decryptor is not configured for api key %s in project %s", oldKeyID, projectID)
 	}
 	plaintext, err := r.rotationSecretDecryptor.Decrypt(encryptedSecret)

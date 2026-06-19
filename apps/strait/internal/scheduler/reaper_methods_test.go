@@ -234,6 +234,24 @@ func TestReaper_HandleCostGateTimeout_ApproveStepError(t *testing.T) {
 	require.False(t, handled)
 }
 
+func TestReaper_NotifyWorkflowCallbackIgnoresCallbackError(t *testing.T) {
+	t.Parallel()
+
+	var called atomic.Int32
+	cb := &mockWorkflowCallback{
+		onJobRunTerminalFn: func(_ context.Context, run *domain.JobRun) error {
+			require.Equal(t, "run-terminal", run.ID)
+			called.Add(1)
+			return errors.New("callback failed")
+		},
+	}
+
+	r := NewReaper(&mockReaperStore{}, time.Second, 30*time.Second, 0, 0, false, cb)
+	r.notifyWorkflowCallback(context.Background(), &domain.JobRun{ID: "run-terminal"})
+
+	require.EqualValues(t, 1, called.Load())
+}
+
 // reapApprovalReminders dedup cleanup tests.
 
 func TestReaper_ReapApprovalReminders_DedupCleanupAfterExpiry(t *testing.T) {

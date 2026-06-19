@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -97,6 +98,121 @@ func TestReaperRun_SkipsWhenPinnedRunnerDoesNotAcquire(t *testing.T) {
 	require.Equal(t, 0,
 		runner.fnCalls,
 	)
+}
+
+func TestReaperRun_LogsFallbackAdvisoryLockCheckError(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	locker := &reaperFallbackAdvisoryLocker{
+		tryErr:        errors.New("lock check failed"),
+		cancel:        cancel,
+		tryCalled:     make(chan struct{}, 1),
+		releaseSignal: make(chan struct{}, 1),
+	}
+	r := NewReaper(&mockReaperStore{}, time.Millisecond, 30*time.Second, 0, 0, false, nil).
+		WithAdvisoryLocker(locker)
+
+	done := make(chan struct{})
+	concWG.Go(func() {
+		r.Run(ctx)
+		close(done)
+	})
+
+	select {
+	case <-locker.tryCalled:
+	case <-time.After(time.Second):
+		require.Fail(t, "reaper did not attempt fallback advisory lock")
+	}
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		require.Fail(t, "reaper did not stop after fallback lock error")
+	}
+	require.Equal(t, reaperAdvisoryLockID, locker.tryLockID)
+	require.False(t, locker.releaseCalled)
+}
+
+func TestReaperRun_LogsFallbackAdvisoryLockReleaseError(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	locker := &reaperFallbackAdvisoryLocker{
+		acquired:      true,
+		releaseErr:    errors.New("release failed"),
+		cancel:        cancel,
+		tryCalled:     make(chan struct{}, 1),
+		releaseSignal: make(chan struct{}, 1),
+	}
+	r := NewReaper(&mockReaperStore{}, time.Millisecond, 30*time.Second, 0, 0, false, nil).
+		WithAdvisoryLocker(locker)
+
+	done := make(chan struct{})
+	concWG.Go(func() {
+		r.Run(ctx)
+		close(done)
+	})
+
+	select {
+	case <-locker.releaseSignal:
+	case <-time.After(time.Second):
+		require.Fail(t, "reaper did not release fallback advisory lock")
+	}
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		require.Fail(t, "reaper did not stop after fallback release")
+	}
+	require.Equal(t, reaperAdvisoryLockID, locker.releaseLockID)
+	require.True(t, locker.releaseCalled)
+}
+
+type reaperFallbackAdvisoryLocker struct {
+	acquired      bool
+	tryErr        error
+	releaseErr    error
+	cancel        context.CancelFunc
+	tryCalled     chan struct{}
+	releaseSignal chan struct{}
+	tryLockID     int64
+	releaseLockID int64
+	releaseCalled bool
+}
+
+func (m *reaperFallbackAdvisoryLocker) TryAdvisoryLock(_ context.Context, lockID int64) (bool, error) {
+	if m.tryCalled == nil {
+		m.tryCalled = make(chan struct{}, 1)
+	}
+	if m.releaseSignal == nil {
+		m.releaseSignal = make(chan struct{}, 1)
+	}
+	m.tryLockID = lockID
+	m.tryCalled <- struct{}{}
+	if m.tryErr != nil && m.cancel != nil {
+		m.cancel()
+	}
+	return m.acquired, m.tryErr
+}
+
+func (m *reaperFallbackAdvisoryLocker) ReleaseAdvisoryLock(_ context.Context, lockID int64) error {
+	if m.releaseSignal == nil {
+		m.releaseSignal = make(chan struct{}, 1)
+	}
+	m.releaseLockID = lockID
+	m.releaseCalled = true
+	m.releaseSignal <- struct{}{}
+	if m.cancel != nil {
+		m.cancel()
+	}
+	return m.releaseErr
 }
 
 type mockAdvisoryLockRunner struct {
