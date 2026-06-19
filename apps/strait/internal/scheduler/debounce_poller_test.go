@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"strait/internal/domain"
+	"strait/internal/queue"
 	"strait/internal/store"
 
 	"github.com/jackc/pgx/v5"
@@ -538,6 +539,35 @@ func TestDebouncePoller_ReschedulesPendingWhenFireTimeRateLimitExceeded(t *testi
 	require.Len(t, ds.duePending, 1)
 	require.Equal(t, "dp-1", ds.duePending[0].ID)
 	require.True(t, ds.duePending[0].FireAt.After(time.Now().UTC()))
+}
+
+func TestDebouncePoller_ThrottleRescheduleUsesRetryBackoff(t *testing.T) {
+	t.Parallel()
+
+	originalFireAt := time.Now().Add(-time.Second)
+	ds := &mockDebounceStore{
+		duePending: []domain.DebouncePending{
+			{ID: "dp-1", JobID: "job-1", ProjectID: "proj-1", FireAt: originalFireAt},
+		},
+		jobs: map[string]*domain.Job{
+			"job-1": {ID: "job-1", ProjectID: "proj-1", Enabled: true, TimeoutSecs: 60},
+		},
+	}
+	q := &mockQueue{enqueueFn: func(context.Context, *domain.JobRun) error {
+		return queue.ErrEnqueueThrottled
+	}}
+	poller := NewDebouncePoller(ds, q, time.Second)
+
+	before := time.Now().UTC()
+	poller.poll(context.Background())
+	after := time.Now().UTC()
+
+	require.Empty(t, ds.completed)
+	require.Len(t, ds.rescheduled, 1)
+	require.Equal(t, "dp-1", ds.rescheduled[0].id)
+	require.True(t, ds.rescheduled[0].oldFireAt.Equal(originalFireAt))
+	require.False(t, ds.rescheduled[0].nextFireAt.Before(before.Add(debounceAdmissionRetryBackoff)))
+	require.False(t, ds.rescheduled[0].nextFireAt.After(after.Add(debounceAdmissionRetryBackoff)))
 }
 
 func TestDebouncePoller_SkipsPendingExtendedAfterDueList(t *testing.T) {
