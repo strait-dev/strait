@@ -6,13 +6,16 @@ import (
 	"time"
 
 	"strait/internal/domain"
-	"strait/internal/store"
 )
+
+type workerRegistrar interface {
+	RegisterWorker(ctx context.Context, worker *domain.Worker) error
+}
 
 // runDBSync periodically upserts all connected workers into the workers table
 // so that the HTTP API can surface live worker state and so that other
 // replicas can observe which workers are connected where.
-func runDBSync(ctx context.Context, reg *ConnectionRegistry, q *store.Queries, interval time.Duration) {
+func runDBSync(ctx context.Context, reg *ConnectionRegistry, q workerRegistrar, interval time.Duration) {
 	if interval <= 0 {
 		interval = 10 * time.Second
 	}
@@ -29,7 +32,7 @@ func runDBSync(ctx context.Context, reg *ConnectionRegistry, q *store.Queries, i
 	}
 }
 
-func dbSyncOnce(ctx context.Context, reg *ConnectionRegistry, q *store.Queries) {
+func dbSyncOnce(ctx context.Context, reg *ConnectionRegistry, q workerRegistrar) {
 	workers := reg.Snapshot()
 	for _, w := range workers {
 		queueName := ""
