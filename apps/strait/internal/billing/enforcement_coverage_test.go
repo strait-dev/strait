@@ -330,6 +330,18 @@ func TestNewEnforcer_NilStore_Panics(t *testing.T) {
 	NewEnforcer(nil, nil, nil)
 }
 
+func TestNewEnforcer_TypedNilStore_Panics(t *testing.T) {
+	t.Parallel()
+	defer func() {
+		require.NotNil(
+			t, recover(),
+		)
+	}()
+
+	var store *mockBillingStore
+	NewEnforcer(store, nil, nil)
+}
+
 // TestNewEnforcer_NilLogger_UsesDefault verifies that passing a nil logger
 // falls back to slog.Default() without panicking.
 func TestNewEnforcer_NilLogger_UsesDefault(t *testing.T) {

@@ -51,6 +51,30 @@ type WorkflowStepRun = {
   error?: string;
 };
 
+type Worker = {
+  id: string;
+  project_id: string;
+  queue_name: string;
+  status: string;
+};
+
+type ApiKey = {
+  id: string;
+  name: string;
+  key_prefix?: string;
+  scopes?: string[];
+};
+
+type FakeEndpointRequest = {
+  id: string;
+  method: string;
+  path: string;
+  query: Record<string, string>;
+  headers: Record<string, string | string[] | undefined>;
+  body: unknown;
+  received_at: string;
+};
+
 type RawApiResponse<T = unknown> = {
   ok: boolean;
   status: number;
@@ -116,6 +140,24 @@ export class ApiHelper {
   fakeEndpoint(path = "/success") {
     const base = this.fakeEndpointUrl ?? process.env.E2E_FAKE_ENDPOINT_URL;
     return base ? `${base}${path}` : fallbackJobEndpointUrl;
+  }
+
+  async listFakeEndpointRequests(params?: { name?: string }) {
+    const url = new URL(`${this.getFakeEndpointUrl()}/requests`);
+    if (params?.name) {
+      url.searchParams.set("name", params.name);
+    }
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(
+        `Fake endpoint request log failed (${response.status}): ${await response.text()}`
+      );
+    }
+    return (await response.json()) as { data: FakeEndpointRequest[] };
+  }
+
+  async clearFakeEndpointRequests() {
+    await fetch(`${this.getFakeEndpointUrl()}/requests`, { method: "DELETE" });
   }
 
   health() {
@@ -218,7 +260,7 @@ export class ApiHelper {
   createJob(data: {
     name: string;
     slug?: string;
-    endpoint_url: string;
+    endpoint_url?: string;
     description?: string;
     max_attempts?: number;
     timeout_secs?: number;
@@ -226,6 +268,8 @@ export class ApiHelper {
     retry_delays_secs?: number[];
     cron?: string;
     enabled?: boolean;
+    execution_mode?: "http" | "worker";
+    queue_name?: string;
   }) {
     return this.request<{ id: string; name: string }>("POST", "/v1/jobs", {
       project_id: this.getProjectId(),
@@ -235,14 +279,38 @@ export class ApiHelper {
   }
 
   getJob(id: string) {
-    return this.request<{ id: string; name: string; enabled: boolean }>(
-      "GET",
-      `/v1/jobs/${id}`
-    );
+    return this.request<{
+      id: string;
+      name: string;
+      description?: string;
+      endpoint_url?: string;
+      cron?: string;
+      max_attempts: number;
+      timeout_secs: number;
+      retry_strategy?: string;
+      execution_mode?: string;
+      queue?: string;
+      enabled: boolean;
+      paused: boolean;
+    }>("GET", `/v1/jobs/${id}`);
   }
 
   /** Update job fields through the same API path the dashboard depends on. */
-  updateJob(id: string, data: { enabled?: boolean }) {
+  updateJob(
+    id: string,
+    data: {
+      name?: string;
+      description?: string;
+      endpoint_url?: string;
+      cron?: string;
+      max_attempts?: number;
+      timeout_secs?: number;
+      retry_strategy?: string;
+      execution_mode?: "http" | "worker";
+      queue_name?: string;
+      enabled?: boolean;
+    }
+  ) {
     return this.request<{ id: string; name: string; enabled: boolean }>(
       "PATCH",
       `/v1/jobs/${id}`,
@@ -339,6 +407,12 @@ export class ApiHelper {
     return this.request("DELETE", `/v1/runs/${id}`);
   }
 
+  async deleteRunsForJob(jobId: string) {
+    await this.withDatabase(async (client) => {
+      await client.query("DELETE FROM job_runs WHERE job_id = $1", [jobId]);
+    });
+  }
+
   replayRun(runId: string) {
     return this.request<{ id: string }>("POST", `/v1/runs/${runId}/replay`);
   }
@@ -374,6 +448,19 @@ export class ApiHelper {
 
   deleteSchedule(id: string) {
     return this.deleteJob(id);
+  }
+
+  // Workers
+  listWorkers(params?: { limit?: number }) {
+    const query = new URLSearchParams();
+    if (params?.limit) {
+      query.set("limit", String(params.limit));
+    }
+    const qs = query.toString();
+    return this.request<{ data: Worker[] }>(
+      "GET",
+      `/v1/workers${qs ? `?${qs}` : ""}`
+    );
   }
 
   // Webhooks
@@ -803,11 +890,30 @@ export class ApiHelper {
   }
 
   // API Keys
-  createApiKey(data: { name: string; scopes?: string[] }) {
-    return this.request<{ id: string; key: string }>(
+  listApiKeys(params?: { limit?: number }) {
+    const query = new URLSearchParams();
+    if (params?.limit) {
+      query.set("limit", String(params.limit));
+    }
+    const qs = query.toString();
+    return this.request<{ data: ApiKey[] }>(
+      "GET",
+      `/v1/api-keys${qs ? `?${qs}` : ""}`
+    );
+  }
+
+  createApiKey(data: {
+    expires_in_days?: number;
+    name: string;
+    scopes?: string[];
+  }) {
+    return this.request<{ id: string; name: string; key: string }>(
       "POST",
       "/v1/api-keys",
-      data
+      {
+        project_id: this.getProjectId(),
+        ...data,
+      }
     );
   }
 

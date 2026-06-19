@@ -1,15 +1,17 @@
-import { Button } from "@strait/ui/components/button";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { Button, buttonVariants } from "@strait/ui/components/button";
 import { IdCell } from "@strait/ui/components/id-cell";
 import type { ColumnDef } from "@tanstack/react-table";
-import { formatDistanceToNow } from "date-fns";
+import { RelativeTime } from "@/components/common/relative-time";
 import type { JobRun } from "@/hooks/api/types";
 import { EyeIcon, RefreshIcon, TrashIcon } from "@/lib/icons";
-import { createActionsColumn, createSelectColumn } from "./shared-columns";
+import { createSelectColumn } from "./shared-columns";
 
 type DlqColumnActions = {
   onView?: (run: JobRun) => void;
   onRetry?: (run: JobRun) => void;
   onDiscard?: (run: JobRun) => void;
+  disabled?: boolean;
 };
 
 export const createDlqColumns = (
@@ -23,6 +25,7 @@ export const createDlqColumns = (
       <Button
         aria-label={`View run ${row.original.id}`}
         className="font-mono"
+        disabled={actions.disabled}
         onClick={(event) => {
           event.stopPropagation();
           actions.onView?.(row.original);
@@ -60,27 +63,51 @@ export const createDlqColumns = (
   {
     accessorKey: "created_at",
     header: "Failed At",
-    cell: ({ row }) =>
-      formatDistanceToNow(new Date(row.original.created_at), {
-        addSuffix: true,
-      }),
+    cell: ({ row }) => <RelativeTime value={row.original.created_at} />,
   },
-  createActionsColumn<JobRun>([
-    {
-      label: "View",
-      icon: EyeIcon,
-      onClick: (row) => actions.onView?.(row.original),
+  {
+    id: "actions",
+    cell: ({ row }) => {
+      const run = row.original;
+      return (
+        <div className="flex items-center justify-end gap-1" data-no-row-click>
+          {[
+            { label: "View", icon: EyeIcon, onClick: actions.onView },
+            { label: "Retry", icon: RefreshIcon, onClick: actions.onRetry },
+            {
+              label: "Discard",
+              icon: TrashIcon,
+              onClick: actions.onDiscard,
+              destructive: true,
+            },
+          ]
+            .filter((action) => !!action.onClick)
+            .map((action) => (
+              <button
+                aria-label={action.label}
+                className={buttonVariants({
+                  size: "icon-sm",
+                  variant: action.destructive ? "destructive" : "ghost",
+                })}
+                disabled={actions.disabled}
+                key={action.label}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  action.onClick?.(run);
+                }}
+                type="button"
+              >
+                <HugeiconsIcon
+                  aria-hidden="true"
+                  className="size-3.5"
+                  icon={action.icon}
+                />
+              </button>
+            ))}
+        </div>
+      );
     },
-    {
-      label: "Retry",
-      icon: RefreshIcon,
-      onClick: (row) => actions.onRetry?.(row.original),
-    },
-    {
-      label: "Discard",
-      icon: TrashIcon,
-      onClick: (row) => actions.onDiscard?.(row.original),
-      variant: "destructive",
-    },
-  ]),
+    enableSorting: false,
+    enableHiding: false,
+  },
 ];

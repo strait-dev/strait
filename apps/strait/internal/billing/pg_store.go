@@ -39,6 +39,10 @@ type PgStore struct {
 
 // NewPgStore creates a new PostgreSQL billing store.
 func NewPgStore(pool *pgxpool.Pool) *PgStore {
+	if pool == nil {
+		return nil
+	}
+
 	return &PgStore{pool: pool}
 }
 

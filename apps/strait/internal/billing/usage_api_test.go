@@ -40,6 +40,26 @@ func assertFloatApprox(t *testing.T, got, want float64) {
 	)
 }
 
+func TestNewUsageServiceRequiresDependencies(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{}
+	var typedNilStore *mockBillingStore
+	_, enforcer := newUsageServiceTest(t, store)
+
+	assert.Nil(t, NewUsageService(nil, enforcer))
+	assert.Nil(t, NewUsageService(typedNilStore, enforcer))
+	assert.Nil(t, NewUsageService(store, nil))
+	assert.Nil(t, NewUsageService(nil, nil))
+	assert.NotNil(t, NewUsageService(store, enforcer))
+}
+
+func TestNewPgStoreNilPoolReturnsNil(t *testing.T) {
+	t.Parallel()
+
+	assert.Nil(t, NewPgStore(nil))
+}
+
 func TestUsageService_GetCurrentUsage(t *testing.T) {
 	t.Parallel()
 

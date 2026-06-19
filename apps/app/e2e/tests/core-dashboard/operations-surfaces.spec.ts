@@ -38,7 +38,7 @@ test.describe("Operational dashboard surfaces", () => {
   test("renders schedules backed by cron jobs", async ({ page }) => {
     await page.goto("/app/schedules", { waitUntil: "domcontentloaded" });
 
-    await expect(page.getByRole("table", { name: "Schedules" })).toBeVisible();
+    await expect(page.getByRole("region", { name: "Schedules" })).toBeVisible();
     await page.getByPlaceholder("Search schedules...").fill(scheduleName);
     await expect(page.getByText(scheduleName)).toBeVisible();
     await expect(page.getByText("*/15 * * * *")).toBeVisible();
@@ -47,7 +47,7 @@ test.describe("Operational dashboard surfaces", () => {
   test("renders workflows created through the Go API", async ({ page }) => {
     await page.goto("/app/workflows", { waitUntil: "domcontentloaded" });
 
-    await expect(page.getByRole("table", { name: "Workflows" })).toBeVisible();
+    await expect(page.getByRole("region", { name: "Workflows" })).toBeVisible();
     await page.getByPlaceholder("Search workflows...").fill(workflowName);
     await expect(page.getByText(workflowName)).toBeVisible();
   });

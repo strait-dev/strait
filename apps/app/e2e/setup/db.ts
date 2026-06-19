@@ -53,6 +53,18 @@ export async function ensureOrgExists(
   existingOrgId: string | null
 ) {
   if (existingOrgId) {
+    await pool.query(
+      `INSERT INTO "member" ("id", "organizationId", "userId", "role", "createdAt")
+       VALUES ($1, $2, $3, 'owner', NOW())
+       ON CONFLICT DO NOTHING`,
+      [crypto.randomUUID(), existingOrgId, userId]
+    );
+    await pool.query(
+      `UPDATE "member"
+       SET "role" = 'owner'
+       WHERE "organizationId" = $1 AND "userId" = $2`,
+      [existingOrgId, userId]
+    );
     return existingOrgId;
   }
 
@@ -132,6 +144,118 @@ export async function ensureProjectExists(
   }
 
   return projectId;
+}
+
+export async function ensureLimitedMemberExists(
+  pool: pg.Pool,
+  email: string,
+  password: string,
+  baseURL: string,
+  orgId: string,
+  projectId: string
+) {
+  const user = await ensureUserExists(pool, email, password, baseURL);
+
+  const existingMember = await pool.query(
+    `SELECT "id" FROM "member" WHERE "organizationId" = $1 AND "userId" = $2 LIMIT 1`,
+    [orgId, user.id]
+  );
+  if (existingMember.rows.length === 0) {
+    await pool.query(
+      `INSERT INTO "member" ("id", "organizationId", "userId", "role", "createdAt")
+       VALUES ($1, $2, $3, 'member', NOW())`,
+      [crypto.randomUUID(), orgId, user.id]
+    );
+  }
+  await pool.query(
+    `UPDATE "member"
+     SET "role" = 'member'
+     WHERE "organizationId" = $1 AND "userId" = $2`,
+    [orgId, user.id]
+  );
+  await pool.query(
+    `UPDATE "user"
+     SET "defaultOrganizationId" = $1, "activeProjectId" = $2, "emailVerified" = true
+     WHERE "id" = $3`,
+    [orgId, projectId, user.id]
+  );
+
+  return user;
+}
+
+export async function ensureProjectRbacExists(
+  pool: pg.Pool,
+  projectId: string,
+  ownerUserId: string,
+  limitedUserId: string
+) {
+  const ownerRoleId = `e2e-owner-${projectId}`;
+  const limitedRoleId = `e2e-limited-${projectId}`;
+
+  await pool.query(
+    `
+      INSERT INTO project_roles (
+        id, project_id, name, description, permissions, is_system
+      )
+      VALUES ($1, $2, 'E2E Owner', 'Full local dogfood access', $3, true)
+      ON CONFLICT (project_id, name) DO UPDATE SET
+        permissions = EXCLUDED.permissions,
+        updated_at = NOW()
+    `,
+    [ownerRoleId, projectId, ["*"]]
+  );
+
+  await pool.query(
+    `
+      INSERT INTO project_roles (
+        id, project_id, name, description, permissions, is_system
+      )
+      VALUES ($1, $2, 'E2E Read Only', 'Read-only local dogfood access', $3, true)
+      ON CONFLICT (project_id, name) DO UPDATE SET
+        permissions = EXCLUDED.permissions,
+        updated_at = NOW()
+    `,
+    [
+      limitedRoleId,
+      projectId,
+      [
+        "jobs:read",
+        "runs:read",
+        "workflows:read",
+        "webhooks:read",
+        "stats:read",
+        "projects:read",
+        "dlq:read",
+        "outbox:read",
+      ],
+    ]
+  );
+
+  await pool.query(
+    `
+      INSERT INTO project_member_roles (
+        id, project_id, user_id, role_id, granted_by
+      )
+      VALUES ($1, $2, $3, $4, $3)
+      ON CONFLICT (project_id, user_id) DO UPDATE SET
+        role_id = EXCLUDED.role_id,
+        granted_by = EXCLUDED.granted_by
+    `,
+    [crypto.randomUUID(), projectId, ownerUserId, ownerRoleId]
+  );
+
+  await pool.query(
+    `
+      INSERT INTO project_member_roles (
+        id, project_id, user_id, role_id, granted_by
+      )
+      VALUES ($1, $2, $3, $4, $5)
+      ON CONFLICT (project_id, user_id) DO UPDATE SET
+        role_id = EXCLUDED.role_id,
+        granted_by = EXCLUDED.granted_by
+    `,
+    [crypto.randomUUID(), projectId, limitedUserId, limitedRoleId, ownerUserId]
+  );
 }
 
 async function syncProjectToApi(

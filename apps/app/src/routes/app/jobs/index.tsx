@@ -1,5 +1,16 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@strait/ui/components/alert-dialog";
+import { Button } from "@strait/ui/components/button";
+import {
   DataGrid,
   DataGridContainer,
   DataGridScrollArea,
@@ -32,25 +43,30 @@ import { FacetedStatusFilter } from "@/components/common/faceted-status-filter";
 import NoProjectState from "@/components/common/no-project-state";
 import TablePageSkeleton from "@/components/common/table-page-skeleton";
 import JobDetailSheet from "@/components/dashboard/job-detail-sheet";
+import JobFormDialog from "@/components/jobs/job-form-dialog";
 import { createJobColumns } from "@/components/tables/jobs-columns";
 import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import type { Job, PaginatedResponse } from "@/hooks/api/types";
 import {
   jobsQueryOptions,
+  useDeleteJob,
   usePauseJob,
   useResumeJob,
   useTriggerJob,
 } from "@/hooks/api/use-jobs";
+import { useProjectPermissions } from "@/hooks/auth/use-project-permissions";
 import { useCursorPagination } from "@/hooks/use-cursor-pagination";
+import { useHydratedTableData } from "@/hooks/use-hydrated-table-data";
 import {
   BriefcaseIcon,
   EyeIcon,
   PauseActionIcon,
   PlayActionIcon,
+  PlusIcon,
   SearchIcon,
+  TrashIcon,
 } from "@/lib/icons";
 import { ENABLED_STATUS_OPTIONS } from "@/lib/status";
-import { stopInteractiveRowClick } from "@/lib/table-interactions";
 import type { AppRouteContext } from "@/routes/app/layout";
 
 const searchArraySchema = z.preprocess(
@@ -58,11 +74,17 @@ const searchArraySchema = z.preprocess(
   z.array(z.string()).optional()
 );
 
+const createSearchSchema = z.preprocess(
+  (value) => (value == null ? undefined : String(value)),
+  z.string().optional()
+);
+
 export const searchSchema = z.object({
   query: z.string().optional(),
   status: searchArraySchema,
   cursor: z.string().optional(),
   perPage: z.coerce.number().optional(),
+  create: createSearchSchema,
 });
 
 export const Route = createFileRoute("/app/jobs/")({
@@ -109,14 +131,30 @@ function JobsPage() {
   );
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [formOpen, setFormOpen] = useState(false);
+  const [editingJob, setEditingJob] = useState<Job | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Job | null>(null);
   const triggerJob = useTriggerJob();
   const pauseJob = usePauseJob();
   const resumeJob = useResumeJob();
+  const deleteJob = useDeleteJob();
+  const { permissions } = useProjectPermissions(session.user.activeProjectId);
   const [query, setQuery] = useState(search.query ?? "");
 
   useEffect(() => {
     setQuery(search.query ?? "");
   }, [search.query]);
+
+  useEffect(() => {
+    if (search.create === "1") {
+      setEditingJob(null);
+      setFormOpen(true);
+      navigate({
+        search: (prev) => ({ ...prev, create: undefined }),
+        replace: true,
+      });
+    }
+  }, [navigate, search.create]);
 
   const { data } = useQuery({
     ...jobsQueryOptions({
@@ -156,22 +194,36 @@ function JobsPage() {
   }, [typed, selectedStatuses, hasProject, query]);
 
   const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({});
+  const tableData = useHydratedTableData(filteredData);
 
   const table = useReactTable({
-    data: filteredData,
+    data: tableData.data,
     columns: createJobColumns({
       onView: (job) => {
         setSelectedJob(job);
         setSheetOpen(true);
       },
-      onTrigger: (job) => triggerJob.mutate({ id: job.id }),
-      onPauseResume: (job) => {
-        if (job.enabled) {
-          pauseJob.mutate({ id: job.id });
-        } else {
-          resumeJob.mutate({ id: job.id });
-        }
-      },
+      onEdit: permissions.canWriteJobs
+        ? (job) => {
+            setEditingJob(job);
+            setFormOpen(true);
+          }
+        : undefined,
+      onTrigger: permissions.canTriggerJobs
+        ? (job) => triggerJob.mutate({ id: job.id })
+        : undefined,
+      onPauseResume: permissions.canWriteJobs
+        ? (job) => {
+            if (job.paused || !job.enabled) {
+              resumeJob.mutate({ id: job.id });
+            } else {
+              pauseJob.mutate({ id: job.id });
+            }
+          }
+        : undefined,
+      onDelete: permissions.canWriteJobs
+        ? (job) => setDeleteTarget(job)
+        : undefined,
     }),
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
@@ -260,13 +312,30 @@ function JobsPage() {
           }))}
           values={selectedStatuses}
         />
+
+        {permissions.canWriteJobs && (
+          <Button
+            className="shrink-0"
+            render={(props) => (
+              <a {...props} href="/app/jobs?create=1">
+                {props.children}
+              </a>
+            )}
+          >
+            <HugeiconsIcon className="size-4" icon={PlusIcon} />
+            Create job
+          </Button>
+        )}
       </div>
 
-      <div onClickCapture={stopInteractiveRowClick}>
+      <section aria-label="Jobs">
         <DataGrid
           emptyMessage={emptyState}
+          loading={tableData.isLoading}
           onRowClick={handleRowClick}
-          recordCount={table.getRowModel().rows.length}
+          recordCount={
+            tableData.isHydrated ? table.getRowModel().rows.length : 0
+          }
           table={table}
           tableClassNames={{ base: "min-w-[1200px]" }}
         >
@@ -308,43 +377,96 @@ function JobsPage() {
                     },
                   ]
                 : []),
-              {
-                label: "Trigger",
-                icon: PlayActionIcon,
-                onClick: () => {
-                  for (const id of selectedIds) {
-                    triggerJob.mutate({ id });
-                  }
-                },
-              },
-              {
-                label: "Pause",
-                icon: PauseActionIcon,
-                onClick: () => {
-                  for (const id of selectedIds) {
-                    pauseJob.mutate({ id });
-                  }
-                },
-              },
-              {
-                label: "Resume",
-                icon: PlayActionIcon,
-                onClick: () => {
-                  for (const id of selectedIds) {
-                    resumeJob.mutate({ id });
-                  }
-                },
-              },
+              ...(permissions.canTriggerJobs
+                ? [
+                    {
+                      label: "Trigger",
+                      icon: PlayActionIcon,
+                      onClick: () => {
+                        for (const id of selectedIds) {
+                          triggerJob.mutate({ id });
+                        }
+                      },
+                    },
+                  ]
+                : []),
+              ...(permissions.canWriteJobs
+                ? [
+                    {
+                      label: "Pause",
+                      icon: PauseActionIcon,
+                      onClick: () => {
+                        for (const id of selectedIds) {
+                          pauseJob.mutate({ id });
+                        }
+                      },
+                    },
+                    {
+                      label: "Resume",
+                      icon: PlayActionIcon,
+                      onClick: () => {
+                        for (const id of selectedIds) {
+                          resumeJob.mutate({ id });
+                        }
+                      },
+                    },
+                  ]
+                : []),
             ]}
           />
         </DataGrid>
-      </div>
+      </section>
 
       <JobDetailSheet
         job={selectedJob}
         onOpenChange={setSheetOpen}
         open={sheetOpen}
       />
+
+      <JobFormDialog
+        job={editingJob}
+        kind="job"
+        onOpenChange={setFormOpen}
+        onSaved={(job) => {
+          setSelectedJob((current) => (current?.id === job.id ? job : current));
+        }}
+        open={formOpen}
+      />
+
+      <AlertDialog
+        onOpenChange={(open) => {
+          if (!open) {
+            setDeleteTarget(null);
+          }
+        }}
+        open={!!deleteTarget}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete job?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This permanently deletes {deleteTarget?.name}. Existing run
+              history remains available from the runs view.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={deleteJob.isPending}
+              onClick={() => {
+                if (deleteTarget) {
+                  deleteJob.mutate(deleteTarget.id, {
+                    onSuccess: () => setDeleteTarget(null),
+                  });
+                }
+              }}
+            >
+              <HugeiconsIcon className="size-4" icon={TrashIcon} />
+              Delete job
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Shell>
   );
 }

@@ -1,3 +1,4 @@
+import { toast } from "@strait/ui/components/toast";
 import {
   keepPreviousData,
   queryOptions,
@@ -175,6 +176,7 @@ export const useCreateWebhook = () => {
       });
     },
     onError: (err) => {
+      toast.error("Failed to create webhook.");
       getPostHog()?.capture("mutation_error", {
         action: "webhook_created",
         error_message: err instanceof Error ? err.message : "Unknown error",
@@ -212,6 +214,7 @@ export const useDeleteWebhook = () => {
       getPostHog()?.capture("webhook_deleted", { webhook_id: id });
     },
     onError: (err, variables, context) => {
+      toast.error("Failed to delete webhook.");
       if (context?.previousLists) {
         for (const [key, data] of context.previousLists) {
           queryClient.setQueryData(key, data);
@@ -239,6 +242,7 @@ export const useTestWebhook = () => {
       getPostHog()?.capture("webhook_tested");
     },
     onError: (err) => {
+      toast.error("Failed to test webhook.");
       getPostHog()?.capture("mutation_error", {
         action: "webhook_tested",
         error_message: err instanceof Error ? err.message : "Unknown error",

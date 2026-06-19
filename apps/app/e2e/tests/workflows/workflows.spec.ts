@@ -45,7 +45,7 @@ test.describe("Workflows", () => {
 
   test.beforeEach(async ({ page }) => {
     await page.goto("/app/workflows", { waitUntil: "domcontentloaded" });
-    await expect(page.getByRole("table", { name: "Workflows" })).toBeVisible();
+    await expect(page.getByRole("region", { name: "Workflows" })).toBeVisible();
   });
 
   test("renders controls and the seeded workflow", async ({ page }) => {

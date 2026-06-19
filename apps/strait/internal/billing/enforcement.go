@@ -219,7 +219,7 @@ const orgLimitsCacheNamespace = "billing_org_limits"
 
 // NewEnforcer creates a billing enforcer. Panics if store is nil.
 func NewEnforcer(store Store, rdb redis.Cmdable, logger *slog.Logger, opts ...EnforcerOption) *Enforcer {
-	if store == nil {
+	if storeIsNil(store) {
 		panic("billing.NewEnforcer: store must not be nil")
 	}
 	if logger == nil {

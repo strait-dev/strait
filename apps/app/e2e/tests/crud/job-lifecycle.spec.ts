@@ -35,7 +35,7 @@ test.describe("Job Lifecycle", () => {
   test("shows the created job in the jobs list", async ({ page }) => {
     await page.goto("/app/jobs", { waitUntil: "domcontentloaded" });
 
-    await expect(page.getByRole("table", { name: "Jobs" })).toBeVisible();
+    await expect(page.getByRole("region", { name: "Jobs" })).toBeVisible();
     await expect(page.getByText(testJobName)).toBeVisible({ timeout: 10_000 });
   });
 
@@ -58,13 +58,14 @@ test.describe("Job Lifecycle", () => {
   test("shows the run in the runs list", async ({ page }) => {
     await page.goto("/app/runs", { waitUntil: "domcontentloaded" });
 
-    await expect(page.getByRole("table", { name: "Runs" })).toBeVisible();
+    await expect(page.getByRole("region", { name: "Runs" })).toBeVisible();
     await expect(page.getByText(runId.slice(0, 8)).first()).toBeVisible({
       timeout: 10_000,
     });
   });
 
   test("deletes the job via the API", async () => {
+    await api.waitForRunStatus(runId, ["completed", "failed"], 60_000);
     await api.deleteJob(jobId);
     jobId = "";
   });
@@ -72,7 +73,7 @@ test.describe("Job Lifecycle", () => {
   test("removes the deleted job from the jobs list", async ({ page }) => {
     await page.goto("/app/jobs", { waitUntil: "domcontentloaded" });
 
-    await expect(page.getByRole("table", { name: "Jobs" })).toBeVisible();
+    await expect(page.getByRole("region", { name: "Jobs" })).toBeVisible();
     await expect(page.getByText(testJobName)).not.toBeVisible({
       timeout: 5000,
     });

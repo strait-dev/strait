@@ -98,6 +98,10 @@ type UsageService struct {
 
 // NewUsageService creates a new usage service.
 func NewUsageService(store Store, enforcer *Enforcer) *UsageService {
+	if storeIsNil(store) || enforcer == nil {
+		return nil
+	}
+
 	return &UsageService{store: store, enforcer: enforcer}
 }
 

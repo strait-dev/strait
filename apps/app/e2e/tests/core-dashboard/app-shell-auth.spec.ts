@@ -26,7 +26,7 @@ test.describe("Authenticated app shell", () => {
 
     await page.goto("/app/jobs", { waitUntil: "domcontentloaded" });
     await expect(page).toHaveURL(/\/app\/jobs/);
-    await expect(page.getByRole("table", { name: "Jobs" })).toBeVisible();
+    await expect(page.getByRole("region", { name: "Jobs" })).toBeVisible();
     expect(api.getProjectId()).toBeTruthy();
   });
 
@@ -36,9 +36,9 @@ test.describe("Authenticated app shell", () => {
 
     await expect(page.getByText("Total Runs (24h)")).toBeVisible();
     await page.goto("/app/jobs", { waitUntil: "domcontentloaded" });
-    await expect(page.getByRole("table", { name: "Jobs" })).toBeVisible();
+    await expect(page.getByRole("region", { name: "Jobs" })).toBeVisible();
     await page.goto("/app/workflows", { waitUntil: "domcontentloaded" });
-    await expect(page.getByRole("table", { name: "Workflows" })).toBeVisible();
+    await expect(page.getByRole("region", { name: "Workflows" })).toBeVisible();
   });
 });
 

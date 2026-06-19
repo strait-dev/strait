@@ -65,6 +65,36 @@ export async function getOrganizationRole(
   return null;
 }
 
+export async function getProjectOrganizationRole(
+  userId: string,
+  projectId: string
+): Promise<OrganizationRole | null> {
+  if (!(userId && projectId)) {
+    throw new Error("Forbidden");
+  }
+
+  const result = await getAuthPool().query<{ role: string }>(
+    `SELECT m."role"
+     FROM project p
+     JOIN member m ON m."organizationId" = p.organization_id
+     WHERE p.id = $1 AND m."userId" = $2
+     LIMIT 1`,
+    [projectId, userId]
+  );
+
+  const roles = parseStoredRoles(result.rows[0]?.role);
+  if (roles.includes("owner")) {
+    return "owner";
+  }
+  if (roles.includes("admin")) {
+    return "admin";
+  }
+  if (roles.includes("member")) {
+    return "member";
+  }
+  return null;
+}
+
 /**
  * Validates that the user is a member of the given organization.
  * Throws "Forbidden" if not.

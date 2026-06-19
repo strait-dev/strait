@@ -1,3 +1,4 @@
+import { toast } from "@strait/ui/components/toast";
 import {
   keepPreviousData,
   queryOptions,
@@ -25,6 +26,25 @@ import {
   requireActiveProjectAccess,
   requireActiveProjectAdmin,
 } from "@/middlewares/require-access";
+
+export type CreateWorkflowInput = {
+  name: string;
+  slug?: string;
+  description?: string;
+  enabled?: boolean;
+  job_id: string;
+};
+
+function slugFromName(name: string) {
+  const base = name
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48);
+  const suffix = Math.random().toString(36).slice(2, 8);
+  return `${base || "workflow"}-${suffix}`;
+}
 
 const emptyWorkflowStepsResponse: PaginatedResponse<WorkflowStep> = {
   data: [],
@@ -148,6 +168,33 @@ export const triggerWorkflowFn = createServerFn({ method: "POST" })
     }
   );
 
+export const createWorkflowFn = createServerFn({ method: "POST" })
+  .inputValidator((data: CreateWorkflowInput) => data)
+  .middleware([authMiddleware])
+  .handler(async ({ context, data }): Promise<Workflow> => {
+    const projectId = await requireActiveProjectAdmin(context);
+    const response = await runWithSentryReport(
+      apiEffect<Workflow & { steps?: WorkflowStep[] }>("/v1/workflows", {
+        method: "POST",
+        body: {
+          project_id: projectId,
+          name: data.name,
+          slug: data.slug || slugFromName(data.name),
+          description: data.description,
+          enabled: data.enabled,
+          steps: [
+            {
+              job_id: data.job_id,
+              step_ref: "step-1",
+              step_type: "job",
+            },
+          ],
+        },
+      })
+    );
+    return response;
+  });
+
 export const updateWorkflowFn = createServerFn({ method: "POST" })
   .inputValidator((data: { id: string; enabled?: boolean }) => data)
   .middleware([authMiddleware])
@@ -158,6 +205,18 @@ export const updateWorkflowFn = createServerFn({ method: "POST" })
       apiEffect<Workflow>(apiPath`/v1/workflows/${id}`, {
         method: "PATCH",
         body,
+      })
+    );
+  });
+
+export const deleteWorkflowFn = createServerFn({ method: "POST" })
+  .inputValidator((data: { id: string }) => data)
+  .middleware([authMiddleware])
+  .handler(async ({ context, data }): Promise<void> => {
+    await requireActiveProjectAdmin(context);
+    return await runWithSentryReport(
+      apiEffect<void>(apiPath`/v1/workflows/${data.id}`, {
+        method: "DELETE",
       })
     );
   });
@@ -212,6 +271,7 @@ export const useTriggerWorkflow = () => {
       });
     },
     onError: (err, variables) => {
+      toast.error("Failed to trigger workflow.");
       getPostHog()?.capture("mutation_error", {
         action: "workflow_triggered",
         error_message: err instanceof Error ? err.message : "Unknown error",
@@ -221,6 +281,75 @@ export const useTriggerWorkflow = () => {
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.workflows._def });
       queryClient.invalidateQueries({ queryKey: queryKeys.runs._def });
+    },
+  });
+};
+
+export const useCreateWorkflow = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationKey: ["workflows", "create"],
+    mutationFn: async (data: CreateWorkflowInput) =>
+      (await createWorkflowFn({ data })) as Workflow,
+    onSuccess: (workflow) => {
+      getPostHog()?.capture("workflow_created", {
+        workflow_id: workflow.id,
+      });
+    },
+    onError: (err) => {
+      getPostHog()?.capture("mutation_error", {
+        action: "workflow_created",
+        error_message: err instanceof Error ? err.message : "Unknown error",
+      });
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.workflows._def });
+    },
+  });
+};
+
+export const useDeleteWorkflow = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationKey: ["workflows", "delete"],
+    mutationFn: (id: string) => deleteWorkflowFn({ data: { id } }),
+    onMutate: async (id) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.workflows._def });
+      const previousLists = queryClient.getQueriesData<
+        PaginatedResponse<Workflow>
+      >({ queryKey: queryKeys.workflows.list._def });
+
+      queryClient.setQueriesData<PaginatedResponse<Workflow>>(
+        { queryKey: queryKeys.workflows.list._def },
+        (old) =>
+          old
+            ? {
+                ...old,
+                data: old.data.filter((workflow) => workflow.id !== id),
+              }
+            : old
+      );
+
+      return { previousLists };
+    },
+    onSuccess: (_data, id) => {
+      getPostHog()?.capture("workflow_deleted", { workflow_id: id });
+    },
+    onError: (err, variables, context) => {
+      toast.error("Failed to delete workflow.");
+      if (context?.previousLists) {
+        for (const [key, data] of context.previousLists) {
+          queryClient.setQueryData(key, data);
+        }
+      }
+      getPostHog()?.capture("mutation_error", {
+        action: "workflow_deleted",
+        error_message: err instanceof Error ? err.message : "Unknown error",
+        workflow_id: variables,
+      });
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.workflows._def });
     },
   });
 };
@@ -264,6 +393,7 @@ export const usePauseWorkflow = () => {
       return { previousDetail };
     },
     onError: (_err, params, context) => {
+      toast.error("Failed to pause workflow.");
       if (context?.previousDetail) {
         queryClient.setQueryData(
           queryKeys.workflows.detail(params.workflowId).queryKey,
@@ -321,6 +451,7 @@ export const useResumeWorkflow = () => {
       return { previousDetail };
     },
     onError: (_err, params, context) => {
+      toast.error("Failed to resume workflow.");
       if (context?.previousDetail) {
         queryClient.setQueryData(
           queryKeys.workflows.detail(params.workflowId).queryKey,

@@ -1,5 +1,16 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@strait/ui/components/alert-dialog";
+import { Button } from "@strait/ui/components/button";
+import {
   DataGrid,
   DataGridContainer,
   DataGridScrollArea,
@@ -24,7 +35,7 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 import { zodValidator } from "@tanstack/zod-adapter";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { z } from "zod/v4";
 import { CursorPagination } from "@/components/common/cursor-pagination";
 import ErrorComponent from "@/components/common/error-component";
@@ -33,24 +44,29 @@ import NoProjectState from "@/components/common/no-project-state";
 import TablePageSkeleton from "@/components/common/table-page-skeleton";
 import WorkflowDetailSheet from "@/components/dashboard/workflow-detail-sheet";
 import { createWorkflowColumns } from "@/components/tables/workflows-columns";
+import WorkflowFormDialog from "@/components/workflows/workflow-form-dialog";
 import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import type { PaginatedResponse, Workflow } from "@/hooks/api/types";
 import {
+  useDeleteWorkflow,
   usePauseWorkflow,
   useResumeWorkflow,
   useTriggerWorkflow,
   workflowsQueryOptions,
 } from "@/hooks/api/use-workflows";
+import { useProjectPermissions } from "@/hooks/auth/use-project-permissions";
 import { useCursorPagination } from "@/hooks/use-cursor-pagination";
+import { useHydratedTableData } from "@/hooks/use-hydrated-table-data";
 import {
   EyeIcon,
   PauseActionIcon,
   PlayActionIcon,
+  PlusIcon,
   SearchIcon,
+  TrashIcon,
   WorkflowIcon,
 } from "@/lib/icons";
 import { ENABLED_STATUS_OPTIONS } from "@/lib/status";
-import { stopInteractiveRowClick } from "@/lib/table-interactions";
 import type { AppRouteContext } from "@/routes/app/layout";
 
 const searchArraySchema = z.preprocess(
@@ -58,11 +74,17 @@ const searchArraySchema = z.preprocess(
   z.array(z.string()).optional()
 );
 
+const createSearchSchema = z.preprocess(
+  (value) => (value == null ? undefined : String(value)),
+  z.string().optional()
+);
+
 export const searchSchema = z.object({
   query: z.string().optional(),
   status: searchArraySchema,
   cursor: z.string().optional(),
   perPage: z.coerce.number().optional(),
+  create: createSearchSchema,
 });
 
 export const Route = createFileRoute("/app/workflows/")({
@@ -71,13 +93,18 @@ export const Route = createFileRoute("/app/workflows/")({
   loaderDeps: ({ search }) => ({
     limit: search.perPage ?? 20,
     cursor: search.cursor,
+    query: search.query,
   }),
   loader: async ({ context, deps }) => {
     const { session } = context as AppRouteContext;
     const hasProject = !!session.user.activeProjectId;
     if (hasProject) {
       await context.queryClient.ensureQueryData(
-        workflowsQueryOptions({ limit: deps.limit, cursor: deps.cursor })
+        workflowsQueryOptions({
+          limit: deps.limit,
+          cursor: deps.cursor,
+          search: deps.query,
+        })
       );
     }
     return { hasProject, session };
@@ -100,6 +127,7 @@ function WorkflowsPage() {
     ...workflowsQueryOptions({
       limit: pagination.perPage,
       cursor: pagination.cursor,
+      search: search.query,
     }),
     enabled: hasProject,
   });
@@ -107,9 +135,23 @@ function WorkflowsPage() {
     null
   );
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [formOpen, setFormOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<Workflow | null>(null);
   const triggerWorkflow = useTriggerWorkflow();
   const pauseWorkflow = usePauseWorkflow();
   const resumeWorkflow = useResumeWorkflow();
+  const deleteWorkflow = useDeleteWorkflow();
+  const { permissions } = useProjectPermissions(session.user.activeProjectId);
+
+  useEffect(() => {
+    if (search.create === "1") {
+      setFormOpen(true);
+      navigate({
+        search: (prev) => ({ ...prev, create: undefined }),
+        replace: true,
+      });
+    }
+  }, [navigate, search.create]);
 
   const selectedStatuses = search.status ?? [];
 
@@ -139,23 +181,30 @@ function WorkflowsPage() {
       return false;
     });
   }, [typed, hasProject, selectedStatuses, search.query]);
+  const tableData = useHydratedTableData(filteredData);
 
   const table = useReactTable({
-    data: filteredData,
+    data: tableData.data,
     columns: createWorkflowColumns({
       onView: (workflow) => {
         setSelectedWorkflow(workflow);
         setSheetOpen(true);
       },
-      onTrigger: (workflow) =>
-        triggerWorkflow.mutate({ workflowId: workflow.id }),
-      onPauseResume: (workflow) => {
-        if (workflow.enabled) {
-          pauseWorkflow.mutate({ workflowId: workflow.id });
-        } else {
-          resumeWorkflow.mutate({ workflowId: workflow.id });
-        }
-      },
+      onTrigger: permissions.canTriggerWorkflows
+        ? (workflow) => triggerWorkflow.mutate({ workflowId: workflow.id })
+        : undefined,
+      onPauseResume: permissions.canWriteWorkflows
+        ? (workflow) => {
+            if (workflow.enabled) {
+              pauseWorkflow.mutate({ workflowId: workflow.id });
+            } else {
+              resumeWorkflow.mutate({ workflowId: workflow.id });
+            }
+          }
+        : undefined,
+      onDelete: permissions.canWriteWorkflows
+        ? (workflow) => setDeleteTarget(workflow)
+        : undefined,
     }),
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
@@ -242,13 +291,30 @@ function WorkflowsPage() {
           }))}
           values={selectedStatuses}
         />
+
+        {permissions.canWriteWorkflows && (
+          <Button
+            className="shrink-0"
+            render={(props) => (
+              <a {...props} href="/app/workflows?create=1">
+                {props.children}
+              </a>
+            )}
+          >
+            <HugeiconsIcon className="size-4" icon={PlusIcon} />
+            Create workflow
+          </Button>
+        )}
       </div>
 
-      <div onClickCapture={stopInteractiveRowClick}>
+      <section aria-label="Workflows">
         <DataGrid
           emptyMessage={emptyState}
+          loading={tableData.isLoading}
           onRowClick={handleRowClick}
-          recordCount={table.getRowModel().rows.length}
+          recordCount={
+            tableData.isHydrated ? table.getRowModel().rows.length : 0
+          }
           table={table}
           tableClassNames={{ base: "min-w-[1200px]" }}
         >
@@ -290,43 +356,92 @@ function WorkflowsPage() {
                     },
                   ]
                 : []),
-              {
-                label: "Trigger",
-                icon: PlayActionIcon,
-                onClick: () => {
-                  for (const id of selectedIds) {
-                    triggerWorkflow.mutate({ workflowId: id });
-                  }
-                },
-              },
-              {
-                label: "Pause",
-                icon: PauseActionIcon,
-                onClick: () => {
-                  for (const id of selectedIds) {
-                    pauseWorkflow.mutate({ workflowId: id });
-                  }
-                },
-              },
-              {
-                label: "Resume",
-                icon: PlayActionIcon,
-                onClick: () => {
-                  for (const id of selectedIds) {
-                    resumeWorkflow.mutate({ workflowId: id });
-                  }
-                },
-              },
+              ...(permissions.canTriggerWorkflows
+                ? [
+                    {
+                      label: "Trigger",
+                      icon: PlayActionIcon,
+                      onClick: () => {
+                        for (const id of selectedIds) {
+                          triggerWorkflow.mutate({ workflowId: id });
+                        }
+                      },
+                    },
+                  ]
+                : []),
+              ...(permissions.canWriteWorkflows
+                ? [
+                    {
+                      label: "Pause",
+                      icon: PauseActionIcon,
+                      onClick: () => {
+                        for (const id of selectedIds) {
+                          pauseWorkflow.mutate({ workflowId: id });
+                        }
+                      },
+                    },
+                    {
+                      label: "Resume",
+                      icon: PlayActionIcon,
+                      onClick: () => {
+                        for (const id of selectedIds) {
+                          resumeWorkflow.mutate({ workflowId: id });
+                        }
+                      },
+                    },
+                  ]
+                : []),
             ]}
           />
         </DataGrid>
-      </div>
+      </section>
 
       <WorkflowDetailSheet
         onOpenChange={setSheetOpen}
         open={sheetOpen}
         workflow={selectedWorkflow}
       />
+
+      <WorkflowFormDialog
+        onCreated={setSelectedWorkflow}
+        onOpenChange={setFormOpen}
+        open={formOpen}
+      />
+
+      <AlertDialog
+        onOpenChange={(open) => {
+          if (!open) {
+            setDeleteTarget(null);
+          }
+        }}
+        open={!!deleteTarget}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete workflow?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This permanently deletes {deleteTarget?.name}. Existing workflow
+              run history remains available from the runs view.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={deleteWorkflow.isPending}
+              onClick={() => {
+                if (deleteTarget) {
+                  deleteWorkflow.mutate(deleteTarget.id, {
+                    onSuccess: () => setDeleteTarget(null),
+                  });
+                }
+              }}
+            >
+              <HugeiconsIcon className="size-4" icon={TrashIcon} />
+              Delete workflow
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Shell>
   );
 }

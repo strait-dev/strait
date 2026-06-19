@@ -13,6 +13,7 @@ import {
   SelectValue,
 } from "@strait/ui/components/select";
 import type { Table } from "@tanstack/react-table";
+import { useEffect, useState } from "react";
 import { ChevronLeftIcon, ChevronRightIcon } from "@/lib/icons";
 
 const PAGE_SIZE_OPTIONS = [10, 20, 30, 40, 50] as const;
@@ -35,9 +36,14 @@ export const CursorPagination = <TData,>({
   cursor,
   table,
 }: CursorPaginationPropsWithTable<TData>) => {
+  const [isHydrated, setIsHydrated] = useState(false);
   const selectedCount = table.getFilteredSelectedRowModel().rows.length;
   const visibleCount = table.getRowModel().rows.length;
   const pageSize = String(cursor.pageSize);
+
+  useEffect(() => {
+    setIsHydrated(true);
+  }, []);
 
   return (
     <div className="flex w-full flex-col gap-2 self-center sm:flex-row sm:items-center sm:justify-between">
@@ -76,7 +82,7 @@ export const CursorPagination = <TData,>({
           <PaginationItem>
             <Button
               aria-label="Go to previous page"
-              disabled={!cursor.canGoBack}
+              disabled={!(isHydrated && cursor.canGoBack)}
               onClick={cursor.onPrev}
               size="icon"
               variant="outline"
@@ -91,7 +97,7 @@ export const CursorPagination = <TData,>({
           <PaginationItem>
             <Button
               aria-label="Go to next page"
-              disabled={!cursor.hasMore}
+              disabled={!(isHydrated && cursor.hasMore)}
               onClick={cursor.onNext}
               size="icon"
               variant="outline"

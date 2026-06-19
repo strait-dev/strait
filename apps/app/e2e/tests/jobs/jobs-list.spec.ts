@@ -38,21 +38,21 @@ test.describe("Jobs List", () => {
 
   test.beforeEach(async ({ page }) => {
     await page.goto("/app/jobs", { waitUntil: "domcontentloaded" });
-    await expect(page.getByRole("table", { name: "Jobs" })).toBeVisible();
+    await expect(page.getByRole("region", { name: "Jobs" })).toBeVisible();
   });
 
   test("renders controls and seeded jobs", async ({ page }) => {
     await expect(page).toHaveURL(/\/app\/jobs/);
-    await expect(page.getByPlaceholder("Search jobs...")).toBeVisible();
-    await expect(page.getByRole("button", { name: "Status" })).toBeVisible();
+    await expect(page.getByPlaceholder("Search jobs")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Filter" })).toBeVisible();
     await expect(page.getByText(activeJobName)).toBeVisible();
     await expect(page.getByText(pausedJobName)).toBeVisible();
   });
 
   test("accepts search input without losing seeded rows", async ({ page }) => {
-    await page.getByPlaceholder("Search jobs...").fill(activeJobName);
+    await page.getByPlaceholder("Search jobs").fill(activeJobName);
 
-    await expect(page.getByPlaceholder("Search jobs...")).toHaveValue(
+    await expect(page.getByPlaceholder("Search jobs")).toHaveValue(
       activeJobName
     );
     await expect(page.getByText(activeJobName)).toBeVisible();

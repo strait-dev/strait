@@ -50,7 +50,7 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 import { formatDistanceToNow } from "date-fns";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import DetailPageSkeleton from "@/components/common/detail-page-skeleton";
 import EntityNotFound from "@/components/common/entity-not-found";
 import ErrorComponent from "@/components/common/error-component";
@@ -71,7 +71,12 @@ import {
   workflowRunsQueryOptions,
   workflowStepsQueryOptions,
 } from "@/hooks/api/use-workflows";
+import {
+  type ProjectPermissionFlags,
+  useProjectPermissions,
+} from "@/hooks/auth/use-project-permissions";
 import { useCurrentPlan } from "@/hooks/billing/use-current-plan";
+import { useHydratedTableData } from "@/hooks/use-hydrated-table-data";
 import {
   ActivityIcon,
   CheckCircleIcon,
@@ -82,15 +87,18 @@ import {
   TagIcon,
 } from "@/lib/icons";
 import { canUseFeature } from "@/lib/plan-tiers";
+import type { AppRouteContext } from "@/routes/app/layout";
 
 export const Route = createFileRoute("/app/workflows/$id")({
   head: () => ({ meta: [{ title: "Workflow · Strait" }] }),
   loader: async ({ context, params }) => {
+    const { session } = context as AppRouteContext;
     await Promise.all([
       context.queryClient.ensureQueryData(workflowQueryOptions(params.id)),
       context.queryClient.ensureQueryData(workflowStepsQueryOptions(params.id)),
       context.queryClient.ensureQueryData(workflowRunsQueryOptions(params.id)),
     ]);
+    return { session };
   },
   pendingComponent: DetailPageSkeleton,
   errorComponent: ErrorComponent,
@@ -165,8 +173,65 @@ function getLockedDAGFeature(
   return null;
 }
 
+function useIsHydrated() {
+  const [isHydrated, setIsHydrated] = useState(false);
+
+  useEffect(() => {
+    setIsHydrated(true);
+  }, []);
+
+  return isHydrated;
+}
+
+function WorkflowActions({
+  permissions,
+  workflow,
+}: {
+  permissions: ProjectPermissionFlags;
+  workflow: Workflow;
+}) {
+  const isHydrated = useIsHydrated();
+  const triggerWorkflow = useTriggerWorkflow();
+  const pauseWorkflow = usePauseWorkflow();
+  const resumeWorkflow = useResumeWorkflow();
+
+  return (
+    <div className="flex gap-2">
+      {permissions.canTriggerWorkflows && (
+        <Button
+          disabled={!isHydrated || triggerWorkflow.isPending}
+          onClick={() => triggerWorkflow.mutate({ workflowId: workflow.id })}
+        >
+          <HugeiconsIcon className="mr-1.5 size-3.5" icon={PlayActionIcon} />
+          Trigger
+        </Button>
+      )}
+      {permissions.canWriteWorkflows && (
+        <Button
+          disabled={
+            !isHydrated || pauseWorkflow.isPending || resumeWorkflow.isPending
+          }
+          onClick={() =>
+            workflow.enabled
+              ? pauseWorkflow.mutate({ workflowId: workflow.id })
+              : resumeWorkflow.mutate({ workflowId: workflow.id })
+          }
+          variant="outline"
+        >
+          <HugeiconsIcon
+            className="mr-1.5 size-3.5"
+            icon={workflow.enabled ? PauseActionIcon : PlayActionIcon}
+          />
+          {workflow.enabled ? "Pause" : "Resume"}
+        </Button>
+      )}
+    </div>
+  );
+}
+
 function WorkflowDetailPage() {
   const { id } = Route.useParams();
+  const { session } = Route.useLoaderData();
   const navigate = useNavigate();
   const currentPlan = useCurrentPlan();
   usePageEvent("workflow_detail_viewed", { workflow_id: id });
@@ -180,10 +245,9 @@ function WorkflowDetailPage() {
     data: PaginatedResponse<WorkflowRun> | undefined;
   };
   const runs = runsData?.data ?? [];
+  const tableData = useHydratedTableData(runs);
+  const { permissions } = useProjectPermissions(session.user.activeProjectId);
   const [activeTab, setActiveTab] = useState("overview");
-  const triggerWorkflow = useTriggerWorkflow();
-  const pauseWorkflow = usePauseWorkflow();
-  const resumeWorkflow = useResumeWorkflow();
 
   // Map API steps to the shape WorkflowDAGFlow expects
   const dagSteps = (apiSteps ?? []).map((s: WorkflowStep) => ({
@@ -195,7 +259,7 @@ function WorkflowDetailPage() {
   }));
 
   const runsTable = useReactTable({
-    data: runs ?? [],
+    data: tableData.data,
     columns: workflowRunColumns,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
@@ -245,30 +309,7 @@ function WorkflowDetailPage() {
             </p>
           )}
         </div>
-        <div className="flex gap-2">
-          <Button
-            disabled={triggerWorkflow.isPending}
-            onClick={() => triggerWorkflow.mutate({ workflowId: workflow.id })}
-          >
-            <HugeiconsIcon className="mr-1.5 size-3.5" icon={PlayActionIcon} />
-            Trigger
-          </Button>
-          <Button
-            disabled={pauseWorkflow.isPending || resumeWorkflow.isPending}
-            onClick={() =>
-              workflow.enabled
-                ? pauseWorkflow.mutate({ workflowId: workflow.id })
-                : resumeWorkflow.mutate({ workflowId: workflow.id })
-            }
-            variant="outline"
-          >
-            <HugeiconsIcon
-              className="mr-1.5 size-3.5"
-              icon={workflow.enabled ? PauseActionIcon : PlayActionIcon}
-            />
-            {workflow.enabled ? "Pause" : "Resume"}
-          </Button>
-        </div>
+        <WorkflowActions permissions={permissions} workflow={workflow} />
       </div>
 
       {/* Tabs */}
@@ -389,7 +430,8 @@ function WorkflowDetailPage() {
                 </EmptyHeader>
               </Empty>
             }
-            recordCount={runs.length}
+            loading={tableData.isLoading}
+            recordCount={tableData.isHydrated ? runs.length : 0}
             table={runsTable}
             tableClassNames={{ base: "min-w-[1200px]" }}
           >
