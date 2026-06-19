@@ -839,7 +839,7 @@ func TestWorkflowSnapshot_GetWorkflowSnapshot_CrossTenant(t *testing.T) {
 // TestWorkflowSnapshot_VersionlessDedup is the regression guard for unbounded
 // duplicate snapshots: a versionless workflow (no version_id) re-creating the
 // same definition must reuse the existing snapshot rather than insert a new row
-// each time (the ON CONFLICT partial index only covers version_id != '').
+// each time (the ON CONFLICT partial index only covers non-empty version_id values).
 func TestWorkflowSnapshot_VersionlessDedup(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
