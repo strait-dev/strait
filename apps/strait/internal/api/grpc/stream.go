@@ -1670,7 +1670,11 @@ func (s *workerService) enqueueRecoveredWorkerRuns(ctx context.Context, runIDs [
 	enqueueRecoveredWorkerRuns(ctx, s.queries, s.readyRunQueue, runIDs, "grpc worker disconnect")
 }
 
-func enqueueRecoveredWorkerRuns(ctx context.Context, q *store.Queries, readyRunQueue ReadyRunEnqueuer, runIDs []string, logPrefix string) {
+type recoveredRunLoader interface {
+	GetRunsByIDs(ctx context.Context, ids []string) (map[string]*domain.JobRun, error)
+}
+
+func enqueueRecoveredWorkerRuns(ctx context.Context, q recoveredRunLoader, readyRunQueue ReadyRunEnqueuer, runIDs []string, logPrefix string) {
 	if q == nil || readyRunQueue == nil || len(runIDs) == 0 {
 		return
 	}
