@@ -1,7 +1,10 @@
 package billing
 
 import (
+	"bytes"
 	"context"
+	"errors"
+	"log/slog"
 	"sync"
 	"testing"
 	"time"
@@ -32,6 +35,49 @@ type fakeDunningRow struct {
 	DunningEnteredAt time.Time
 	DunningLastTick  *time.Time
 	DunningResolved  *time.Time
+}
+
+type scriptedDunningStore struct {
+	mu     sync.Mutex
+	calls  int
+	errs   []error
+	onCall func(calls int)
+}
+
+func (s *scriptedDunningStore) StartDunning(context.Context, string, time.Time) error {
+	return nil
+}
+
+func (s *scriptedDunningStore) ResolveDunning(context.Context, string, time.Time) error {
+	return nil
+}
+
+func (s *scriptedDunningStore) ProcessDueDunningRows(
+	_ context.Context,
+	_ time.Time,
+	_ time.Duration,
+	_ int,
+	_ func(context.Context, DunningRow) (DunningTransition, error),
+) (int, error) {
+	s.mu.Lock()
+	s.calls++
+	call := s.calls
+	var err error
+	if call <= len(s.errs) {
+		err = s.errs[call-1]
+	}
+	onCall := s.onCall
+	s.mu.Unlock()
+	if onCall != nil {
+		onCall(call)
+	}
+	return 0, err
+}
+
+func (s *scriptedDunningStore) callCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.calls
 }
 
 func newFakeDunningStore() *fakeDunningStore {
@@ -231,6 +277,94 @@ func newSeededDunner(t *testing.T, now func() time.Time) (*Dunner, *fakeDunningS
 		WithDunnerCooldown(1*time.Second),
 	)
 	return d, store, disp, emails
+}
+
+func TestDunningScheduleContract(t *testing.T) {
+	t.Parallel()
+
+	require.Equal(t, 24*time.Hour, DefaultDunningTickCooldown)
+	require.Equal(t, []struct {
+		step    int
+		elapsed time.Duration
+	}{
+		{DunningStepEntry, 0},
+		{DunningStepDay3, 72 * time.Hour},
+		{DunningStepDay7, 168 * time.Hour},
+		{DunningStepDay14, 336 * time.Hour},
+		{DunningStepDay44, 1056 * time.Hour},
+		{DunningStepDay74, 1776 * time.Hour},
+	}, dunningSchedule)
+}
+
+func TestDunnerLoggerOption(t *testing.T) {
+	t.Parallel()
+
+	d := NewDunner(newFakeDunningStore(), WithDunnerLogger(nil))
+	require.Same(t, slog.Default(), d.logger)
+
+	custom := slog.New(slog.DiscardHandler)
+	d = NewDunner(newFakeDunningStore(), WithDunnerLogger(custom))
+	require.Same(t, custom, d.logger)
+}
+
+func TestDunnerRunLoopInitialTickErrors(t *testing.T) {
+	t.Parallel()
+
+	t.Run("context canceled is not logged", func(t *testing.T) {
+		t.Parallel()
+
+		var logs bytes.Buffer
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		store := &scriptedDunningStore{errs: []error{context.Canceled}}
+		d := NewDunner(store, WithDunnerLogger(slog.New(slog.NewTextHandler(&logs, nil))))
+
+		d.run(ctx, make(chan time.Time))
+
+		require.Equal(t, 1, store.callCount())
+		require.Empty(t, logs.String())
+	})
+
+	t.Run("non-canceled error is logged", func(t *testing.T) {
+		t.Parallel()
+
+		var logs bytes.Buffer
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		store := &scriptedDunningStore{errs: []error{errors.New("store unavailable")}}
+		d := NewDunner(store, WithDunnerLogger(slog.New(slog.NewTextHandler(&logs, nil))))
+
+		d.run(ctx, make(chan time.Time))
+
+		require.Equal(t, 1, store.callCount())
+		require.Contains(t, logs.String(), "initial dunning tick failed")
+		require.Contains(t, logs.String(), "store unavailable")
+	})
+}
+
+func TestDunnerRunLoopPeriodicTickErrors(t *testing.T) {
+	t.Parallel()
+
+	var logs bytes.Buffer
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	ticks := make(chan time.Time, 1)
+	store := &scriptedDunningStore{
+		errs: []error{nil, errors.New("periodic failure")},
+		onCall: func(calls int) {
+			if calls == 2 {
+				cancel()
+			}
+		},
+	}
+	d := NewDunner(store, WithDunnerLogger(slog.New(slog.NewTextHandler(&logs, nil))))
+
+	ticks <- time.Now()
+	d.run(ctx, ticks)
+
+	require.Equal(t, 2, store.callCount())
+	require.Contains(t, logs.String(), "dunning tick failed")
+	require.Contains(t, logs.String(), "periodic failure")
 }
 
 func TestDunner_AdvancesStepAtDayBoundary(t *testing.T) {
