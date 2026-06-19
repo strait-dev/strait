@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -25,6 +26,113 @@ func (fakeDispatchSecretDecryptor) Decrypt(ciphertext []byte) ([]byte, error) {
 		return nil, errors.New("unexpected ciphertext")
 	}
 	return ciphertext[len(prefix):], nil
+}
+
+type workerTaskStatusUpdate struct {
+	taskID string
+	status domain.WorkerTaskStatus
+}
+
+type fakeWorkerDispatchQueries struct {
+	mu                    sync.Mutex
+	createErr             error
+	auditErr              error
+	markResultReceived    bool
+	markResultReceivedErr error
+	updateErr             error
+	tasks                 []*domain.WorkerTask
+	auditEvents           []*domain.AuditEvent
+	statusUpdates         []workerTaskStatusUpdate
+}
+
+func newFakeWorkerDispatchQueries() *fakeWorkerDispatchQueries {
+	return &fakeWorkerDispatchQueries{markResultReceived: true}
+}
+
+func (f *fakeWorkerDispatchQueries) CreateWorkerTask(_ context.Context, task *domain.WorkerTask) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.createErr != nil {
+		return f.createErr
+	}
+	copied := *task
+	f.tasks = append(f.tasks, &copied)
+	return nil
+}
+
+func (f *fakeWorkerDispatchQueries) CreateAuditEvent(_ context.Context, ev *domain.AuditEvent) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.auditErr != nil {
+		return f.auditErr
+	}
+	copied := *ev
+	f.auditEvents = append(f.auditEvents, &copied)
+	return nil
+}
+
+func (f *fakeWorkerDispatchQueries) MarkWorkerTaskResultReceived(_ context.Context, _ string) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.markResultReceivedErr != nil {
+		return false, f.markResultReceivedErr
+	}
+	return f.markResultReceived, nil
+}
+
+func (f *fakeWorkerDispatchQueries) UpdateWorkerTaskStatus(_ context.Context, taskID string, status domain.WorkerTaskStatus) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.updateErr != nil {
+		return f.updateErr
+	}
+	f.statusUpdates = append(f.statusUpdates, workerTaskStatusUpdate{taskID: taskID, status: status})
+	return nil
+}
+
+func (f *fakeWorkerDispatchQueries) snapshotTasks() []*domain.WorkerTask {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]*domain.WorkerTask, 0, len(f.tasks))
+	for _, task := range f.tasks {
+		copied := *task
+		out = append(out, &copied)
+	}
+	return out
+}
+
+func (f *fakeWorkerDispatchQueries) snapshotAuditEvents() []*domain.AuditEvent {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]*domain.AuditEvent, 0, len(f.auditEvents))
+	for _, ev := range f.auditEvents {
+		copied := *ev
+		out = append(out, &copied)
+	}
+	return out
+}
+
+func (f *fakeWorkerDispatchQueries) snapshotStatusUpdates() []workerTaskStatusUpdate {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]workerTaskStatusUpdate, len(f.statusUpdates))
+	copy(out, f.statusUpdates)
+	return out
+}
+
+func registerDispatchTestWorker(t *testing.T, registry *ConnectionRegistry, sendCh chan<- *workerv1.ServerMessage) {
+	t.Helper()
+	require.NoError(t, registry.Register(&ConnectedWorker{
+		WorkerID:       "w1",
+		ProjectID:      "proj-a",
+		APIKeyID:       "key-1",
+		Queues:         []string{"q"},
+		SlotsTotal:     4,
+		SlotsAvailable: 4,
+		Status:         "active",
+		SendCh:         sendCh,
+		revokeCh:       make(chan struct{}),
+	}))
 }
 
 // TestResultChannelRegistry_SendAndReceive verifies basic send/receive semantics.
@@ -697,6 +805,75 @@ func TestWorkerDispatch_NilSendCh(t *testing.T) {
 	assert.EqualValues(t, 4, snap[0].SlotsAvailable)
 }
 
+func TestWorkerDispatch_AssignsTaskAndReceivesResult(t *testing.T) {
+	registry := NewConnectionRegistry()
+	sendCh := make(chan *workerv1.ServerMessage, 1)
+	registerDispatchTestWorker(t, registry, sendCh)
+	resultChannels := NewResultChannelRegistry()
+	queries := newFakeWorkerDispatchQueries()
+	d := &WorkerDispatcher{
+		registry:       registry,
+		queries:        queries,
+		resultChannels: resultChannels,
+	}
+
+	run := &domain.JobRun{ID: "run-1", ProjectID: "proj-a", JobID: "job-1", Payload: []byte(`{"ok":true}`)}
+	job := &domain.Job{ID: "job-1", Queue: "q", Slug: "my-job", TimeoutSecs: 30}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	type dispatchResult struct {
+		out any
+		err error
+	}
+	done := make(chan dispatchResult, 1)
+	go func() {
+		out, err := d.WorkerDispatch(ctx, run, job)
+		done <- dispatchResult{out: out, err: err}
+	}()
+
+	var assignment *workerv1.TaskAssignment
+	select {
+	case msg := <-sendCh:
+		payload, ok := msg.Payload.(*workerv1.ServerMessage_TaskAssignment)
+		require.True(t, ok)
+		assignment = payload.TaskAssignment
+	case <-ctx.Done():
+		require.Fail(t, "timed out waiting for task assignment")
+	}
+	require.Equal(t, "run-1", assignment.RunId)
+	require.Equal(t, "my-job", assignment.JobSlug)
+	require.EqualValues(t, 1, assignment.Attempt)
+	require.NotEmpty(t, assignment.AssignmentId)
+
+	require.True(t, resultChannels.Send("run-1", "proj-a", "w1", &workerv1.TaskResult{
+		RunId:        "run-1",
+		Status:       "success",
+		OutputJson:   []byte(`{"ok":true}`),
+		AssignmentId: assignment.AssignmentId,
+		Attempt:      assignment.Attempt,
+	}))
+
+	var got dispatchResult
+	select {
+	case got = <-done:
+	case <-ctx.Done():
+		require.Fail(t, "timed out waiting for worker dispatch")
+	}
+	require.NoError(t, got.err)
+	wrapped, ok := got.out.(*WorkerTaskResult)
+	require.True(t, ok)
+	require.Equal(t, assignment.AssignmentId, wrapped.TaskID)
+	require.Equal(t, "success", wrapped.Result.Status)
+
+	tasks := queries.snapshotTasks()
+	require.Len(t, tasks, 1)
+	require.Equal(t, assignment.AssignmentId, tasks[0].ID)
+	require.Equal(t, 1, tasks[0].Attempt)
+	require.Equal(t, domain.WorkerTaskStatusAssigned, tasks[0].Status)
+	require.Len(t, queries.snapshotAuditEvents(), 1)
+	require.EqualValues(t, 4, registry.Snapshot()[0].SlotsAvailable)
+}
+
 // TestWorkerDispatch_SlotRestoredOnDBError verifies slot is restored when CreateWorkerTask fails.
 // This test uses a mock that returns an error from CreateWorkerTask to verify that the slot
 // accounting remains consistent on DB failure without requiring a real database.
@@ -727,6 +904,159 @@ func TestWorkerDispatch_SlotRestoredOnDBError(t *testing.T) {
 	registry.IncrementSlots("w1")
 	snap = registry.Snapshot()
 	assert.EqualValues(t, 4, snap[0].SlotsAvailable)
+}
+
+func TestWorkerDispatch_RestoresSlotOnCreateWorkerTaskError(t *testing.T) {
+	registry := NewConnectionRegistry()
+	sendCh := make(chan *workerv1.ServerMessage, 1)
+	registerDispatchTestWorker(t, registry, sendCh)
+	queries := newFakeWorkerDispatchQueries()
+	queries.createErr = errors.New("insert failed")
+	d := &WorkerDispatcher{
+		registry:       registry,
+		queries:        queries,
+		resultChannels: NewResultChannelRegistry(),
+	}
+
+	_, err := d.WorkerDispatch(
+		context.Background(),
+		&domain.JobRun{ID: "run-1", ProjectID: "proj-a", JobID: "job-1"},
+		&domain.Job{ID: "job-1", Queue: "q", Slug: "my-job"},
+	)
+
+	require.ErrorContains(t, err, "worker dispatch: record task")
+	require.Empty(t, sendCh)
+	require.EqualValues(t, 4, registry.Snapshot()[0].SlotsAvailable)
+}
+
+func TestWorkerDispatch_DuplicateResultChannelMarksTaskFailed(t *testing.T) {
+	registry := NewConnectionRegistry()
+	sendCh := make(chan *workerv1.ServerMessage, 1)
+	registerDispatchTestWorker(t, registry, sendCh)
+	resultChannels := NewResultChannelRegistry()
+	resultChannels.Register("run-1", "proj-a", "w1", "existing-task", 1)
+	queries := newFakeWorkerDispatchQueries()
+	d := &WorkerDispatcher{
+		registry:       registry,
+		queries:        queries,
+		resultChannels: resultChannels,
+	}
+
+	_, err := d.WorkerDispatch(
+		context.Background(),
+		&domain.JobRun{ID: "run-1", ProjectID: "proj-a", JobID: "job-1", Attempt: 2},
+		&domain.Job{ID: "job-1", Queue: "q", Slug: "my-job"},
+	)
+
+	require.ErrorIs(t, err, ErrResultChannelAlreadyRegistered)
+	require.Empty(t, sendCh)
+	updates := queries.snapshotStatusUpdates()
+	require.Len(t, updates, 1)
+	require.Equal(t, domain.WorkerTaskStatusFailed, updates[0].status)
+	require.EqualValues(t, 4, registry.Snapshot()[0].SlotsAvailable)
+}
+
+func TestWorkerDispatch_BuildAssignmentErrorMarksTaskFailed(t *testing.T) {
+	registry := NewConnectionRegistry()
+	sendCh := make(chan *workerv1.ServerMessage, 1)
+	registerDispatchTestWorker(t, registry, sendCh)
+	queries := newFakeWorkerDispatchQueries()
+	d := &WorkerDispatcher{
+		registry:       registry,
+		queries:        queries,
+		resultChannels: NewResultChannelRegistry(),
+	}
+	encrypted := "enc:v1:" + base64.StdEncoding.EncodeToString([]byte("secret"))
+
+	_, err := d.WorkerDispatch(
+		context.Background(),
+		&domain.JobRun{ID: "run-1", ProjectID: "proj-a", JobID: "job-1"},
+		&domain.Job{ID: "job-1", Queue: "q", Slug: "my-job", EndpointSigningSecret: encrypted},
+	)
+
+	require.ErrorContains(t, err, "decrypt endpoint signing secret")
+	require.Empty(t, sendCh)
+	updates := queries.snapshotStatusUpdates()
+	require.Len(t, updates, 1)
+	require.Equal(t, domain.WorkerTaskStatusFailed, updates[0].status)
+	require.EqualValues(t, 4, registry.Snapshot()[0].SlotsAvailable)
+}
+
+func TestWorkerDispatch_ResultReceivedMarkFailures(t *testing.T) {
+	tests := []struct {
+		name      string
+		configure func(*fakeWorkerDispatchQueries)
+		want      string
+	}{
+		{
+			name: "mark error",
+			configure: func(q *fakeWorkerDispatchQueries) {
+				q.markResultReceivedErr = errors.New("mark failed")
+			},
+			want: "worker dispatch: mark task result received",
+		},
+		{
+			name: "assignment already closed",
+			configure: func(q *fakeWorkerDispatchQueries) {
+				q.markResultReceived = false
+			},
+			want: "task assignment closed before result",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			registry := NewConnectionRegistry()
+			sendCh := make(chan *workerv1.ServerMessage, 1)
+			registerDispatchTestWorker(t, registry, sendCh)
+			resultChannels := NewResultChannelRegistry()
+			queries := newFakeWorkerDispatchQueries()
+			tt.configure(queries)
+			d := &WorkerDispatcher{
+				registry:       registry,
+				queries:        queries,
+				resultChannels: resultChannels,
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			type dispatchResult struct {
+				err error
+			}
+			done := make(chan dispatchResult, 1)
+			go func() {
+				_, err := d.WorkerDispatch(
+					ctx,
+					&domain.JobRun{ID: "run-1", ProjectID: "proj-a", JobID: "job-1", Attempt: 1},
+					&domain.Job{ID: "job-1", Queue: "q", Slug: "my-job"},
+				)
+				done <- dispatchResult{err: err}
+			}()
+
+			var assignment *workerv1.TaskAssignment
+			select {
+			case msg := <-sendCh:
+				payload, ok := msg.Payload.(*workerv1.ServerMessage_TaskAssignment)
+				require.True(t, ok)
+				assignment = payload.TaskAssignment
+			case <-ctx.Done():
+				require.Fail(t, "timed out waiting for task assignment")
+			}
+			require.True(t, resultChannels.Send("run-1", "proj-a", "w1", &workerv1.TaskResult{
+				RunId:        "run-1",
+				Status:       "success",
+				AssignmentId: assignment.AssignmentId,
+				Attempt:      assignment.Attempt,
+			}))
+
+			select {
+			case got := <-done:
+				require.ErrorContains(t, got.err, tt.want)
+			case <-ctx.Done():
+				require.Fail(t, "timed out waiting for worker dispatch")
+			}
+			require.EqualValues(t, 4, registry.Snapshot()[0].SlotsAvailable)
+		})
+	}
 }
 
 // TestWorkerDispatch_ContextCancelWhileWaiting verifies cancellation while waiting for TaskResult
