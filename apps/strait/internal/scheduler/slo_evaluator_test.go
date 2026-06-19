@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"testing"
 	"time"
 
@@ -262,6 +263,69 @@ func (m *mockSLOEvaluationStore) PruneSLOEvaluations(_ context.Context, keepPerS
 }
 
 var _ sloEvaluationStore = (*mockSLOEvaluationStore)(nil)
+
+type sloRunLogHandler struct {
+	records chan string
+}
+
+func (h sloRunLogHandler) Enabled(context.Context, slog.Level) bool {
+	return true
+}
+
+func (h sloRunLogHandler) Handle(_ context.Context, record slog.Record) error {
+	h.records <- record.Message
+	return nil
+}
+
+func (h sloRunLogHandler) WithAttrs([]slog.Attr) slog.Handler {
+	return h
+}
+
+func (h sloRunLogHandler) WithGroup(string) slog.Handler {
+	return h
+}
+
+func TestSLOEvaluator_RunZeroIntervalUsesDefaultWithoutPanic(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	evaluator := NewSLOEvaluator(&mockSLOEvaluationStore{}, nil)
+
+	require.NotPanics(t, func() {
+		evaluator.Run(ctx, 0)
+	})
+}
+
+func TestSLOEvaluator_RunLogsEvaluationCycleErrors(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	logs := make(chan string, 1)
+	evaluator := NewSLOEvaluator(
+		&mockSLOEvaluationStore{listErr: errors.New("list failed")},
+		slog.New(sloRunLogHandler{records: logs}),
+	)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		evaluator.Run(ctx, time.Millisecond)
+	}()
+
+	select {
+	case msg := <-logs:
+		require.Equal(t, "slo evaluation cycle failed", msg)
+	case <-time.After(2 * time.Second):
+		require.Fail(t, "timed out waiting for slo evaluation failure log")
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		require.Fail(t, "timed out waiting for slo evaluator run loop to exit")
+	}
+}
 
 func TestSLOEvaluator_EvaluateListError(t *testing.T) {
 	t.Parallel()
