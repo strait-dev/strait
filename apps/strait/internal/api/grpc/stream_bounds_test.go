@@ -59,6 +59,63 @@ func TestDeepSecHandleAck_OversizedRunIDRejectedBeforeStore(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestHandleTaskResult_RejectsInvalidIdentityBeforeStore(t *testing.T) {
+	t.Parallel()
+
+	svc := &workerService{}
+	tests := []struct {
+		name   string
+		result *workerv1.TaskResult
+	}{
+		{
+			name:   "nil result",
+			result: nil,
+		},
+		{
+			name:   "empty run id",
+			result: &workerv1.TaskResult{AssignmentId: "task-1", Attempt: 1},
+		},
+		{
+			name: "oversized run id",
+			result: &workerv1.TaskResult{
+				RunId:        strings.Repeat("r", maxRunIDLen+1),
+				AssignmentId: "task-1",
+				Attempt:      1,
+			},
+		},
+		{
+			name: "missing assignment id",
+			result: &workerv1.TaskResult{
+				RunId:   "run-1",
+				Attempt: 1,
+			},
+		},
+		{
+			name: "zero attempt",
+			result: &workerv1.TaskResult{
+				RunId:        "run-1",
+				AssignmentId: "task-1",
+			},
+		},
+		{
+			name: "negative attempt",
+			result: &workerv1.TaskResult{
+				RunId:        "run-1",
+				AssignmentId: "task-1",
+				Attempt:      -1,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			require.NoError(t, svc.handleTaskResult(context.Background(), "worker-1", "proj-1", tt.result))
+		})
+	}
+}
+
 func TestCanAcknowledgeWorkerTaskStatus(t *testing.T) {
 	t.Parallel()
 
