@@ -294,6 +294,15 @@ type workerStreamLoopConfig struct {
 	closeExpireSubOnEarlyReturn *bool
 }
 
+type workerAckQueries interface {
+	GetOpenWorkerTaskByRunID(ctx context.Context, workerID, projectID, runID string) (*domain.WorkerTask, error)
+	UpdateWorkerTaskStatus(ctx context.Context, taskID string, status domain.WorkerTaskStatus) error
+}
+
+type workerHeartbeatQueries interface {
+	RenewWorkerStreamLease(ctx context.Context, workerID, projectID string, expiresAt time.Time) error
+}
+
 func (s *workerService) runWorkerStreamLoops(cfg workerStreamLoopConfig) error {
 	reg := cfg.registration
 	disconnectSub := s.subscribeWorkerDisconnect(cfg.ctx, cfg.projectID, reg.WorkerId)
@@ -885,6 +894,10 @@ func (s *workerService) handleWorkerMessage(ctx context.Context, workerID, proje
 }
 
 func (s *workerService) handleAck(ctx context.Context, workerID, projectID string, ack *workerv1.Acknowledged) error {
+	return handleWorkerAck(ctx, s.queries, workerID, projectID, ack)
+}
+
+func handleWorkerAck(ctx context.Context, q workerAckQueries, workerID, projectID string, ack *workerv1.Acknowledged) error {
 	if ack == nil || ack.Id == "" {
 		return nil
 	}
@@ -893,14 +906,14 @@ func (s *workerService) handleAck(ctx context.Context, workerID, projectID strin
 			"worker_id", workerID, "run_id_len", len(ack.Id))
 		return nil
 	}
-	task, err := s.queries.GetOpenWorkerTaskByRunID(ctx, workerID, projectID, ack.Id)
+	task, err := q.GetOpenWorkerTaskByRunID(ctx, workerID, projectID, ack.Id)
 	if err != nil {
 		return err
 	}
 	if task == nil || !canAcknowledgeWorkerTaskStatus(task.Status) {
 		return nil
 	}
-	return s.queries.UpdateWorkerTaskStatus(ctx, task.ID, domain.WorkerTaskStatusAccepted)
+	return q.UpdateWorkerTaskStatus(ctx, task.ID, domain.WorkerTaskStatusAccepted)
 }
 
 func canAcknowledgeWorkerTaskStatus(status domain.WorkerTaskStatus) bool {
@@ -915,15 +928,36 @@ func canAcknowledgeWorkerTaskStatus(status domain.WorkerTaskStatus) bool {
 // timestamp. The slot hint in hb is informational; the server is
 // authoritative on slot accounting via Increment/DecrementSlots.
 func (s *workerService) handleHeartbeat(ctx context.Context, workerID, projectID, orgID, workerConnectionReservationID string, hb *workerv1.Heartbeat) error {
+	return handleWorkerHeartbeat(
+		ctx,
+		s.queries,
+		s.billingEnforcer,
+		workerID,
+		projectID,
+		orgID,
+		workerConnectionReservationID,
+		s.workerConnectionLease(),
+		hb,
+	)
+}
+
+func handleWorkerHeartbeat(
+	ctx context.Context,
+	q workerHeartbeatQueries,
+	billingEnforcer planLimitEnforcer,
+	workerID, projectID, orgID, workerConnectionReservationID string,
+	lease time.Duration,
+	hb *workerv1.Heartbeat,
+) error {
 	if hb == nil {
 		return nil
 	}
-	if err := s.queries.RenewWorkerStreamLease(ctx, workerID, projectID, time.Now().Add(s.workerConnectionLease())); err != nil {
+	if err := q.RenewWorkerStreamLease(ctx, workerID, projectID, time.Now().Add(lease)); err != nil {
 		slog.Warn("grpc heartbeat: failed to renew worker stream lease",
 			"worker_id", workerID, "project_id", projectID, "error", err)
 	}
-	if reserver, ok := s.billingEnforcer.(workerConnectionReservationEnforcer); ok && orgID != "" && workerConnectionReservationID != "" {
-		if err := reserver.RenewWorkerConnection(ctx, orgID, workerConnectionReservationID, s.workerConnectionLease()); err != nil {
+	if reserver, ok := billingEnforcer.(workerConnectionReservationEnforcer); ok && orgID != "" && workerConnectionReservationID != "" {
+		if err := reserver.RenewWorkerConnection(ctx, orgID, workerConnectionReservationID, lease); err != nil {
 			slog.Warn("grpc heartbeat: failed to renew worker connection reservation",
 				"worker_id", workerID, "org_id", orgID, "error", err)
 		}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -67,6 +68,242 @@ func (s *unitWorkerStream) SendHeader(metadata.MD) error { return nil }
 func (s *unitWorkerStream) SetTrailer(metadata.MD)       {}
 func (s *unitWorkerStream) SendMsg(any) error            { return nil }
 func (s *unitWorkerStream) RecvMsg(any) error            { return nil }
+
+type fakeWorkerAckQueries struct {
+	task         *domain.WorkerTask
+	getErr       error
+	updateErr    error
+	getCalls     int
+	updateTaskID string
+	updateStatus domain.WorkerTaskStatus
+}
+
+func (f *fakeWorkerAckQueries) GetOpenWorkerTaskByRunID(_ context.Context, workerID, projectID, runID string) (*domain.WorkerTask, error) {
+	f.getCalls++
+	if f.getErr != nil {
+		return nil, f.getErr
+	}
+	return f.task, nil
+}
+
+func (f *fakeWorkerAckQueries) UpdateWorkerTaskStatus(_ context.Context, taskID string, status domain.WorkerTaskStatus) error {
+	if f.updateErr != nil {
+		return f.updateErr
+	}
+	f.updateTaskID = taskID
+	f.updateStatus = status
+	return nil
+}
+
+type fakeWorkerHeartbeatQueries struct {
+	renewErr  error
+	calls     int
+	workerID  string
+	projectID string
+	expiresAt time.Time
+}
+
+func (f *fakeWorkerHeartbeatQueries) RenewWorkerStreamLease(_ context.Context, workerID, projectID string, expiresAt time.Time) error {
+	f.calls++
+	f.workerID = workerID
+	f.projectID = projectID
+	f.expiresAt = expiresAt
+	return f.renewErr
+}
+
+type fakeHeartbeatReservationEnforcer struct {
+	renewErr      error
+	renewCalls    int
+	orgID         string
+	reservationID string
+	lease         time.Duration
+}
+
+func (f *fakeHeartbeatReservationEnforcer) CheckWorkerConnectionLimit(context.Context, string, int) error {
+	return nil
+}
+
+func (f *fakeHeartbeatReservationEnforcer) GetActiveProjectOrgID(context.Context, string) (string, error) {
+	return "", nil
+}
+
+func (f *fakeHeartbeatReservationEnforcer) ReserveWorkerConnection(context.Context, string, string, time.Duration) (func(), error) {
+	return func() {}, nil
+}
+
+func (f *fakeHeartbeatReservationEnforcer) RenewWorkerConnection(_ context.Context, orgID, reservationID string, lease time.Duration) error {
+	f.renewCalls++
+	f.orgID = orgID
+	f.reservationID = reservationID
+	f.lease = lease
+	return f.renewErr
+}
+
+func TestHandleWorkerAck(t *testing.T) {
+	t.Parallel()
+
+	t.Run("nil and empty ack skip store", func(t *testing.T) {
+		t.Parallel()
+
+		queries := &fakeWorkerAckQueries{}
+		require.NoError(t, handleWorkerAck(context.Background(), queries, "worker-1", "proj-1", nil))
+		require.NoError(t, handleWorkerAck(context.Background(), queries, "worker-1", "proj-1", &workerv1.Acknowledged{}))
+		require.Zero(t, queries.getCalls)
+	})
+
+	t.Run("oversized run id skips store", func(t *testing.T) {
+		t.Parallel()
+
+		queries := &fakeWorkerAckQueries{}
+		require.NoError(t, handleWorkerAck(context.Background(), queries, "worker-1", "proj-1", &workerv1.Acknowledged{
+			Id: strings.Repeat("r", maxRunIDLen+1),
+		}))
+		require.Zero(t, queries.getCalls)
+	})
+
+	t.Run("get error propagates", func(t *testing.T) {
+		t.Parallel()
+
+		queries := &fakeWorkerAckQueries{getErr: errors.New("lookup failed")}
+		err := handleWorkerAck(context.Background(), queries, "worker-1", "proj-1", &workerv1.Acknowledged{Id: "run-1"})
+		require.ErrorContains(t, err, "lookup failed")
+		require.Empty(t, queries.updateTaskID)
+	})
+
+	t.Run("missing and non-assigned task skip update", func(t *testing.T) {
+		t.Parallel()
+
+		for _, task := range []*domain.WorkerTask{
+			nil,
+			{ID: "task-1", Status: domain.WorkerTaskStatusAccepted},
+			{ID: "task-2", Status: domain.WorkerTaskStatusCompleted},
+		} {
+			queries := &fakeWorkerAckQueries{task: task}
+			require.NoError(t, handleWorkerAck(context.Background(), queries, "worker-1", "proj-1", &workerv1.Acknowledged{Id: "run-1"}))
+			require.Empty(t, queries.updateTaskID)
+		}
+	})
+
+	t.Run("assigned task is accepted", func(t *testing.T) {
+		t.Parallel()
+
+		queries := &fakeWorkerAckQueries{task: &domain.WorkerTask{ID: "task-1", Status: domain.WorkerTaskStatusAssigned}}
+		require.NoError(t, handleWorkerAck(context.Background(), queries, "worker-1", "proj-1", &workerv1.Acknowledged{Id: "run-1"}))
+		require.Equal(t, "task-1", queries.updateTaskID)
+		require.Equal(t, domain.WorkerTaskStatusAccepted, queries.updateStatus)
+	})
+
+	t.Run("update error propagates", func(t *testing.T) {
+		t.Parallel()
+
+		queries := &fakeWorkerAckQueries{
+			task:      &domain.WorkerTask{ID: "task-1", Status: domain.WorkerTaskStatusAssigned},
+			updateErr: errors.New("update failed"),
+		}
+		err := handleWorkerAck(context.Background(), queries, "worker-1", "proj-1", &workerv1.Acknowledged{Id: "run-1"})
+		require.ErrorContains(t, err, "update failed")
+	})
+}
+
+func TestHandleWorkerHeartbeat(t *testing.T) {
+	t.Parallel()
+
+	t.Run("nil heartbeat skips renewals", func(t *testing.T) {
+		t.Parallel()
+
+		queries := &fakeWorkerHeartbeatQueries{}
+		enforcer := &fakeHeartbeatReservationEnforcer{}
+		require.NoError(t, handleWorkerHeartbeat(
+			context.Background(),
+			queries,
+			enforcer,
+			"worker-1",
+			"proj-1",
+			"org-1",
+			"reservation-1",
+			time.Minute,
+			nil,
+		))
+		require.Zero(t, queries.calls)
+		require.Zero(t, enforcer.renewCalls)
+	})
+
+	t.Run("renews stream lease and reservation", func(t *testing.T) {
+		t.Parallel()
+
+		queries := &fakeWorkerHeartbeatQueries{}
+		enforcer := &fakeHeartbeatReservationEnforcer{}
+		lease := 2 * time.Minute
+		before := time.Now().Add(lease)
+		require.NoError(t, handleWorkerHeartbeat(
+			context.Background(),
+			queries,
+			enforcer,
+			"worker-1",
+			"proj-1",
+			"org-1",
+			"reservation-1",
+			lease,
+			&workerv1.Heartbeat{},
+		))
+		require.Equal(t, 1, queries.calls)
+		require.Equal(t, "worker-1", queries.workerID)
+		require.Equal(t, "proj-1", queries.projectID)
+		require.False(t, queries.expiresAt.Before(before))
+		require.Equal(t, 1, enforcer.renewCalls)
+		require.Equal(t, "org-1", enforcer.orgID)
+		require.Equal(t, "reservation-1", enforcer.reservationID)
+		require.Equal(t, lease, enforcer.lease)
+	})
+
+	t.Run("renewal errors are best effort", func(t *testing.T) {
+		t.Parallel()
+
+		queries := &fakeWorkerHeartbeatQueries{renewErr: errors.New("stream lease failed")}
+		enforcer := &fakeHeartbeatReservationEnforcer{renewErr: errors.New("reservation failed")}
+		require.NoError(t, handleWorkerHeartbeat(
+			context.Background(),
+			queries,
+			enforcer,
+			"worker-1",
+			"proj-1",
+			"org-1",
+			"reservation-1",
+			time.Minute,
+			&workerv1.Heartbeat{},
+		))
+		require.Equal(t, 1, queries.calls)
+		require.Equal(t, 1, enforcer.renewCalls)
+	})
+
+	t.Run("reservation renewal requires org and reservation ids", func(t *testing.T) {
+		t.Parallel()
+
+		for _, ids := range []struct {
+			orgID         string
+			reservationID string
+		}{
+			{orgID: "", reservationID: "reservation-1"},
+			{orgID: "org-1", reservationID: ""},
+		} {
+			queries := &fakeWorkerHeartbeatQueries{}
+			enforcer := &fakeHeartbeatReservationEnforcer{}
+			require.NoError(t, handleWorkerHeartbeat(
+				context.Background(),
+				queries,
+				enforcer,
+				"worker-1",
+				"proj-1",
+				ids.orgID,
+				ids.reservationID,
+				time.Minute,
+				&workerv1.Heartbeat{},
+			))
+			require.Equal(t, 1, queries.calls)
+			require.Zero(t, enforcer.renewCalls)
+		}
+	})
+}
 
 func requireLoopErr(t *testing.T, streamErr <-chan error) error {
 	t.Helper()
