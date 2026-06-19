@@ -1,14 +1,271 @@
 package store
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"strings"
 	"testing"
+	"time"
 
 	"strait/internal/domain"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func fillWorkflowSnapshotDest(dest []any, id string, createdAt time.Time) {
+	*(dest[0].(*string)) = id
+	*(dest[1].(*string)) = "wf-1"
+	*(dest[2].(*string)) = "version-1"
+	*(dest[3].(*int)) = 3
+	*(dest[4].(*[]byte)) = []byte(`{"workflow":{"id":"wf-1"},"steps":[]}`)
+	*(dest[5].(*time.Time)) = createdAt
+}
+
+func testWorkflowForSnapshot() *domain.Workflow {
+	return &domain.Workflow{
+		ID:                "wf-1",
+		ProjectID:         "project-1",
+		Name:              "Build",
+		Slug:              "build",
+		Description:       "Build workflow",
+		Tags:              map[string]string{"team": "platform"},
+		Version:           3,
+		VersionID:         "version-1",
+		TimeoutSecs:       300,
+		MaxConcurrentRuns: 4,
+		MaxParallelSteps:  2,
+	}
+}
+
+func TestGetOrCreateWorkflowSnapshot(t *testing.T) {
+	t.Parallel()
+
+	t.Run("returns existing snapshot for matching definition hash", func(t *testing.T) {
+		t.Parallel()
+
+		createdAt := time.Now().UTC()
+		queryRows := 0
+		db := &mockDBTX{
+			queryRowFn: func(_ context.Context, sql string, args ...any) pgx.Row {
+				queryRows++
+				require.Contains(t, sql, "definition_hash")
+				require.Equal(t, []any{"wf-1", "version-1", args[2], "project-1"}, args)
+				return &mockRow{scanFn: func(dest ...any) error {
+					fillWorkflowSnapshotDest(dest, "snapshot-existing", createdAt)
+					return nil
+				}}
+			},
+		}
+
+		got, err := New(db).GetOrCreateWorkflowSnapshot(context.Background(), testWorkflowForSnapshot(), nil)
+		require.NoError(t, err)
+		require.Equal(t, "snapshot-existing", got.ID)
+		require.Equal(t, createdAt, got.CreatedAt)
+		require.JSONEq(t, `{"workflow":{"id":"wf-1"},"steps":[]}`, string(got.Definition))
+		require.Equal(t, 1, queryRows)
+	})
+
+	t.Run("inserts when definition hash has no match", func(t *testing.T) {
+		t.Parallel()
+
+		createdAt := time.Now().UTC()
+		var insertArgs []any
+		queryRows := 0
+		db := &mockDBTX{
+			queryRowFn: func(_ context.Context, sql string, args ...any) pgx.Row {
+				queryRows++
+				if strings.Contains(sql, "INSERT INTO workflow_snapshots") {
+					insertArgs = append([]any(nil), args...)
+					return &mockRow{scanFn: func(dest ...any) error {
+						*(dest[0].(*string)) = "snapshot-inserted"
+						*(dest[1].(*time.Time)) = createdAt
+						return nil
+					}}
+				}
+				return &mockRow{scanFn: func(...any) error {
+					return pgx.ErrNoRows
+				}}
+			},
+		}
+
+		got, err := New(db).GetOrCreateWorkflowSnapshot(context.Background(), testWorkflowForSnapshot(), []domain.WorkflowStep{
+			{ID: "step-1", WorkflowID: "wf-1", StepRef: "build", StepType: domain.WorkflowStepTypeJob},
+		})
+		require.NoError(t, err)
+		require.Equal(t, "snapshot-inserted", got.ID)
+		require.Equal(t, createdAt, got.CreatedAt)
+		require.Equal(t, 2, queryRows)
+		require.Len(t, insertArgs, 7)
+		require.Equal(t, "wf-1", insertArgs[1])
+		require.Equal(t, "project-1", insertArgs[2])
+		require.Len(t, insertArgs[6].(string), 64)
+
+		parsed, err := ParseSnapshotDefinition(got.Definition)
+		require.NoError(t, err)
+		require.Len(t, parsed.Steps, 1)
+		require.Equal(t, "build", parsed.Steps[0].StepRef)
+	})
+
+	t.Run("wraps insert errors", func(t *testing.T) {
+		t.Parallel()
+
+		db := &mockDBTX{
+			queryRowFn: func(_ context.Context, sql string, _ ...any) pgx.Row {
+				if strings.Contains(sql, "INSERT INTO workflow_snapshots") {
+					return &mockRow{scanFn: func(...any) error {
+						return errors.New("insert failed")
+					}}
+				}
+				return &mockRow{scanFn: func(...any) error {
+					return pgx.ErrNoRows
+				}}
+			},
+		}
+
+		_, err := New(db).GetOrCreateWorkflowSnapshot(context.Background(), testWorkflowForSnapshot(), nil)
+		require.ErrorContains(t, err, "insert workflow snapshot")
+		require.ErrorContains(t, err, "insert failed")
+	})
+}
+
+func TestGetWorkflowSnapshot(t *testing.T) {
+	t.Parallel()
+
+	t.Run("returns tenant-scoped snapshot", func(t *testing.T) {
+		t.Parallel()
+
+		createdAt := time.Now().UTC()
+		db := &mockDBTX{
+			queryRowFn: func(_ context.Context, sql string, args ...any) pgx.Row {
+				require.Contains(t, sql, "WHERE id = $1 AND project_id = $2")
+				require.Equal(t, []any{"snapshot-1", "project-1"}, args)
+				return &mockRow{scanFn: func(dest ...any) error {
+					fillWorkflowSnapshotDest(dest, "snapshot-1", createdAt)
+					return nil
+				}}
+			},
+		}
+
+		got, err := New(db).GetWorkflowSnapshot(context.Background(), "project-1", "snapshot-1")
+		require.NoError(t, err)
+		require.Equal(t, "snapshot-1", got.ID)
+		require.Equal(t, "wf-1", got.WorkflowID)
+		require.JSONEq(t, `{"workflow":{"id":"wf-1"},"steps":[]}`, string(got.Definition))
+	})
+
+	t.Run("maps missing rows to nil snapshot", func(t *testing.T) {
+		t.Parallel()
+
+		db := &mockDBTX{
+			queryRowFn: func(context.Context, string, ...any) pgx.Row {
+				return &mockRow{scanFn: func(...any) error {
+					return pgx.ErrNoRows
+				}}
+			},
+		}
+
+		got, err := New(db).GetWorkflowSnapshot(context.Background(), "project-1", "missing")
+		require.NoError(t, err)
+		require.Nil(t, got)
+	})
+
+	t.Run("wraps scan errors", func(t *testing.T) {
+		t.Parallel()
+
+		db := &mockDBTX{
+			queryRowFn: func(context.Context, string, ...any) pgx.Row {
+				return &mockRow{scanFn: func(...any) error {
+					return errors.New("scan failed")
+				}}
+			},
+		}
+
+		_, err := New(db).GetWorkflowSnapshot(context.Background(), "project-1", "snapshot-1")
+		require.ErrorContains(t, err, "get workflow snapshot")
+		require.ErrorContains(t, err, "scan failed")
+	})
+}
+
+func TestListWorkflowSnapshotsByWorkflow(t *testing.T) {
+	t.Parallel()
+
+	t.Run("returns snapshots newest first from rows", func(t *testing.T) {
+		t.Parallel()
+
+		createdAt := time.Now().UTC()
+		db := &mockDBTX{
+			queryFn: func(_ context.Context, sql string, args ...any) (pgx.Rows, error) {
+				require.Contains(t, sql, "ORDER BY created_at DESC")
+				require.Equal(t, []any{"wf-1", "project-1", 2}, args)
+				return &mockRows{scanFns: []func(dest ...any) error{
+					func(dest ...any) error {
+						fillWorkflowSnapshotDest(dest, "snapshot-2", createdAt)
+						return nil
+					},
+					func(dest ...any) error {
+						fillWorkflowSnapshotDest(dest, "snapshot-1", createdAt.Add(-time.Minute))
+						return nil
+					},
+				}}, nil
+			},
+		}
+
+		got, err := New(db).ListWorkflowSnapshotsByWorkflow(context.Background(), "project-1", "wf-1", 2)
+		require.NoError(t, err)
+		require.Len(t, got, 2)
+		require.Equal(t, "snapshot-2", got[0].ID)
+		require.Equal(t, "snapshot-1", got[1].ID)
+		require.JSONEq(t, `{"workflow":{"id":"wf-1"},"steps":[]}`, string(got[0].Definition))
+	})
+
+	t.Run("wraps query errors", func(t *testing.T) {
+		t.Parallel()
+
+		db := &mockDBTX{
+			queryFn: func(context.Context, string, ...any) (pgx.Rows, error) {
+				return nil, errors.New("query failed")
+			},
+		}
+
+		_, err := New(db).ListWorkflowSnapshotsByWorkflow(context.Background(), "project-1", "wf-1", 2)
+		require.ErrorContains(t, err, "list workflow snapshots")
+		require.ErrorContains(t, err, "query failed")
+	})
+
+	t.Run("wraps row scan errors", func(t *testing.T) {
+		t.Parallel()
+
+		db := &mockDBTX{
+			queryFn: func(context.Context, string, ...any) (pgx.Rows, error) {
+				return &mockRows{scanFns: []func(dest ...any) error{
+					func(...any) error {
+						return errors.New("row failed")
+					},
+				}}, nil
+			},
+		}
+
+		_, err := New(db).ListWorkflowSnapshotsByWorkflow(context.Background(), "project-1", "wf-1", 2)
+		require.ErrorContains(t, err, "scan workflow snapshot")
+		require.ErrorContains(t, err, "row failed")
+	})
+
+	t.Run("returns row iteration errors", func(t *testing.T) {
+		t.Parallel()
+
+		db := &mockDBTX{
+			queryFn: func(context.Context, string, ...any) (pgx.Rows, error) {
+				return &mockRows{err: errors.New("rows failed")}, nil
+			},
+		}
+
+		_, err := New(db).ListWorkflowSnapshotsByWorkflow(context.Background(), "project-1", "wf-1", 2)
+		require.ErrorContains(t, err, "rows failed")
+	})
+}
 
 func TestParseSnapshotDefinition_RoundTrip(t *testing.T) {
 	steps := []domain.WorkflowStep{

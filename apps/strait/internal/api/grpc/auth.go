@@ -175,14 +175,15 @@ func validateWorkerAPIKey(apiKey *domain.APIKey) error {
 	// a never-valid one (which would confirm the key was once real). The specific
 	// reason is logged server-side for operator forensics.
 	now := time.Now()
-	switch {
-	case apiKey.RevokedAt != nil:
+	if apiKey.RevokedAt != nil {
 		slog.Warn("grpc worker auth rejected", "reason", "revoked", "api_key_id", apiKey.ID)
 		return status.Error(codes.Unauthenticated, "invalid api key")
-	case apiKey.ExpiresAt != nil && apiKey.ExpiresAt.Before(now):
+	}
+	if apiKey.ExpiresAt != nil && apiKey.ExpiresAt.Before(now) {
 		slog.Warn("grpc worker auth rejected", "reason", "expired", "api_key_id", apiKey.ID)
 		return status.Error(codes.Unauthenticated, "invalid api key")
-	case apiKey.GraceExpiresAt != nil && apiKey.GraceExpiresAt.Before(now):
+	}
+	if apiKey.GraceExpiresAt != nil && apiKey.GraceExpiresAt.Before(now) {
 		slog.Warn("grpc worker auth rejected", "reason", "rotation_grace_ended", "api_key_id", apiKey.ID)
 		return status.Error(codes.Unauthenticated, "invalid api key")
 	}

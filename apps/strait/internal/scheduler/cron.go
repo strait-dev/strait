@@ -57,8 +57,6 @@ var (
 	errCronJobRateLimitExceeded          = errors.New("cron job rate limit exceeded")
 )
 
-const cronFireDedupeTTL = 25 * time.Hour
-
 type WorkflowTrigger interface {
 	TriggerWorkflow(ctx context.Context, workflowID, projectID string, payload json.RawMessage, triggeredBy string, stepOverrides []domain.StepOverride, extraTags map[string]string) (*domain.WorkflowRun, error)
 }
@@ -512,7 +510,7 @@ func cronExpressionWithValidatedTimezone(expr, timezone string) (string, error) 
 
 func (cs *CronScheduler) withCronFireLock(ctx context.Context, projectID, kind, id string, fn func(context.Context, string)) {
 	fireKey := cronFireKey(kind, id, time.Now().UTC())
-	acquiredFire, err := cs.store.TryAcquireCronFire(ctx, projectID, fireKey, cronFireDedupeTTL)
+	acquiredFire, err := cs.store.TryAcquireCronFire(ctx, projectID, fireKey, cronFireDedupeTTL())
 	if err != nil {
 		slog.Warn("cron fire idempotency claim failed", "kind", kind, "id", id, "project_id", projectID, "fire_key", fireKey, "error", err)
 		return
@@ -568,6 +566,10 @@ func cronFireKey(kind, id string, now time.Time) string {
 func cronFireUnixMinute(now time.Time) int64 {
 	unix := now.Unix()
 	return unix - unix%60
+}
+
+func cronFireDedupeTTL() time.Duration {
+	return 25 * time.Hour
 }
 
 func cronFireLockID(key string) int64 {

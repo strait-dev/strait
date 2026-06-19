@@ -10,7 +10,7 @@ import (
 	"strait/internal/store"
 )
 
-const workflowStepVisibilityRetryDelay = 250 * time.Millisecond
+const workflowStepVisibilityRetryDelay time.Duration = 250_000_000
 
 // resolveJobForRun loads the job configuration for a run, applying version
 // policy rules. For "pin" (default), returns the enqueue-time version. For

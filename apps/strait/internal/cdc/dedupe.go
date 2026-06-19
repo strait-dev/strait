@@ -10,7 +10,7 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-const defaultSharedDedupeTTL = 10 * time.Minute
+const defaultSharedDedupeTTL time.Duration = 600_000_000_000
 
 type SharedDedupeStore struct {
 	client redis.Cmdable

@@ -2,6 +2,8 @@ package scheduler
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -45,6 +47,20 @@ func (r *recordingBillingDispatcher) snapshot() []dispatchedEvent {
 	return out
 }
 
+func httpModeDisabledLimits() billing.OrgPlanLimits {
+	return billing.OrgPlanLimits{
+		PlanTier:                domain.PlanTier("worker-only"),
+		MaxProjectsPerOrg:       -1,
+		MaxScheduledJobs:        -1,
+		MaxWebhookEndpoints:     -1,
+		MaxEnvironments:         -1,
+		MaxLogDrainsPerOrg:      -1,
+		MaxNotificationChannels: -1,
+		MaxMembersPerOrg:        -1,
+		AllowsHTTPMode:          false,
+	}
+}
+
 // TestDowngradeApplier_DispatchesScheduleSuspended_OnCronTrim covers the
 // Pro→Free path where DeactivateExcessCronJobs returns multiple job IDs and
 // confirms one schedule.suspended event fires per ID with reason
@@ -80,6 +96,64 @@ func TestDowngradeApplier_DispatchesScheduleSuspended_OnCronTrim(t *testing.T) {
 	require.Equal(t, 3,
 		cronEvents,
 	)
+}
+
+func TestEnforcePlanResourceLimits_DispatchesHTTPPauseWhenTargetDisallowsHTTPMode(t *testing.T) {
+	t.Parallel()
+
+	store := &mockDowngradeStore{pauseHTTPIDs: []string{"job-http-1", "job-http-2"}}
+	disp := &recordingBillingDispatcher{}
+
+	err := enforceResolvedPlanResourceLimits(
+		context.Background(),
+		store,
+		nil,
+		disp,
+		"org-http",
+		"worker-only",
+		httpModeDisabledLimits(),
+	)
+	require.NoError(t, err)
+	require.Equal(t, []pauseHTTPCall{
+		{orgID: "org-http", reason: "plan_downgrade"},
+	}, store.pauseHTTPCalls)
+
+	events := disp.snapshot()
+	require.Len(t, events, 2)
+	for i, event := range events {
+		assert.Equal(t, "org-http", event.orgID)
+		assert.Equal(t, domain.WebhookEventScheduleSuspended, event.eventType)
+
+		var envelope billing.BillingEventEnvelope
+		require.NoError(t, json.Unmarshal(event.payload, &envelope))
+		assert.Equal(t, "org-http", envelope.OrgID)
+		assert.Equal(t, "worker-only", envelope.PlanTier)
+		assert.Equal(t, domain.WebhookEventScheduleSuspended, envelope.EventType)
+		assert.Equal(t, "plan_downgrade_http_mode", envelope.Detail["reason"])
+		assert.Equal(t, store.pauseHTTPIDs[i], envelope.Detail["schedule_id"])
+	}
+}
+
+func TestEnforcePlanResourceLimits_ReturnsHTTPPauseError(t *testing.T) {
+	t.Parallel()
+
+	pauseErr := errors.New("pause failed")
+	store := &mockDowngradeStore{pauseHTTPErr: pauseErr}
+
+	err := enforceResolvedPlanResourceLimits(
+		context.Background(),
+		store,
+		nil,
+		nil,
+		"org-http",
+		"worker-only",
+		httpModeDisabledLimits(),
+	)
+	require.ErrorIs(t, err, pauseErr)
+	require.ErrorContains(t, err, "pause http jobs")
+	require.Equal(t, []pauseHTTPCall{
+		{orgID: "org-http", reason: "plan_downgrade"},
+	}, store.pauseHTTPCalls)
 }
 
 // TestDowngradeApplier_NoDispatch_WhenNoIDsReturned guards the fast-path: if

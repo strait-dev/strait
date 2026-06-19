@@ -17,7 +17,11 @@ import (
 // payload ceiling and is high enough to hold any structured billing
 // detail we emit, but low enough to short-circuit accidental
 // runaway-blob detail values before they hit the delivery queue.
-const BillingWebhookMaxPayloadBytes = 64 * 1024
+var BillingWebhookMaxPayloadBytes = billingWebhookMaxPayloadBytes()
+
+func billingWebhookMaxPayloadBytes() int {
+	return 64 * 1024
+}
 
 // BillingEventDispatcher delivers a fully-formed billing event payload
 // to the outbound webhook pipeline (webhook_subscriptions). The concrete

@@ -214,14 +214,16 @@ func approvalAuditActor(actor string) (string, string) {
 	if actor == "" {
 		return "system", "system"
 	}
-	switch {
-	case actor == "system" || strings.HasPrefix(actor, "system:"):
+	if actor == "system" {
 		return actor, "system"
-	case strings.HasPrefix(actor, "apikey:"):
-		return actor, "api_key"
-	default:
-		return actor, "user"
 	}
+	if strings.HasPrefix(actor, "system:") {
+		return actor, "system"
+	}
+	if strings.HasPrefix(actor, "apikey:") {
+		return actor, "api_key"
+	}
+	return actor, "user"
 }
 
 func (s *StepCallback) emitApprovalAuditEvent(

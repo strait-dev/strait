@@ -857,6 +857,62 @@ func TestBillingEnforcement_TerminalTimeoutRecordsBillableRunCost(t *testing.T) 
 		Load())
 }
 
+func TestMutationCoverage_StripeUsageEventBranches(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	customerID := "cus_mutation"
+	orgID := "org-stripe-usage"
+	bStore := &mockBillingEnforcerStore{
+		projectOrgID: orgID,
+		sub: &billing.OrgSubscription{
+			OrgID:            orgID,
+			PlanTier:         string(domain.PlanPro),
+			StripeCustomerID: &customerID,
+		},
+	}
+	enforcer, mr := newWorkerTestEnforcer(t, bStore)
+	monthlyKey := "strait:org_monthly_runs:" + orgID + ":" + time.Now().UTC().Format("2006-01")
+	require.NoError(t, mr.Set(monthlyKey, strconv.Itoa(billing.MaxRunsPerMonthPro+1)))
+	require.NoError(t, enforcer.CheckMonthlyRunLimitForRun(ctx, orgID, "run-stripe-usage"))
+
+	exec := NewExecutor(ExecutorConfig{
+		BillingEnforcer:     enforcer,
+		StripeUsageReporter: billing.NewStripeUsageReporter("", slog.Default()),
+	})
+	exec.ingestStripeUsageEvent(ctx, "project-stripe-usage", "run-stripe-usage", billing.HTTPCostPerRunMicrousd)
+	exec.stripeUsageWG.Wait()
+
+	missingOrgStore := &mockBillingEnforcerStore{
+		projectOrgErr: errors.New("org lookup failed"),
+		sub:           bStore.sub,
+	}
+	missingOrgEnforcer, _ := newWorkerTestEnforcer(t, missingOrgStore)
+	require.NoError(t, missingOrgEnforcer.CheckMonthlyRunLimitForRun(ctx, orgID, "run-missing-org"))
+	missingOrgExec := NewExecutor(ExecutorConfig{
+		BillingEnforcer:     missingOrgEnforcer,
+		StripeUsageReporter: billing.NewStripeUsageReporter("", slog.Default()),
+	})
+	missingOrgExec.ingestStripeUsageEvent(ctx, "project-missing-org", "run-missing-org", billing.HTTPCostPerRunMicrousd)
+	missingOrgExec.stripeUsageWG.Wait()
+
+	missingCustomerStore := &mockBillingEnforcerStore{
+		projectOrgID: orgID,
+		sub: &billing.OrgSubscription{
+			OrgID:    orgID,
+			PlanTier: string(domain.PlanPro),
+		},
+	}
+	missingCustomerEnforcer, _ := newWorkerTestEnforcer(t, missingCustomerStore)
+	require.NoError(t, missingCustomerEnforcer.CheckMonthlyRunLimitForRun(ctx, orgID, "run-missing-customer"))
+	missingCustomerExec := NewExecutor(ExecutorConfig{
+		BillingEnforcer:     missingCustomerEnforcer,
+		StripeUsageReporter: billing.NewStripeUsageReporter("", slog.Default()),
+	})
+	missingCustomerExec.ingestStripeUsageEvent(ctx, "project-missing-customer", "run-missing-customer", billing.HTTPCostPerRunMicrousd)
+	missingCustomerExec.stripeUsageWG.Wait()
+}
+
 // TestExecuteInner_HTTPModeGateRebalancesConcurrentCounter pins the fix for
 // the per-org concurrent counter leak: when the HTTP-mode plan gate rejects
 // a dispatch, the unconditional INCR inside CheckConcurrentRunLimit must

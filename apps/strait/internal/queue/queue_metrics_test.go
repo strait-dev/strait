@@ -58,6 +58,29 @@ func TestRecordPartitionStats_BasicRatio(t *testing.T) {
 	})
 }
 
+func TestPartitionMetricLabelBoundsPartitionNames(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		partition string
+		want      string
+	}{
+		{name: "root table", partition: "job_runs", want: "job_runs"},
+		{name: "monthly partition", partition: "job_runs_p2026_04", want: "job_runs_partition"},
+		{name: "empty", partition: "", want: "unknown"},
+		{name: "tenant controlled", partition: "job_runs_project_a", want: "other"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			require.Equal(t, tt.want, partitionMetricLabel(tt.partition))
+		})
+	}
+}
+
 func TestResetMetricsForTest_AllowsReinit(t *testing.T) {
 	m1, err := Metrics()
 	require.NoError(t, err)

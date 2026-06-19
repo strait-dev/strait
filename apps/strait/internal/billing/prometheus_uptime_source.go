@@ -19,7 +19,9 @@ type promAPI interface {
 	Query(ctx context.Context, query string, ts time.Time, opts ...promv1.Option) (model.Value, promv1.Warnings, error)
 }
 
-const defaultPrometheusUptimeQueryTimeout = 10 * time.Second
+func defaultPrometheusUptimeQueryTimeout() time.Duration {
+	return 10 * time.Second
+}
 
 // PrometheusUptimeSource resolves monthly platform uptime by running an
 // instant query against a Prometheus-compatible API at the end of the
@@ -55,7 +57,7 @@ func NewPrometheusUptimeSource(promURL, query string, logger *slog.Logger) (*Pro
 	return &PrometheusUptimeSource{
 		api:          promv1.NewAPI(client),
 		query:        query,
-		queryTimeout: defaultPrometheusUptimeQueryTimeout,
+		queryTimeout: defaultPrometheusUptimeQueryTimeout(),
 		logger:       logger,
 	}, nil
 }
@@ -73,7 +75,7 @@ func NewPrometheusUptimeSource(promURL, query string, logger *slog.Logger) (*Pro
 func (p *PrometheusUptimeSource) MonthlyUptimePct(ctx context.Context, _ string, _, periodEnd time.Time) (float64, error) {
 	timeout := p.queryTimeout
 	if timeout <= 0 {
-		timeout = defaultPrometheusUptimeQueryTimeout
+		timeout = defaultPrometheusUptimeQueryTimeout()
 	}
 	queryCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()

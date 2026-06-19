@@ -9,8 +9,6 @@ import (
 	"strait/internal/store"
 )
 
-const defaultIndexMaintenanceInterval = 24 * time.Hour
-
 // indexMaintainerAdvisoryLockID is the pg_advisory_lock key used to ensure
 // only one worker instance runs REINDEX per cycle when multiple workers
 // share a database. Equals "StraitIx" packed into an int64.
@@ -42,7 +40,7 @@ type IndexMaintainer struct {
 
 func NewIndexMaintainer(store IndexMaintenanceStore, interval time.Duration) *IndexMaintainer {
 	if interval <= 0 {
-		interval = defaultIndexMaintenanceInterval
+		interval = defaultIndexMaintenanceInterval()
 	}
 
 	return &IndexMaintainer{
@@ -51,6 +49,10 @@ func NewIndexMaintainer(store IndexMaintenanceStore, interval time.Duration) *In
 		indexes:  append([]string(nil), defaultReindexTargets...),
 		logger:   slog.Default(),
 	}
+}
+
+func defaultIndexMaintenanceInterval() time.Duration {
+	return 24 * time.Hour
 }
 
 // WithAdvisoryLocker enables single-leader execution across multiple worker

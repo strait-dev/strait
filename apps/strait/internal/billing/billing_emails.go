@@ -12,10 +12,12 @@ import (
 
 // BillingEmailSender sends billing notification emails via Resend.
 type BillingEmailSender struct {
-	client    *resend.Client
 	fromEmail string
 	logger    *slog.Logger
+	sendEmail billingEmailSendFunc
 }
+
+type billingEmailSendFunc func(context.Context, *resend.SendEmailRequest) error
 
 // NewBillingEmailSender creates a billing email sender. Returns nil if apiKey is empty.
 func NewBillingEmailSender(apiKey, fromEmail string, logger *slog.Logger) *BillingEmailSender {
@@ -28,10 +30,14 @@ func NewBillingEmailSender(apiKey, fromEmail string, logger *slog.Logger) *Billi
 	if logger == nil {
 		logger = slog.Default()
 	}
+	client := resend.NewClient(apiKey)
 	return &BillingEmailSender{
-		client:    resend.NewClient(apiKey),
 		fromEmail: fromEmail,
 		logger:    logger,
+		sendEmail: func(ctx context.Context, req *resend.SendEmailRequest) error {
+			_, err := client.Emails.SendWithContext(ctx, req)
+			return err
+		},
 	}
 }
 
@@ -317,14 +323,22 @@ func contractExpiryHTML(endDate string, daysRemaining int) string {
 }
 
 func (s *BillingEmailSender) send(ctx context.Context, to []string, subject, htmlBody string) {
-	_, err := s.client.Emails.SendWithContext(ctx, &resend.SendEmailRequest{
+	if s.sendEmail == nil {
+		return
+	}
+
+	err := s.sendEmail(ctx, &resend.SendEmailRequest{
 		From:    s.fromEmail,
 		To:      to,
 		Subject: subject,
 		Html:    htmlBody,
 	})
 	if err != nil {
-		s.logger.Warn("failed to send billing email",
+		logger := s.logger
+		if logger == nil {
+			logger = slog.Default()
+		}
+		logger.Warn("failed to send billing email",
 			"subject", subject, "recipients", len(to), "error", err)
 	}
 }

@@ -223,3 +223,74 @@ func TestNotifyRotationWebhook_NoDecryptorFailsClosed(t *testing.T) {
 	require.False(t,
 		called.Load())
 }
+
+func TestRotationWebhookClientForRequestUsesConfiguredClient(t *testing.T) {
+	t.Parallel()
+
+	configured := &http.Client{Timeout: 123 * time.Millisecond}
+	r := NewReaper(&mockReaperStore{}, time.Second, 30*time.Second, 0, 0, false, nil)
+	r.rotationWebhookClient = configured
+
+	require.Same(t, configured, r.rotationWebhookClientForRequest())
+}
+
+func TestRotationWebhookClientForRequestBuildsDefaultClient(t *testing.T) {
+	t.Parallel()
+
+	r := NewReaper(&mockReaperStore{}, time.Second, 30*time.Second, 0, 0, false, nil)
+
+	client := r.rotationWebhookClientForRequest()
+
+	require.Equal(t, 10*time.Second, client.Timeout)
+	require.NotNil(t, client.Transport)
+}
+
+func TestRotationWebhookSigningSecretRejectsMissingInputs(t *testing.T) {
+	t.Parallel()
+
+	t.Run("missing encrypted secret", func(t *testing.T) {
+		t.Parallel()
+
+		r := NewReaper(&mockReaperStore{}, time.Second, 30*time.Second, 0, 0, false, nil).
+			WithRotationSecretDecryptor(stubSecretDecryptor{plaintext: []byte("unused")})
+
+		secret, err := r.rotationWebhookSigningSecret(nil, "key-1", "project-1")
+
+		require.Nil(t, secret)
+		require.ErrorContains(t, err, "has no rotation webhook signing secret")
+	})
+
+	t.Run("missing decryptor", func(t *testing.T) {
+		t.Parallel()
+
+		r := NewReaper(&mockReaperStore{}, time.Second, 30*time.Second, 0, 0, false, nil)
+
+		secret, err := r.rotationWebhookSigningSecret([]byte("ciphertext"), "key-1", "project-1")
+
+		require.Nil(t, secret)
+		require.ErrorContains(t, err, "decryptor is not configured")
+	})
+}
+
+func TestRotationWebhookSigningSecretRejectsEmptyEncryptedSecret(t *testing.T) {
+	t.Parallel()
+
+	r := NewReaper(&mockReaperStore{}, time.Second, 30*time.Second, 0, 0, false, nil).
+		WithRotationSecretDecryptor(stubSecretDecryptor{plaintext: []byte("unused")})
+
+	secret, err := r.rotationWebhookSigningSecret([]byte{}, "key-empty", "project-empty")
+
+	require.Nil(t, secret)
+	require.ErrorContains(t, err, "has no rotation webhook signing secret")
+}
+
+func TestRotationWebhookSigningSecretRejectsNilDecryptor(t *testing.T) {
+	t.Parallel()
+
+	r := NewReaper(&mockReaperStore{}, time.Second, 30*time.Second, 0, 0, false, nil)
+
+	secret, err := r.rotationWebhookSigningSecret([]byte("ciphertext"), "key-nodecrypt", "project-nodecrypt")
+
+	require.Nil(t, secret)
+	require.ErrorContains(t, err, "decryptor is not configured")
+}

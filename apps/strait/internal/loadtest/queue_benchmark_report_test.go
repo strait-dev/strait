@@ -32,6 +32,21 @@ func TestSummarizeLatencies(t *testing.T) {
 		summary.Max)
 }
 
+func TestPercentileBoundaries(t *testing.T) {
+	sorted := []time.Duration{
+		10 * time.Millisecond,
+		20 * time.Millisecond,
+		30 * time.Millisecond,
+	}
+
+	require.Zero(t, percentile(nil, 0.50))
+	require.Equal(t, 10*time.Millisecond, percentile(sorted, 0))
+	require.Equal(t, 10*time.Millisecond, percentile(sorted, -0.01))
+	require.Equal(t, 30*time.Millisecond, percentile(sorted, 1))
+	require.Equal(t, 30*time.Millisecond, percentile(sorted, 1.01))
+	require.Equal(t, 20*time.Millisecond, percentile(sorted, 0.50))
+}
+
 func TestRelationBloatSampleRatios(t *testing.T) {
 	sample := RelationBloatSample{
 		LiveTuples:   80,

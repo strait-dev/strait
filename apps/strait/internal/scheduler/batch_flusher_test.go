@@ -211,6 +211,38 @@ func TestBatchFlusher_TransactionalFlushDrainsAndEnqueuesInOneCommit(t *testing.
 	require.Empty(t, bs.deletedItems)
 }
 
+func TestBatchFlusher_TransactionalRunTTLOverridesTimeout(t *testing.T) {
+	t.Parallel()
+
+	bs := &mockTransactionalBatchStore{mockBatchStore: &mockBatchStore{
+		flushable: []store.FlushableBatch{
+			{JobID: "job-1", ProjectID: "proj-1", BatchKey: "key", ItemCount: 1},
+		},
+		drainedItems: []domain.BatchBufferItem{
+			{ID: "item-1", JobID: "job-1", ProjectID: "proj-1", BatchKey: "key", Payload: json.RawMessage(`{"a":1}`)},
+		},
+		jobs: map[string]*domain.Job{
+			"job-1": {ID: "job-1", ProjectID: "proj-1", Enabled: true, TimeoutSecs: 60, RunTTLSecs: 3600, BatchMaxSize: 1},
+		},
+	}}
+	var enqueued *domain.JobRun
+	q := &mockQueue{
+		enqueueFn: func(_ context.Context, run *domain.JobRun) error {
+			enqueued = run
+			return nil
+		},
+	}
+
+	before := time.Now()
+	NewBatchFlusher(bs, q, time.Second).poll(context.Background())
+	after := time.Now()
+
+	require.NotNil(t, enqueued)
+	require.NotNil(t, enqueued.ExpiresAt)
+	require.True(t, enqueued.ExpiresAt.After(before.Add(55*time.Minute)))
+	require.True(t, enqueued.ExpiresAt.Before(after.Add(65*time.Minute)))
+}
+
 func TestBatchFlusher_TransactionalEnqueueFailureRollsBackDrain(t *testing.T) {
 	t.Parallel()
 

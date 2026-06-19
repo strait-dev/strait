@@ -195,6 +195,24 @@ func TestAuditSIEMDrain_SetMetrics_NilReceiver(t *testing.T) {
 	assert.True(t, foundFwd)
 }
 
+func TestAuditSIEMDrain_SetHTTPClientForTest_NilReceiverOrClient(t *testing.T) {
+	t.Parallel()
+
+	require.NotPanics(t, func() {
+		(*AuditSIEMDrain)(nil).SetHTTPClientForTest(http.DefaultClient)
+	})
+
+	drain := NewAuditSIEMDrain("https://example.com", "tok", 0, 0)
+	require.NotNil(t, drain)
+	original := drain.client
+	drain.SetHTTPClientForTest(nil)
+	assert.Same(t, original, drain.client)
+
+	replacement := &http.Client{Timeout: time.Second}
+	drain.SetHTTPClientForTest(replacement)
+	assert.Same(t, replacement, drain.client)
+}
+
 func TestAuditSIEMDrain_TunableConstants(t *testing.T) {
 	assert.Equal(t, 100,
 		defaultSIEMBatchSize,

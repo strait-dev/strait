@@ -153,6 +153,30 @@ func TestSSLMode_Disable_RejectedInProduction(t *testing.T) {
 		err.Error())
 }
 
+func TestSSLMode_Unset_RejectedInProduction(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://localhost:5432/test")
+	t.Setenv("INTERNAL_SECRET", "test-secret-value-long-enough")
+	t.Setenv("JWT_SIGNING_KEY", "aaaa-test-jwt-signing-key-00000000")
+	setRequiredRuntimeEnv(t)
+	t.Setenv("STRAIT_ENV", "production")
+
+	_, err := Load()
+	require.Error(t, err)
+
+	want := "config DATABASE_URL: sslmode must be set to require, verify-ca, or verify-full in non-development environments (an unset sslmode defaults to 'prefer' and can use an unencrypted connection)"
+	assert.Equal(t, want, err.Error())
+}
+
+func TestValidateDatabaseSSLMode_UnsetRejectedOutsideDevelopment(t *testing.T) {
+	t.Parallel()
+
+	err := ValidateDatabaseSSLMode("postgres://localhost:5432/test", "production")
+	require.Error(t, err)
+
+	want := "config DATABASE_URL: sslmode must be set to require, verify-ca, or verify-full in non-development environments (an unset sslmode defaults to 'prefer' and can use an unencrypted connection)"
+	assert.Equal(t, want, err.Error())
+}
+
 func TestSSLMode_Disable_AllowedInDev(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://localhost:5432/test?sslmode=disable")
 	t.Setenv("INTERNAL_SECRET", "test-secret-value-long-enough")

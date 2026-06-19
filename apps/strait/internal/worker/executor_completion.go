@@ -69,28 +69,17 @@ func (e *Executor) enqueueRunSubscriptionWebhooks(ctx context.Context, q *store.
 	if err != nil {
 		return fmt.Errorf("list run webhook subscriptions: %w", err)
 	}
-	payload, err := runSubscriptionWebhookPayload(completion.webhookRun, eventType)
+	deliveries, err := buildRunSubscriptionWebhookDeliveries(
+		completion.webhookRun,
+		eventType,
+		subs,
+		e.webhookMaxRetry,
+		time.Now(),
+	)
 	if err != nil {
 		return err
 	}
-	now := time.Now().Add(-1 * time.Second)
-	for _, sub := range subs {
-		if !sub.Active || !matchesRunSubscriptionEvent(sub.EventTypes, eventType) {
-			continue
-		}
-		delivery := &domain.WebhookDelivery{
-			SubscriptionID: sub.ID,
-			RunID:          completion.webhookRun.ID,
-			JobID:          completion.webhookRun.JobID,
-			ProjectID:      sub.ProjectID,
-			WebhookURL:     sub.WebhookURL,
-			RetryPolicy:    domain.WebhookRetryPolicyExponential,
-			Status:         domain.WebhookStatusPending,
-			Attempts:       0,
-			MaxAttempts:    e.webhookMaxRetry,
-			NextRetryAt:    &now,
-			Payload:        payload,
-		}
+	for _, delivery := range deliveries {
 		if err := q.CreateWebhookDelivery(ctx, delivery); err != nil {
 			return fmt.Errorf("create run subscription webhook delivery: %w", err)
 		}
@@ -98,11 +87,55 @@ func (e *Executor) enqueueRunSubscriptionWebhooks(ctx context.Context, q *store.
 	return nil
 }
 
+func buildRunSubscriptionWebhookDeliveries(
+	run *domain.JobRun,
+	eventType string,
+	subs []domain.WebhookSubscription,
+	maxRetry int,
+	now time.Time,
+) ([]*domain.WebhookDelivery, error) {
+	payload, err := runSubscriptionWebhookPayload(run, eventType)
+	if err != nil {
+		return nil, err
+	}
+	nextRetryAt := runSubscriptionWebhookNextRetryAt(now)
+	deliveries := make([]*domain.WebhookDelivery, 0, len(subs))
+	for _, sub := range subs {
+		if !sub.Active || !matchesRunSubscriptionEvent(sub.EventTypes, eventType) {
+			continue
+		}
+		retryAt := nextRetryAt
+		delivery := &domain.WebhookDelivery{
+			SubscriptionID: sub.ID,
+			RunID:          run.ID,
+			JobID:          run.JobID,
+			ProjectID:      sub.ProjectID,
+			WebhookURL:     sub.WebhookURL,
+			RetryPolicy:    domain.WebhookRetryPolicyExponential,
+			Status:         domain.WebhookStatusPending,
+			Attempts:       0,
+			MaxAttempts:    maxRetry,
+			NextRetryAt:    &retryAt,
+			Payload:        payload,
+		}
+		deliveries = append(deliveries, delivery)
+	}
+	return deliveries, nil
+}
+
+func runSubscriptionWebhookNextRetryAt(now time.Time) time.Time {
+	return now.Add(-time.Second)
+}
+
 func (e *Executor) listRunWebhookSubscriptions(ctx context.Context, q *store.Queries, projectID string) ([]domain.WebhookSubscription, error) {
-	cacheKey := "webhook_subscriptions:" + projectID
+	cacheKey := runWebhookSubscriptionsCacheKey(projectID)
 	return e.webhookSubscriptionsCache.Load(ctx, cacheKey, func(loadCtx context.Context) ([]domain.WebhookSubscription, error) {
 		return q.ListWebhookSubscriptions(loadCtx, projectID)
 	})
+}
+
+func runWebhookSubscriptionsCacheKey(projectID string) string {
+	return "webhook_subscriptions:" + projectID
 }
 
 func cloneWebhookSubscriptions(subs []domain.WebhookSubscription) []domain.WebhookSubscription {

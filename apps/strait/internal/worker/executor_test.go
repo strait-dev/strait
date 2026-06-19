@@ -46,6 +46,7 @@ type mockExecutorStore struct {
 	getProjectQuotaFn        func(ctx context.Context, projectID string) (*orcstore.ProjectQuota, error)
 	insertEventFn            func(ctx context.Context, event *domain.RunEvent) error
 	getEndpointHealthScoreFn func(ctx context.Context, endpointURL string) (*domain.EndpointHealthScore, error)
+	recordHealthResultErr    error
 
 	mu                 sync.Mutex
 	statusCalls        []statusUpdateCall
@@ -284,6 +285,9 @@ func (m *mockExecutorStore) AtomicRecordHealthResult(
 	m.healthResultKeys = append(m.healthResultKeys, endpointURL)
 	m.mu.Unlock()
 
+	if m.recordHealthResultErr != nil {
+		return nil, m.recordHealthResultErr
+	}
 	return &domain.EndpointHealthScore{
 		EndpointURL:  endpointURL,
 		HealthScore:  100.0,

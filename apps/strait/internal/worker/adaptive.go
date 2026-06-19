@@ -66,14 +66,11 @@ func (a *AdaptiveConcurrency) ObserveWithPressure(queueDepth int, utilization fl
 
 	// Scale up: tiered by queue depth severity.
 	if queueDepth > current*2 && utilization > 0.70 {
-		var factor float64
-		switch {
-		case queueDepth > 1000:
+		factor := 0.25 // 25% increase on mild backlog
+		if queueDepth > 1000 {
 			factor = 1.0 // Double on deep queue
-		case queueDepth > 100:
+		} else if queueDepth > 100 {
 			factor = 0.50 // 50% increase on moderate queue
-		default:
-			factor = 0.25 // 25% increase on mild backlog
 		}
 		inc := max(int(math.Ceil(float64(current)*factor)), 1)
 		a.current = min(current+inc, a.max)

@@ -10,9 +10,13 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+	"strait/internal/telemetry"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/metric/noop"
 )
 
 type mockWorkflowTrigger struct {
@@ -24,6 +28,51 @@ func (m *mockWorkflowTrigger) TriggerWorkflow(ctx context.Context, workflowID, p
 		return m.triggerWorkflowFn(ctx, workflowID, projectID, payload, triggeredBy, stepOverrides)
 	}
 	return nil, nil
+}
+
+type transactionalCronStore struct {
+	*mockCronStore
+	tx *cronFakeTx
+}
+
+func (s *transactionalCronStore) WithTx(ctx context.Context, fn func(context.Context, store.DBTX) error) error {
+	if s.tx == nil {
+		s.tx = &cronFakeTx{}
+	}
+	return fn(ctx, s.tx)
+}
+
+type cronFakeTx struct {
+	lockIDs []int64
+}
+
+func (tx *cronFakeTx) Exec(_ context.Context, _ string, arguments ...any) (pgconn.CommandTag, error) {
+	if len(arguments) > 0 {
+		if lockID, ok := arguments[0].(int64); ok {
+			tx.lockIDs = append(tx.lockIDs, lockID)
+		}
+	}
+	return pgconn.NewCommandTag("SELECT 1"), nil
+}
+
+func (tx *cronFakeTx) Query(context.Context, string, ...any) (pgx.Rows, error) {
+	return nil, errors.New("unexpected cron tx query")
+}
+
+func (tx *cronFakeTx) QueryRow(context.Context, string, ...any) pgx.Row {
+	return nil
+}
+
+type cronLockErrorStore struct {
+	*mockCronStore
+}
+
+func (s *cronLockErrorStore) TryAdvisoryLock(context.Context, int64) (bool, error) {
+	return false, errors.New("lock unavailable")
+}
+
+func (s *cronLockErrorStore) ReleaseAdvisoryLock(context.Context, int64) error {
+	return nil
 }
 
 func TestNewCronScheduler(t *testing.T) {
@@ -53,6 +102,29 @@ func TestCronFireKey_TruncatesToMinute(t *testing.T) {
 		a)
 	require.NotEqual(t,
 		c, a)
+}
+
+func TestCronFireKey_UsesHeapBufferForLongKeys(t *testing.T) {
+	t.Parallel()
+
+	id := strings.Repeat("x", 120)
+	key := cronFireKey("workflow", id, time.Date(2026, 5, 16, 7, 35, 1, 0, time.UTC))
+
+	require.Equal(t, "cron:workflow:"+id+":1778916900", key)
+}
+
+func TestCronScheduler_WithCronFireLock_AdvisoryLockErrorSkipsFire(t *testing.T) {
+	t.Parallel()
+
+	called := false
+	store := &cronLockErrorStore{mockCronStore: &mockCronStore{}}
+	cs := NewCronScheduler(context.Background(), store, &mockQueue{}, nil)
+
+	cs.withCronFireLock(context.Background(), "proj-1", "job", "job-1", func(context.Context, string) {
+		called = true
+	})
+
+	require.False(t, called)
 }
 
 func TestCronScheduler_LoadJobs_Success(t *testing.T) {
@@ -590,6 +662,91 @@ func TestCronScheduler_TriggerJob_ProjectQueuedQuotaSkipsEnqueue(t *testing.T) {
 	cs := NewCronScheduler(context.Background(), s, q, nil)
 	cs.triggerJob(context.Background(), domain.Job{ID: "job-quota", ProjectID: "proj-quota"})
 	require.False(t, enqueued)
+}
+
+func TestCronScheduler_CheckProjectExecutingQuota(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		activeRuns int
+		countErr   error
+		wantErr    error
+	}{
+		{
+			name:     "active count error",
+			countErr: errors.New("count failed"),
+			wantErr:  errors.New("evaluate cron project active quota"),
+		},
+		{
+			name:       "active quota exceeded",
+			activeRuns: 2,
+			wantErr:    errCronProjectExecutingQuotaExceeded,
+		},
+		{
+			name:       "active quota available",
+			activeRuns: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			s := &mockCronStore{
+				countProjectActiveRunsFn: func(context.Context, string) (int, error) {
+					return tt.activeRuns, tt.countErr
+				},
+			}
+
+			err := checkCronProjectExecutingQuota(context.Background(), s, "proj-active", 2)
+			if tt.wantErr != nil {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tt.wantErr.Error())
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestCronScheduler_TriggerJob_AdmissionGuardUsesTransactionLock(t *testing.T) {
+	t.Parallel()
+
+	s := &transactionalCronStore{mockCronStore: &mockCronStore{}}
+	enqueued := false
+	q := &mockQueue{
+		enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
+			enqueued = true
+			return nil
+		},
+	}
+
+	cs := NewCronScheduler(context.Background(), s, q, nil)
+	cs.triggerJob(context.Background(), domain.Job{ID: "job-tx", ProjectID: "proj-tx"})
+
+	require.True(t, enqueued)
+	require.Equal(t, []int64{cronAdmissionLockID("proj-tx")}, s.tx.lockIDs)
+}
+
+func TestCronScheduler_CronFireDedupeTTLCoversDailyScheduleSkew(t *testing.T) {
+	t.Parallel()
+
+	require.Equal(t, 25*time.Hour, cronFireDedupeTTL())
+}
+
+func TestCronScheduler_RecordCronDrift_WithMetrics(t *testing.T) {
+	t.Parallel()
+
+	meter := noop.NewMeterProvider().Meter("cron-test")
+	cronDrift, err := meter.Float64Histogram("cron.drift")
+	require.NoError(t, err)
+
+	cs := NewCronScheduler(context.Background(), &mockCronStore{}, &mockQueue{}, nil).
+		WithMetrics(&telemetry.Metrics{CronDrift: cronDrift})
+
+	cs.recordCronDrift(context.Background(), "invalid")
+	cs.recordCronDrift(context.Background(), "* * * * *")
 }
 
 func TestCronScheduler_TriggerJob_JobRateLimitSkipsEnqueue(t *testing.T) {

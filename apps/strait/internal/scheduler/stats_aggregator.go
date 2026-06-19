@@ -45,16 +45,20 @@ func (a *StatsAggregator) WithAdvisoryLocker(locker AdvisoryLocker) *StatsAggreg
 // Run starts the aggregation loop, running every hour.
 func (a *StatsAggregator) Run(ctx context.Context) {
 	loop := NewMaintenanceLoop("stats_aggregator", time.Hour, a.logger, func(loopCtx context.Context) {
-		acquired, err := runWithOptionalAdvisoryLock(loopCtx, a.advisoryLocker, statsAggregatorLockID, a.runLocked)
-		if err != nil {
-			a.logger.Error("stats aggregator advisory lock cycle failed", "error", err)
-			return
-		}
-		if !acquired {
-			a.logger.Debug("stats aggregator lock held by another instance, skipping")
-		}
+		a.runCycle(loopCtx)
 	})
 	loop.Run(ctx)
+}
+
+func (a *StatsAggregator) runCycle(ctx context.Context) {
+	acquired, err := runWithOptionalAdvisoryLock(ctx, a.advisoryLocker, statsAggregatorLockID, a.runLocked)
+	if err != nil {
+		a.logger.Error("stats aggregator advisory lock cycle failed", "error", err)
+		return
+	}
+	if !acquired {
+		a.logger.Debug("stats aggregator lock held by another instance, skipping")
+	}
 }
 
 func (a *StatsAggregator) runLocked(ctx context.Context) error {

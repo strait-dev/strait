@@ -82,6 +82,7 @@ type mockBillingStore struct {
 	lastAddonCreated           *Addon
 	deactivatedAddonIDs        []string
 	httpJobCount               int
+	countHTTPJobsErr           error
 	pausedOrgID                string
 	pausedReason               string
 	pausedJobIDs               []string
@@ -599,5 +600,8 @@ func (m *mockBillingStore) UnpauseJobsByPauseReason(_ context.Context, orgID str
 }
 
 func (m *mockBillingStore) CountHTTPJobsByOrg(_ context.Context, _ string) (int, error) {
+	if m.countHTTPJobsErr != nil {
+		return 0, m.countHTTPJobsErr
+	}
 	return m.httpJobCount, nil
 }

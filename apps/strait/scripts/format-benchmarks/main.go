@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"math"
 	"os"
 	"regexp"
@@ -27,30 +28,38 @@ type result struct {
 	samples []sample
 }
 
+type createFileFunc func(string) (*os.File, error)
+
 func main() {
-	if err := run(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
+	os.Exit(exitCode(os.Args[1:], os.Stdout, os.Stderr, os.Create))
 }
 
-func run() error {
-	if len(os.Args) < 2 {
+func exitCode(args []string, stdout io.Writer, stderr io.Writer, createFile createFileFunc) int {
+	if err := run(args, stdout, createFile); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	return 0
+}
+
+func run(args []string, stdout io.Writer, createFile createFileFunc) error {
+	if len(args) < 1 {
 		return fmt.Errorf("usage: format-benchmarks <input-file> [output-file]")
 	}
 
-	pkgResults, err := parse(os.Args[1])
+	pkgResults, err := parse(args[0])
 	if err != nil {
 		return err
 	}
 
-	out := os.Stdout
-	if len(os.Args) >= 3 {
-		out, err = os.Create(os.Args[2])
+	out := stdout
+	if len(args) >= 2 {
+		file, err := createFile(args[1])
 		if err != nil {
-			return fmt.Errorf("create %s: %w", os.Args[2], err)
+			return fmt.Errorf("create %s: %w", args[1], err)
 		}
-		defer out.Close()
+		defer file.Close()
+		out = file
 	}
 
 	writeMarkdown(out, pkgResults)
@@ -117,7 +126,7 @@ func parse(path string) (map[string][]*result, error) {
 	return pkgResults, nil
 }
 
-func writeMarkdown(out *os.File, pkgResults map[string][]*result) {
+func writeMarkdown(out io.Writer, pkgResults map[string][]*result) {
 	pkgs := sortedKeys(pkgResults)
 
 	totalBenchmarks := 0

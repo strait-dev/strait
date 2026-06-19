@@ -173,7 +173,7 @@ func (e *WorkflowEngine) RetryWorkflowRun(
 
 	var roots []retryReadyStep
 	now := time.Now()
-	if err := e.runInTx(ctx, func(txStore EngineStore) error {
+	err = e.runInTx(ctx, func(txStore EngineStore) error {
 		if err := txStore.CreateWorkflowRun(ctx, wfRun); err != nil {
 			return fmt.Errorf("create retry workflow run: %w", err)
 		}
@@ -195,7 +195,8 @@ func (e *WorkflowEngine) RetryWorkflowRun(
 		}
 
 		return nil
-	}); err != nil {
+	})
+	if err != nil {
 		return nil, err
 	}
 	wfRun.Status = domain.WfStatusRunning

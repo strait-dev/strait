@@ -10,12 +10,7 @@ import (
 	"strait/internal/domain"
 )
 
-const (
-	defaultInternalEnqueueRetryBudget = 1500 * time.Millisecond
-	defaultInternalEnqueueRetryBase   = 50 * time.Millisecond
-	defaultInternalEnqueueRetryMax    = 250 * time.Millisecond
-	defaultInternalEnqueueRetryJitter = 0.25
-)
+const defaultInternalEnqueueRetryJitter = 0.25
 
 // SingleEnqueuer is the minimal enqueue surface used by internal retry helpers.
 type SingleEnqueuer interface {
@@ -36,9 +31,9 @@ type EnqueueRetryConfig struct {
 // scheduler, workflow, and worker-generated enqueues.
 func DefaultInternalEnqueueRetryConfig() EnqueueRetryConfig {
 	return EnqueueRetryConfig{
-		MaxElapsed: defaultInternalEnqueueRetryBudget,
-		BaseDelay:  defaultInternalEnqueueRetryBase,
-		MaxDelay:   defaultInternalEnqueueRetryMax,
+		MaxElapsed: defaultInternalEnqueueRetryBudget(),
+		BaseDelay:  defaultInternalEnqueueRetryBase(),
+		MaxDelay:   defaultInternalEnqueueRetryMax(),
 		JitterFrac: defaultInternalEnqueueRetryJitter,
 	}
 }
@@ -50,13 +45,13 @@ func EnqueueWithRetry(ctx context.Context, q SingleEnqueuer, run *domain.JobRun,
 		return nil
 	}
 	if cfg.MaxElapsed <= 0 {
-		cfg.MaxElapsed = defaultInternalEnqueueRetryBudget
+		cfg.MaxElapsed = defaultInternalEnqueueRetryBudget()
 	}
 	if cfg.BaseDelay <= 0 {
-		cfg.BaseDelay = defaultInternalEnqueueRetryBase
+		cfg.BaseDelay = defaultInternalEnqueueRetryBase()
 	}
 	if cfg.MaxDelay <= 0 {
-		cfg.MaxDelay = defaultInternalEnqueueRetryMax
+		cfg.MaxDelay = defaultInternalEnqueueRetryMax()
 	}
 	if cfg.JitterFrac < 0 {
 		cfg.JitterFrac = 0
@@ -85,6 +80,18 @@ func EnqueueWithRetry(ctx context.Context, q SingleEnqueuer, run *domain.JobRun,
 		}
 		attempt++
 	}
+}
+
+func defaultInternalEnqueueRetryBudget() time.Duration {
+	return 1500 * time.Millisecond
+}
+
+func defaultInternalEnqueueRetryBase() time.Duration {
+	return 50 * time.Millisecond
+}
+
+func defaultInternalEnqueueRetryMax() time.Duration {
+	return 250 * time.Millisecond
 }
 
 func backpressureRetryDelay(err error, attempt int, cfg EnqueueRetryConfig) time.Duration {

@@ -47,6 +47,8 @@ type SentryConfig struct {
 	StrictTraceContinuation bool
 }
 
+const sentryFlushTimeout time.Duration = 2_000_000_000
+
 // InitSentry initializes the process-wide Sentry SDK and returns a shutdown
 // function. An empty DSN leaves Sentry disabled and returns a no-op shutdown.
 func InitSentry(cfg SentryConfig) (func(), error) {
@@ -57,7 +59,7 @@ func InitSentry(cfg SentryConfig) (func(), error) {
 	if err := sentry.Init(SentryClientOptions(cfg, tracesSampleRate)); err != nil {
 		return nil, fmt.Errorf("init sentry: %w", err)
 	}
-	return func() { sentry.Flush(2 * time.Second) }, nil
+	return func() { sentry.Flush(sentryFlushTimeout) }, nil
 }
 
 // EnsureSentryHub returns ctx with an isolated Sentry hub attached.

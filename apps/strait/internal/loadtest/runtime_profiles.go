@@ -142,14 +142,15 @@ func safeProfileFilename(name, kind string) string {
 	var b strings.Builder
 	b.Grow(len(name) + len(kind) + 6)
 	for _, r := range name {
-		switch {
-		case r >= 'a' && r <= 'z':
+		if r >= 'a' && r <= 'z' {
 			b.WriteRune(r)
-		case r >= '0' && r <= '9':
-			b.WriteRune(r)
-		default:
-			b.WriteByte('-')
+			continue
 		}
+		if r >= '0' && r <= '9' {
+			b.WriteRune(r)
+			continue
+		}
+		b.WriteByte('-')
 	}
 	b.WriteByte('.')
 	b.WriteString(kind)

@@ -285,6 +285,10 @@ func (d *Dunner) Run(ctx context.Context) {
 	const tickInterval = 1 * time.Hour
 	t := time.NewTicker(tickInterval)
 	defer t.Stop()
+	d.run(ctx, t.C)
+}
+
+func (d *Dunner) run(ctx context.Context, ticks <-chan time.Time) {
 	if err := d.Tick(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		d.logger.Error("initial dunning tick failed", "err", err)
 	}
@@ -292,7 +296,7 @@ func (d *Dunner) Run(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case <-t.C:
+		case <-ticks:
 			if err := d.Tick(ctx); err != nil && !errors.Is(err, context.Canceled) {
 				d.logger.Error("dunning tick failed", "err", err)
 			}

@@ -22,6 +22,53 @@ type reconFakeDB struct {
 	panicRun   bool
 }
 
+type reconTxBeginner struct {
+	reconFakeDB
+
+	beginErr error
+	tx       *reconFakeTx
+}
+
+func (b *reconTxBeginner) Begin(context.Context) (pgx.Tx, error) {
+	if b.beginErr != nil {
+		return nil, b.beginErr
+	}
+	if b.tx == nil {
+		b.tx = &reconFakeTx{}
+	}
+	return b.tx, nil
+}
+
+type reconFakeTx struct {
+	reconFakeDB
+
+	commitErr  error
+	committed  bool
+	rolledBack bool
+}
+
+func (tx *reconFakeTx) Begin(context.Context) (pgx.Tx, error) { return tx, nil }
+func (tx *reconFakeTx) Commit(context.Context) error {
+	if tx.commitErr != nil {
+		return tx.commitErr
+	}
+	tx.committed = true
+	return nil
+}
+func (tx *reconFakeTx) Rollback(context.Context) error {
+	tx.rolledBack = true
+	return nil
+}
+func (tx *reconFakeTx) CopyFrom(context.Context, pgx.Identifier, []string, pgx.CopyFromSource) (int64, error) {
+	return 0, errors.New("not used")
+}
+func (tx *reconFakeTx) SendBatch(context.Context, *pgx.Batch) pgx.BatchResults { return nil }
+func (tx *reconFakeTx) LargeObjects() pgx.LargeObjects                         { return pgx.LargeObjects{} }
+func (tx *reconFakeTx) Prepare(context.Context, string, string) (*pgconn.StatementDescription, error) {
+	return nil, errors.New("not used")
+}
+func (tx *reconFakeTx) Conn() *pgx.Conn { return nil }
+
 func (f *reconFakeDB) Exec(_ context.Context, _ string, _ ...any) (pgconn.CommandTag, error) {
 	return pgconn.CommandTag{}, nil
 }
@@ -133,6 +180,48 @@ func TestCounterReconciler_QueryErrorLogsButContinues(t *testing.T) {
 	)
 	assert.EqualValues(t, 1,
 		r.Iterations())
+}
+
+func TestCounterReconciler_TxBeginFailure(t *testing.T) {
+	t.Parallel()
+
+	db := &reconTxBeginner{beginErr: errors.New("begin failed")}
+	r := NewCounterReconciler(db, CounterReconcilerConfig{})
+
+	err := r.reconcileLocked(context.Background())
+	require.ErrorContains(t, err, "counter reconciler begin tx")
+	assert.EqualValues(t, 0, r.TotalDrift())
+}
+
+func TestCounterReconciler_TxCommitFailureRollsBack(t *testing.T) {
+	t.Parallel()
+
+	tx := &reconFakeTx{
+		reconFakeDB: reconFakeDB{delta: 2},
+		commitErr:   errors.New("commit failed"),
+	}
+	db := &reconTxBeginner{tx: tx}
+	r := NewCounterReconciler(db, CounterReconcilerConfig{})
+
+	err := r.reconcileLocked(context.Background())
+	require.ErrorContains(t, err, "counter reconciler commit")
+	assert.True(t, tx.rolledBack)
+	assert.False(t, tx.committed)
+	assert.EqualValues(t, 0, r.TotalDrift())
+}
+
+func TestCounterReconciler_TxCommitAddsDriftOnce(t *testing.T) {
+	t.Parallel()
+
+	tx := &reconFakeTx{reconFakeDB: reconFakeDB{delta: 3}}
+	db := &reconTxBeginner{tx: tx}
+	r := NewCounterReconciler(db, CounterReconcilerConfig{})
+
+	require.NoError(t, r.reconcileLocked(context.Background()))
+	assert.True(t, tx.committed)
+	assert.False(t, tx.rolledBack)
+	assert.EqualValues(t, 6, r.TotalDrift())
+	assert.Equal(t, 2, tx.queryCalls)
 }
 
 func TestCounterReconciler_PanicReturnsError(t *testing.T) {

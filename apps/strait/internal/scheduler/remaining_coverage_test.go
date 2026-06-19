@@ -1,8 +1,10 @@
 package scheduler
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"testing"
 	"time"
 
@@ -49,6 +51,53 @@ func TestWebhookMessageCleanup_DefaultInterval(t *testing.T) {
 		time.Hour,
 		c.interval,
 	)
+}
+
+func TestWebhookMessageCleanup_CleanupDeletesOlderThanThirtyDays(t *testing.T) {
+	t.Parallel()
+
+	var logs bytes.Buffer
+	store := &rcMockWebhookCleanupStore{deleteCount: 3}
+	c := NewWebhookMessageCleanup(
+		store,
+		slog.New(slog.NewTextHandler(&logs, nil)),
+	)
+	now := time.Date(2026, 6, 18, 12, 0, 0, 0, time.UTC)
+
+	c.cleanup(context.Background(), now)
+
+	require.Equal(t, now.Add(-30*24*time.Hour), store.cutoff)
+	require.Contains(t, logs.String(), "cleaned up old webhook messages")
+	require.Contains(t, logs.String(), "deleted=3")
+}
+
+func TestWebhookMessageCleanup_CleanupSkipsZeroDeleteLog(t *testing.T) {
+	t.Parallel()
+
+	var logs bytes.Buffer
+	c := NewWebhookMessageCleanup(
+		&rcMockWebhookCleanupStore{},
+		slog.New(slog.NewTextHandler(&logs, nil)),
+	)
+
+	c.cleanup(context.Background(), time.Now())
+
+	require.Empty(t, logs.String())
+}
+
+func TestWebhookMessageCleanup_CleanupLogsDeleteError(t *testing.T) {
+	t.Parallel()
+
+	var logs bytes.Buffer
+	c := NewWebhookMessageCleanup(
+		&rcMockWebhookCleanupStore{deleteErr: errors.New("delete failed")},
+		slog.New(slog.NewTextHandler(&logs, nil)),
+	)
+
+	c.cleanup(context.Background(), time.Now())
+
+	require.Contains(t, logs.String(), "failed to clean up old webhook messages")
+	require.Contains(t, logs.String(), "delete failed")
 }
 
 func TestMemoryCleanup_Run_StopsOnCancel_RC(t *testing.T) {
@@ -175,10 +224,15 @@ func TestBatchFlusher_Run_StopsOnCancel(t *testing.T) {
 // Local mock types (prefixed with rc to avoid conflicts).
 // Section separator.
 
-type rcMockWebhookCleanupStore struct{}
+type rcMockWebhookCleanupStore struct {
+	deleteCount int64
+	deleteErr   error
+	cutoff      time.Time
+}
 
-func (m *rcMockWebhookCleanupStore) DeleteOldWebhookMessages(_ context.Context, _ time.Time) (int64, error) {
-	return 0, nil
+func (m *rcMockWebhookCleanupStore) DeleteOldWebhookMessages(_ context.Context, cutoff time.Time) (int64, error) {
+	m.cutoff = cutoff
+	return m.deleteCount, m.deleteErr
 }
 
 type rcMockMemoryCleanupStore struct {

@@ -34,13 +34,31 @@ func newTestUptimeSource(t *testing.T, api promAPI) *PrometheusUptimeSource {
 	return &PrometheusUptimeSource{
 		api:          api,
 		query:        "avg_over_time(up{job=\"strait\"}[30d]) * 100",
-		queryTimeout: defaultPrometheusUptimeQueryTimeout,
+		queryTimeout: defaultPrometheusUptimeQueryTimeout(),
 		logger:       slog.New(slog.DiscardHandler),
 	}
 }
 
 func scalar(v float64) *model.Scalar {
 	return &model.Scalar{Value: model.SampleValue(v), Timestamp: model.Time(0)}
+}
+
+func TestNewPrometheusUptimeSource_Defaults(t *testing.T) {
+	t.Parallel()
+
+	src, err := NewPrometheusUptimeSource("http://prom:9090", "avg_over_time(up[30d])*100", nil)
+	require.NoError(t,
+		err)
+	require.NotNil(t,
+		src)
+	require.NotNil(t,
+		src.api)
+	require.NotNil(t,
+		src.logger)
+	require.Equal(t, "avg_over_time(up[30d])*100",
+		src.query)
+	require.Equal(t, defaultPrometheusUptimeQueryTimeout(),
+		src.queryTimeout)
 }
 
 // TestPrometheusUptimeSource_ScalarValue verifies the happy path: a
@@ -152,6 +170,36 @@ func TestPrometheusUptimeSource_QueryReceivesBoundedDeadline(t *testing.T) {
 		},
 	})
 	src.queryTimeout = timeout
+
+	got, err := src.MonthlyUptimePct(context.Background(), "org-1", time.Time{}, time.Now())
+	require.NoError(t,
+		err)
+	require.InDelta(t, 99.9, got, 1e-9)
+	require.True(t, sawDeadline.
+		Load())
+}
+
+func TestPrometheusUptimeSource_ZeroTimeoutUsesDefaultDeadline(t *testing.T) {
+	t.Parallel()
+
+	var sawDeadline atomic.Bool
+	src := newTestUptimeSource(t, stubPromAPI{
+		queryFn: func(ctx context.Context, _ string, _ time.Time, _ ...promv1.Option) (model.Value, promv1.Warnings, error) {
+			deadline, ok := ctx.Deadline()
+			require.True(t, ok)
+
+			remaining := time.Until(deadline)
+			require.Positive(t,
+				remaining)
+			require.LessOrEqual(t,
+				remaining,
+				defaultPrometheusUptimeQueryTimeout())
+
+			sawDeadline.Store(true)
+			return scalar(99.9), nil, nil
+		},
+	})
+	src.queryTimeout = 0
 
 	got, err := src.MonthlyUptimePct(context.Background(), "org-1", time.Time{}, time.Now())
 	require.NoError(t,

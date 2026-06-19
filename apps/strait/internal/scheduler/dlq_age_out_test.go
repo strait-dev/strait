@@ -8,16 +8,24 @@ import (
 	"testing"
 	"time"
 
+	"strait/internal/queue"
+
 	"github.com/sourcegraph/conc"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 )
 
 type fakeDLQAgeOutStore struct {
-	masked   int64
-	err      error
-	panicRun bool
-	calls    int
+	masked         int64
+	err            error
+	panicRun       bool
+	oldestAge      float64
+	oldestAgeErr   error
+	calls          int
+	oldestAgeCalls int
 }
 
 func (f *fakeDLQAgeOutStore) MaskOldDLQRows(_ context.Context, _ time.Duration, _ int) (int64, error) {
@@ -26,6 +34,11 @@ func (f *fakeDLQAgeOutStore) MaskOldDLQRows(_ context.Context, _ time.Duration, 
 		panic("dlq store panic")
 	}
 	return f.masked, f.err
+}
+
+func (f *fakeDLQAgeOutStore) OldestUnmaskedDLQAge(_ context.Context) (float64, error) {
+	f.oldestAgeCalls++
+	return f.oldestAge, f.oldestAgeErr
 }
 
 func TestDLQAgeOut_Defaults(t *testing.T) {
@@ -44,7 +57,7 @@ func TestDLQAgeOut_Defaults(t *testing.T) {
 }
 
 func TestDLQAgeOut_RunOnceMasksRows(t *testing.T) {
-	s := &fakeDLQAgeOutStore{masked: 7}
+	s := &fakeDLQAgeOutStore{masked: 7, oldestAge: 42}
 	a := NewDLQAgeOut(s, DLQAgeOutConfig{Retention: time.Hour, BatchLimit: 100})
 	require.NoError(t,
 		a.runOnce(
@@ -54,6 +67,8 @@ func TestDLQAgeOut_RunOnceMasksRows(t *testing.T) {
 		s.calls)
 	assert.EqualValues(t, 7,
 		a.TotalMasked())
+	assert.Equal(t, 1,
+		s.oldestAgeCalls)
 }
 
 func TestDLQAgeOut_AccumulatesAcrossCycles(t *testing.T) {
@@ -70,6 +85,34 @@ func TestDLQAgeOut_StoreErrorPropagates(t *testing.T) {
 	a := NewDLQAgeOut(s, DLQAgeOutConfig{})
 	assert.Error(t, a.runOnce(context.
 		Background()))
+}
+
+func TestDLQAgeOut_OldestAgeSampleErrorDoesNotFailRun(t *testing.T) {
+	s := &fakeDLQAgeOutStore{oldestAgeErr: errors.New("age sample failed")}
+	a := NewDLQAgeOut(s, DLQAgeOutConfig{})
+
+	require.NoError(t, a.runOnce(context.Background()))
+	assert.Equal(t, 1, s.oldestAgeCalls)
+}
+
+func TestDLQAgeOut_RecordsOldestUnmaskedAgeMetric(t *testing.T) {
+	reader := sdkmetric.NewManualReader()
+	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	originalProvider := otel.GetMeterProvider()
+	otel.SetMeterProvider(provider)
+	queue.ResetMetricsForTest()
+	t.Cleanup(func() {
+		queue.ResetMetricsForTest()
+		otel.SetMeterProvider(originalProvider)
+		require.NoError(t, provider.Shutdown(context.Background()))
+	})
+
+	s := &fakeDLQAgeOutStore{oldestAge: 123.5}
+	a := NewDLQAgeOut(s, DLQAgeOutConfig{})
+
+	require.NoError(t, a.runOnce(context.Background()))
+	assert.Equal(t, 1, s.oldestAgeCalls)
+	assert.InDelta(t, 123.5, dlqOldestAgeMetricValue(t, reader), 0)
 }
 
 func TestDLQAgeOut_PanicReturnsError(t *testing.T) {
@@ -211,4 +254,24 @@ func TestDLQAgeOut_RunExitsOnCancel(t *testing.T) {
 	case <-time.After(time.Second):
 		require.Fail(t, "did not exit")
 	}
+}
+
+func dlqOldestAgeMetricValue(t *testing.T, reader *sdkmetric.ManualReader) float64 {
+	t.Helper()
+
+	var rm metricdata.ResourceMetrics
+	require.NoError(t, reader.Collect(context.Background(), &rm))
+	for _, scope := range rm.ScopeMetrics {
+		for _, metric := range scope.Metrics {
+			if metric.Name != "strait_queue_dlq_oldest_unmasked_age_seconds" {
+				continue
+			}
+			gauge, ok := metric.Data.(metricdata.Gauge[float64])
+			require.True(t, ok)
+			require.NotEmpty(t, gauge.DataPoints)
+			return gauge.DataPoints[len(gauge.DataPoints)-1].Value
+		}
+	}
+	require.FailNow(t, "dlq oldest unmasked age metric not collected")
+	return 0
 }

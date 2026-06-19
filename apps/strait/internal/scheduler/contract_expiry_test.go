@@ -22,6 +22,11 @@ type mockContractExpiryStore struct {
 	claims      map[string]bool
 }
 
+type fallbackContractExpiryStore struct {
+	expired    []billing.EnterpriseContract
+	restricted []string
+}
+
 func (m *mockContractExpiryStore) ListExpiringContracts(_ context.Context, withinDays int) ([]billing.EnterpriseContract, error) {
 	if m.listErr != nil {
 		return nil, m.listErr
@@ -53,6 +58,25 @@ func (m *mockContractExpiryStore) RestrictExpiredContractIfCurrent(_ context.Con
 	}
 	m.restricted = append(m.restricted, orgID)
 	return true, nil
+}
+
+func (m *fallbackContractExpiryStore) ListExpiringContracts(context.Context, int) ([]billing.EnterpriseContract, error) {
+	return nil, nil
+}
+
+func (m *fallbackContractExpiryStore) ListExpiredContracts(context.Context) ([]billing.EnterpriseContract, error) {
+	return m.expired, nil
+}
+
+func (m *fallbackContractExpiryStore) ListOrgAdminEmails(context.Context, string) ([]string, error) {
+	return nil, nil
+}
+
+func (m *fallbackContractExpiryStore) UpdatePaymentStatus(_ context.Context, orgID string, status string, _ *time.Time) error {
+	if status == "restricted" {
+		m.restricted = append(m.restricted, orgID)
+	}
+	return nil
 }
 
 func (m *mockContractExpiryStore) ClaimContractReminderSend(_ context.Context, orgID string, contractEndDate time.Time, reminderWindowDays int) (bool, error) {
@@ -200,6 +224,21 @@ func TestContractExpiryChecker_RestrictsExpiredNonRenewingContract(t *testing.T)
 		1 || store.restricted[0] !=
 
 		"org-expired")
+}
+
+func TestContractExpiryChecker_FallbackRestrictionUpdatesPaymentStatus(t *testing.T) {
+	t.Parallel()
+
+	store := &fallbackContractExpiryStore{
+		expired: []billing.EnterpriseContract{
+			{OrgID: "org-expired", ContractEndDate: time.Now().Add(-time.Hour), AutoRenew: false},
+			{OrgID: "org-renewing", ContractEndDate: time.Now().Add(-time.Hour), AutoRenew: true},
+		},
+	}
+	checker := NewContractExpiryChecker(store, nil, time.Hour)
+	checker.check(context.Background())
+
+	require.Equal(t, []string{"org-expired"}, store.restricted)
 }
 
 func TestContractExpiryChecker_InvalidatesOrgCacheAfterRestriction(t *testing.T) {

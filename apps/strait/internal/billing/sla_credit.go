@@ -295,14 +295,13 @@ func previousCalendarMonth(ref time.Time) (time.Time, time.Time) {
 // clamping prevents a negative value from sliding into the bottom band
 // and silently triggering a 50% credit.
 func clampUptime(uptime float64) float64 {
-	switch {
-	case uptime < 0:
+	if uptime < 0 {
 		return 0
-	case uptime > 100:
-		return 100
-	default:
-		return uptime
 	}
+	if uptime > 100 {
+		return 100
+	}
+	return uptime
 }
 
 // monthlyCreditMicrousd computes the credit in micro-USD: the monthly

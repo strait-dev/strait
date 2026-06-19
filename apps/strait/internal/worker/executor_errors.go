@@ -36,14 +36,16 @@ func classifyError(err error) string {
 	// Endpoint HTTP status classification.
 	var endpointErr *domain.EndpointError
 	if errors.As(err, &endpointErr) {
-		switch {
-		case endpointErr.StatusCode == http.StatusTooManyRequests:
+		if endpointErr.StatusCode == http.StatusTooManyRequests {
 			return domain.ErrorClassRateLimited
-		case endpointErr.StatusCode == http.StatusUnauthorized || endpointErr.StatusCode == http.StatusForbidden:
+		}
+		if endpointErr.StatusCode == http.StatusUnauthorized || endpointErr.StatusCode == http.StatusForbidden {
 			return domain.ErrorClassAuth
-		case endpointErr.StatusCode >= http.StatusBadRequest && endpointErr.StatusCode < http.StatusInternalServerError:
+		}
+		if endpointErr.StatusCode >= http.StatusBadRequest && endpointErr.StatusCode < http.StatusInternalServerError {
 			return domain.ErrorClassClient
-		case endpointErr.StatusCode >= http.StatusInternalServerError:
+		}
+		if endpointErr.StatusCode >= http.StatusInternalServerError {
 			return domain.ErrorClassServer
 		}
 	}

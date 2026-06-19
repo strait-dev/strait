@@ -31,7 +31,7 @@ import (
 // ErrNoWorkerAvailable so the caller can leave the run queued for the next tick.
 type WorkerDispatcher struct {
 	registry        *ConnectionRegistry
-	queries         *store.Queries
+	queries         workerDispatchQueries
 	jwtSigningKey   string
 	resultChannels  *ResultChannelRegistry
 	secretDecryptor SecretDecryptor
@@ -39,6 +39,13 @@ type WorkerDispatcher struct {
 
 type SecretDecryptor interface {
 	Decrypt([]byte) ([]byte, error)
+}
+
+type workerDispatchQueries interface {
+	CreateWorkerTask(context.Context, *domain.WorkerTask) error
+	CreateAuditEvent(context.Context, *domain.AuditEvent) error
+	MarkWorkerTaskResultReceived(context.Context, string) (bool, error)
+	UpdateWorkerTaskStatus(context.Context, string, domain.WorkerTaskStatus) error
 }
 
 type WorkerTaskResult struct {

@@ -77,6 +77,30 @@ func TestEval_HugeHasArray(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestEval_SizeLimits(t *testing.T) {
+	t.Parallel()
+
+	t.Run("filter expression too large", func(t *testing.T) {
+		t.Parallel()
+
+		filter := json.RawMessage(`{"has":["` + strings.Repeat("x", maxFilterBytes) + `"]}`)
+		match, err := Eval(filter, json.RawMessage(`{"x":true}`))
+		assert.False(t, match)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "filter expression exceeds")
+	})
+
+	t.Run("payload too large", func(t *testing.T) {
+		t.Parallel()
+
+		payload := json.RawMessage(`{"data":"` + strings.Repeat("x", maxPayloadBytes) + `"}`)
+		match, err := Eval(json.RawMessage(`{"has":["data"]}`), payload)
+		assert.False(t, match)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "payload exceeds")
+	})
+}
+
 // TestEval_TypeConfusion tests numeric vs string comparison behavior.
 func TestEval_TypeConfusion(t *testing.T) {
 	t.Parallel()

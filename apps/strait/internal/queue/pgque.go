@@ -23,14 +23,20 @@ import (
 )
 
 const (
-	pgQueConsumerName               = "strait"
-	pgQueReceiveAll                 = 2147483647
-	pgQueMaxAttempts                = 3
-	pgQueMaxDequeueFillBatches      = 32
-	pgQueMaxCatchUpBatches          = 64
-	pgQueDefaultMaintenanceInterval = 30 * time.Second
-	pgQueDefaultRotationPeriod      = 5 * time.Minute
+	pgQueConsumerName          = "strait"
+	pgQueReceiveAll            = 2147483647
+	pgQueMaxAttempts           = 3
+	pgQueMaxDequeueFillBatches = 32
+	pgQueMaxCatchUpBatches     = 64
 )
+
+func pgQueDefaultMaintenanceInterval() time.Duration {
+	return 30 * time.Second
+}
+
+func pgQueDefaultRotationPeriod() time.Duration {
+	return 5 * time.Minute
+}
 
 type PgQueConfig struct {
 	TickInterval        time.Duration
@@ -47,10 +53,10 @@ func (c PgQueConfig) normalized() PgQueConfig {
 		c.TickInterval = 50 * time.Millisecond
 	}
 	if c.MaintenanceInterval <= 0 {
-		c.MaintenanceInterval = pgQueDefaultMaintenanceInterval
+		c.MaintenanceInterval = pgQueDefaultMaintenanceInterval()
 	}
 	if c.RotationPeriod <= 0 {
-		c.RotationPeriod = pgQueDefaultRotationPeriod
+		c.RotationPeriod = pgQueDefaultRotationPeriod()
 	}
 	if c.ConsumerName == "" {
 		c.ConsumerName = pgQueConsumerName

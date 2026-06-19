@@ -300,7 +300,7 @@ func (q *PgQueQueue) rotationQueuesDueForMaintenance(ctx context.Context) ([]str
 
 func pgQueIntervalSetting(d time.Duration) string {
 	if d <= 0 {
-		d = pgQueDefaultRotationPeriod
+		d = pgQueDefaultRotationPeriod()
 	}
 	return strconv.FormatInt(d.Microseconds(), 10) + " microseconds"
 }

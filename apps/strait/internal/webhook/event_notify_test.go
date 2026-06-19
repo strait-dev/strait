@@ -25,6 +25,7 @@ import (
 	"github.com/getsentry/sentry-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/trace"
 
 	"strait/internal/clickhouse"
 	"strait/internal/domain"
@@ -38,6 +39,26 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 	return f(req)
+}
+
+type recordingWebhookCostRecorder struct {
+	calls []recordedWebhookCost
+	err   error
+}
+
+type recordedWebhookCost struct {
+	orgID      string
+	projectID  string
+	deliveryID string
+}
+
+func (r *recordingWebhookCostRecorder) RecordWebhookDeliveryCost(_ context.Context, orgID, projectID, deliveryID string) error {
+	r.calls = append(r.calls, recordedWebhookCost{
+		orgID:      orgID,
+		projectID:  projectID,
+		deliveryID: deliveryID,
+	})
+	return r.err
 }
 
 func init() {
@@ -4079,6 +4100,65 @@ func TestWithMetrics_SetsMetricsField(t *testing.T) {
 		metrics)
 }
 
+func TestMarkSingleDelivered_RecordsWebhookCost(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockDeliveryStore{}
+	delivery := &domain.WebhookDelivery{
+		ID:         "whd-cost-single",
+		OrgID:      "org-1",
+		ProjectID:  "proj-1",
+		WebhookURL: "https://hooks.example.com/single",
+		Status:     domain.WebhookStatusPending,
+	}
+	require.NoError(t, ms.CreateWebhookDelivery(context.Background(), delivery))
+
+	recorder := &recordingWebhookCostRecorder{}
+	worker := NewDeliveryWorker(ms, slog.Default())
+	worker.costRecorder = recorder
+
+	statusCode := http.StatusOK
+	worker.markSingleDelivered(context.Background(), delivery, time.Now(), statusCode)
+
+	require.Equal(t, []recordedWebhookCost{{
+		orgID:      "org-1",
+		projectID:  "proj-1",
+		deliveryID: "whd-cost-single",
+	}}, recorder.calls)
+}
+
+func TestMarkDeliverySucceeded_RecordsWebhookCost(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockDeliveryStore{}
+	delivery := &domain.WebhookDelivery{
+		ID:         "whd-cost-attempt",
+		OrgID:      "org-1",
+		ProjectID:  "proj-1",
+		WebhookURL: "https://hooks.example.com/attempt",
+		Status:     domain.WebhookStatusPending,
+	}
+	require.NoError(t, ms.CreateWebhookDelivery(context.Background(), delivery))
+
+	recorder := &recordingWebhookCostRecorder{}
+	worker := NewDeliveryWorker(ms, slog.Default())
+	worker.costRecorder = recorder
+
+	worker.markDeliverySucceeded(
+		context.Background(),
+		delivery,
+		time.Now(),
+		domain.WebhookRetryPolicyExponential,
+		trace.SpanFromContext(context.Background()),
+	)
+
+	require.Equal(t, []recordedWebhookCost{{
+		orgID:      "org-1",
+		projectID:  "proj-1",
+		deliveryID: "whd-cost-attempt",
+	}}, recorder.calls)
+}
+
 func TestWithCircuitBreaker_SetsField(t *testing.T) {
 	t.Parallel()
 
@@ -4603,6 +4683,14 @@ func TestBreakerKey_EmptyOrgFallsBackToProject(t *testing.T) {
 		breakerKey(deliveryTenantScope(a), url),
 		breakerKey(batchTenantScope([]domain.WebhookDelivery{a}), url),
 	)
+
+	orgScoped := domain.WebhookDelivery{
+		OrgID:      "org-1",
+		ProjectID:  "project-1",
+		WebhookURL: url,
+	}
+	require.Equal(t, "org:org-1", deliveryTenantScope(orgScoped))
+	require.Equal(t, "org:org-1", batchTenantScope([]domain.WebhookDelivery{orgScoped}))
 }
 
 func TestAttemptDelivery_WithSubscriptionID_SecretRotation_GracePeriodActive(t *testing.T) {

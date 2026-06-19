@@ -413,13 +413,17 @@ func appendUniqueRouteKeys(routes []string, seen map[string]struct{}, candidates
 		}
 		routes = append(routes, key)
 		if len(routes) > pgQueSmallRouteSetLimit {
-			seen = make(map[string]struct{}, len(routes)+len(candidates))
+			seen = make(map[string]struct{}, routeSeenCapacity(routes, candidates))
 			for _, routeKey := range routes {
 				seen[routeKey] = struct{}{}
 			}
 		}
 	}
 	return routes, seen
+}
+
+func routeSeenCapacity(routes, candidates []string) int {
+	return len(routes) + len(candidates)
 }
 
 func (q *PgQueQueue) workerRouteKeysForSingleRef(ctx context.Context, ref domain.WorkerQueueRef) ([]string, error) {

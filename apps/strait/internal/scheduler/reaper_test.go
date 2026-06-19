@@ -1493,6 +1493,60 @@ func TestReapExpiredEventTriggers_NilCallbackFallback(t *testing.T) {
 	require.True(t, wfStatusUpdated)
 }
 
+func TestReapExpiredEventTriggers_NilCallbackFallbackPausedWorkflow(t *testing.T) {
+	t.Parallel()
+
+	var runningAttempted atomic.Bool
+	var pausedFailed atomic.Bool
+
+	ms := &mockReaperStore{
+		listExpiredEventTriggersFn: func(_ context.Context) ([]domain.EventTrigger, error) {
+			return []domain.EventTrigger{{
+				ID:                "evt-paused",
+				EventKey:          "approval:wr-paused:check",
+				SourceType:        domain.EventSourceWorkflowStep,
+				WorkflowRunID:     "wr-paused",
+				WorkflowStepRunID: "sr-paused",
+				Status:            domain.EventTriggerStatusWaiting,
+				TriggerType:       domain.TriggerTypeEvent,
+			}}, nil
+		},
+		updateEventTriggerStatusFn: func(_ context.Context, id string, status string, _ json.RawMessage, _ *time.Time, errMsg string) error {
+			require.Equal(t, "evt-paused", id)
+			require.Equal(t, domain.EventTriggerStatusTimedOut, status)
+			require.Contains(t, errMsg, "timed out")
+			return nil
+		},
+		updateStepRunStatusFn: func(_ context.Context, id string, status domain.StepRunStatus, fields map[string]any) error {
+			require.Equal(t, "sr-paused", id)
+			require.Equal(t, domain.StepFailed, status)
+			require.Equal(t, "event trigger timed out", fields["error"])
+			return nil
+		},
+		updateWorkflowRunStatusFn: func(_ context.Context, id string, from, to domain.WorkflowRunStatus, fields map[string]any) error {
+			require.Equal(t, "wr-paused", id)
+			require.Equal(t, domain.WfStatusFailed, to)
+			require.Equal(t, "event trigger timed out", fields["error"])
+			switch from {
+			case domain.WfStatusRunning:
+				runningAttempted.Store(true)
+				return errors.New("workflow is paused")
+			case domain.WfStatusPaused:
+				pausedFailed.Store(true)
+				return nil
+			default:
+				require.Failf(t, "unexpected workflow status", "from=%s", from)
+				return nil
+			}
+		},
+	}
+
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
+	r.reapExpiredEventTriggers(context.Background())
+	require.True(t, runningAttempted.Load())
+	require.True(t, pausedFailed.Load())
+}
+
 func TestReapInconsistentEventTriggers_WorkflowStepReconciled(t *testing.T) {
 	t.Parallel()
 
@@ -2490,6 +2544,51 @@ func TestReaper_ReapApprovalReminders_NoApprovals(t *testing.T) {
 	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 	r.reapApprovalReminders(context.Background())
 	require.False(t, deliveryCalled)
+}
+
+func TestReaper_ReapApprovalReminders_SkipsWhenChannelLookupFails(t *testing.T) {
+	t.Parallel()
+
+	expires := time.Now().Add(10 * time.Minute)
+	var deliveryCalled atomic.Bool
+	var singleLookups atomic.Int32
+	ms := &mockNotifierReaperStore{
+		listApprovalsPastReminderPointFn: func(_ context.Context) ([]domain.WorkflowStepApproval, error) {
+			return []domain.WorkflowStepApproval{{
+				ID:                "appr-channel-error",
+				WorkflowRunID:     "wr-channel-error",
+				WorkflowStepRunID: "sr-channel-error",
+				Status:            domain.ApprovalStatusPending,
+				ExpiresAt:         &expires,
+			}}, nil
+		},
+		getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+			require.Equal(t, "wr-channel-error", id)
+			return &domain.WorkflowRun{
+				ID:         id,
+				ProjectID:  "proj-channel-error",
+				WorkflowID: "wf-channel-error",
+			}, nil
+		},
+		listEnabledNotificationChannelsByProjectIDsFn: func(_ context.Context, projectIDs []string) (map[string][]domain.NotificationChannel, error) {
+			require.Equal(t, []string{"proj-channel-error"}, projectIDs)
+			return map[string][]domain.NotificationChannel{}, nil
+		},
+		listEnabledNotificationChannelsFn: func(_ context.Context, projectID string) ([]domain.NotificationChannel, error) {
+			require.Equal(t, "proj-channel-error", projectID)
+			singleLookups.Add(1)
+			return nil, errors.New("channel lookup failed")
+		},
+		createNotificationDeliveryFn: func(_ context.Context, _ *domain.NotificationDelivery) error {
+			deliveryCalled.Store(true)
+			return nil
+		},
+	}
+
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
+	r.reapApprovalReminders(context.Background())
+	require.EqualValues(t, 1, singleLookups.Load())
+	require.False(t, deliveryCalled.Load())
 }
 
 func BenchmarkReaper_ReapApprovalReminders_ManyProjects(b *testing.B) {

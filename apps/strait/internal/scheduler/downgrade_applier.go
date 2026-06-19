@@ -177,6 +177,18 @@ func enforcePlanResourceLimits(
 	pendingTier string,
 ) error {
 	newLimits := billing.GetPlanLimits(domain.PlanTier(pendingTier))
+	return enforceResolvedPlanResourceLimits(ctx, limitStore, enforcer, billingDispatcher, orgID, pendingTier, newLimits)
+}
+
+func enforceResolvedPlanResourceLimits(
+	ctx context.Context,
+	limitStore planResourceLimitStore,
+	enforcer *billing.Enforcer,
+	billingDispatcher billing.BillingEventDispatcher,
+	orgID string,
+	pendingTier string,
+	newLimits billing.OrgPlanLimits,
+) error {
 	var errs []error
 
 	if newLimits.MaxProjectsPerOrg != -1 {

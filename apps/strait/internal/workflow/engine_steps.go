@@ -511,10 +511,10 @@ func mergePayloads(triggerPayload, stepPayload, parentOutputs json.RawMessage) j
 	triggerBlank := triggerKind == 0
 	stepBlank := stepKind == 0
 	if parentBlank {
-		switch {
-		case stepBlank:
+		if stepBlank {
 			return cloneRaw(triggerPayload)
-		case triggerBlank || triggerKind != '{' || stepKind != '{':
+		}
+		if triggerBlank || triggerKind != '{' || stepKind != '{' {
 			return cloneRaw(stepPayload)
 		}
 	}
@@ -748,13 +748,16 @@ func scanJSONString(in []byte, start int) (int, bool, bool) {
 	escaped := false
 	hasEscapedByte := false
 	for i := start + 1; i < len(in); i++ {
-		switch {
-		case escaped:
+		if escaped {
 			escaped = false
-		case in[i] == '\\':
+			continue
+		}
+		if in[i] == '\\' {
 			hasEscapedByte = true
 			escaped = true
-		case in[i] == '"':
+			continue
+		}
+		if in[i] == '"' {
 			return i + 1, hasEscapedByte, true
 		}
 	}
@@ -768,12 +771,15 @@ func scanJSONObjectValue(in []byte, start int) (end int, delimiter byte, ok bool
 	for i := start; i < len(in); i++ {
 		c := in[i]
 		if inString {
-			switch {
-			case escaped:
+			if escaped {
 				escaped = false
-			case c == '\\':
+				continue
+			}
+			if c == '\\' {
 				escaped = true
-			case c == '"':
+				continue
+			}
+			if c == '"' {
 				inString = false
 			}
 			continue

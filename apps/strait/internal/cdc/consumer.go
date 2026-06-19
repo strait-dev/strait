@@ -17,6 +17,8 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
+const consumerPollErrorBackoff time.Duration = 5_000_000_000
+
 // Consumer polls the Sequin Stream and dispatches messages to registered handlers.
 type Consumer struct {
 	client             *Client
@@ -112,7 +114,7 @@ func (c *Consumer) Run(ctx context.Context) {
 					return
 				case <-c.stop:
 					return
-				case <-time.After(5 * time.Second):
+				case <-time.After(consumerPollErrorBackoff):
 				}
 				continue
 			}

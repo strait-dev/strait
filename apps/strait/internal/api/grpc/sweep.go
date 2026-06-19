@@ -5,10 +5,26 @@ import (
 	"log/slog"
 	"time"
 
+	"strait/internal/domain"
 	"strait/internal/store"
 )
 
 const staleOfflineWorkerDeleteAfter = 24 * time.Hour
+
+type workerSweepQueries interface {
+	workerResultRecoveryQueries
+	recoveredRunLoader
+	ListRecoverableStaleWorkerTaskRunIDs(ctx context.Context, cutoff time.Time, activeWorkers []store.ActiveWorkerRef) ([]string, error)
+	RecoverStaleWorkerTasksExceptRefs(ctx context.Context, cutoff time.Time, reason string, activeWorkers []store.ActiveWorkerRef) (int64, error)
+	EvictStaleWorkersExceptRefs(ctx context.Context, cutoff time.Time, activeWorkers []store.ActiveWorkerRef) (int64, error)
+	DeleteStaleOfflineWorkers(ctx context.Context, cutoff time.Time) (int64, error)
+}
+
+type workerResultRecoveryQueries interface {
+	ClaimRecoverableWorkerTaskResults(ctx context.Context, cutoff time.Time, limit int) ([]domain.WorkerTask, error)
+	ResetWorkerTaskFinalizingToResultReceived(ctx context.Context, taskID string) error
+	UpdateWorkerTaskStatus(ctx context.Context, taskID string, status domain.WorkerTaskStatus) error
+}
 
 // runSweep periodically deletes workers rows whose last heartbeat is older
 // than heartbeatTimeout, indicating the worker disconnected without a clean
@@ -17,7 +33,7 @@ const staleOfflineWorkerDeleteAfter = 24 * time.Hour
 func runSweep(
 	ctx context.Context,
 	registry *ConnectionRegistry,
-	q *store.Queries,
+	q workerSweepQueries,
 	heartbeatTimeout time.Duration,
 	interval time.Duration,
 	finalizer func() WorkerRunResultFinalizer,
@@ -37,46 +53,57 @@ func runSweep(
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			cutoff := time.Now().Add(-heartbeatTimeout)
-			recoverDurableResultHandoffs(ctx, q, finalizer, cutoff)
-			connectedWorkers := connectedWorkerRefs(registry)
-			recoveredRunIDs, listErr := q.ListRecoverableStaleWorkerTaskRunIDs(ctx, cutoff, connectedWorkers)
-			if listErr != nil {
-				slog.Warn("grpc sweep: list recoverable stale worker task runs failed", "error", listErr)
-			}
-			recovered, err := q.RecoverStaleWorkerTasksExceptRefs(ctx, cutoff, "worker heartbeat expired before reporting result", connectedWorkers)
-			if err != nil {
-				slog.Warn("grpc sweep: recover stale worker tasks failed", "error", err)
-				continue
-			}
-			if recovered > 0 {
-				slog.Info("grpc sweep: recovered stale worker tasks", "count", recovered)
-				enqueueRecoveredWorkerRuns(ctx, q, readyRunQueue, recoveredRunIDs, "grpc sweep")
-			}
-			n, err := q.EvictStaleWorkersExceptRefs(ctx, cutoff, connectedWorkers)
-			if err != nil {
-				slog.Warn("grpc sweep: evict stale workers failed", "error", err)
-				continue
-			}
-			if n > 0 {
-				slog.Info("grpc sweep: evicted stale workers", "count", n)
-			}
-			deleteCutoff := time.Now().Add(-staleOfflineWorkerDeleteAfter)
-			deleted, err := q.DeleteStaleOfflineWorkers(ctx, deleteCutoff)
-			if err != nil {
-				slog.Warn("grpc sweep: delete stale offline workers failed", "error", err)
-				continue
-			}
-			if deleted > 0 {
-				slog.Info("grpc sweep: deleted stale offline workers", "count", deleted)
-			}
+			sweepOnce(ctx, registry, q, heartbeatTimeout, finalizer, readyRunQueue)
 		}
+	}
+}
+
+func sweepOnce(
+	ctx context.Context,
+	registry *ConnectionRegistry,
+	q workerSweepQueries,
+	heartbeatTimeout time.Duration,
+	finalizer func() WorkerRunResultFinalizer,
+	readyRunQueue ReadyRunEnqueuer,
+) {
+	cutoff := time.Now().Add(-heartbeatTimeout)
+	recoverDurableResultHandoffs(ctx, q, finalizer, cutoff)
+	connectedWorkers := connectedWorkerRefs(registry)
+	recoveredRunIDs, listErr := q.ListRecoverableStaleWorkerTaskRunIDs(ctx, cutoff, connectedWorkers)
+	if listErr != nil {
+		slog.Warn("grpc sweep: list recoverable stale worker task runs failed", "error", listErr)
+	}
+	recovered, err := q.RecoverStaleWorkerTasksExceptRefs(ctx, cutoff, "worker heartbeat expired before reporting result", connectedWorkers)
+	if err != nil {
+		slog.Warn("grpc sweep: recover stale worker tasks failed", "error", err)
+		return
+	}
+	if recovered > 0 {
+		slog.Info("grpc sweep: recovered stale worker tasks", "count", recovered)
+		enqueueRecoveredWorkerRuns(ctx, q, readyRunQueue, recoveredRunIDs, "grpc sweep")
+	}
+	n, err := q.EvictStaleWorkersExceptRefs(ctx, cutoff, connectedWorkers)
+	if err != nil {
+		slog.Warn("grpc sweep: evict stale workers failed", "error", err)
+		return
+	}
+	if n > 0 {
+		slog.Info("grpc sweep: evicted stale workers", "count", n)
+	}
+	deleteCutoff := time.Now().Add(-staleOfflineWorkerDeleteAfter)
+	deleted, err := q.DeleteStaleOfflineWorkers(ctx, deleteCutoff)
+	if err != nil {
+		slog.Warn("grpc sweep: delete stale offline workers failed", "error", err)
+		return
+	}
+	if deleted > 0 {
+		slog.Info("grpc sweep: deleted stale offline workers", "count", deleted)
 	}
 }
 
 func recoverDurableResultHandoffs(
 	ctx context.Context,
-	q *store.Queries,
+	q workerResultRecoveryQueries,
 	finalizer func() WorkerRunResultFinalizer,
 	cutoff time.Time,
 ) {

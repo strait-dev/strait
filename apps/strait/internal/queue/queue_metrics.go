@@ -492,16 +492,16 @@ func initArchiveMetrics(meter metric.Meter, m *QueueMetrics) error {
 var jobRunsPartitionMetricRE = regexp.MustCompile(`^job_runs_p\d{4}_(0[1-9]|1[0-2])$`)
 
 func partitionMetricLabel(partition string) string {
-	switch {
-	case partition == "job_runs":
+	if partition == "job_runs" {
 		return "job_runs"
-	case jobRunsPartitionMetricRE.MatchString(partition):
-		return "job_runs_partition"
-	case partition == "":
-		return "unknown"
-	default:
-		return "other"
 	}
+	if jobRunsPartitionMetricRE.MatchString(partition) {
+		return "job_runs_partition"
+	}
+	if partition == "" {
+		return "unknown"
+	}
+	return "other"
 }
 
 // RecordPartitionStats records gauge values for a single partition. The

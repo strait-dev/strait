@@ -56,9 +56,7 @@ func (s *Scheduler) components() []schedulerComponent {
 	if s.sloEvaluator != nil {
 		components = append(components, schedulerComponent{
 			name: "slo_evaluator",
-			run: func(ctx context.Context) {
-				s.sloEvaluator.Run(ctx, 5*time.Minute)
-			},
+			run:  s.runSLOEvaluator,
 		})
 	}
 	if s.concurrentReconciler != nil {
@@ -206,4 +204,12 @@ func (s *Scheduler) components() []schedulerComponent {
 		})
 	}
 	return components
+}
+
+func (s *Scheduler) runSLOEvaluator(ctx context.Context) {
+	s.sloEvaluator.Run(ctx, defaultSLOEvaluatorInterval())
+}
+
+func defaultSLOEvaluatorInterval() time.Duration {
+	return 5 * time.Minute
 }

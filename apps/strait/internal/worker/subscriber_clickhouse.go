@@ -90,7 +90,7 @@ func NewClickHouseSubscriberHandle(exporter *clickhouse.Exporter, events EventLi
 						exporter.Enqueue(rec)
 					}
 				})
-			case <-time.After(5 * time.Second):
+			case <-time.After(clickHouseEventFetchSemaphoreTimeout):
 				slog.Warn("clickhouse: event fetch semaphore timeout", "run_id", run.ID)
 			}
 		}
@@ -98,6 +98,8 @@ func NewClickHouseSubscriberHandle(exporter *clickhouse.Exporter, events EventLi
 
 	return h
 }
+
+const clickHouseEventFetchSemaphoreTimeout time.Duration = 5_000_000_000
 
 func isTerminalEvent(t RunEventType) bool {
 	switch t {

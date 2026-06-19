@@ -14,13 +14,15 @@ import (
 )
 
 type fakeBPSampler struct {
-	calls   atomic.Int32
-	samples []queue.TokenSample
-	err     error
+	calls       atomic.Int32
+	lastSampleN atomic.Int32
+	samples     []queue.TokenSample
+	err         error
 }
 
-func (f *fakeBPSampler) SampleAvailableTokens(_ context.Context, _ int) ([]queue.TokenSample, error) {
+func (f *fakeBPSampler) SampleAvailableTokens(_ context.Context, sampleN int) ([]queue.TokenSample, error) {
 	f.calls.Add(1)
+	f.lastSampleN.Store(int32(sampleN))
 	return f.samples, f.err
 }
 
@@ -73,6 +75,28 @@ func TestBackpressureSampler_TickSwallowsError(t *testing.T) {
 	require.EqualValues(t, 1, fake.calls.Load())
 
 	// must not panic
+}
+
+func TestBackpressureSampler_TickCapsToLowestTokenSamples(t *testing.T) {
+	t.Parallel()
+	m, err := queue.Metrics()
+	require.NoError(t, err)
+
+	fake := &fakeBPSampler{samples: []queue.TokenSample{
+		{ProjectID: "full", Tokens: 90},
+		{ProjectID: "empty", Tokens: 1},
+		{ProjectID: "low", Tokens: 3},
+	}}
+	s := NewBackpressureSampler(fake, m, time.Second, 2)
+	require.NotNil(t, s)
+
+	s.Tick(context.Background())
+	require.EqualValues(t, 2, fake.lastSampleN.Load())
+	require.Equal(t, []int64{1, 3, 90}, []int64{
+		fake.samples[0].Tokens,
+		fake.samples[1].Tokens,
+		fake.samples[2].Tokens,
+	})
 }
 
 func TestBackpressureSampler_RunHonoursContext(t *testing.T) {

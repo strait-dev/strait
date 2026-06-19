@@ -86,6 +86,23 @@ func TestSimulate_DryRun_ConditionalBranch(t *testing.T) {
 		nil || !*result.ExecutionPlan[1].ConditionMet)
 }
 
+func TestSimulate_DryRun_NonLinearConditionalBranches(t *testing.T) {
+	t.Parallel()
+	steps := []domain.WorkflowStep{
+		{StepRef: "a", StepType: "job"},
+		{StepRef: "b", StepType: "job", DependsOn: []string{"a"}, Condition: json.RawMessage(`{"op":"eq","left":"status","right":"ok"}`)},
+		{StepRef: "c", StepType: "job", DependsOn: []string{"a"}, Condition: json.RawMessage(`{"op":"exists","path":"payload.id"}`)},
+	}
+	req := &SimulateRequest{Mode: SimModeDryRun}
+
+	result, err := SimulateWorkflow(steps, req, nil)
+	require.NoError(t, err)
+	assert.Equal(t, map[string]bool{"b": true, "c": true}, result.ConditionResults)
+	require.Len(t, result.ExecutionPlan, 3)
+	assert.NotNil(t, result.ExecutionPlan[1].ConditionMet)
+	assert.NotNil(t, result.ExecutionPlan[2].ConditionMet)
+}
+
 func TestSimulate_CostEstimation(t *testing.T) {
 	t.Parallel()
 	steps := []domain.WorkflowStep{

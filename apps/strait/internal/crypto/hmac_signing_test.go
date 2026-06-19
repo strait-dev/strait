@@ -76,6 +76,16 @@ func TestSignWebhookRequest_SignatureHeaderFormat(t *testing.T) {
 	require.NotContains(t, sig, "t=")
 }
 
+func TestWebhookSignatureHeaderHelpers(t *testing.T) {
+	t.Parallel()
+
+	var sigHex hmacSignatureHex
+	copy(sigHex[:], strings.Repeat("a", len(sigHex)))
+
+	assert.Equal(t, "v1="+strings.Repeat("a", len(sigHex)), webhookV1SignatureHeader(sigHex))
+	assert.Equal(t, "sha256="+strings.Repeat("a", len(sigHex)), webhookSHA256SignatureHeader(sigHex))
+}
+
 func TestSignWebhookRequest_ReplacesExistingHeaderValues(t *testing.T) {
 	t.Parallel()
 

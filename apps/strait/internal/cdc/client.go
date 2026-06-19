@@ -28,6 +28,13 @@ type Client struct {
 	circuitBreaker failsafe.Policy[*http.Response]
 }
 
+const (
+	consumerReadyDelayFirst  time.Duration = 250_000_000
+	consumerReadyDelaySecond time.Duration = 500_000_000
+	consumerReadyDelayThird  time.Duration = 750_000_000
+	consumerReadyDelayMax    time.Duration = 1_000_000_000
+)
+
 // ClientOption configures the Client.
 type ClientOption func(*Client)
 
@@ -487,7 +494,7 @@ func (c *Client) waitForConsumerReady(ctx context.Context) error {
 		}
 		lastErr = err
 
-		delay := min(time.Duration(attempt+1)*250*time.Millisecond, time.Second)
+		delay := consumerReadyDelay(attempt)
 		timer := time.NewTimer(delay)
 		select {
 		case <-ctx.Done():
@@ -497,4 +504,20 @@ func (c *Client) waitForConsumerReady(ctx context.Context) error {
 		}
 	}
 	return fmt.Errorf("wait for sequin consumer: %w", lastErr)
+}
+
+func consumerReadyDelay(attempt int) time.Duration {
+	switch attempt {
+	case 0:
+		return consumerReadyDelayFirst
+	case 1:
+		return consumerReadyDelaySecond
+	case 2:
+		return consumerReadyDelayThird
+	default:
+		if attempt < 0 {
+			return 0
+		}
+		return consumerReadyDelayMax
+	}
 }

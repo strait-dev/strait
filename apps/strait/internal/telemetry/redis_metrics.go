@@ -119,12 +119,11 @@ func normalizeRedisCommand(command string) string {
 }
 
 func redisCommandOutcome(err error) string {
-	switch {
-	case err == nil:
+	if err == nil {
 		return "success"
-	case errors.Is(err, redis.Nil):
-		return "miss"
-	default:
-		return "error"
 	}
+	if errors.Is(err, redis.Nil) {
+		return "miss"
+	}
+	return "error"
 }

@@ -11,15 +11,17 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 const QueueWakeChannel = "strait_queue_wake"
 
 // reconnectBackoff defaults.
-const (
-	defaultInitialDelay = time.Second
-	defaultMaxDelay     = 30 * time.Second
-)
+const defaultInitialDelay = time.Second
+
+func defaultMaxReconnectDelay() time.Duration { return 30 * time.Second }
+
+func defaultDegradedAfter() time.Duration { return 30 * time.Second }
 
 // DegradedNotifier provides a channel that closes when the queue notifier
 // enters degraded mode. Callers should re-invoke Degraded() after each
@@ -29,15 +31,18 @@ type DegradedNotifier interface {
 }
 
 type QueueNotifier struct {
-	databaseURL  string
-	channel      string
-	wake         chan struct{}
-	initialDelay time.Duration
-	maxDelay     time.Duration
-	logger       *slog.Logger
-	metrics      *QueueMetrics
-	droppedCount uint64
-	reconnects   uint64
+	databaseURL   string
+	channel       string
+	wake          chan struct{}
+	initialDelay  time.Duration
+	maxDelay      time.Duration
+	degradedAfter time.Duration
+	connect       queueNotifyConnector
+	listen        func(context.Context) (bool, error)
+	logger        *slog.Logger
+	metrics       *QueueMetrics
+	droppedCount  uint64
+	reconnects    uint64
 	// Time of the most recent successful LISTEN establishment.
 	// Zero while no connection is live. Stored as UnixNano for lock-free
 	// reads.
@@ -54,6 +59,18 @@ type QueueNotifier struct {
 	degradedOnce atomic.Bool
 }
 
+type queueNotifyConn interface {
+	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
+	WaitForNotification(context.Context) (*pgconn.Notification, error)
+	Close(context.Context) error
+}
+
+type queueNotifyConnector func(context.Context, string) (queueNotifyConn, error)
+
+func defaultQueueNotifyConnector(ctx context.Context, databaseURL string) (queueNotifyConn, error) {
+	return pgx.Connect(ctx, databaseURL)
+}
+
 func NewQueueNotifier(databaseURL string, logger *slog.Logger) *QueueNotifier {
 	if logger == nil {
 		logger = slog.Default()
@@ -61,14 +78,16 @@ func NewQueueNotifier(databaseURL string, logger *slog.Logger) *QueueNotifier {
 	m, _ := Metrics() // nil on error; all accesses are nil-guarded
 
 	return &QueueNotifier{
-		databaseURL:  databaseURL,
-		channel:      QueueWakeChannel,
-		wake:         make(chan struct{}, 1),
-		initialDelay: defaultInitialDelay,
-		maxDelay:     defaultMaxDelay,
-		logger:       logger,
-		metrics:      m,
-		degradedCh:   make(chan struct{}),
+		databaseURL:   databaseURL,
+		channel:       QueueWakeChannel,
+		wake:          make(chan struct{}, 1),
+		initialDelay:  defaultInitialDelay,
+		maxDelay:      defaultMaxReconnectDelay(),
+		degradedAfter: defaultDegradedAfter(),
+		connect:       defaultQueueNotifyConnector,
+		logger:        logger,
+		metrics:       m,
+		degradedCh:    make(chan struct{}),
 	}
 }
 
@@ -144,14 +163,21 @@ func (n *QueueNotifier) Run(ctx context.Context) {
 	// If a disconnect lasts longer than this, the notifier flips into
 	// degraded mode and closes Degraded() so workers can tighten their
 	// poll interval.
-	const degradedThreshold = 30 * time.Second
+	degradedThreshold := n.degradedAfter
+	if degradedThreshold <= 0 {
+		degradedThreshold = defaultDegradedAfter()
+	}
 	var disconnectStart time.Time
+	listen := n.listen
+	if listen == nil {
+		listen = n.listenLoop
+	}
 	for {
 		if err := ctx.Err(); err != nil {
 			return
 		}
 
-		connected, err := n.listenLoop(ctx)
+		connected, err := listen(ctx)
 		if err == nil || ctx.Err() != nil {
 			return
 		}
@@ -218,7 +244,11 @@ func (n *QueueNotifier) backoffDelay(attempt int) time.Duration {
 // a boolean indicating whether the connection was successfully established
 // (true) and the error that caused the loop to exit.
 func (n *QueueNotifier) listenLoop(ctx context.Context) (connected bool, err error) {
-	conn, err := pgx.Connect(ctx, n.databaseURL)
+	connect := n.connect
+	if connect == nil {
+		connect = defaultQueueNotifyConnector
+	}
+	conn, err := connect(ctx, n.databaseURL)
 	if err != nil {
 		return false, fmt.Errorf("connect notifier: %w", err)
 	}

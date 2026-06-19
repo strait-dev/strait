@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"slices"
 	"strings"
@@ -31,6 +32,15 @@ var pgQueReadyRunsBenchmarkSink []pgQueReadyRun
 var pgQueSendReadyEventsErrBenchmarkSink error
 var pgQueScanWorkerRoutesBenchmarkSink []domain.JobRun
 var pgQueWorkerRefsBenchmarkSink []domain.WorkerQueueRef
+
+func TestPgQueConfigNormalizedUsesMaintenanceDefaults(t *testing.T) {
+	t.Parallel()
+
+	cfg := PgQueConfig{}.normalized()
+
+	require.Equal(t, 30*time.Second, cfg.MaintenanceInterval)
+	require.Equal(t, 5*time.Minute, cfg.RotationPeriod)
+}
 
 func TestPgQueFinishBatchReservationReopensAfterAckFailure(t *testing.T) {
 	ctx := context.Background()
@@ -80,6 +90,49 @@ func TestPgQueFinishBatchReservationReopensAfterAckFailure(t *testing.T) {
 	state.mu.Unlock()
 	require.Nil(t, activeBatch)
 	require.Equal(t, 2, ackAttempts)
+}
+
+func TestPgQueFinishBatchReservationHandlesNilAndUndrainedBatches(t *testing.T) {
+	t.Parallel()
+
+	q := NewPgQueQueue(&mockDBTX{
+		execFn: func(context.Context, string, ...any) (pgconn.CommandTag, error) {
+			t.Fatal("nil or undrained batch must not ack")
+			return pgconn.CommandTag{}, nil
+		},
+	}, nil, PgQueConfig{})
+
+	require.NoError(t, q.finishBatchReservation(context.Background(), &pgQueRouteState{}, nil, nil))
+
+	batch := &pgQueActiveBatch{
+		BatchID:  10,
+		InFlight: 2,
+	}
+	state := &pgQueRouteState{activeBatch: batch}
+	require.NoError(t, q.finishBatchReservation(context.Background(), state, batch, []pgQueCandidate{
+		{Message: pgQueMessage{ID: 1}},
+	}))
+	require.False(t, batch.Closing)
+	require.Equal(t, 1, batch.InFlight)
+	require.Equal(t, []pgQueMessage{{ID: 1}}, batch.Messages)
+	require.Same(t, batch, state.activeBatch)
+}
+
+func TestPgQueBatchLifecycleIgnoresInactiveBatch(t *testing.T) {
+	t.Parallel()
+
+	q := NewPgQueQueue(&mockDBTX{}, nil, PgQueConfig{})
+	active := &pgQueActiveBatch{BatchID: 1, Closing: true}
+	inactive := &pgQueActiveBatch{BatchID: 2, Closing: true}
+	state := &pgQueRouteState{activeBatch: active}
+
+	require.False(t, q.closeBatchIfDrained(state, inactive, []pgQueCandidate{{Message: pgQueMessage{ID: 9}}}))
+	q.reopenBatchAfterAckFailure(state, inactive)
+	q.clearAckedBatch(state, inactive)
+
+	require.Same(t, active, state.activeBatch)
+	require.True(t, active.Closing)
+	require.Empty(t, inactive.Messages)
 }
 
 func TestPgQueMaintainRunsRotationPhases(t *testing.T) {
@@ -241,6 +294,112 @@ func TestPgQueNextWorkerRouteStartHandlesSmallRouteCounts(t *testing.T) {
 	require.Equal(t, 1, q.nextWorkerRouteStart(2))
 }
 
+func TestPgQueEnsureCachedRouteKeyOnceSpillsToSeenMap(t *testing.T) {
+	ctx := context.Background()
+	db := &mockDBTX{
+		execFn: func(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
+			require.Failf(t, "test failure", "unexpected route setup SQL = %q", sql)
+			return pgconn.CommandTag{}, nil
+		},
+	}
+	q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
+	routeSet := &pgQueRouteEnsureSet{}
+
+	for i := range pgQueSmallRouteSetLimit + 1 {
+		routeKey := fmt.Sprintf("route-%d", i)
+		q.routeState(routeKey).configured.Store(true)
+		require.NoError(t, q.ensureCachedRouteKeyOnce(ctx, routeSet, routeKey))
+	}
+
+	require.Len(t, routeSet.seen, pgQueSmallRouteSetLimit+1)
+	require.Equal(t, pgQueSmallRouteSetLimit, routeSet.routeCount)
+
+	require.NoError(t, q.ensureCachedRouteKeyOnce(ctx, routeSet, "route-8"))
+	require.Len(t, routeSet.seen, pgQueSmallRouteSetLimit+1)
+}
+
+func TestPgQueRunTickerLogsTickerAndMaintenanceErrors(t *testing.T) {
+	t.Run("ticker error", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		tickerCalled := make(chan struct{}, 1)
+		db := &mockDBTX{
+			execFn: func(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
+				if strings.Contains(sql, "pgque.ticker()") {
+					select {
+					case tickerCalled <- struct{}{}:
+					default:
+					}
+					return pgconn.CommandTag{}, errors.New("ticker failed")
+				}
+				return pgconn.CommandTag{}, nil
+			},
+		}
+		q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{
+			TickInterval:        time.Millisecond,
+			MaintenanceInterval: time.Hour,
+		})
+
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			q.RunTicker(ctx)
+		}()
+
+		select {
+		case <-tickerCalled:
+		case <-time.After(time.Second):
+			t.Fatal("timed out waiting for ticker")
+		}
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Fatal("timed out waiting for RunTicker shutdown")
+		}
+	})
+
+	t.Run("maintenance error", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		maintenanceCalled := make(chan struct{}, 1)
+		db := &mockDBTX{
+			queryFn: func(_ context.Context, sql string, _ ...any) (pgx.Rows, error) {
+				if strings.Contains(sql, "pgque.maint_operations()") {
+					select {
+					case maintenanceCalled <- struct{}{}:
+					default:
+					}
+					return nil, errors.New("maintenance failed")
+				}
+				return routeErrorRows{}, nil
+			},
+		}
+		q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{
+			TickInterval:        time.Hour,
+			MaintenanceInterval: time.Millisecond,
+		})
+
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			q.RunTicker(ctx)
+		}()
+
+		select {
+		case <-maintenanceCalled:
+		case <-time.After(time.Second):
+			t.Fatal("timed out waiting for maintenance")
+		}
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Fatal("timed out waiting for RunTicker shutdown")
+		}
+	})
+}
+
 func TestPgQueScanWorkerRoutesRotatesAcrossManyRoutes(t *testing.T) {
 	q := NewPgQueQueue(&mockDBTX{}, nil, PgQueConfig{})
 	routes := []string{"route-a", "route-b", "route-c", "route-d"}
@@ -315,6 +474,527 @@ func TestPgQueScanWorkerRoutesSingleRouteReturnsBatch(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 1, scans)
 	require.Equal(t, batch, claimed)
+}
+
+func TestPgQueScanWorkerRoutesEmptyInputsSkipScan(t *testing.T) {
+	t.Parallel()
+
+	q := NewPgQueQueue(&mockDBTX{}, nil, PgQueConfig{})
+	scan := func(string, int) ([]domain.JobRun, error) {
+		t.Fatal("empty route scan must not call scanner")
+		return nil, nil
+	}
+
+	claimed, err := q.scanWorkerRoutes([]string{"route-a"}, 0, scan)
+	require.NoError(t, err)
+	require.Nil(t, claimed)
+
+	claimed, err = q.scanWorkerRoutes(nil, 1, scan)
+	require.NoError(t, err)
+	require.Nil(t, claimed)
+}
+
+func TestPgQueScanWorkerRoutesReturnsPartialClaimsOnError(t *testing.T) {
+	t.Parallel()
+
+	q := NewPgQueQueue(&mockDBTX{}, nil, PgQueConfig{})
+	wantErr := errors.New("route failed")
+	calls := 0
+
+	claimed, err := q.scanWorkerRoutes([]string{"route-a", "route-b"}, 2, func(routeKey string, remaining int) ([]domain.JobRun, error) {
+		calls++
+		switch calls {
+		case 1:
+			require.Equal(t, "route-a", routeKey)
+			require.Equal(t, 2, remaining)
+			return []domain.JobRun{{ID: "run-a"}}, nil
+		case 2:
+			require.Equal(t, "route-b", routeKey)
+			require.Equal(t, 1, remaining)
+			return nil, wantErr
+		default:
+			t.Fatalf("unexpected scan call %d", calls)
+			return nil, nil
+		}
+	})
+
+	require.ErrorIs(t, err, wantErr)
+	require.Equal(t, []domain.JobRun{{ID: "run-a"}}, claimed)
+}
+
+func TestPgQueDequeueReturnsNilWhenNoRunAvailable(t *testing.T) {
+	t.Parallel()
+
+	q := NewPgQueQueue(&mockDBTX{
+		queryFn: func(context.Context, string, ...any) (pgx.Rows, error) {
+			return &noRows{}, nil
+		},
+		queryRowFn: func(context.Context, string, ...any) pgx.Row {
+			return &mockRow{scanFn: func(dest ...any) error {
+				lag, ok := dest[0].(*int64)
+				require.True(t, ok)
+				*lag = 0
+				return nil
+			}}
+		},
+	}, nil, PgQueConfig{TickInterval: time.Hour})
+	state := q.routeState(pgQueHTTPRouteKey)
+	state.configured.Store(true)
+	state.lastForceTick = time.Now()
+
+	run, err := q.Dequeue(context.Background())
+	require.NoError(t, err)
+	require.Nil(t, run)
+}
+
+func TestPgQueDequeuePropagatesRouteSetupError(t *testing.T) {
+	t.Parallel()
+
+	wantErr := errors.New("route setup failed")
+	q := NewPgQueQueue(&mockDBTX{
+		execFn: func(context.Context, string, ...any) (pgconn.CommandTag, error) {
+			return pgconn.CommandTag{}, wantErr
+		},
+	}, nil, PgQueConfig{})
+
+	run, err := q.Dequeue(context.Background())
+	require.ErrorIs(t, err, wantErr)
+	require.Nil(t, run)
+}
+
+func TestPgQueDequeueNForWorkerQueuesSkipsEmptyInputs(t *testing.T) {
+	t.Parallel()
+
+	q := NewPgQueQueue(&mockDBTX{
+		queryFn: func(context.Context, string, ...any) (pgx.Rows, error) {
+			t.Fatal("empty worker dequeue input must not query routes")
+			return nil, nil
+		},
+	}, nil, PgQueConfig{})
+
+	runs, err := q.DequeueNForWorkerQueues(context.Background(), 0, []domain.WorkerQueueRef{
+		{ProjectID: "project-a", QueueName: "worker"},
+	})
+	require.NoError(t, err)
+	require.Nil(t, runs)
+
+	runs, err = q.DequeueNForWorkerQueues(context.Background(), 1, []domain.WorkerQueueRef{
+		{ProjectID: "", QueueName: "worker"},
+	})
+	require.NoError(t, err)
+	require.Nil(t, runs)
+}
+
+func TestPgQueDequeueNForWorkerQueuesPropagatesRouteLookupError(t *testing.T) {
+	t.Parallel()
+
+	wantErr := errors.New("route lookup failed")
+	q := NewPgQueQueue(&mockDBTX{
+		queryFn: func(context.Context, string, ...any) (pgx.Rows, error) {
+			return nil, wantErr
+		},
+	}, nil, PgQueConfig{})
+
+	runs, err := q.DequeueNForWorkerQueues(context.Background(), 1, []domain.WorkerQueueRef{
+		{ProjectID: "project-a", QueueName: "worker"},
+	})
+	require.ErrorIs(t, err, wantErr)
+	require.Nil(t, runs)
+}
+
+func TestPgQueDequeueNZeroSkipsRouteSetup(t *testing.T) {
+	t.Parallel()
+
+	q := NewPgQueQueue(&mockDBTX{
+		execFn: func(context.Context, string, ...any) (pgconn.CommandTag, error) {
+			t.Fatal("zero limit dequeue must not setup route")
+			return pgconn.CommandTag{}, nil
+		},
+	}, nil, PgQueConfig{})
+
+	runs, err := q.DequeueN(context.Background(), 0)
+	require.NoError(t, err)
+	require.Nil(t, runs)
+
+	runs, err = q.DequeueNByProject(context.Background(), 0, "project-a")
+	require.NoError(t, err)
+	require.Nil(t, runs)
+}
+
+func TestPgQueDequeueFromRouteInvalidBatchAcksAndReturnsEmpty(t *testing.T) {
+	t.Parallel()
+
+	var acked bool
+	var nacked []string
+	db := &mockDBTX{
+		queryFn: func(context.Context, string, ...any) (pgx.Rows, error) {
+			return &noRows{}, nil
+		},
+		queryRowFn: func(context.Context, string, ...any) pgx.Row {
+			return &mockRow{scanFn: func(dest ...any) error {
+				lag, ok := dest[0].(*int64)
+				require.True(t, ok)
+				*lag = 0
+				return nil
+			}}
+		},
+		execFn: func(_ context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
+			switch {
+			case strings.Contains(sql, "pgque.nack"):
+				nacked = append(nacked, args[11].(string))
+			case strings.Contains(sql, "pgque.ack"):
+				acked = true
+			default:
+				t.Fatalf("unexpected exec SQL = %s", sql)
+			}
+			return pgconn.CommandTag{}, nil
+		},
+	}
+	q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{TickInterval: time.Hour})
+	state := q.routeState("route-invalid")
+	state.configured.Store(true)
+	state.lastForceTick = time.Now()
+	state.activeBatch = &pgQueActiveBatch{
+		BatchID: 7,
+		Messages: []pgQueMessage{
+			{ID: 1, BatchID: 7, Type: pgQueReadyEventType, Payload: "not-json", CreatedAt: time.Now()},
+			{ID: 2, BatchID: 7, Type: pgQueReadyEventType, Payload: string(marshalPgQueReadyEvent(pgQueReadyEvent{})), CreatedAt: time.Now()},
+		},
+	}
+
+	runs, err := q.dequeueFromRoute(context.Background(), 1, "route-invalid", pgQueClaimFilter{})
+	require.NoError(t, err)
+	require.Empty(t, runs)
+	require.True(t, acked)
+	require.Equal(t, []string{"invalid ready event", "invalid ready event"}, nacked)
+	require.Nil(t, state.activeBatch)
+}
+
+func TestPgQueDequeueFromRouteNacksUnclaimableCandidates(t *testing.T) {
+	t.Parallel()
+
+	var nacked []string
+	var acked bool
+	queryCalls := 0
+	db := &mockDBTX{
+		queryFn: func(_ context.Context, sql string, _ ...any) (pgx.Rows, error) {
+			queryCalls++
+			switch {
+			case strings.Contains(sql, "COALESCE(priority.priority"):
+				return &pgQueCandidateClaimStateRows{values: []pgQueCandidateClaimState{
+					{runID: "run-1", priority: 5, hasConcurrencyLimit: false},
+				}}, nil
+			case strings.Contains(sql, "inserted_claims"):
+				return routeErrorRows{}, nil
+			case strings.Contains(sql, "pgque.receive"):
+				return &noRows{}, nil
+			default:
+				t.Fatalf("unexpected query SQL = %s", sql)
+				return nil, nil
+			}
+		},
+		queryRowFn: func(context.Context, string, ...any) pgx.Row {
+			return &mockRow{scanFn: func(dest ...any) error {
+				lag, ok := dest[0].(*int64)
+				require.True(t, ok)
+				*lag = 0
+				return nil
+			}}
+		},
+		execFn: func(_ context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
+			switch {
+			case strings.Contains(sql, "pgque.nack"):
+				nacked = append(nacked, args[11].(string))
+			case strings.Contains(sql, "pgque.ack"):
+				acked = true
+			default:
+				t.Fatalf("unexpected exec SQL = %s", sql)
+			}
+			return pgconn.CommandTag{}, nil
+		},
+	}
+	q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{TickInterval: time.Hour})
+	state := q.routeState("route-unclaimable")
+	state.configured.Store(true)
+	state.lastForceTick = time.Now()
+	state.activeBatch = &pgQueActiveBatch{
+		BatchID: 8,
+		Messages: []pgQueMessage{
+			{ID: 1, BatchID: 8, Type: pgQueReadyEventType, Payload: string(marshalPgQueReadyEvent(pgQueReadyEvent{RunID: "run-1"})), CreatedAt: time.Now()},
+		},
+	}
+
+	runs, err := q.dequeueFromRoute(context.Background(), 1, "route-unclaimable", pgQueClaimFilter{})
+	require.NoError(t, err)
+	require.Empty(t, runs)
+	require.True(t, acked)
+	require.Equal(t, []string{"not claimable"}, nacked)
+	require.GreaterOrEqual(t, queryCalls, 3)
+}
+
+func TestPgQueDequeueFromRouteReturnsClaimErrorAfterReturningCandidates(t *testing.T) {
+	t.Parallel()
+
+	wantErr := errors.New("claim failed")
+	var acked bool
+	db := &mockDBTX{
+		queryFn: func(_ context.Context, sql string, _ ...any) (pgx.Rows, error) {
+			switch {
+			case strings.Contains(sql, "COALESCE(priority.priority"):
+				return &pgQueCandidateClaimStateRows{values: []pgQueCandidateClaimState{
+					{runID: "run-1", priority: 5, hasConcurrencyLimit: false},
+				}}, nil
+			case strings.Contains(sql, "inserted_claims"):
+				return nil, wantErr
+			default:
+				t.Fatalf("unexpected query SQL = %s", sql)
+				return nil, nil
+			}
+		},
+		execFn: func(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
+			if strings.Contains(sql, "pgque.ack") {
+				acked = true
+				return pgconn.CommandTag{}, nil
+			}
+			t.Fatalf("unexpected exec SQL = %s", sql)
+			return pgconn.CommandTag{}, nil
+		},
+	}
+	q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
+	state := q.routeState("route-claim-error")
+	state.configured.Store(true)
+	batch := &pgQueActiveBatch{
+		BatchID: 9,
+		Messages: []pgQueMessage{
+			{ID: 1, BatchID: 9, Type: pgQueReadyEventType, Payload: string(marshalPgQueReadyEvent(pgQueReadyEvent{RunID: "run-1"})), CreatedAt: time.Now()},
+		},
+	}
+	state.activeBatch = batch
+
+	runs, err := q.dequeueFromRoute(context.Background(), 1, "route-claim-error", pgQueClaimFilter{})
+	require.ErrorIs(t, err, wantErr)
+	require.Nil(t, runs)
+	require.False(t, acked)
+	require.Same(t, batch, state.activeBatch)
+	require.Len(t, state.activeBatch.Messages, 1)
+	require.EqualValues(t, 1, state.activeBatch.Messages[0].ID)
+}
+
+func TestPgQueDequeueFromRouteReturnsFinishError(t *testing.T) {
+	t.Parallel()
+
+	wantErr := errors.New("ack failed")
+	db := &mockDBTX{
+		queryFn: func(_ context.Context, sql string, _ ...any) (pgx.Rows, error) {
+			switch {
+			case strings.Contains(sql, "COALESCE(priority.priority"):
+				return &pgQueCandidateClaimStateRows{values: []pgQueCandidateClaimState{
+					{runID: "run-1", priority: 5, hasConcurrencyLimit: false},
+				}}, nil
+			case strings.Contains(sql, "inserted_claims"):
+				return routeErrorRows{}, nil
+			default:
+				t.Fatalf("unexpected query SQL = %s", sql)
+				return nil, nil
+			}
+		},
+		execFn: func(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
+			if strings.Contains(sql, "pgque.ack") {
+				return pgconn.CommandTag{}, wantErr
+			}
+			if strings.Contains(sql, "pgque.nack") {
+				return pgconn.CommandTag{}, nil
+			}
+			t.Fatalf("unexpected exec SQL = %s", sql)
+			return pgconn.CommandTag{}, nil
+		},
+	}
+	q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
+	state := q.routeState("route-finish-error")
+	state.configured.Store(true)
+	state.activeBatch = &pgQueActiveBatch{
+		BatchID: 10,
+		Messages: []pgQueMessage{
+			{ID: 1, BatchID: 10, Type: pgQueReadyEventType, Payload: string(marshalPgQueReadyEvent(pgQueReadyEvent{RunID: "run-1"})), CreatedAt: time.Now()},
+		},
+	}
+
+	runs, err := q.dequeueFromRoute(context.Background(), 1, "route-finish-error", pgQueClaimFilter{})
+	require.ErrorIs(t, err, wantErr)
+	require.Nil(t, runs)
+	require.False(t, state.activeBatch.Closing)
+}
+
+func TestPgQueDequeueFromRouteReturnsClaimedRunsWhenCandidatesRemain(t *testing.T) {
+	t.Parallel()
+
+	db := &mockDBTX{
+		queryFn: func(_ context.Context, sql string, _ ...any) (pgx.Rows, error) {
+			switch {
+			case strings.Contains(sql, "COALESCE(priority.priority"):
+				return &pgQueCandidateClaimStateRows{values: []pgQueCandidateClaimState{
+					{runID: "run-1", priority: 10, hasConcurrencyLimit: false},
+					{runID: "run-2", priority: 5, hasConcurrencyLimit: false},
+				}}, nil
+			case strings.Contains(sql, "inserted_claims"):
+				return &pgQueClaimedRunRows{values: []domain.JobRun{{
+					ID:        "run-1",
+					JobID:     "job-1",
+					ProjectID: "project-a",
+					Status:    domain.StatusExecuting,
+				}}}, nil
+			default:
+				t.Fatalf("unexpected query SQL = %s", sql)
+				return nil, nil
+			}
+		},
+		execFn: func(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
+			if strings.Contains(sql, "pgque.ack") {
+				return pgconn.CommandTag{}, nil
+			}
+			t.Fatalf("unexpected exec SQL = %s", sql)
+			return pgconn.CommandTag{}, nil
+		},
+	}
+	q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
+	state := q.routeState("route-unclaimed-return")
+	state.configured.Store(true)
+	batch := &pgQueActiveBatch{
+		BatchID: 11,
+		Messages: []pgQueMessage{
+			{ID: 1, BatchID: 11, Type: pgQueReadyEventType, Payload: string(marshalPgQueReadyEvent(pgQueReadyEvent{RunID: "run-1"})), CreatedAt: time.Now()},
+			{ID: 2, BatchID: 11, Type: pgQueReadyEventType, Payload: string(marshalPgQueReadyEvent(pgQueReadyEvent{RunID: "run-2"})), CreatedAt: time.Now()},
+		},
+	}
+	state.activeBatch = batch
+
+	runs, err := q.dequeueFromRoute(context.Background(), 2, "route-unclaimed-return", pgQueClaimFilter{})
+	require.NoError(t, err)
+	require.Len(t, runs, 1)
+	require.Equal(t, "run-1", runs[0].ID)
+	require.Same(t, batch, state.activeBatch)
+	require.Len(t, state.activeBatch.Messages, 1)
+	require.EqualValues(t, 2, state.activeBatch.Messages[0].ID)
+}
+
+func TestPgQueDequeueFromRouteReturnsPartialClaimWhenFillStops(t *testing.T) {
+	t.Parallel()
+
+	receiveErr := errors.New("receive failed")
+	db := &mockDBTX{
+		queryFn: func(_ context.Context, sql string, _ ...any) (pgx.Rows, error) {
+			switch {
+			case strings.Contains(sql, "COALESCE(priority.priority"):
+				return &pgQueCandidateClaimStateRows{values: []pgQueCandidateClaimState{
+					{runID: "run-1", priority: 10, hasConcurrencyLimit: false},
+				}}, nil
+			case strings.Contains(sql, "inserted_claims"):
+				return &pgQueClaimedRunRows{values: []domain.JobRun{{
+					ID:        "run-1",
+					JobID:     "job-1",
+					ProjectID: "project-a",
+					Status:    domain.StatusExecuting,
+				}}}, nil
+			case strings.Contains(sql, "pgque.receive"):
+				return nil, receiveErr
+			default:
+				t.Fatalf("unexpected query SQL = %s", sql)
+				return nil, nil
+			}
+		},
+		execFn: func(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
+			if strings.Contains(sql, "pgque.ack") || strings.Contains(sql, "pgque.force_next_tick") || strings.Contains(sql, "pgque.ticker") {
+				return pgconn.CommandTag{}, nil
+			}
+			t.Fatalf("unexpected exec SQL = %s", sql)
+			return pgconn.CommandTag{}, nil
+		},
+	}
+	q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
+	state := q.routeState("route-partial-fill")
+	state.configured.Store(true)
+	state.activeBatch = &pgQueActiveBatch{
+		BatchID: 12,
+		Messages: []pgQueMessage{
+			{ID: 1, BatchID: 12, Type: pgQueReadyEventType, Payload: string(marshalPgQueReadyEvent(pgQueReadyEvent{RunID: "run-1"})), CreatedAt: time.Now()},
+		},
+	}
+
+	runs, err := q.dequeueFromRoute(context.Background(), 2, "route-partial-fill", pgQueClaimFilter{})
+	require.NoError(t, err)
+	require.Len(t, runs, 1)
+	require.Equal(t, "run-1", runs[0].ID)
+}
+
+func TestPgQueDequeueFromRouteReturnsPartialClaimWhenEmptyBatchFinishFails(t *testing.T) {
+	t.Parallel()
+
+	ackErr := errors.New("ack failed")
+	receiveCalls := 0
+	ackCalls := 0
+	db := &mockDBTX{
+		queryFn: func(_ context.Context, sql string, _ ...any) (pgx.Rows, error) {
+			switch {
+			case strings.Contains(sql, "COALESCE(priority.priority"):
+				return &pgQueCandidateClaimStateRows{values: []pgQueCandidateClaimState{
+					{runID: "run-1", priority: 10, hasConcurrencyLimit: false},
+				}}, nil
+			case strings.Contains(sql, "inserted_claims"):
+				return &pgQueClaimedRunRows{values: []domain.JobRun{{
+					ID:        "run-1",
+					JobID:     "job-1",
+					ProjectID: "project-a",
+					Status:    domain.StatusExecuting,
+				}}}, nil
+			case strings.Contains(sql, "pgque.receive"):
+				receiveCalls++
+				return &pgQueMessageRows{values: []pgQueMessage{
+					{ID: 2, BatchID: 13, Type: pgQueReadyEventType, Payload: "not-json", CreatedAt: time.Now()},
+				}}, nil
+			default:
+				t.Fatalf("unexpected query SQL = %s", sql)
+				return nil, nil
+			}
+		},
+		queryRowFn: func(context.Context, string, ...any) pgx.Row {
+			return &mockRow{scanFn: func(dest ...any) error {
+				lag, ok := dest[0].(*int64)
+				require.True(t, ok)
+				*lag = 0
+				return nil
+			}}
+		},
+		execFn: func(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
+			switch {
+			case strings.Contains(sql, "pgque.ack"):
+				ackCalls++
+				if ackCalls == 2 {
+					return pgconn.CommandTag{}, ackErr
+				}
+			case strings.Contains(sql, "pgque.nack"):
+			case strings.Contains(sql, "pgque.force_next_tick"), strings.Contains(sql, "pgque.ticker"):
+			default:
+				t.Fatalf("unexpected exec SQL = %s", sql)
+			}
+			return pgconn.CommandTag{}, nil
+		},
+	}
+	q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
+	state := q.routeState("route-partial-empty-finish")
+	state.configured.Store(true)
+	state.activeBatch = &pgQueActiveBatch{
+		BatchID: 12,
+		Messages: []pgQueMessage{
+			{ID: 1, BatchID: 12, Type: pgQueReadyEventType, Payload: string(marshalPgQueReadyEvent(pgQueReadyEvent{RunID: "run-1"})), CreatedAt: time.Now()},
+		},
+	}
+
+	runs, err := q.dequeueFromRoute(context.Background(), 2, "route-partial-empty-finish", pgQueClaimFilter{})
+	require.NoError(t, err)
+	require.Len(t, runs, 1)
+	require.Equal(t, "run-1", runs[0].ID)
+	require.Equal(t, 1, receiveCalls)
+	require.Equal(t, 2, ackCalls)
 }
 
 func BenchmarkPgQueScanWorkerRoutesSingleRoute(b *testing.B) {
@@ -484,6 +1164,91 @@ func (r *stringRows) Values() ([]any, error) { return nil, nil }
 func (r *stringRows) RawValues() [][]byte    { return nil }
 func (r *stringRows) Conn() *pgx.Conn        { return nil }
 
+type pgQueMessageRows struct {
+	values []pgQueMessage
+	idx    int
+}
+
+func (r *pgQueMessageRows) Close()                                       {}
+func (r *pgQueMessageRows) Err() error                                   { return nil }
+func (r *pgQueMessageRows) CommandTag() pgconn.CommandTag                { return pgconn.CommandTag{} }
+func (r *pgQueMessageRows) FieldDescriptions() []pgconn.FieldDescription { return nil }
+func (r *pgQueMessageRows) Next() bool {
+	if r.idx >= len(r.values) {
+		return false
+	}
+	r.idx++
+	return true
+}
+func (r *pgQueMessageRows) Scan(dest ...any) error {
+	if len(dest) != 10 {
+		return errors.New("pgQueMessageRows: expected ten destinations")
+	}
+	msg := r.values[r.idx-1]
+	assignments := []struct {
+		dest any
+		src  any
+	}{
+		{dest: dest[0], src: msg.ID},
+		{dest: dest[1], src: msg.BatchID},
+		{dest: dest[2], src: msg.Type},
+		{dest: dest[3], src: msg.Payload},
+		{dest: dest[4], src: msg.RetryCount},
+		{dest: dest[5], src: msg.CreatedAt},
+		{dest: dest[6], src: msg.Extra1},
+		{dest: dest[7], src: msg.Extra2},
+		{dest: dest[8], src: msg.Extra3},
+		{dest: dest[9], src: msg.Extra4},
+	}
+	for _, assignment := range assignments {
+		if err := assignPgQueMessageValue(assignment.dest, assignment.src); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+func (r *pgQueMessageRows) Values() ([]any, error) { return nil, nil }
+func (r *pgQueMessageRows) RawValues() [][]byte    { return nil }
+func (r *pgQueMessageRows) Conn() *pgx.Conn        { return nil }
+
+func assignPgQueMessageValue(dest, src any) error {
+	switch ptr := dest.(type) {
+	case *int64:
+		value, ok := src.(int64)
+		if !ok {
+			return fmt.Errorf("pgQueMessageRows: source %T is not int64", src)
+		}
+		*ptr = value
+	case *string:
+		value, ok := src.(string)
+		if !ok {
+			return fmt.Errorf("pgQueMessageRows: source %T is not string", src)
+		}
+		*ptr = value
+	case **int32:
+		value, ok := src.(*int32)
+		if !ok && src != nil {
+			return fmt.Errorf("pgQueMessageRows: source %T is not *int32", src)
+		}
+		*ptr = value
+	case *time.Time:
+		value, ok := src.(time.Time)
+		if !ok {
+			return fmt.Errorf("pgQueMessageRows: source %T is not time.Time", src)
+		}
+		*ptr = value
+	case **string:
+		value, ok := src.(*string)
+		if !ok && src != nil {
+			return fmt.Errorf("pgQueMessageRows: source %T is not *string", src)
+		}
+		*ptr = value
+	default:
+		return fmt.Errorf("pgQueMessageRows: unsupported destination %T", dest)
+	}
+	return nil
+}
+
 type noRows struct{}
 
 func (r *noRows) Close()                                       {}
@@ -538,6 +1303,239 @@ func TestPgQueActiveBatchLockedBoundsEmptyLagCatchUp(t *testing.T) {
 	require.Equal(t, pgQueMaxCatchUpBatches, receiveCalls)
 	require.Equal(t, pgQueMaxCatchUpBatches, lagCalls)
 	require.Less(t, receiveCalls, 1024)
+}
+
+func TestPgQueActiveBatchLockedReturnsExistingActiveBatch(t *testing.T) {
+	t.Parallel()
+
+	q := NewPgQueQueue(&mockDBTX{
+		queryFn: func(context.Context, string, ...any) (pgx.Rows, error) {
+			t.Fatal("existing active batch must not receive from pgque")
+			return nil, nil
+		},
+	}, nil, PgQueConfig{})
+
+	tests := []struct {
+		name  string
+		batch *pgQueActiveBatch
+	}{
+		{
+			name:  "messages",
+			batch: &pgQueActiveBatch{Messages: []pgQueMessage{{ID: 1}}},
+		},
+		{
+			name:  "in flight",
+			batch: &pgQueActiveBatch{InFlight: 1},
+		},
+		{
+			name:  "closing",
+			batch: &pgQueActiveBatch{Closing: true},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			state := &pgQueRouteState{activeBatch: tt.batch}
+
+			got, err := q.activeBatchLocked(context.Background(), state, "stq_active")
+			require.NoError(t, err)
+			require.Same(t, tt.batch, got)
+			require.Same(t, tt.batch, state.activeBatch)
+		})
+	}
+}
+
+func TestPgQueActiveBatchLockedPropagatesReceiveAndLagErrors(t *testing.T) {
+	t.Parallel()
+
+	t.Run("receive error", func(t *testing.T) {
+		t.Parallel()
+
+		wantErr := errors.New("receive failed")
+		q := NewPgQueQueue(&mockDBTX{
+			queryFn: func(context.Context, string, ...any) (pgx.Rows, error) {
+				return nil, wantErr
+			},
+		}, nil, PgQueConfig{})
+
+		batch, err := q.activeBatchLocked(context.Background(), &pgQueRouteState{}, "stq_receive_error")
+		require.ErrorContains(t, err, "pgque receive")
+		require.ErrorIs(t, err, wantErr)
+		require.Nil(t, batch)
+	})
+
+	t.Run("consumer lag error", func(t *testing.T) {
+		t.Parallel()
+
+		wantErr := errors.New("lag failed")
+		q := NewPgQueQueue(&mockDBTX{
+			queryFn: func(context.Context, string, ...any) (pgx.Rows, error) {
+				return &noRows{}, nil
+			},
+			queryRowFn: func(context.Context, string, ...any) pgx.Row {
+				return &mockRow{scanFn: func(...any) error {
+					return wantErr
+				}}
+			},
+		}, nil, PgQueConfig{})
+
+		batch, err := q.activeBatchLocked(context.Background(), &pgQueRouteState{}, "stq_lag_error")
+		require.ErrorContains(t, err, "pgque consumer lag")
+		require.ErrorIs(t, err, wantErr)
+		require.Nil(t, batch)
+	})
+}
+
+func TestPgQueActiveBatchLockedStoresReceivedBatch(t *testing.T) {
+	t.Parallel()
+
+	createdAt := time.Now()
+	q := NewPgQueQueue(&mockDBTX{
+		queryFn: func(context.Context, string, ...any) (pgx.Rows, error) {
+			return &pgQueMessageRows{values: []pgQueMessage{
+				{ID: 11, BatchID: 7, Type: pgQueReadyEventType, Payload: "{}", CreatedAt: createdAt},
+				{ID: 12, BatchID: 7, Type: pgQueReadyEventType, Payload: "{}", CreatedAt: createdAt},
+			}}, nil
+		},
+		queryRowFn: func(context.Context, string, ...any) pgx.Row {
+			return &mockRow{scanFn: func(dest ...any) error {
+				lag, ok := dest[0].(*int64)
+				require.True(t, ok)
+				*lag = 3
+				return nil
+			}}
+		},
+	}, nil, PgQueConfig{})
+	state := &pgQueRouteState{}
+
+	batch, err := q.activeBatchLocked(context.Background(), state, "stq_ready")
+	require.NoError(t, err)
+	require.NotNil(t, batch)
+	require.Same(t, batch, state.activeBatch)
+	require.EqualValues(t, 7, batch.BatchID)
+	require.Len(t, batch.Messages, 2)
+	require.EqualValues(t, 11, batch.Messages[0].ID)
+}
+
+func TestPgQueReserveFromActiveBatchReturnsClosingAndDrainedBatches(t *testing.T) {
+	t.Parallel()
+
+	q := NewPgQueQueue(&mockDBTX{}, nil, PgQueConfig{})
+
+	closingState := &pgQueRouteState{activeBatch: &pgQueActiveBatch{Closing: true}}
+	reservation, err := q.reserveFromActiveBatch(context.Background(), closingState, "stq_closing", 1)
+	require.NoError(t, err)
+	require.Nil(t, reservation.Batch)
+
+	drainedBatch := &pgQueActiveBatch{}
+	drainedState := &pgQueRouteState{activeBatch: drainedBatch}
+	reservation, err = q.reserveFromActiveBatch(context.Background(), drainedState, "stq_drained", 1)
+	require.NoError(t, err)
+	require.Same(t, drainedBatch, reservation.Batch)
+	require.Empty(t, reservation.Candidates)
+	require.Empty(t, reservation.Invalid)
+}
+
+func TestPgQueReserveFromActiveBatchHandlesReceiveMissAndErrors(t *testing.T) {
+	t.Parallel()
+
+	t.Run("empty receive", func(t *testing.T) {
+		t.Parallel()
+
+		q := NewPgQueQueue(&mockDBTX{
+			queryFn: func(context.Context, string, ...any) (pgx.Rows, error) {
+				return &noRows{}, nil
+			},
+			queryRowFn: func(context.Context, string, ...any) pgx.Row {
+				return &mockRow{scanFn: func(dest ...any) error {
+					lag, ok := dest[0].(*int64)
+					require.True(t, ok)
+					*lag = 0
+					return nil
+				}}
+			},
+		}, nil, PgQueConfig{})
+
+		reservation, err := q.reserveFromActiveBatch(context.Background(), &pgQueRouteState{}, "stq_empty", 1)
+		require.NoError(t, err)
+		require.Nil(t, reservation.Batch)
+	})
+
+	t.Run("receive error", func(t *testing.T) {
+		t.Parallel()
+
+		wantErr := errors.New("receive failed")
+		q := NewPgQueQueue(&mockDBTX{
+			queryFn: func(context.Context, string, ...any) (pgx.Rows, error) {
+				return nil, wantErr
+			},
+		}, nil, PgQueConfig{})
+
+		reservation, err := q.reserveFromActiveBatch(context.Background(), &pgQueRouteState{}, "stq_error", 1)
+		require.ErrorIs(t, err, wantErr)
+		require.Nil(t, reservation.Batch)
+	})
+}
+
+func TestPgQueReserveFromActiveBatchParsesSortsAndLimitsCandidates(t *testing.T) {
+	t.Parallel()
+
+	batch := &pgQueActiveBatch{
+		BatchID: 50,
+		Messages: []pgQueMessage{
+			{ID: 1, BatchID: 50, Payload: "not json"},
+			{ID: 2, BatchID: 50, Payload: string(marshalPgQueReadyEvent(pgQueReadyEvent{RunID: "run-low", Generation: 1, Priority: 1}))},
+			{ID: 3, BatchID: 50, Payload: string(marshalPgQueReadyEvent(pgQueReadyEvent{RunID: "run-missing", Generation: 1, Priority: 9}))},
+			{ID: 4, BatchID: 50, Payload: string(marshalPgQueReadyEvent(pgQueReadyEvent{RunID: "run-high", Generation: 1, Priority: 1}))},
+			{ID: 5, BatchID: 50, Payload: string(marshalPgQueReadyEvent(pgQueReadyEvent{RunID: "", Generation: 1, Priority: 1}))},
+			{ID: 6, BatchID: 50, Payload: string(marshalPgQueReadyEvent(pgQueReadyEvent{RunID: "run-also-high", Generation: 1, Priority: 1}))},
+		},
+	}
+	q := NewPgQueQueue(&mockDBTX{
+		queryFn: func(context.Context, string, ...any) (pgx.Rows, error) {
+			return &pgQueCandidateClaimStateRows{values: []pgQueCandidateClaimState{
+				{runID: "run-low", priority: 10, hasConcurrencyLimit: false},
+				{runID: "run-high", priority: 30, hasConcurrencyLimit: true},
+				{runID: "run-also-high", priority: 30, hasConcurrencyLimit: false},
+				{runID: "run-missing", priority: 20, hasConcurrencyLimit: false},
+			}}, nil
+		},
+	}, nil, PgQueConfig{})
+	state := &pgQueRouteState{activeBatch: batch}
+
+	reservation, err := q.reserveFromActiveBatch(context.Background(), state, "stq_ready", 3)
+	require.NoError(t, err)
+	require.Same(t, batch, reservation.Batch)
+	require.Len(t, reservation.Invalid, 2)
+	require.EqualValues(t, 1, reservation.Invalid[0].ID)
+	require.EqualValues(t, 5, reservation.Invalid[1].ID)
+	require.Len(t, reservation.Candidates, 3)
+	require.Equal(t, "run-high", reservation.Candidates[0].Event.RunID)
+	require.True(t, reservation.Candidates[0].HasConcurrencyLimit)
+	require.Equal(t, "run-also-high", reservation.Candidates[1].Event.RunID)
+	require.Equal(t, "run-missing", reservation.Candidates[2].Event.RunID)
+	require.Equal(t, 1, batch.InFlight)
+	require.Equal(t, []pgQueMessage{{ID: 2, BatchID: 50, Payload: string(marshalPgQueReadyEvent(pgQueReadyEvent{RunID: "run-low", Generation: 1, Priority: 1}))}}, batch.Messages)
+}
+
+func TestPgQueReserveFromActiveBatchPropagatesRefreshError(t *testing.T) {
+	t.Parallel()
+
+	wantErr := errors.New("claim state failed")
+	q := NewPgQueQueue(&mockDBTX{
+		queryFn: func(context.Context, string, ...any) (pgx.Rows, error) {
+			return nil, wantErr
+		},
+	}, nil, PgQueConfig{})
+	state := &pgQueRouteState{activeBatch: &pgQueActiveBatch{
+		Messages: []pgQueMessage{
+			{ID: 1, Payload: string(marshalPgQueReadyEvent(pgQueReadyEvent{RunID: "run-1"}))},
+		},
+	}}
+
+	reservation, err := q.reserveFromActiveBatch(context.Background(), state, "stq_refresh_error", 1)
+	require.ErrorIs(t, err, wantErr)
+	require.Nil(t, reservation.Batch)
 }
 
 func TestUnclaimedReservedCandidates(t *testing.T) {
@@ -683,6 +1681,176 @@ func TestSelectPgQueClaimCandidates(t *testing.T) {
 			Candidates, 2)
 }
 
+func TestClaimReservedCandidatesEmptySkipsClaim(t *testing.T) {
+	t.Parallel()
+
+	q := NewPgQueQueue(&mockDBTX{
+		queryFn: func(context.Context, string, ...any) (pgx.Rows, error) {
+			t.Fatal("empty candidate set must not query claims")
+			return nil, nil
+		},
+	}, nil, PgQueConfig{})
+
+	runs, unclaimed, retry, err := q.claimReservedCandidates(context.Background(), nil, 1, pgQueClaimFilter{})
+	require.NoError(t, err)
+	require.Nil(t, runs)
+	require.Nil(t, unclaimed)
+	require.False(t, retry)
+}
+
+func TestClaimReservedCandidatesReturnsRetryableSelectionWhenNothingClaimed(t *testing.T) {
+	t.Parallel()
+
+	q := NewPgQueQueue(&mockDBTX{
+		queryFn: func(context.Context, string, ...any) (pgx.Rows, error) {
+			return routeErrorRows{}, nil
+		},
+	}, nil, PgQueConfig{})
+	candidates := []pgQueCandidate{
+		{Event: pgQueReadyEvent{RunID: "run-1", Generation: 1}},
+		{Event: pgQueReadyEvent{RunID: "run-2", Generation: 2}},
+	}
+
+	runs, unclaimed, retry, err := q.claimReservedCandidates(context.Background(), candidates, 1, pgQueClaimFilter{})
+	require.NoError(t, err)
+	require.Nil(t, runs)
+	require.True(t, retry)
+	require.Len(t, unclaimed, 1)
+	require.Equal(t, "run-1", unclaimed[0].Event.RunID)
+}
+
+func TestClaimReservedCandidatesPropagatesClaimError(t *testing.T) {
+	t.Parallel()
+
+	wantErr := errors.New("claim failed")
+	q := NewPgQueQueue(&mockDBTX{
+		queryFn: func(context.Context, string, ...any) (pgx.Rows, error) {
+			return nil, wantErr
+		},
+	}, nil, PgQueConfig{})
+	candidates := []pgQueCandidate{{Event: pgQueReadyEvent{RunID: "run-1", Generation: 1}}}
+
+	runs, unclaimed, retry, err := q.claimReservedCandidates(context.Background(), candidates, 1, pgQueClaimFilter{})
+	require.ErrorIs(t, err, wantErr)
+	require.Nil(t, runs)
+	require.Nil(t, unclaimed)
+	require.False(t, retry)
+}
+
+func TestClaimRunsValidatesRequestShape(t *testing.T) {
+	t.Parallel()
+
+	q := NewPgQueQueue(&mockDBTX{
+		queryFn: func(context.Context, string, ...any) (pgx.Rows, error) {
+			t.Fatal("invalid request must not query claims")
+			return nil, nil
+		},
+	}, nil, PgQueConfig{})
+
+	runs, err := q.claimRuns(context.Background(), pgQueClaimRunRequest{})
+	require.NoError(t, err)
+	require.Nil(t, runs)
+
+	runs, err = q.claimRuns(context.Background(), pgQueClaimRunRequest{
+		RunIDs:      []string{"run-1"},
+		Generations: nil,
+		Limit:       1,
+	})
+	require.ErrorContains(t, err, "mismatched id/generation counts")
+	require.Nil(t, runs)
+}
+
+func TestClaimRunsWrapsQueryErrors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name                string
+		hasConcurrencyLimit bool
+		want                string
+	}{
+		{
+			name: "unconstrained",
+			want: "pgque claim unconstrained runs",
+		},
+		{
+			name:                "with concurrency",
+			hasConcurrencyLimit: true,
+			want:                "pgque claim runs",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			wantErr := errors.New("query failed")
+			q := NewPgQueQueue(&mockDBTX{
+				queryFn: func(context.Context, string, ...any) (pgx.Rows, error) {
+					return nil, wantErr
+				},
+			}, nil, PgQueConfig{})
+
+			runs, err := q.claimRuns(context.Background(), pgQueClaimRunRequest{
+				RunIDs:              []string{"run-1"},
+				Generations:         []int64{1},
+				Limit:               1,
+				HasConcurrencyLimit: tt.hasConcurrencyLimit,
+			})
+			require.ErrorContains(t, err, tt.want)
+			require.ErrorIs(t, err, wantErr)
+			require.Nil(t, runs)
+		})
+	}
+}
+
+func TestScanPgQueClaimedRunsWrapsScanAndRowsErrors(t *testing.T) {
+	t.Parallel()
+
+	t.Run("scan error", func(t *testing.T) {
+		t.Parallel()
+
+		wantErr := errors.New("scan failed")
+		runs, err := scanPgQueClaimedRuns(&claimScanErrorRows{err: wantErr}, 1, "claim test")
+		require.ErrorContains(t, err, "claim test scan")
+		require.ErrorIs(t, err, wantErr)
+		require.Nil(t, runs)
+	})
+
+	t.Run("rows error", func(t *testing.T) {
+		t.Parallel()
+
+		wantErr := errors.New("rows failed")
+		runs, err := scanPgQueClaimedRuns(routeErrorRows{err: wantErr}, 1, "claim test")
+		require.ErrorContains(t, err, "claim test rows")
+		require.ErrorIs(t, err, wantErr)
+		require.Nil(t, runs)
+	})
+}
+
+func TestScanPgQueReadyRunsWrapsScanAndRowsErrors(t *testing.T) {
+	t.Parallel()
+
+	t.Run("scan error", func(t *testing.T) {
+		t.Parallel()
+
+		wantErr := errors.New("scan failed")
+		runs, err := scanPgQueReadyRuns(&claimScanErrorRows{err: wantErr}, 1, "ready test")
+		require.ErrorContains(t, err, "ready test scan")
+		require.ErrorIs(t, err, wantErr)
+		require.Nil(t, runs)
+	})
+
+	t.Run("rows error", func(t *testing.T) {
+		t.Parallel()
+
+		wantErr := errors.New("rows failed")
+		runs, err := scanPgQueReadyRuns(routeErrorRows{err: wantErr}, 1, "ready test")
+		require.ErrorContains(t, err, "ready test rows")
+		require.ErrorIs(t, err, wantErr)
+		require.Nil(t, runs)
+	})
+}
+
 func TestMarshalPgQueReadyEventEscapesFields(t *testing.T) {
 	want := pgQueReadyEvent{
 		RunID:      "run-\"\\\n\u2603",
@@ -695,6 +1863,30 @@ func TestMarshalPgQueReadyEventEscapesFields(t *testing.T) {
 
 	var got pgQueReadyEvent
 	require.NoError(t, json.Unmarshal(payload, &got))
+	require.Equal(t, want, got)
+}
+
+func TestMarshalPgQueReadyEventEscapesControlCharacters(t *testing.T) {
+	want := pgQueReadyEvent{
+		RunID:      "run-\b\f\r\t\x01\x1f",
+		RouteKey:   "route-\b\f\r\t\x02\x1e",
+		Generation: 7,
+		Priority:   4,
+	}
+
+	payload := marshalPgQueReadyEventText(want)
+
+	require.Contains(t, payload, `\b`)
+	require.Contains(t, payload, `\f`)
+	require.Contains(t, payload, `\r`)
+	require.Contains(t, payload, `\t`)
+	require.Contains(t, payload, `\u0001`)
+	require.Contains(t, payload, `\u001f`)
+	require.Contains(t, payload, `\u0002`)
+	require.Contains(t, payload, `\u001e`)
+
+	var got pgQueReadyEvent
+	require.NoError(t, json.Unmarshal([]byte(payload), &got))
 	require.Equal(t, want, got)
 }
 
@@ -761,6 +1953,144 @@ func TestPgQueRefreshCandidateClaimStateUpdatesSmallBatch(t *testing.T) {
 		9 ||
 		!candidates[2].HasConcurrencyLimit,
 	)
+}
+
+func TestPgQueRefreshCandidateClaimStateSkipsEmptyInput(t *testing.T) {
+	t.Parallel()
+
+	q := NewPgQueQueue(&mockDBTX{
+		queryFn: func(context.Context, string, ...any) (pgx.Rows, error) {
+			t.Fatal("empty candidate set must not query claim state")
+			return nil, nil
+		},
+	}, nil, PgQueConfig{})
+
+	require.NoError(t, q.refreshCandidateClaimState(context.Background(), nil))
+}
+
+func TestPgQueRefreshCandidateClaimStateWrapsQueryScanAndRowsErrors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		rows    pgx.Rows
+		queryFn func() (pgx.Rows, error)
+		want    string
+	}{
+		{
+			name: "query error",
+			queryFn: func() (pgx.Rows, error) {
+				return nil, errors.New("query failed")
+			},
+			want: "pgque candidate priorities",
+		},
+		{
+			name: "scan error",
+			queryFn: func() (pgx.Rows, error) {
+				return &claimScanErrorRows{err: errors.New("scan failed")}, nil
+			},
+			want: "pgque candidate claim state scan",
+		},
+		{
+			name: "rows error",
+			queryFn: func() (pgx.Rows, error) {
+				return routeErrorRows{err: errors.New("rows failed")}, nil
+			},
+			want: "pgque candidate claim state rows",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			q := NewPgQueQueue(&mockDBTX{
+				queryFn: func(context.Context, string, ...any) (pgx.Rows, error) {
+					return tt.queryFn()
+				},
+			}, nil, PgQueConfig{})
+			candidates := []pgQueCandidate{{Event: pgQueReadyEvent{RunID: "run-1"}}}
+
+			err := q.refreshCandidateClaimState(context.Background(), candidates)
+			require.ErrorContains(t, err, tt.want)
+		})
+	}
+}
+
+func TestPgQueRefreshCandidateClaimStateUpdatesLargeBatchByMap(t *testing.T) {
+	t.Parallel()
+
+	candidates := []pgQueCandidate{
+		{Event: pgQueReadyEvent{RunID: "run-1", Priority: 1}},
+		{Event: pgQueReadyEvent{RunID: "run-2", Priority: 2}},
+		{Event: pgQueReadyEvent{RunID: "run-3", Priority: 3}},
+		{Event: pgQueReadyEvent{RunID: "run-4", Priority: 4}},
+		{Event: pgQueReadyEvent{RunID: "run-5", Priority: 5}},
+		{Event: pgQueReadyEvent{RunID: "run-6", Priority: 6}},
+		{Event: pgQueReadyEvent{RunID: "run-7", Priority: 7}},
+		{Event: pgQueReadyEvent{RunID: "run-8", Priority: 8}},
+		{Event: pgQueReadyEvent{RunID: "run-9", Priority: 9}},
+	}
+	q := NewPgQueQueue(&mockDBTX{
+		queryFn: func(context.Context, string, ...any) (pgx.Rows, error) {
+			return &pgQueCandidateClaimStateRows{values: []pgQueCandidateClaimState{
+				{runID: "run-2", priority: 20, hasConcurrencyLimit: true},
+				{runID: "run-9", priority: 90, hasConcurrencyLimit: true},
+			}}, nil
+		},
+	}, nil, PgQueConfig{})
+
+	require.NoError(t, q.refreshCandidateClaimState(context.Background(), candidates))
+	require.Equal(t, 1, candidates[0].Event.Priority)
+	require.False(t, candidates[0].HasConcurrencyLimit)
+	require.Equal(t, 20, candidates[1].Event.Priority)
+	require.True(t, candidates[1].HasConcurrencyLimit)
+	require.Equal(t, 90, candidates[8].Event.Priority)
+	require.True(t, candidates[8].HasConcurrencyLimit)
+}
+
+func TestPgQueRefreshCandidateClaimStateWrapsLargeBatchScanAndRowsErrors(t *testing.T) {
+	t.Parallel()
+
+	newLargeCandidates := func() []pgQueCandidate {
+		candidates := make([]pgQueCandidate, pgQueSmallCandidateSetLimit+1)
+		for i := range candidates {
+			candidates[i] = pgQueCandidate{Event: pgQueReadyEvent{RunID: fmt.Sprintf("run-%d", i+1)}}
+		}
+		return candidates
+	}
+
+	tests := []struct {
+		name string
+		rows pgx.Rows
+		want string
+	}{
+		{
+			name: "scan error",
+			rows: &claimScanErrorRows{err: errors.New("scan failed")},
+			want: "pgque candidate claim state scan",
+		},
+		{
+			name: "rows error",
+			rows: routeErrorRows{err: errors.New("rows failed")},
+			want: "pgque candidate claim state rows",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			q := NewPgQueQueue(&mockDBTX{
+				queryFn: func(context.Context, string, ...any) (pgx.Rows, error) {
+					return tt.rows, nil
+				},
+			}, nil, PgQueConfig{})
+
+			err := q.refreshCandidateClaimState(context.Background(), newLargeCandidates())
+			require.ErrorContains(t, err, tt.want)
+		})
+	}
 }
 
 func BenchmarkSelectPgQueClaimCandidates(b *testing.B) {
@@ -1005,6 +2335,96 @@ func TestRemoveReservedMessagesClearsCompactedTail(t *testing.T) {
 	for _, msg := range messages[len(batch.Messages):] {
 		require.Equal(t, (pgQueMessage{}), msg)
 	}
+}
+
+func TestRemoveReservedMessagesCoversEdgeCases(t *testing.T) {
+	t.Parallel()
+
+	t.Run("nil and empty batch", func(t *testing.T) {
+		t.Parallel()
+
+		require.NotPanics(t, func() {
+			removeReservedMessages(nil, []pgQueMessage{{ID: 1}}, nil)
+		})
+		batch := &pgQueActiveBatch{}
+		removeReservedMessages(batch, []pgQueMessage{{ID: 1}}, nil)
+		require.Empty(t, batch.Messages)
+	})
+
+	t.Run("no removals", func(t *testing.T) {
+		t.Parallel()
+
+		batch := &pgQueActiveBatch{Messages: []pgQueMessage{{ID: 1}, {ID: 2}}}
+		removeReservedMessages(batch, nil, nil)
+		require.Equal(t, []pgQueMessage{{ID: 1}, {ID: 2}}, batch.Messages)
+	})
+
+	t.Run("all removals", func(t *testing.T) {
+		t.Parallel()
+
+		messages := []pgQueMessage{{ID: 1}, {ID: 2}}
+		batch := &pgQueActiveBatch{Messages: messages}
+		removeReservedMessages(batch, []pgQueMessage{{ID: 1}}, []pgQueCandidate{{Message: pgQueMessage{ID: 2}}})
+		require.Empty(t, batch.Messages)
+		require.Equal(t, pgQueMessage{}, messages[0])
+		require.Equal(t, pgQueMessage{}, messages[1])
+	})
+
+	t.Run("single invalid", func(t *testing.T) {
+		t.Parallel()
+
+		batch := &pgQueActiveBatch{Messages: []pgQueMessage{{ID: 1}, {ID: 2}, {ID: 3}}}
+		removeReservedMessages(batch, []pgQueMessage{{ID: 2}}, nil)
+		require.Equal(t, []pgQueMessage{{ID: 1}, {ID: 3}}, batch.Messages)
+	})
+
+	t.Run("single candidate", func(t *testing.T) {
+		t.Parallel()
+
+		batch := &pgQueActiveBatch{Messages: []pgQueMessage{{ID: 1}, {ID: 2}, {ID: 3}}}
+		removeReservedMessages(batch, nil, []pgQueCandidate{{Message: pgQueMessage{ID: 1}}})
+		require.Equal(t, []pgQueMessage{{ID: 2}, {ID: 3}}, batch.Messages)
+	})
+
+	t.Run("missing single id", func(t *testing.T) {
+		t.Parallel()
+
+		batch := &pgQueActiveBatch{Messages: []pgQueMessage{{ID: 1}, {ID: 2}}}
+		removeReservedMessage(batch, 99)
+		require.Equal(t, []pgQueMessage{{ID: 1}, {ID: 2}}, batch.Messages)
+	})
+}
+
+func TestRemoveReservedMessagesLargeRemovalSet(t *testing.T) {
+	t.Parallel()
+
+	messages := []pgQueMessage{
+		{ID: 1}, {ID: 2}, {ID: 3}, {ID: 4}, {ID: 5},
+		{ID: 6}, {ID: 7}, {ID: 8}, {ID: 9}, {ID: 10}, {ID: 11},
+	}
+	batch := &pgQueActiveBatch{Messages: messages}
+	invalid := []pgQueMessage{{ID: 2}, {ID: 4}, {ID: 6}, {ID: 8}, {ID: 10}}
+	candidates := []pgQueCandidate{
+		{Message: pgQueMessage{ID: 3}},
+		{Message: pgQueMessage{ID: 5}},
+		{Message: pgQueMessage{ID: 7}},
+		{Message: pgQueMessage{ID: 9}},
+	}
+
+	removeReservedMessages(batch, invalid, candidates)
+
+	require.Equal(t, []pgQueMessage{{ID: 1}, {ID: 11}}, batch.Messages)
+	for _, msg := range messages[len(batch.Messages):] {
+		require.Equal(t, pgQueMessage{}, msg)
+	}
+}
+
+func TestPgQueMessageIDInSet(t *testing.T) {
+	t.Parallel()
+
+	require.True(t, pgQueMessageIDInSet([]int64{1, 3, 5}, 3))
+	require.False(t, pgQueMessageIDInSet([]int64{1, 3, 5}, 2))
+	require.False(t, pgQueMessageIDInSet(nil, 1))
 }
 
 func BenchmarkRemoveReservedMessagesSingleCandidate(b *testing.B) {
@@ -1281,6 +2701,140 @@ func TestPgQueSendFreshReadyEventsUsesInitialGenerationWithoutLookup(t *testing.
 		RouteKey:   pgQueHTTPRouteKey,
 		Generation: 0,
 		Priority:   7,
+	})
+}
+
+func TestPgQueSendReadyEventWrapsRouteSetupError(t *testing.T) {
+	ctx := context.Background()
+	wantErr := errors.New("create queue failed")
+	db := &mockDBTX{
+		execFn: func(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
+			require.Contains(t, sql, "strait_pgque_routes")
+			return pgconn.CommandTag{}, wantErr
+		},
+		queryRowFn: func(_ context.Context, sql string, _ ...any) pgx.Row {
+			require.Failf(t, "test failure", "unexpected QueryRow SQL = %q", sql)
+			return &mockRow{}
+		},
+	}
+	q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
+
+	err := q.sendReadyEvent(ctx, db, &domain.JobRun{ID: "run-a", Status: domain.StatusQueued})
+
+	require.ErrorIs(t, err, wantErr)
+}
+
+func TestPgQueSendFreshReadyEventWrapsRouteLookupSetupSendAndRecordErrors(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("route lookup error", func(t *testing.T) {
+		wantErr := errors.New("lookup failed")
+		db := &mockDBTX{
+			queryRowFn: func(_ context.Context, sql string, _ ...any) pgx.Row {
+				require.Contains(t, sql, "FROM jobs")
+				return &mockRow{scanFn: func(...any) error { return wantErr }}
+			},
+		}
+		q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
+
+		err := q.sendFreshReadyEvent(ctx, db, &domain.JobRun{
+			ID:            "run-a",
+			JobID:         "job-a",
+			ProjectID:     "project-a",
+			Status:        domain.StatusQueued,
+			ExecutionMode: domain.ExecutionModeWorker,
+		})
+
+		require.ErrorContains(t, err, "pgque worker route lookup")
+		require.ErrorIs(t, err, wantErr)
+	})
+
+	t.Run("route setup error", func(t *testing.T) {
+		wantErr := errors.New("create queue failed")
+		db := &mockDBTX{
+			execFn: func(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
+				require.Contains(t, sql, "strait_pgque_routes")
+				return pgconn.CommandTag{}, wantErr
+			},
+		}
+		q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
+
+		err := q.sendFreshReadyEvent(ctx, db, &domain.JobRun{ID: "run-a", Status: domain.StatusQueued})
+
+		require.ErrorIs(t, err, wantErr)
+	})
+
+	t.Run("send error", func(t *testing.T) {
+		wantErr := errors.New("send failed")
+		db := &mockDBTX{
+			execFn: func(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
+				require.Contains(t, sql, "pgque.send")
+				return pgconn.CommandTag{}, wantErr
+			},
+		}
+		q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
+		q.routeState(pgQueHTTPRouteKey).configured.Store(true)
+
+		err := q.sendFreshReadyEvent(ctx, db, &domain.JobRun{ID: "run-a", Status: domain.StatusQueued})
+
+		require.ErrorContains(t, err, "pgque send ready event")
+		require.ErrorIs(t, err, wantErr)
+	})
+
+	t.Run("record error", func(t *testing.T) {
+		wantErr := errors.New("record failed")
+		db := &mockDBTX{
+			execFn: func(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
+				if strings.Contains(sql, "strait_pgque_ready_events") {
+					return pgconn.CommandTag{}, wantErr
+				}
+				require.Contains(t, sql, "pgque.send")
+				return pgconn.CommandTag{}, nil
+			},
+		}
+		q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
+		q.routeState(pgQueHTTPRouteKey).configured.Store(true)
+
+		err := q.sendFreshReadyEvent(ctx, db, &domain.JobRun{ID: "run-a", Status: domain.StatusQueued})
+
+		require.ErrorContains(t, err, "pgque record ready emits")
+		require.ErrorIs(t, err, wantErr)
+	})
+}
+
+func TestPgQueSendReadyPayloadBatchWrapsRouteSetupAndSendErrors(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("route setup error", func(t *testing.T) {
+		wantErr := errors.New("create queue failed")
+		db := &mockDBTX{
+			execFn: func(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
+				require.Contains(t, sql, "strait_pgque_routes")
+				return pgconn.CommandTag{}, wantErr
+			},
+		}
+		q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
+
+		err := q.sendReadyPayloadBatch(ctx, db, pgQueHTTPRouteKey, []string{"{}"})
+
+		require.ErrorIs(t, err, wantErr)
+	})
+
+	t.Run("send batch error", func(t *testing.T) {
+		wantErr := errors.New("send batch failed")
+		db := &mockDBTX{
+			execFn: func(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
+				require.Contains(t, sql, "pgque.send_batch")
+				return pgconn.CommandTag{}, wantErr
+			},
+		}
+		q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
+		q.routeState(pgQueHTTPRouteKey).configured.Store(true)
+
+		err := q.sendReadyPayloadBatch(ctx, db, pgQueHTTPRouteKey, []string{"{}"})
+
+		require.ErrorContains(t, err, "pgque send ready event batch")
+		require.ErrorIs(t, err, wantErr)
 	})
 }
 
@@ -1846,6 +3400,500 @@ func TestPgQueRecordReadyEmitBatchRejectsMismatchedInputs(t *testing.T) {
 		t, err.Error(), "mismatched id/generation counts")
 }
 
+func TestPgQueRecordReadyEmitBatchSkipsEmptyAndWrapsExecError(t *testing.T) {
+	ctx := context.Background()
+	var execCalls int
+	db := &mockDBTX{
+		execFn: func(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
+			execCalls++
+			require.Contains(t, sql, "strait_pgque_ready_events")
+			return pgconn.CommandTag{}, errors.New("insert failed")
+		},
+	}
+	q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
+
+	require.NoError(t, q.recordReadyEmitBatch(ctx, db, nil, nil))
+	require.Equal(t, 0, execCalls)
+
+	err := q.recordReadyEmitBatch(ctx, db, []string{"run-a"}, []int64{3})
+	require.ErrorContains(t, err, "pgque record ready emits")
+	require.Equal(t, 1, execCalls)
+}
+
+func TestNotifyExecutorQueueWakeSkipsEmptyAndWrapsExecError(t *testing.T) {
+	ctx := context.Background()
+	var execCalls int
+	wantErr := errors.New("notify failed")
+	db := &mockDBTX{
+		execFn: func(_ context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
+			execCalls++
+			require.Contains(t, sql, "pg_notify")
+			require.Equal(t, QueueWakeChannel, args[0])
+			require.Equal(t, "reason:2", args[1])
+			return pgconn.CommandTag{}, wantErr
+		},
+	}
+
+	require.NoError(t, notifyExecutorQueueWake(ctx, db, "reason", 0))
+	require.Equal(t, 0, execCalls)
+
+	err := notifyExecutorQueueWake(ctx, db, "reason", 2)
+	require.ErrorContains(t, err, "pgque notify executor wake")
+	require.ErrorIs(t, err, wantErr)
+	require.Equal(t, 1, execCalls)
+}
+
+func TestPgQueReconcileReadyRunsHandlesEmptyAndErrors(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("non positive limit skips query", func(t *testing.T) {
+		db := &mockDBTX{
+			queryFn: func(_ context.Context, sql string, _ ...any) (pgx.Rows, error) {
+				require.Failf(t, "test failure", "unexpected Query SQL = %q", sql)
+				return nil, nil
+			},
+		}
+		q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
+
+		count, err := q.ReconcileReadyRuns(ctx, 0)
+
+		require.NoError(t, err)
+		require.Zero(t, count)
+	})
+
+	t.Run("query error", func(t *testing.T) {
+		wantErr := errors.New("query failed")
+		db := &mockDBTX{
+			queryFn: func(_ context.Context, sql string, _ ...any) (pgx.Rows, error) {
+				require.Contains(t, sql, "job_run_read_state")
+				return nil, wantErr
+			},
+		}
+		q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
+
+		count, err := q.ReconcileReadyRuns(ctx, 1)
+
+		require.ErrorContains(t, err, "pgque reconcile ready runs: query")
+		require.ErrorIs(t, err, wantErr)
+		require.Zero(t, count)
+	})
+
+	t.Run("scan error", func(t *testing.T) {
+		wantErr := errors.New("scan failed")
+		db := &mockDBTX{
+			queryFn: func(_ context.Context, _ string, _ ...any) (pgx.Rows, error) {
+				return &claimScanErrorRows{err: wantErr}, nil
+			},
+		}
+		q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
+
+		count, err := q.ReconcileReadyRuns(ctx, 1)
+
+		require.ErrorContains(t, err, "pgque reconcile ready runs: scan")
+		require.ErrorIs(t, err, wantErr)
+		require.Zero(t, count)
+	})
+
+	t.Run("rows error", func(t *testing.T) {
+		wantErr := errors.New("rows failed")
+		db := &mockDBTX{
+			queryFn: func(_ context.Context, _ string, _ ...any) (pgx.Rows, error) {
+				return routeErrorRows{err: wantErr}, nil
+			},
+		}
+		q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
+
+		count, err := q.ReconcileReadyRuns(ctx, 1)
+
+		require.ErrorContains(t, err, "pgque reconcile ready runs: rows")
+		require.ErrorIs(t, err, wantErr)
+		require.Zero(t, count)
+	})
+
+	t.Run("empty rows", func(t *testing.T) {
+		db := &mockDBTX{
+			queryFn: func(_ context.Context, _ string, _ ...any) (pgx.Rows, error) {
+				return routeErrorRows{}, nil
+			},
+		}
+		q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
+
+		count, err := q.ReconcileReadyRuns(ctx, 1)
+
+		require.NoError(t, err)
+		require.Zero(t, count)
+	})
+
+	t.Run("send ready event error", func(t *testing.T) {
+		wantErr := errors.New("send failed")
+		var queryCalls int
+		db := &mockDBTX{
+			queryFn: func(_ context.Context, sql string, _ ...any) (pgx.Rows, error) {
+				queryCalls++
+				if strings.Contains(sql, "job_run_read_state") {
+					return &pgQueReconcileReadyRows{
+						values: []domain.JobRun{{
+							ID:            "run-a",
+							JobID:         "job-a",
+							ProjectID:     "project-a",
+							Status:        domain.StatusQueued,
+							Attempt:       1,
+							Priority:      5,
+							ExecutionMode: domain.ExecutionModeHTTP,
+						}},
+					}, nil
+				}
+				require.Contains(t, sql, "ready_generation")
+				return &pgQueGenerationRows{
+					values: []pgQueGenerationRow{{runID: "run-a", generation: 2}},
+				}, nil
+			},
+			execFn: func(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
+				require.Contains(t, sql, "pgque.send_batch")
+				return pgconn.CommandTag{}, wantErr
+			},
+		}
+		q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
+		q.routeState(pgQueHTTPRouteKey).configured.Store(true)
+
+		count, err := q.ReconcileReadyRuns(ctx, 1)
+
+		require.ErrorContains(t, err, "pgque send ready event batch")
+		require.ErrorIs(t, err, wantErr)
+		require.Zero(t, count)
+		require.Equal(t, 2, queryCalls)
+	})
+}
+
+func TestPgQueReadyPromotionHelpersHandleGuardsAndQueryErrors(t *testing.T) {
+	ctx := context.Background()
+	wantErr := errors.New("query failed")
+	db := &mockDBTX{
+		queryFn: func(_ context.Context, _ string, _ ...any) (pgx.Rows, error) {
+			return nil, wantErr
+		},
+	}
+	q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
+
+	runs, err := q.promoteDueRunsInTx(ctx, db, 1)
+	require.ErrorContains(t, err, "pgque promote due runs")
+	require.ErrorIs(t, err, wantErr)
+	require.Nil(t, runs)
+
+	runs, err = q.promoteReadyRetriesInTx(ctx, db, 0)
+	require.NoError(t, err)
+	require.Nil(t, runs)
+
+	runs, err = q.promoteReadyRetriesInTx(ctx, db, 1)
+	require.ErrorContains(t, err, "pgque promote ready retries")
+	require.ErrorIs(t, err, wantErr)
+	require.Nil(t, runs)
+
+	runs, err = q.requeuePausedJobRunsInTx(ctx, db, "workflow-run-a")
+	require.ErrorContains(t, err, "pgque requeue paused job runs")
+	require.ErrorIs(t, err, wantErr)
+	require.Nil(t, runs)
+}
+
+func TestPgQueActivateDueRunsHandlesGuardsEmptyPromotionAndCommitErrors(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("non positive limit skips transaction", func(t *testing.T) {
+		db := &mockDBTX{}
+		q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
+
+		count, err := q.ActivateDueRuns(ctx, 0)
+
+		require.NoError(t, err)
+		require.Zero(t, count)
+	})
+
+	t.Run("requires transaction support", func(t *testing.T) {
+		db := &mockDBTX{}
+		q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
+
+		count, err := q.ActivateDueRuns(ctx, 1)
+
+		require.ErrorContains(t, err, "requires transaction support")
+		require.Zero(t, count)
+	})
+
+	t.Run("begin error", func(t *testing.T) {
+		wantErr := errors.New("begin failed")
+		db := &mockTxDBTX{
+			beginFn: func(context.Context) (pgx.Tx, error) {
+				return nil, wantErr
+			},
+		}
+		q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
+
+		count, err := q.ActivateDueRuns(ctx, 1)
+
+		require.ErrorContains(t, err, "pgque activate due runs: begin tx")
+		require.ErrorIs(t, err, wantErr)
+		require.Zero(t, count)
+	})
+
+	t.Run("empty promotion commits", func(t *testing.T) {
+		tx := &readyMockTx{
+			queryFn: func(context.Context, string, ...any) (pgx.Rows, error) {
+				return routeErrorRows{}, nil
+			},
+		}
+		db := &mockTxDBTX{
+			beginFn: func(context.Context) (pgx.Tx, error) {
+				return tx, nil
+			},
+		}
+		q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
+
+		count, err := q.ActivateDueRuns(ctx, 1)
+
+		require.NoError(t, err)
+		require.Zero(t, count)
+		require.Equal(t, 1, tx.commitCalls)
+		require.Equal(t, 1, tx.rollbackCalls)
+	})
+
+	t.Run("empty promotion commit error", func(t *testing.T) {
+		wantErr := errors.New("commit failed")
+		tx := &readyMockTx{
+			commitErr: wantErr,
+			queryFn: func(context.Context, string, ...any) (pgx.Rows, error) {
+				return routeErrorRows{}, nil
+			},
+		}
+		db := &mockTxDBTX{
+			beginFn: func(context.Context) (pgx.Tx, error) {
+				return tx, nil
+			},
+		}
+		q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
+
+		count, err := q.ActivateDueRuns(ctx, 1)
+
+		require.ErrorContains(t, err, "pgque activate due runs: commit empty promotion")
+		require.ErrorIs(t, err, wantErr)
+		require.Zero(t, count)
+	})
+}
+
+func TestPgQueActivateDueRunsSendsReadyEventsAndHandlesNotifyAndCommitErrors(t *testing.T) {
+	ctx := context.Background()
+
+	newTx := func(t *testing.T, execErr func(string) error, commitErr error) *readyMockTx {
+		t.Helper()
+		queryCalls := 0
+		return &readyMockTx{
+			commitErr: commitErr,
+			queryFn: func(_ context.Context, sql string, _ ...any) (pgx.Rows, error) {
+				queryCalls++
+				switch queryCalls {
+				case 1, 3:
+					require.Contains(t, sql, "scheduled_at")
+					return routeErrorRows{}, nil
+				case 2:
+					require.Contains(t, sql, "job_retries")
+					return &pgQueClaimedRunRows{
+						values: []domain.JobRun{{
+							ID:            "run-a",
+							JobID:         "job-a",
+							ProjectID:     "project-a",
+							Status:        domain.StatusQueued,
+							Attempt:       1,
+							Priority:      6,
+							ExecutionMode: domain.ExecutionModeHTTP,
+						}},
+					}, nil
+				case 4:
+					require.Contains(t, sql, "ready_generation")
+					return &pgQueGenerationRows{
+						values: []pgQueGenerationRow{{runID: "run-a", generation: 9}},
+					}, nil
+				default:
+					require.Failf(t, "test failure", "unexpected Query SQL = %q", sql)
+					return nil, nil
+				}
+			},
+			execFn: func(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
+				if execErr != nil {
+					if err := execErr(sql); err != nil {
+						return pgconn.CommandTag{}, err
+					}
+				}
+				return pgconn.CommandTag{}, nil
+			},
+		}
+	}
+
+	t.Run("notify error", func(t *testing.T) {
+		wantErr := errors.New("notify failed")
+		tx := newTx(t, func(sql string) error {
+			if strings.Contains(sql, "pg_notify") {
+				return wantErr
+			}
+			return nil
+		}, nil)
+		db := &mockTxDBTX{
+			beginFn: func(context.Context) (pgx.Tx, error) {
+				return tx, nil
+			},
+		}
+		q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
+		q.routeState(pgQueHTTPRouteKey).configured.Store(true)
+
+		count, err := q.ActivateDueRuns(ctx, 2)
+
+		require.ErrorContains(t, err, "pgque notify executor wake")
+		require.ErrorIs(t, err, wantErr)
+		require.Zero(t, count)
+		require.Zero(t, tx.commitCalls)
+	})
+
+	t.Run("commit error", func(t *testing.T) {
+		wantErr := errors.New("commit failed")
+		tx := newTx(t, nil, wantErr)
+		db := &mockTxDBTX{
+			beginFn: func(context.Context) (pgx.Tx, error) {
+				return tx, nil
+			},
+		}
+		q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
+		q.routeState(pgQueHTTPRouteKey).configured.Store(true)
+
+		count, err := q.ActivateDueRuns(ctx, 2)
+
+		require.ErrorContains(t, err, "pgque activate due runs: commit")
+		require.ErrorIs(t, err, wantErr)
+		require.Zero(t, count)
+		require.Equal(t, 1, tx.commitCalls)
+	})
+}
+
+func TestPgQueRequeuePausedJobRunsHandlesGuardsEmptyAndCommitErrors(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("empty workflow id skips transaction", func(t *testing.T) {
+		db := &mockDBTX{}
+		q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
+
+		count, err := q.RequeuePausedJobRuns(ctx, "")
+
+		require.NoError(t, err)
+		require.Zero(t, count)
+	})
+
+	t.Run("requires transaction support", func(t *testing.T) {
+		db := &mockDBTX{}
+		q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
+
+		count, err := q.RequeuePausedJobRuns(ctx, "workflow-run-a")
+
+		require.ErrorContains(t, err, "requires transaction support")
+		require.Zero(t, count)
+	})
+
+	t.Run("begin error", func(t *testing.T) {
+		wantErr := errors.New("begin failed")
+		db := &mockTxDBTX{
+			beginFn: func(context.Context) (pgx.Tx, error) {
+				return nil, wantErr
+			},
+		}
+		q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
+
+		count, err := q.RequeuePausedJobRuns(ctx, "workflow-run-a")
+
+		require.ErrorContains(t, err, "pgque requeue paused job runs: begin tx")
+		require.ErrorIs(t, err, wantErr)
+		require.Zero(t, count)
+	})
+
+	t.Run("empty requeue commits", func(t *testing.T) {
+		tx := &readyMockTx{
+			queryFn: func(context.Context, string, ...any) (pgx.Rows, error) {
+				return routeErrorRows{}, nil
+			},
+		}
+		db := &mockTxDBTX{
+			beginFn: func(context.Context) (pgx.Tx, error) {
+				return tx, nil
+			},
+		}
+		q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
+
+		count, err := q.RequeuePausedJobRuns(ctx, "workflow-run-a")
+
+		require.NoError(t, err)
+		require.Zero(t, count)
+		require.Equal(t, 1, tx.commitCalls)
+		require.Equal(t, 1, tx.rollbackCalls)
+	})
+
+	t.Run("commit error", func(t *testing.T) {
+		wantErr := errors.New("commit failed")
+		tx := &readyMockTx{
+			commitErr: wantErr,
+			queryFn: func(context.Context, string, ...any) (pgx.Rows, error) {
+				return routeErrorRows{}, nil
+			},
+		}
+		db := &mockTxDBTX{
+			beginFn: func(context.Context) (pgx.Tx, error) {
+				return tx, nil
+			},
+		}
+		q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
+
+		count, err := q.RequeuePausedJobRuns(ctx, "workflow-run-a")
+
+		require.ErrorContains(t, err, "pgque requeue paused job runs: commit")
+		require.ErrorIs(t, err, wantErr)
+		require.Zero(t, count)
+		require.Equal(t, 1, tx.commitCalls)
+	})
+
+	t.Run("send ready event error", func(t *testing.T) {
+		wantErr := errors.New("generation failed")
+		queryCalls := 0
+		tx := &readyMockTx{
+			queryFn: func(_ context.Context, sql string, _ ...any) (pgx.Rows, error) {
+				queryCalls++
+				if queryCalls == 1 {
+					require.Contains(t, sql, "workflow_step_runs")
+					return &pgQueClaimedRunRows{
+						values: []domain.JobRun{{
+							ID:            "run-a",
+							JobID:         "job-a",
+							ProjectID:     "project-a",
+							Status:        domain.StatusQueued,
+							Attempt:       1,
+							Priority:      4,
+							ExecutionMode: domain.ExecutionModeHTTP,
+						}},
+					}, nil
+				}
+				require.Contains(t, sql, "ready_generation")
+				return nil, wantErr
+			},
+		}
+		db := &mockTxDBTX{
+			beginFn: func(context.Context) (pgx.Tx, error) {
+				return tx, nil
+			},
+		}
+		q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
+		q.routeState(pgQueHTTPRouteKey).configured.Store(true)
+
+		count, err := q.RequeuePausedJobRuns(ctx, "workflow-run-a")
+
+		require.ErrorContains(t, err, "pgque ready generations")
+		require.ErrorIs(t, err, wantErr)
+		require.Zero(t, count)
+		require.Zero(t, tx.commitCalls)
+	})
+}
+
 func BenchmarkPgQueRecordReadyEmitBatch(b *testing.B) {
 	db := &mockDBTX{}
 	q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
@@ -1865,6 +3913,471 @@ func BenchmarkPgQueRecordReadyEmitBatch(b *testing.B) {
 	for b.Loop() {
 		pgQueReadyEmitBatchErrBenchmarkSink = q.recordReadyEmitBatch(context.Background(), db, runIDs, readyGenerations)
 	}
+}
+
+func TestPgQueEnqueueNonTxEmitsFreshReadyEventOnlyForReadyRuns(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("ready run", func(t *testing.T) {
+		var inserted bool
+		var sendCalls int
+		var recordCalls int
+		db := &mockDBTX{
+			queryRowFn: func(_ context.Context, sql string, _ ...any) pgx.Row {
+				require.Contains(t, sql, "INSERT INTO job_runs")
+				return &mockRow{scanFn: func(dest ...any) error {
+					inserted = true
+					return assignTimeDest(dest[0], time.Now())
+				}}
+			},
+			execFn: func(_ context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
+				switch {
+				case strings.Contains(sql, "pgque.send"):
+					sendCalls++
+					require.Equal(t, pgQueReadyEventType, args[1])
+					assertPgQueReadyEvent(t, args[2].(string), pgQueReadyEvent{
+						RunID:      "run-ready",
+						RouteKey:   pgQueHTTPRouteKey,
+						Generation: pgQueInitialReadyGeneration,
+						Priority:   3,
+					})
+				case strings.Contains(sql, "strait_pgque_ready_events"):
+					recordCalls++
+					require.True(t, slices.Equal(args[0].([]string), []string{"run-ready"}))
+					require.True(t, slices.Equal(args[1].([]int64), []int64{pgQueInitialReadyGeneration}))
+				default:
+					require.Failf(t, "test failure", "unexpected Exec SQL = %q", sql)
+				}
+				return pgconn.CommandTag{}, nil
+			},
+		}
+		q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
+		q.routeState(pgQueHTTPRouteKey).configured.Store(true)
+
+		err := q.Enqueue(ctx, &domain.JobRun{
+			ID:        "run-ready",
+			JobID:     "job-a",
+			ProjectID: "project-a",
+			Priority:  3,
+		})
+
+		require.NoError(t, err)
+		require.True(t, inserted)
+		require.Equal(t, 1, sendCalls)
+		require.Equal(t, 1, recordCalls)
+	})
+
+	t.Run("future scheduled run", func(t *testing.T) {
+		future := time.Now().Add(time.Hour)
+		var insertedStatus domain.RunStatus
+		var execCalls int
+		db := &mockDBTX{
+			queryRowFn: func(_ context.Context, sql string, args ...any) pgx.Row {
+				require.Contains(t, sql, "INSERT INTO job_runs")
+				insertedStatus = args[3].(domain.RunStatus)
+				return &mockRow{scanFn: func(dest ...any) error {
+					return assignTimeDest(dest[0], time.Now())
+				}}
+			},
+			execFn: func(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
+				execCalls++
+				require.Failf(t, "test failure", "unexpected Exec SQL = %q", sql)
+				return pgconn.CommandTag{}, nil
+			},
+		}
+		q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
+
+		run := &domain.JobRun{
+			ID:          "run-delayed",
+			JobID:       "job-a",
+			ProjectID:   "project-a",
+			ScheduledAt: &future,
+		}
+		err := q.Enqueue(ctx, run)
+
+		require.NoError(t, err)
+		require.Equal(t, domain.StatusDelayed, run.Status)
+		require.Equal(t, domain.StatusDelayed, insertedStatus)
+		require.Zero(t, execCalls)
+	})
+}
+
+func TestPgQueEnqueueTransactionalRouteBeginCommitAndSendErrors(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("route cache error prevents transaction", func(t *testing.T) {
+		wantErr := errors.New("route lookup failed")
+		var began bool
+		db := &mockTxDBTX{
+			beginFn: func(context.Context) (pgx.Tx, error) {
+				began = true
+				return &readyMockTx{}, nil
+			},
+		}
+		db.queryRowFn = func(_ context.Context, sql string, _ ...any) pgx.Row {
+			require.Contains(t, sql, "FROM jobs")
+			return &mockRow{scanFn: func(...any) error { return wantErr }}
+		}
+		q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
+
+		err := q.Enqueue(ctx, &domain.JobRun{
+			ID:            "run-worker",
+			JobID:         "job-a",
+			ProjectID:     "project-a",
+			ExecutionMode: domain.ExecutionModeWorker,
+		})
+
+		require.ErrorContains(t, err, "pgque worker route lookup")
+		require.ErrorIs(t, err, wantErr)
+		require.False(t, began)
+	})
+
+	t.Run("begin error", func(t *testing.T) {
+		wantErr := errors.New("begin failed")
+		db := &mockTxDBTX{
+			beginFn: func(context.Context) (pgx.Tx, error) {
+				return nil, wantErr
+			},
+		}
+		q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
+		q.routeState(pgQueHTTPRouteKey).configured.Store(true)
+
+		err := q.Enqueue(ctx, &domain.JobRun{ID: "run-a", JobID: "job-a", ProjectID: "project-a"})
+
+		require.ErrorContains(t, err, "pgque enqueue: begin tx")
+		require.ErrorIs(t, err, wantErr)
+	})
+
+	t.Run("commit error", func(t *testing.T) {
+		wantErr := errors.New("commit failed")
+		tx := &readyMockTx{
+			commitErr: wantErr,
+			queryRowFn: func(_ context.Context, sql string, _ ...any) pgx.Row {
+				require.Contains(t, sql, "INSERT INTO job_runs")
+				return &mockRow{scanFn: func(dest ...any) error {
+					return assignTimeDest(dest[0], time.Now())
+				}}
+			},
+		}
+		db := &mockTxDBTX{
+			beginFn: func(context.Context) (pgx.Tx, error) {
+				return tx, nil
+			},
+		}
+		q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
+
+		future := time.Now().Add(time.Hour)
+		err := q.Enqueue(ctx, &domain.JobRun{
+			ID:          "run-delayed",
+			JobID:       "job-a",
+			ProjectID:   "project-a",
+			ScheduledAt: &future,
+		})
+
+		require.ErrorContains(t, err, "pgque enqueue: commit")
+		require.ErrorIs(t, err, wantErr)
+		require.Equal(t, 1, tx.commitCalls)
+		require.Equal(t, 1, tx.rollbackCalls)
+	})
+}
+
+func TestPgQueEnqueueInTxHandlesMarkWriterAndNonReadyPaths(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("mark storage error", func(t *testing.T) {
+		wantErr := errors.New("set local failed")
+		tx := &readyMockTx{
+			execFn: func(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
+				require.Contains(t, sql, "SET LOCAL strait.queue_backend")
+				return pgconn.CommandTag{}, wantErr
+			},
+		}
+		q := NewPgQueQueue(tx, NewPostgresRunWriter(tx), PgQueConfig{})
+
+		err := q.EnqueueInTx(ctx, tx, &domain.JobRun{ID: "run-a", JobID: "job-a", ProjectID: "project-a"})
+
+		require.ErrorContains(t, err, "pgque mark queue storage")
+		require.ErrorIs(t, err, wantErr)
+	})
+
+	t.Run("run writer error", func(t *testing.T) {
+		wantErr := errors.New("insert failed")
+		tx := &readyMockTx{
+			queryRowFn: func(_ context.Context, sql string, _ ...any) pgx.Row {
+				require.Contains(t, sql, "INSERT INTO job_runs")
+				return &mockRow{scanFn: func(...any) error { return wantErr }}
+			},
+		}
+		q := NewPgQueQueue(tx, NewPostgresRunWriter(tx), PgQueConfig{})
+
+		err := q.EnqueueInTx(ctx, tx, &domain.JobRun{ID: "run-a", JobID: "job-a", ProjectID: "project-a"})
+
+		require.ErrorContains(t, err, "enqueue run in tx")
+		require.ErrorIs(t, err, wantErr)
+	})
+
+	t.Run("non ready run skips ready event", func(t *testing.T) {
+		future := time.Now().Add(time.Hour)
+		var inserted bool
+		var sendCalls int
+		tx := &readyMockTx{
+			execFn: func(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
+				if strings.Contains(sql, "pgque.send") || strings.Contains(sql, "strait_pgque_ready_events") {
+					sendCalls++
+				}
+				return pgconn.CommandTag{}, nil
+			},
+			queryRowFn: func(_ context.Context, sql string, _ ...any) pgx.Row {
+				require.Contains(t, sql, "INSERT INTO job_runs")
+				return &mockRow{scanFn: func(dest ...any) error {
+					inserted = true
+					return assignTimeDest(dest[0], time.Now())
+				}}
+			},
+		}
+		q := NewPgQueQueue(tx, NewPostgresRunWriter(tx), PgQueConfig{})
+
+		run := &domain.JobRun{ID: "run-delayed", JobID: "job-a", ProjectID: "project-a", ScheduledAt: &future}
+		err := q.EnqueueInTx(ctx, tx, run)
+
+		require.NoError(t, err)
+		require.True(t, inserted)
+		require.Equal(t, domain.StatusDelayed, run.Status)
+		require.Zero(t, sendCalls)
+	})
+}
+
+func TestPgQueEnqueueBatchHandlesEmptyNonTxAndTransactionalErrors(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("empty batch", func(t *testing.T) {
+		db := &mockBatchDB{}
+		q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
+
+		inserted, err := q.EnqueueBatch(ctx, nil)
+
+		require.NoError(t, err)
+		require.Zero(t, inserted)
+		require.Empty(t, db.getExecCalls())
+	})
+
+	t.Run("route cache error", func(t *testing.T) {
+		db := &mockBatchDB{}
+		q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
+
+		inserted, err := q.EnqueueBatch(ctx, []*domain.JobRun{{
+			ID:            "run-worker",
+			JobID:         "",
+			ProjectID:     "project-a",
+			ExecutionMode: domain.ExecutionModeWorker,
+		}})
+
+		require.ErrorContains(t, err, "missing job id")
+		require.Zero(t, inserted)
+	})
+
+	t.Run("non transactional writer error", func(t *testing.T) {
+		db := &mockNoCopyDB{}
+		q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
+		q.routeState(pgQueHTTPRouteKey).configured.Store(true)
+
+		inserted, err := q.EnqueueBatch(ctx, []*domain.JobRun{{
+			ID:        "run-a",
+			JobID:     "job-a",
+			ProjectID: "project-a",
+		}})
+
+		require.ErrorContains(t, err, "underlying db does not support CopyFrom")
+		require.Zero(t, inserted)
+	})
+
+	t.Run("non transactional ready event error", func(t *testing.T) {
+		wantErr := errors.New("send failed")
+		db := &mockBatchDB{
+			execFn: func(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
+				if strings.Contains(sql, "pgque.send_batch") {
+					return pgconn.CommandTag{}, wantErr
+				}
+				return pgconn.CommandTag{}, nil
+			},
+		}
+		q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
+		q.routeState(pgQueHTTPRouteKey).configured.Store(true)
+
+		inserted, err := q.EnqueueBatch(ctx, []*domain.JobRun{{
+			ID:        "run-a",
+			JobID:     "job-a",
+			ProjectID: "project-a",
+		}})
+
+		require.ErrorContains(t, err, "pgque send ready event batch")
+		require.ErrorIs(t, err, wantErr)
+		require.Zero(t, inserted)
+	})
+
+	t.Run("transaction begin error", func(t *testing.T) {
+		wantErr := errors.New("begin failed")
+		db := &mockTxDBTX{
+			beginFn: func(context.Context) (pgx.Tx, error) {
+				return nil, wantErr
+			},
+		}
+		q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
+		q.routeState(pgQueHTTPRouteKey).configured.Store(true)
+
+		inserted, err := q.EnqueueBatch(ctx, []*domain.JobRun{{ID: "run-a", JobID: "job-a", ProjectID: "project-a"}})
+
+		require.ErrorContains(t, err, "pgque enqueue batch: begin tx")
+		require.ErrorIs(t, err, wantErr)
+		require.Zero(t, inserted)
+	})
+
+	t.Run("transaction mark storage error", func(t *testing.T) {
+		wantErr := errors.New("set local failed")
+		tx := &readyMockTx{
+			execFn: func(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
+				require.Contains(t, sql, "SET LOCAL strait.queue_backend")
+				return pgconn.CommandTag{}, wantErr
+			},
+		}
+		db := &mockTxDBTX{
+			beginFn: func(context.Context) (pgx.Tx, error) {
+				return tx, nil
+			},
+		}
+		q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
+		q.routeState(pgQueHTTPRouteKey).configured.Store(true)
+
+		inserted, err := q.EnqueueBatch(ctx, []*domain.JobRun{{ID: "run-a", JobID: "job-a", ProjectID: "project-a"}})
+
+		require.ErrorContains(t, err, "pgque mark queue storage")
+		require.ErrorIs(t, err, wantErr)
+		require.Zero(t, inserted)
+	})
+
+	t.Run("transaction writer error", func(t *testing.T) {
+		wantErr := errors.New("copy failed")
+		tx := &readyMockTx{
+			copyFromFn: func(context.Context, pgx.Identifier, []string, pgx.CopyFromSource) (int64, error) {
+				return 0, wantErr
+			},
+		}
+		db := &mockTxDBTX{
+			beginFn: func(context.Context) (pgx.Tx, error) {
+				return tx, nil
+			},
+		}
+		q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
+		q.routeState(pgQueHTTPRouteKey).configured.Store(true)
+
+		inserted, err := q.EnqueueBatch(ctx, []*domain.JobRun{{ID: "run-a", JobID: "job-a", ProjectID: "project-a"}})
+
+		require.ErrorContains(t, err, "enqueue batch: copy from")
+		require.ErrorIs(t, err, wantErr)
+		require.Zero(t, inserted)
+	})
+
+	t.Run("transaction ready event error", func(t *testing.T) {
+		wantErr := errors.New("send failed")
+		tx := &readyMockTx{
+			copyFromFn: func(_ context.Context, _ pgx.Identifier, _ []string, rowSrc pgx.CopyFromSource) (int64, error) {
+				var count int64
+				for rowSrc.Next() {
+					count++
+				}
+				return count, rowSrc.Err()
+			},
+			execFn: func(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
+				if strings.Contains(sql, "pgque.send_batch") {
+					return pgconn.CommandTag{}, wantErr
+				}
+				return pgconn.CommandTag{}, nil
+			},
+		}
+		db := &mockTxDBTX{
+			beginFn: func(context.Context) (pgx.Tx, error) {
+				return tx, nil
+			},
+		}
+		q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
+		q.routeState(pgQueHTTPRouteKey).configured.Store(true)
+
+		inserted, err := q.EnqueueBatch(ctx, []*domain.JobRun{{ID: "run-a", JobID: "job-a", ProjectID: "project-a"}})
+
+		require.ErrorContains(t, err, "pgque send ready event batch")
+		require.ErrorIs(t, err, wantErr)
+		require.Zero(t, inserted)
+	})
+
+	t.Run("transaction commit error", func(t *testing.T) {
+		wantErr := errors.New("commit failed")
+		future := time.Now().Add(time.Hour)
+		tx := &readyMockTx{
+			commitErr: wantErr,
+			copyFromFn: func(_ context.Context, _ pgx.Identifier, _ []string, rowSrc pgx.CopyFromSource) (int64, error) {
+				var count int64
+				for rowSrc.Next() {
+					count++
+				}
+				return count, rowSrc.Err()
+			},
+		}
+		db := &mockTxDBTX{
+			beginFn: func(context.Context) (pgx.Tx, error) {
+				return tx, nil
+			},
+		}
+		q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
+
+		inserted, err := q.EnqueueBatch(ctx, []*domain.JobRun{{
+			ID:          "run-delayed",
+			JobID:       "job-a",
+			ProjectID:   "project-a",
+			ScheduledAt: &future,
+		}})
+
+		require.ErrorContains(t, err, "pgque enqueue batch: commit")
+		require.ErrorIs(t, err, wantErr)
+		require.Zero(t, inserted)
+		require.Equal(t, 1, tx.commitCalls)
+		require.Equal(t, 1, tx.rollbackCalls)
+	})
+}
+
+func TestNormalizePgQueEnqueueStatus(t *testing.T) {
+	t.Run("nil run", func(t *testing.T) {
+		require.False(t, normalizePgQueEnqueueStatus(nil))
+	})
+
+	t.Run("terminal run is not ready", func(t *testing.T) {
+		run := &domain.JobRun{Status: domain.StatusCompleted}
+
+		require.False(t, normalizePgQueEnqueueStatus(run))
+		require.Equal(t, domain.StatusCompleted, run.Status)
+	})
+
+	t.Run("blank status becomes queued", func(t *testing.T) {
+		run := &domain.JobRun{}
+
+		require.True(t, normalizePgQueEnqueueStatus(run))
+		require.Equal(t, domain.StatusQueued, run.Status)
+	})
+
+	t.Run("future schedule becomes delayed", func(t *testing.T) {
+		future := time.Now().Add(time.Hour)
+		run := &domain.JobRun{ScheduledAt: &future}
+
+		require.False(t, normalizePgQueEnqueueStatus(run))
+		require.Equal(t, domain.StatusDelayed, run.Status)
+	})
+
+	t.Run("past schedule stays queued", func(t *testing.T) {
+		past := time.Now().Add(-time.Hour)
+		run := &domain.JobRun{ScheduledAt: &past}
+
+		require.True(t, normalizePgQueEnqueueStatus(run))
+		require.Equal(t, domain.StatusQueued, run.Status)
+	})
 }
 
 func TestPgQueEnqueueExistingSendsReadyEventForQueuedRun(t *testing.T) {
@@ -2099,6 +4612,173 @@ func (r *pgQueCandidateClaimStateRows) Values() ([]any, error) { return nil, nil
 func (r *pgQueCandidateClaimStateRows) RawValues() [][]byte    { return nil }
 func (r *pgQueCandidateClaimStateRows) Conn() *pgx.Conn        { return nil }
 
+type claimScanErrorRows struct {
+	err     error
+	scanned bool
+}
+
+func (r *claimScanErrorRows) Close()                                       {}
+func (r *claimScanErrorRows) Err() error                                   { return nil }
+func (r *claimScanErrorRows) CommandTag() pgconn.CommandTag                { return pgconn.CommandTag{} }
+func (r *claimScanErrorRows) FieldDescriptions() []pgconn.FieldDescription { return nil }
+func (r *claimScanErrorRows) Next() bool {
+	if r.scanned {
+		return false
+	}
+	r.scanned = true
+	return true
+}
+func (r *claimScanErrorRows) Scan(...any) error      { return r.err }
+func (r *claimScanErrorRows) Values() ([]any, error) { return nil, nil }
+func (r *claimScanErrorRows) RawValues() [][]byte    { return nil }
+func (r *claimScanErrorRows) Conn() *pgx.Conn        { return nil }
+
+type pgQueClaimedRunRows struct {
+	values []domain.JobRun
+	idx    int
+}
+
+func (r *pgQueClaimedRunRows) Close()                                       {}
+func (r *pgQueClaimedRunRows) Err() error                                   { return nil }
+func (r *pgQueClaimedRunRows) CommandTag() pgconn.CommandTag                { return pgconn.CommandTag{} }
+func (r *pgQueClaimedRunRows) FieldDescriptions() []pgconn.FieldDescription { return nil }
+func (r *pgQueClaimedRunRows) Next() bool {
+	if r.idx >= len(r.values) {
+		return false
+	}
+	r.idx++
+	return true
+}
+func (r *pgQueClaimedRunRows) Scan(dest ...any) error {
+	if len(dest) != 35 {
+		return fmt.Errorf("pgQueClaimedRunRows: got %d destinations, want 35", len(dest))
+	}
+	run := r.values[r.idx-1]
+	now := time.Now()
+	assignments := []func() error{
+		func() error { return assignStringDest(dest[0], run.ID) },
+		func() error { return assignStringDest(dest[1], run.JobID) },
+		func() error { return assignStringDest(dest[2], run.ProjectID) },
+		func() error { return assignRunStatusDest(dest[3], run.Status) },
+		func() error { return assignIntDest(dest[4], max(run.Attempt, 1)) },
+		func() error { return assignBytesDest(dest[5], []byte(`{}`)) },
+		func() error { return assignBytesDest(dest[6], nil) },
+		func() error { return assignBytesDest(dest[7], []byte(`{}`)) },
+		func() error { return assignStringPtrDest(dest[8], nil) },
+		func() error { return assignStringPtrDest(dest[9], nil) },
+		func() error { return assignStringDest(dest[10], "system") },
+		func() error { return assignTimePtrDest(dest[11], nil) },
+		func() error { return assignTimePtrDest(dest[12], &now) },
+		func() error { return assignTimePtrDest(dest[13], nil) },
+		func() error { return assignTimePtrDest(dest[14], nil) },
+		func() error { return assignTimePtrDest(dest[15], nil) },
+		func() error { return assignTimePtrDest(dest[16], nil) },
+		func() error { return assignStringPtrDest(dest[17], nil) },
+		func() error { return assignIntDest(dest[18], run.Priority) },
+		func() error { return assignStringPtrDest(dest[19], nil) },
+		func() error { return assignIntDest(dest[20], max(run.JobVersion, 1)) },
+		func() error { return assignTimeDest(dest[21], now) },
+		func() error { return assignStringPtrDest(dest[22], nil) },
+		func() error { return assignBytesDest(dest[23], nil) },
+		func() error { return assignBoolDest(dest[24], run.DebugMode) },
+		func() error { return assignStringPtrDest(dest[25], nil) },
+		func() error { return assignIntDest(dest[26], run.LineageDepth) },
+		func() error { return assignBytesDest(dest[27], []byte(`{}`)) },
+		func() error { return assignStringPtrDest(dest[28], nil) },
+		func() error { return assignStringPtrDest(dest[29], nil) },
+		func() error { return assignStringPtrDest(dest[30], nil) },
+		func() error { return assignStringPtrDest(dest[31], nil) },
+		func() error { return assignStringPtrDest(dest[32], stringPtr(string(domain.ExecutionModeHTTP))) },
+		func() error { return assignBoolDest(dest[33], false) },
+		func() error { return assignStringPtrDest(dest[34], nil) },
+	}
+	for _, assign := range assignments {
+		if err := assign(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+func (r *pgQueClaimedRunRows) Values() ([]any, error) { return nil, nil }
+func (r *pgQueClaimedRunRows) RawValues() [][]byte    { return nil }
+func (r *pgQueClaimedRunRows) Conn() *pgx.Conn        { return nil }
+
+func assignStringDest(dest any, value string) error {
+	ptr, ok := dest.(*string)
+	if !ok {
+		return fmt.Errorf("destination %T is not *string", dest)
+	}
+	*ptr = value
+	return nil
+}
+
+func assignRunStatusDest(dest any, value domain.RunStatus) error {
+	ptr, ok := dest.(*domain.RunStatus)
+	if !ok {
+		return fmt.Errorf("destination %T is not *domain.RunStatus", dest)
+	}
+	*ptr = value
+	return nil
+}
+
+func assignIntDest(dest any, value int) error {
+	ptr, ok := dest.(*int)
+	if !ok {
+		return fmt.Errorf("destination %T is not *int", dest)
+	}
+	*ptr = value
+	return nil
+}
+
+func assignBytesDest(dest any, value []byte) error {
+	ptr, ok := dest.(*[]byte)
+	if !ok {
+		return fmt.Errorf("destination %T is not *[]byte", dest)
+	}
+	*ptr = value
+	return nil
+}
+
+func assignStringPtrDest(dest any, value *string) error {
+	ptr, ok := dest.(**string)
+	if !ok {
+		return fmt.Errorf("destination %T is not **string", dest)
+	}
+	*ptr = value
+	return nil
+}
+
+func assignTimePtrDest(dest any, value *time.Time) error {
+	ptr, ok := dest.(**time.Time)
+	if !ok {
+		return fmt.Errorf("destination %T is not **time.Time", dest)
+	}
+	*ptr = value
+	return nil
+}
+
+func assignTimeDest(dest any, value time.Time) error {
+	ptr, ok := dest.(*time.Time)
+	if !ok {
+		return fmt.Errorf("destination %T is not *time.Time", dest)
+	}
+	*ptr = value
+	return nil
+}
+
+func assignBoolDest(dest any, value bool) error {
+	ptr, ok := dest.(*bool)
+	if !ok {
+		return fmt.Errorf("destination %T is not *bool", dest)
+	}
+	*ptr = value
+	return nil
+}
+
+func stringPtr(value string) *string {
+	return &value
+}
+
 type pgQueGenerationRows struct {
 	values []pgQueGenerationRow
 	idx    int
@@ -2135,6 +4815,118 @@ func (r *pgQueGenerationRows) Scan(dest ...any) error {
 func (r *pgQueGenerationRows) Values() ([]any, error) { return nil, nil }
 func (r *pgQueGenerationRows) RawValues() [][]byte    { return nil }
 func (r *pgQueGenerationRows) Conn() *pgx.Conn        { return nil }
+
+type pgQueReconcileReadyRows struct {
+	values []domain.JobRun
+	idx    int
+}
+
+func (r *pgQueReconcileReadyRows) Close()                                       {}
+func (r *pgQueReconcileReadyRows) Err() error                                   { return nil }
+func (r *pgQueReconcileReadyRows) CommandTag() pgconn.CommandTag                { return pgconn.CommandTag{} }
+func (r *pgQueReconcileReadyRows) FieldDescriptions() []pgconn.FieldDescription { return nil }
+func (r *pgQueReconcileReadyRows) Next() bool {
+	if r.idx >= len(r.values) {
+		return false
+	}
+	r.idx++
+	return true
+}
+func (r *pgQueReconcileReadyRows) Scan(dest ...any) error {
+	if len(dest) != 8 {
+		return errors.New("pgQueReconcileReadyRows: expected eight destinations")
+	}
+	run := r.values[r.idx-1]
+	assignments := []func() error{
+		func() error { return assignStringDest(dest[0], run.ID) },
+		func() error { return assignStringDest(dest[1], run.JobID) },
+		func() error { return assignStringDest(dest[2], run.ProjectID) },
+		func() error { return assignRunStatusDest(dest[3], run.Status) },
+		func() error { return assignIntDest(dest[4], run.Attempt) },
+		func() error { return assignIntDest(dest[5], run.Priority) },
+		func() error { return assignExecutionModeDest(dest[6], run.ExecutionMode) },
+		func() error { return assignStringDest(dest[7], run.QueueName) },
+	}
+	for _, assign := range assignments {
+		if err := assign(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+func (r *pgQueReconcileReadyRows) Values() ([]any, error) { return nil, nil }
+func (r *pgQueReconcileReadyRows) RawValues() [][]byte    { return nil }
+func (r *pgQueReconcileReadyRows) Conn() *pgx.Conn        { return nil }
+
+func assignExecutionModeDest(dest any, value domain.ExecutionMode) error {
+	ptr, ok := dest.(*domain.ExecutionMode)
+	if !ok {
+		return fmt.Errorf("destination %T is not *domain.ExecutionMode", dest)
+	}
+	*ptr = value
+	return nil
+}
+
+type readyMockTx struct {
+	queryFn       func(context.Context, string, ...any) (pgx.Rows, error)
+	execFn        func(context.Context, string, ...any) (pgconn.CommandTag, error)
+	queryRowFn    func(context.Context, string, ...any) pgx.Row
+	copyFromFn    func(context.Context, pgx.Identifier, []string, pgx.CopyFromSource) (int64, error)
+	commitErr     error
+	rollbackErr   error
+	batchResults  pgx.BatchResults
+	sentBatch     *pgx.Batch
+	commitCalls   int
+	rollbackCalls int
+}
+
+func (m *readyMockTx) Begin(context.Context) (pgx.Tx, error) { return nil, errors.New("nested") }
+func (m *readyMockTx) Commit(context.Context) error {
+	m.commitCalls++
+	return m.commitErr
+}
+func (m *readyMockTx) Rollback(context.Context) error {
+	m.rollbackCalls++
+	return m.rollbackErr
+}
+func (m *readyMockTx) CopyFrom(
+	ctx context.Context,
+	tableName pgx.Identifier,
+	columnNames []string,
+	rowSrc pgx.CopyFromSource,
+) (int64, error) {
+	if m.copyFromFn != nil {
+		return m.copyFromFn(ctx, tableName, columnNames, rowSrc)
+	}
+	return 0, nil
+}
+func (m *readyMockTx) SendBatch(_ context.Context, b *pgx.Batch) pgx.BatchResults {
+	m.sentBatch = b
+	return m.batchResults
+}
+func (m *readyMockTx) LargeObjects() pgx.LargeObjects { return pgx.LargeObjects{} }
+func (m *readyMockTx) Prepare(context.Context, string, string) (*pgconn.StatementDescription, error) {
+	return nil, nil
+}
+func (m *readyMockTx) Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
+	if m.execFn != nil {
+		return m.execFn(ctx, sql, args...)
+	}
+	return pgconn.CommandTag{}, nil
+}
+func (m *readyMockTx) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
+	if m.queryFn != nil {
+		return m.queryFn(ctx, sql, args...)
+	}
+	return routeErrorRows{}, nil
+}
+func (m *readyMockTx) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
+	if m.queryRowFn != nil {
+		return m.queryRowFn(ctx, sql, args...)
+	}
+	return &mockRow{}
+}
+func (m *readyMockTx) Conn() *pgx.Conn { return nil }
 
 func assertPgQueReadyEvent(t *testing.T, payload string, want pgQueReadyEvent) {
 	t.Helper()

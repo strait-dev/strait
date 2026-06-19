@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"net"
 	"strings"
 	"testing"
@@ -282,6 +283,67 @@ func TestResolveAPIKey_RejectsMalformedAPIKeyBeforeStoreLookup(t *testing.T) {
 	}
 }
 
+func TestResolveAPIKeyWithResolver_RejectsUnresolvedKeys(t *testing.T) {
+	t.Parallel()
+
+	rawKey := "strait_" + strings.Repeat("a", 32)
+	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs("authorization", "Bearer "+rawKey))
+
+	tests := []struct {
+		name     string
+		resolver apiKeyResolver
+	}{
+		{
+			name:     "missing resolver",
+			resolver: nil,
+		},
+		{
+			name: "resolver error",
+			resolver: apiKeyResolverFunc(func(context.Context, string) (*domain.APIKey, error) {
+				return nil, errors.New("lookup failed")
+			}),
+		},
+		{
+			name: "resolver returns nil key",
+			resolver: apiKeyResolverFunc(func(context.Context, string) (*domain.APIKey, error) {
+				return nil, nil
+			}),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := resolveAPIKeyFromContextWithResolver(ctx, tt.resolver)
+			require.Error(t, err)
+			require.Nil(t, got)
+			s, ok := status.FromError(err)
+			require.True(t, ok)
+			require.Equal(t, codes.Unauthenticated, s.Code())
+		})
+	}
+}
+
+func TestResolveAPIKeyWithResolver_ReturnsValidatedKey(t *testing.T) {
+	t.Parallel()
+
+	rawKey := "strait_" + strings.Repeat("b", 32)
+	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs("authorization", "Bearer "+rawKey))
+	want := &domain.APIKey{
+		ID:        "key-1",
+		ProjectID: "project-1",
+		Scopes:    []string{domain.ScopeWorkersConnect},
+	}
+
+	got, err := resolveAPIKeyFromContextWithResolver(ctx, apiKeyResolverFunc(func(_ context.Context, keyHash string) (*domain.APIKey, error) {
+		require.Equal(t, hashGRPCAPIKey(rawKey), keyHash)
+		return want, nil
+	}))
+	require.NoError(t, err)
+	require.Same(t, want, got)
+}
+
 type fakeGRPCAuthLimiter struct {
 	blocked     bool
 	retryAfter  time.Duration
@@ -437,15 +499,15 @@ func TestAPIKey_Revoked(t *testing.T) {
 		ID:        "k",
 		ProjectID: "p",
 		RevokedAt: &past,
+		Scopes:    []string{domain.ScopeWorkersConnect},
 	}
 
-	if apiKey.RevokedAt != nil {
-		// expected
-		return
-	}
-	assert.Fail(t,
+	err := validateWorkerAPIKey(apiKey)
+	require.Error(t, err)
 
-		"expected key to be detected as revoked")
+	s, ok := status.FromError(err)
+	require.True(t, ok)
+	require.Equal(t, codes.Unauthenticated, s.Code())
 }
 
 func TestValidateWorkerAPIKey_RequiresWorkersConnectScope(t *testing.T) {

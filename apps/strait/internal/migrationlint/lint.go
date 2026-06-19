@@ -226,10 +226,7 @@ func LintPairs(dir string) ([]Violation, error) {
 		}
 	}
 	sort.Slice(out, func(i, j int) bool {
-		if out[i].File != out[j].File {
-			return out[i].File < out[j].File
-		}
-		return out[i].Snippet < out[j].Snippet
+		return out[i].File < out[j].File
 	})
 	return out, nil
 }

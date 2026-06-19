@@ -1,4 +1,4 @@
-.PHONY: build test lint vet preflight deploy deploy-staging
+.PHONY: build test lint vet mutation-test preflight deploy deploy-staging
 .PHONY: test-integration-fast test-integration-clean
 .PHONY: dev dev-up dev-down dev-status dev-logs dev-clean
 .PHONY: loadtest-server loadtest-quick loadtest-throughput
@@ -37,6 +37,13 @@ lint:
 
 vet:
 	go vet ./...
+
+mutation-test:
+	@if [ -z "$(PKG)" ]; then \
+		echo "Usage: make mutation-test PKG=./internal/errors"; \
+		exit 2; \
+	fi
+	./scripts/mutation-test.sh $(PKG)
 
 vulncheck:
 	govulncheck ./...
