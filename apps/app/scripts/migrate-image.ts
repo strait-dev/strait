@@ -75,7 +75,7 @@ const auth = betterAuth({
         ? [process.env.OIDC_AUDIENCE]
         : undefined,
       allowDynamicClientRegistration: true,
-      allowUnauthenticatedClientRegistration: true,
+      // allowUnauthenticatedClientRegistration is intentionally omitted (default: false).
       accessTokenExpiresIn: 900,
       refreshTokenExpiresIn: 2_592_000,
       codeExpiresIn: 600,

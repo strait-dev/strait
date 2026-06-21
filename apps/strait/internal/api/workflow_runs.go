@@ -79,6 +79,10 @@ func (s *Server) handleListWorkflowRunsByProject(ctx context.Context, input *Lis
 		return nil, huma.Error400BadRequest("tag_key is required when tag_value is provided")
 	}
 
+	if input.TagKey != "" && input.Status != "" {
+		return nil, huma.Error400BadRequest("status filter cannot be combined with tag_key; use one or the other")
+	}
+
 	var status *domain.WorkflowRunStatus
 	if input.Status != "" {
 		parsed := domain.WorkflowRunStatus(input.Status)

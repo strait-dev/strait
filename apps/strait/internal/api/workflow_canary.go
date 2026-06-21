@@ -93,23 +93,28 @@ func (s *Server) handleUpdateCanaryDeployment(ctx context.Context, input *Update
 		return nil, err
 	}
 
+	// Fetch before mutating so we have a snapshot to return.
+	canary, err := s.store.GetActiveCanaryDeployment(ctx, input.WorkflowID)
+	if err != nil {
+		if errors.Is(err, store.ErrCanaryNotFound) {
+			return nil, huma.Error404NotFound("no active canary deployment found for this workflow")
+		}
+		return nil, huma.Error500InternalServerError("failed to load canary deployment")
+	}
+
 	if err := s.store.UpdateCanaryDeploymentTraffic(ctx, input.WorkflowID, input.Body.TrafficPct); err != nil {
 		if errors.Is(err, store.ErrCanaryNotFound) {
 			return nil, huma.Error404NotFound("no active canary deployment found for this workflow")
 		}
 		return nil, huma.Error500InternalServerError("failed to update canary deployment")
 	}
+	canary.TrafficPct = input.Body.TrafficPct
 
-	// If traffic reached 100%, complete the canary.
 	if input.Body.TrafficPct >= 100 {
 		if err := s.store.CompleteCanaryDeployment(ctx, input.WorkflowID, "completed"); err != nil {
 			return nil, huma.Error500InternalServerError("failed to complete canary deployment")
 		}
-	}
-
-	canary, err := s.store.GetActiveCanaryDeployment(ctx, input.WorkflowID)
-	if err != nil && !errors.Is(err, store.ErrCanaryNotFound) {
-		return nil, huma.Error500InternalServerError("failed to load canary deployment")
+		canary.Status = "completed"
 	}
 
 	s.emitAuditEvent(ctx, domain.AuditActionCanaryDeploymentUpdated, "canary_deployment", input.WorkflowID, map[string]any{

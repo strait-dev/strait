@@ -267,10 +267,10 @@ var allRules = []rule{
 	{
 		id:    RuleDropIndexNonConcurrent,
 		re:    regexp.MustCompile(`(?is)\bDROP\s+INDEX\b`),
-		negRe: regexp.MustCompile(`(?is)\b(CONCURRENTLY|IF\s+EXISTS)\b`),
-		// We allow DROP INDEX IF EXISTS since it's still safe, but warn
-		// on plain DROP INDEX without any qualifier.
-		message: "DROP INDEX without CONCURRENTLY or IF EXISTS can break reads under load; use DROP INDEX CONCURRENTLY",
+		negRe: regexp.MustCompile(`(?is)\bCONCURRENTLY\b`),
+		// IF EXISTS does not affect locking; only CONCURRENTLY avoids ACCESS EXCLUSIVE.
+		// https://www.postgresql.org/docs/current/sql-dropindex.html
+		message: "DROP INDEX without CONCURRENTLY acquires ACCESS EXCLUSIVE; use DROP INDEX CONCURRENTLY IF EXISTS",
 	},
 	{
 		id:      RuleSetNotNull,

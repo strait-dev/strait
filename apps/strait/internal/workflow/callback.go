@@ -36,6 +36,7 @@ type CallbackStore interface {
 	UpdateStepRunStatus(ctx context.Context, id string, status domain.StepRunStatus, fields map[string]any) error
 	UpdateStepRunStatusFrom(ctx context.Context, id string, from, to domain.StepRunStatus, fields map[string]any) error
 	IncrementStepDeps(ctx context.Context, workflowRunID string, completedStepRef string) ([]storepkg.StepDepResult, error)
+	IncrementStepDepsIncludingFailed(ctx context.Context, workflowRunID string, completedStepRef string) ([]storepkg.StepDepResult, error)
 	IncrementStepRunAttempt(ctx context.Context, id string, newAttempt int) error
 	GetWorkflowRun(ctx context.Context, id string) (*domain.WorkflowRun, error)
 	UpdateWorkflowRunStatus(ctx context.Context, id string, from, to domain.WorkflowRunStatus, fields map[string]any) error
@@ -412,7 +413,8 @@ func (s *StepCallback) handleCompensationJobTerminal(ctx context.Context, run *d
 
 	if status == domain.CompensationFailed {
 		if err := s.store.UpdateWorkflowRunStatus(ctx, compRun.WorkflowRunID, domain.WfStatusCompensating, domain.WfStatusCompensationFailed, map[string]any{
-			"error": errMsg,
+			"finished_at": finishedAt,
+			"error":       errMsg,
 		}); err != nil {
 			return true, fmt.Errorf("mark workflow compensation failed: %w", err)
 		}
@@ -502,7 +504,7 @@ func (s *StepCallback) OnEventReceived(ctx context.Context, trigger *domain.Even
 	s.tryEmitEvent(ctx, targetStepRun, wc)
 
 	// Fan-in and start ready children.
-	if err := s.fanInAndStartReadyChildren(ctx, targetStepRun, wc); err != nil {
+	if err := s.fanInAndStartReadyChildren(ctx, targetStepRun, wc, false); err != nil {
 		s.logger.Error("failed to process event-completed step", "step_ref", targetStepRun.StepRef, "error", err)
 		return fmt.Errorf("process event-completed step %s: %w", targetStepRun.StepRef, err)
 	}
@@ -533,7 +535,7 @@ func (s *StepCallback) OnStepCompleted(ctx context.Context, workflowRunID string
 
 	s.tryEmitEvent(ctx, target, wc)
 
-	if err := s.fanInAndStartReadyChildren(ctx, target, wc); err != nil {
+	if err := s.fanInAndStartReadyChildren(ctx, target, wc, false); err != nil {
 		s.logger.Error("OnStepCompleted: failed to advance workflow", "step_ref", target.StepRef, "error", err)
 		return
 	}
