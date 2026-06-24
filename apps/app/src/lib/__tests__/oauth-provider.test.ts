@@ -62,4 +62,21 @@ describe("OAuth provider configuration", () => {
     // The jwt plugin adds the JWKS endpoint
     expect(auth.api).toBeDefined();
   });
+
+  it("does not allow unauthenticated client registration", async () => {
+    // The unauthenticated registration endpoint must be closed. Allowing it
+    // lets any party register OAuth clients with arbitrary redirect_uris,
+    // enabling authorization-code phishing against real users.
+    const { getAuth } = await import("@/lib/auth.server");
+    const auth = await getAuth();
+    // We verify the flag is not enabled by calling the register endpoint
+    // without a session and expecting a 401.
+    const request = new Request("http://localhost/api/auth/oauth2/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ redirect_uris: ["https://attacker.com/cb"] }),
+    });
+    const response = await auth.handler(request);
+    expect(response.status).toBe(401);
+  });
 });

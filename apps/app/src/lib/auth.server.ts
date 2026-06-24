@@ -345,7 +345,10 @@ const createAuth = () => {
           : undefined,
         scopes: [...ALL_OAUTH_SCOPES],
         allowDynamicClientRegistration: true,
-        allowUnauthenticatedClientRegistration: true,
+        // allowUnauthenticatedClientRegistration is intentionally omitted (default: false).
+        // Allowing it lets any party register an OAuth client with an arbitrary redirect_uri,
+        // enabling authorization-code phishing. All client registration requires a session.
+        clientRegistrationClientSecretExpiration: 60 * 60 * 24 * 90, // 90 days in seconds
         clientRegistrationDefaultScopes: [...DEFAULT_REGISTRATION_SCOPES],
         clientRegistrationAllowedScopes: [...STRAIT_API_SCOPES],
         accessTokenExpiresIn: 900, // 15 minutes — short-lived for security

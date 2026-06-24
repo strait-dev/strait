@@ -6,8 +6,20 @@ import (
 	"time"
 
 	"strait/internal/domain"
+	"strait/internal/store"
 	"strait/internal/worker"
 )
+
+// stepRetryTransactioner is the subset of the store that can wrap operations in
+// a single database transaction. *store.Queries satisfies this interface; the
+// mock used in unit tests does not, which causes scheduleStepRetry to fall back
+// to sequential (non-transactional) execution in those tests.
+//
+// True transactionality is verified in integration tests that use a real
+// PostgreSQL connection.
+type stepRetryTransactioner interface {
+	WithTx(ctx context.Context, fn func(context.Context, store.DBTX) error) error
+}
 
 func (s *StepCallback) checkStepRetry(_ context.Context, stepRun *domain.WorkflowStepRun, _ *domain.JobRun, wc *wfCtx) (bool, time.Time, int, error) {
 	failedStep, ok := wc.stepByRef[stepRun.StepRef]
@@ -45,6 +57,21 @@ func (s *StepCallback) checkStepRetry(_ context.Context, stepRun *domain.Workflo
 }
 
 func (s *StepCallback) scheduleStepRetry(ctx context.Context, jobRun *domain.JobRun, stepRun *domain.WorkflowStepRun, nextRetryAt time.Time, newAttempt int) error {
+	if tx, ok := s.store.(stepRetryTransactioner); ok {
+		return tx.WithTx(ctx, func(txCtx context.Context, _ store.DBTX) error {
+			return s.scheduleStepRetryWrites(txCtx, jobRun, stepRun, nextRetryAt, newAttempt)
+		})
+	}
+	// Fallback for tests: the mock store does not implement stepRetryTransactioner,
+	// so writes execute sequentially without a transaction wrapper.
+	return s.scheduleStepRetryWrites(ctx, jobRun, stepRun, nextRetryAt, newAttempt)
+}
+
+// scheduleStepRetryWrites performs the three DB writes that record a step retry.
+// It must be called inside a transaction (via scheduleStepRetry) to guarantee
+// atomicity: if the process crashes between writes, the attempt counter and the
+// job_retries row would be inconsistent, permanently stalling the step.
+func (s *StepCallback) scheduleStepRetryWrites(ctx context.Context, jobRun *domain.JobRun, stepRun *domain.WorkflowStepRun, nextRetryAt time.Time, newAttempt int) error {
 	if err := s.store.IncrementStepRunAttempt(ctx, stepRun.ID, newAttempt); err != nil {
 		return fmt.Errorf("increment step run attempt: %w", err)
 	}
@@ -82,7 +109,7 @@ func (s *StepCallback) handleFailedStep(ctx context.Context, stepRun *domain.Wor
 		}
 		return s.checkWorkflowCompletion(ctx, stepRun.WorkflowRunID, wc)
 	case domain.Continue:
-		if err := s.fanInAndStartReadyChildren(ctx, stepRun, wc); err != nil {
+		if err := s.fanInAndStartReadyChildren(ctx, stepRun, wc, true); err != nil {
 			return fmt.Errorf("fan-in for continue policy on step %s: %w", stepRun.StepRef, err)
 		}
 		return s.checkWorkflowCompletion(ctx, stepRun.WorkflowRunID, wc)

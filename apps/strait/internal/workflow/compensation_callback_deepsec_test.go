@@ -74,6 +74,7 @@ func TestOnJobRunTerminal_CompensationFailureMarksWorkflowFailed(t *testing.T) {
 			require.Equal(t, domain.WfStatusCompensating, from)
 			require.Equal(t, domain.WfStatusCompensationFailed, to)
 			require.Equal(t, "refund failed", fields["error"])
+			require.NotNil(t, fields["finished_at"])
 
 			workflowTo = to
 			return nil

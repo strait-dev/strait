@@ -23,6 +23,7 @@ import {
 } from "@/lib/oauth-scopes";
 import { captureException } from "@/lib/sentry";
 import { authMiddleware } from "@/middlewares/auth";
+import { type ClientInfo, resolveRedirectHost } from "./consent-utils";
 
 type ScopeLevel = "read" | "write" | "admin";
 
@@ -42,17 +43,6 @@ function buildSearchParams(search: Record<string, string | undefined>): string {
     }
   }
   return params.toString();
-}
-
-function extractHost(uri: string | undefined): string {
-  if (!uri) {
-    return "";
-  }
-  try {
-    return new URL(uri).host;
-  } catch {
-    return uri;
-  }
 }
 
 function parseScopes(scopeString: string | undefined) {
@@ -94,12 +84,6 @@ const consentSearchSchema = z
     acr_values: optionalSearchParam,
   })
   .catchall(optionalSearchParam);
-
-type ClientInfo = {
-  name: string;
-  clientId: string;
-  redirectUrls: string[];
-};
 
 const fetchClientInfo = createServerFn({ method: "GET" })
   .inputValidator(z.object({ clientId: z.string().min(1) }))
@@ -283,7 +267,7 @@ function OAuthConsentPage() {
   // -- Render -----------------------------------------------------------------
 
   const clientName = clientInfo?.name ?? "Unknown Application";
-  const redirectHost = extractHost(search.redirect_uri);
+  const redirectHost = resolveRedirectHost(clientInfo, search.redirect_uri);
 
   return (
     <AuthLayout
@@ -310,16 +294,20 @@ function OAuthConsentPage() {
         ) : null}
 
         {/* Redirect URI display */}
-        <Alert>
-          <HugeiconsIcon
-            className="size-3.5 shrink-0 text-muted-foreground"
-            icon={LinkSquareIcon}
-          />
-          <AlertDescription className="truncate">
-            Redirects to{" "}
-            <span className="font-medium text-foreground">{redirectHost}</span>
-          </AlertDescription>
-        </Alert>
+        {redirectHost ? (
+          <Alert>
+            <HugeiconsIcon
+              className="size-3.5 shrink-0 text-muted-foreground"
+              icon={LinkSquareIcon}
+            />
+            <AlertDescription className="truncate">
+              Redirects to{" "}
+              <span className="font-medium text-foreground">
+                {redirectHost}
+              </span>
+            </AlertDescription>
+          </Alert>
+        ) : null}
 
         {/* Error display */}
         {error ? (

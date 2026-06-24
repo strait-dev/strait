@@ -196,6 +196,38 @@ func TestCronScheduler_GetDriftSchedule_CachesFallbackParse(t *testing.T) {
 	require.Nil(t, cs.driftSchedules["not a cron"])
 }
 
+func TestParseDriftSchedule_UTCExpression(t *testing.T) {
+	t.Parallel()
+	schedule := parseDriftSchedule("0 9 * * 1-5")
+	require.NotNil(t, schedule)
+}
+
+func TestParseDriftSchedule_TimezonePrefix(t *testing.T) {
+	t.Parallel()
+	schedule := parseDriftSchedule("CRON_TZ=America/New_York 0 9 * * 1-5")
+	require.NotNil(t, schedule)
+}
+
+func TestParseDriftSchedule_InvalidExpression(t *testing.T) {
+	t.Parallel()
+	schedule := parseDriftSchedule("not a valid cron")
+	require.Nil(t, schedule)
+}
+
+func TestCacheDriftSchedule_TimezonePrefix_StoresUnderPrefixedKey(t *testing.T) {
+	t.Parallel()
+	cs := NewCronScheduler(context.Background(), &mockCronStore{}, &mockQueue{}, nil)
+	prefixed := "CRON_TZ=America/New_York 0 9 * * 1-5"
+	bare := "0 9 * * 1-5"
+
+	cs.cacheDriftSchedule(prefixed)
+
+	cs.driftMu.RLock()
+	defer cs.driftMu.RUnlock()
+	assert.NotNil(t, cs.driftSchedules[prefixed], "prefixed key should be present in the cache")
+	assert.Nil(t, cs.driftSchedules[bare], "bare key should not be present in the cache when only the prefixed expression was stored")
+}
+
 func TestDeepSecCronScheduler_LoadJobsReplacesStaleEntries(t *testing.T) {
 	t.Parallel()
 
