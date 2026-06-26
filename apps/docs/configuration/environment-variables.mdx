@@ -6,6 +6,11 @@ sidebarTitle: "Environment Variables"
 
 This page lists the settings most deployments need. The full runtime has additional tuning flags, but most teams should start here.
 
+For local development, copy `.env.example` to `.env` and keep the default
+Compose URLs. For self-hosted Compose deployments, run
+`./packages/scripts/selfhost-init.sh` to generate `.env.selfhost` with strong
+random secrets.
+
 ## Required
 
 | Variable | Description |
@@ -20,6 +25,9 @@ This page lists the settings most deployments need. The full runtime has additio
 | `ENCRYPTION_KEY` | Key used for encrypted data at rest. |
 | `SECRET_ENCRYPTION_KEY` | Key used to encrypt stored secrets. |
 | `STRAIT_ENV` | Deployment environment for runtime safety checks. Use `development` or `test` only outside production-like deployments. |
+
+Use unique values per environment. Do not reuse local, staging, and production
+secrets.
 
 Example:
 

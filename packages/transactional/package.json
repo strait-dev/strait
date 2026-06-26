@@ -23,7 +23,7 @@
     "@react-email/preview-server": "5.2.10",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
-    "@typescript/native-preview": "^7.0.0-dev.20260518.1",
+    "@typescript/native-preview": "^7.0.0-dev.20260623.1",
     "react-email": "6.1.4"
   }
 }

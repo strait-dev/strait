@@ -16,13 +16,13 @@ Playwright tests for the Strait dashboard. Run these to verify end-to-end user f
 - Docker Compose running (`cd apps/strait && docker compose up -d`)
 - Go backend running with the same `INTERNAL_SECRET` as the app
   (`cd apps/strait && go run ./cmd/strait --mode all`)
-- Infisical configured (`infisical init` in the repo root)
+- Root `.env` and `apps/app/.env` populated from the example files
 - Playwright browsers installed (`cd apps/app && bunx playwright install chromium`)
 
 ## Running locally
 
 ```bash
-# Run all tests (starts dev server automatically via Infisical)
+# Run all tests (starts dev server automatically)
 bun run e2e
 
 # Run the backend-backed core dashboard suite
@@ -51,8 +51,8 @@ bun run e2e -- --grep "dashboard"
 ```
 
 For local backend-backed dashboard work, prefer the managed local runner. It
-starts a clean Postgres container and Redis when needed, exports Infisical
-secrets, rebuilds the Go binary, starts Strait with local e2e-safe webhook
+starts a clean Postgres container and Redis when needed, loads local dotenv
+files, rebuilds the Go binary, starts Strait with local e2e-safe webhook
 settings, runs Playwright, and stops the processes it started:
 
 ```bash
@@ -89,7 +89,8 @@ existing database on port `15432`.
 | `BETTER_AUTH_SECRET` | Yes | Better Auth secret |
 | `BETTER_AUTH_URL` | Yes | Better Auth URL |
 
-These are injected automatically by Infisical in local development.
+Set these in `.env`, `apps/app/.env`, `apps/app/.dev.vars`, or the shell that
+runs Playwright.
 
 When running the dashboard e2e tests against a local Strait backend with the
 managed fake endpoint, start the backend with `ALLOW_PRIVATE_ENDPOINTS=true` so
@@ -140,7 +141,7 @@ e2e/
 
 The backend-backed dashboard suite is currently intended for local validation.
 CI can enable it later by running `bun run e2e:core:local` in an environment
-with Docker, Infisical, and Playwright browsers available.
+with Docker and Playwright browsers available.
 
 ## Validation
 

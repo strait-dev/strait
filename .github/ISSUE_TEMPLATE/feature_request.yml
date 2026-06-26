@@ -7,6 +7,8 @@ body:
       value: |
         Have an idea for Strait? We'd love to hear it. Please describe the problem you're trying to solve and what a good solution looks like.
 
+        Do not include private customer data, credentials, or vulnerability details in public feature requests.
+
   - type: textarea
     id: problem
     attributes:

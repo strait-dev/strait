@@ -34,7 +34,7 @@ import {
  * Maps Stripe Price IDs to plan slugs.
  *
  * Each plan tier has two prices (monthly + yearly) that both resolve
- * to the same slug. Populated from env vars set via Infisical.
+ * to the same slug. Populated from runtime environment variables.
  */
 function getPriceToPlan(): Map<string, PlanSlug> {
   return new Map(

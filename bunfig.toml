@@ -12,8 +12,8 @@ minimumReleaseAge = 259200
 
 # Packages exempt from the minimumReleaseAge check. Keep this empty unless a
 # specific package must be adopted immediately (for example a security fix newer
-# than the window). Add the exact package name with a comment explaining why.
-minimumReleaseAgeExcludes = []
+# than the window). shell-quote 1.9.0 patches GHSA-w7jw-789q-3m8p.
+minimumReleaseAgeExcludes = ["shell-quote"]
 
 # Lifecycle-script policy (postinstall, preinstall, install, prepare):
 #
