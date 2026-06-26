@@ -37,6 +37,7 @@ import {
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { Suspense, useEffect, useMemo, useState } from "react";
+import { useProjectPermissions } from "@/hooks/auth/use-project-permissions";
 import { subscriptionStateQueryOptions } from "@/hooks/subscription/use-subscription";
 import { isCommunityEdition } from "@/lib/edition";
 import {
@@ -78,6 +79,7 @@ type CommandRoute = NavItem & {
 
 type CommandMenuItem = {
   label: string;
+  href?: string;
   icon?: typeof DashboardIcon;
   shortcut?: string;
   keywords?: string[];
@@ -136,6 +138,7 @@ const AppSidebar = ({ session }: Props) => {
     subscriptionStateQueryOptions()
   );
   const { shouldShowUpgrade, hasPendingPayment } = subscriptionState;
+  const { permissions } = useProjectPermissions(session.user.activeProjectId);
   const [commandOpen, setCommandOpen] = useState(false);
 
   useEffect(() => {
@@ -156,8 +159,47 @@ const AppSidebar = ({ session }: Props) => {
     ? `/app/org/${session.user.defaultOrganizationId}`
     : "/app/settings";
 
-  const commandGroups = useMemo<CommandMenuGroup[]>(
-    () => [
+  const quickActions = useMemo<CommandMenuItem[]>(() => {
+    const items: CommandMenuItem[] = [];
+    if (permissions.canWriteJobs) {
+      items.push(
+        {
+          label: "Create job",
+          href: "/app/jobs?create=1",
+          icon: BriefcaseIcon,
+          shortcut: "⌘N",
+          keywords: ["new", "create", "add"],
+          onSelect: () => {
+            globalThis.location.href = "/app/jobs?create=1";
+          },
+        },
+        {
+          label: "Create schedule",
+          href: "/app/schedules?create=1",
+          icon: ClockIcon,
+          keywords: ["new", "create", "add", "cron"],
+          onSelect: () => {
+            globalThis.location.href = "/app/schedules?create=1";
+          },
+        }
+      );
+    }
+    if (permissions.canWriteWorkflows) {
+      items.push({
+        label: "Create workflow",
+        href: "/app/workflows?create=1",
+        icon: WorkflowIcon,
+        keywords: ["new", "create", "add", "pipeline"],
+        onSelect: () => {
+          globalThis.location.href = "/app/workflows?create=1";
+        },
+      });
+    }
+    return items;
+  }, [permissions.canWriteJobs, permissions.canWriteWorkflows]);
+
+  const commandGroups = useMemo<CommandMenuGroup[]>(() => {
+    const groups: CommandMenuGroup[] = [
       {
         heading: "Navigation",
         items: commandRoutes.map((route) => ({
@@ -184,39 +226,15 @@ const AppSidebar = ({ session }: Props) => {
           },
         ],
       },
-      {
+    ];
+    if (quickActions.length > 0) {
+      groups.push({
         heading: "Quick Actions",
-        items: [
-          {
-            label: "Create job",
-            icon: BriefcaseIcon,
-            shortcut: "⌘N",
-            keywords: ["new", "create", "add"],
-            onSelect: () => {
-              globalThis.location.href = "/app/jobs?create=1";
-            },
-          },
-          {
-            label: "Create schedule",
-            icon: ClockIcon,
-            keywords: ["new", "create", "add", "cron"],
-            onSelect: () => {
-              globalThis.location.href = "/app/schedules?create=1";
-            },
-          },
-          {
-            label: "Create workflow",
-            icon: WorkflowIcon,
-            keywords: ["new", "create", "add", "pipeline"],
-            onSelect: () => {
-              globalThis.location.href = "/app/workflows?create=1";
-            },
-          },
-        ],
-      },
-    ],
-    [navigate, orgSettingsRoute]
-  );
+        items: quickActions,
+      });
+    }
+    return groups;
+  }, [navigate, orgSettingsRoute, quickActions]);
 
   /** Check whether a nav item is active based on the current pathname. */
   const isActive = (item: NavItem) => {
@@ -273,41 +291,29 @@ const AppSidebar = ({ session }: Props) => {
               className="h-8 w-full rounded-md border border-sidebar-border bg-transparent px-2 text-sm outline-none focus-visible:ring-3 focus-visible:ring-sidebar-ring"
               placeholder="Type a command..."
             />
-            <div className="grid gap-1">
-              <SidebarMenuButton
-                render={(props) => (
-                  <a {...props} href="/app/jobs?create=1">
-                    {props.children}
-                  </a>
-                )}
-                size="sm"
-              >
-                <HugeiconsIcon className="size-4" icon={BriefcaseIcon} />
-                <span>Create job</span>
-              </SidebarMenuButton>
-              <SidebarMenuButton
-                render={(props) => (
-                  <a {...props} href="/app/schedules?create=1">
-                    {props.children}
-                  </a>
-                )}
-                size="sm"
-              >
-                <HugeiconsIcon className="size-4" icon={ClockIcon} />
-                <span>Create schedule</span>
-              </SidebarMenuButton>
-              <SidebarMenuButton
-                render={(props) => (
-                  <a {...props} href="/app/workflows?create=1">
-                    {props.children}
-                  </a>
-                )}
-                size="sm"
-              >
-                <HugeiconsIcon className="size-4" icon={WorkflowIcon} />
-                <span>Create workflow</span>
-              </SidebarMenuButton>
-            </div>
+            {quickActions.length > 0 ? (
+              <div className="grid gap-1">
+                {quickActions.map((item) => {
+                  const Icon = item.icon;
+                  return (
+                    <SidebarMenuButton
+                      key={item.label}
+                      render={(props) => (
+                        <a {...props} href={item.href}>
+                          {props.children}
+                        </a>
+                      )}
+                      size="sm"
+                    >
+                      {Icon ? (
+                        <HugeiconsIcon className="size-4" icon={Icon} />
+                      ) : null}
+                      <span>{item.label}</span>
+                    </SidebarMenuButton>
+                  );
+                })}
+              </div>
+            ) : null}
           </div>
           <Dialog onOpenChange={setCommandOpen} open={commandOpen}>
             <DialogContent
@@ -321,7 +327,11 @@ const AppSidebar = ({ session }: Props) => {
                 </DialogDescription>
               </DialogHeader>
               <Command>
-                <CommandInput placeholder="Search..." />
+                <CommandInput
+                  aria-label="Command search"
+                  cmdk-input=""
+                  placeholder="Search..."
+                />
                 <CommandList>
                   <CommandEmpty>No results found.</CommandEmpty>
                   {commandGroups.map((group) => (

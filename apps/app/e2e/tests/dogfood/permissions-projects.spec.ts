@@ -111,16 +111,11 @@ test.describe("Dogfood limited-user permissions and project isolation", () => {
     const deniedName = `e2e-dogfood-denied-job-${Date.now()}`;
 
     await page.goto("/app/jobs?create=1", { waitUntil: "domcontentloaded" });
+    await expect(page).toHaveURL(/\/app\/jobs$/);
     await expect(
       page.getByRole("heading", { name: "Create job" })
-    ).toBeVisible();
-    await page.getByLabel("Name", { exact: true }).fill(deniedName);
-    await page.getByLabel("Endpoint URL").fill(api.fakeEndpoint("/success"));
-    await page.getByRole("button", { name: "Create job" }).click();
-
-    await expect(page.getByText("Failed to create job.")).toBeVisible({
-      timeout: 15_000,
-    });
+    ).toBeHidden();
+    await expect(page.getByRole("button", { name: "Create job" })).toBeHidden();
     await expect
       .poll(
         async () =>
@@ -140,17 +135,13 @@ test.describe("Dogfood limited-user permissions and project isolation", () => {
     await page.goto("/app/schedules?create=1", {
       waitUntil: "domcontentloaded",
     });
+    await expect(page).toHaveURL(/\/app\/schedules$/);
     await expect(
       page.getByRole("heading", { name: "Create schedule" })
-    ).toBeVisible();
-    await page.getByLabel("Name", { exact: true }).fill(deniedName);
-    await page.getByLabel("Endpoint URL").fill(api.fakeEndpoint("/success"));
-    await page.getByLabel("Cron").fill("*/25 * * * *");
-    await page.getByRole("button", { name: "Create schedule" }).click();
-
-    await expect(page.getByText("Failed to create schedule.")).toBeVisible({
-      timeout: 15_000,
-    });
+    ).toBeHidden();
+    await expect(
+      page.getByRole("button", { name: "Create schedule" })
+    ).toBeHidden();
     await expect
       .poll(
         async () =>
@@ -170,17 +161,13 @@ test.describe("Dogfood limited-user permissions and project isolation", () => {
     await page.goto("/app/workflows?create=1", {
       waitUntil: "domcontentloaded",
     });
+    await expect(page).toHaveURL(/\/app\/workflows$/);
     await expect(
       page.getByRole("heading", { name: "Create workflow" })
-    ).toBeVisible();
-    await page.getByLabel("Name", { exact: true }).fill(deniedName);
-    await page.getByRole("combobox", { name: "First job step" }).click();
-    await page.getByRole("option", { name: readableJob.name }).click();
-    await page.getByRole("button", { name: "Create workflow" }).click();
-
-    await expect(page.getByText("Failed to create workflow.")).toBeVisible({
-      timeout: 15_000,
-    });
+    ).toBeHidden();
+    await expect(
+      page.getByRole("button", { name: "Create workflow" })
+    ).toBeHidden();
     await expect
       .poll(
         async () =>

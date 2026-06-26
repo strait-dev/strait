@@ -133,18 +133,21 @@ function SchedulesPage() {
   const pauseSchedule = usePauseSchedule();
   const resumeSchedule = useResumeSchedule();
   const deleteSchedule = useDeleteSchedule();
-  const { permissions } = useProjectPermissions(session.user.activeProjectId);
+  const { isHydrated: permissionsHydrated, permissions } =
+    useProjectPermissions(session.user.activeProjectId);
 
   useEffect(() => {
-    if (search.create === "1") {
+    if (search.create === "1" && permissionsHydrated) {
       setEditingSchedule(null);
-      setFormOpen(true);
+      if (permissions.canWriteJobs) {
+        setFormOpen(true);
+      }
       navigate({
         search: (prev) => ({ ...prev, create: undefined }),
         replace: true,
       });
     }
-  }, [navigate, search.create]);
+  }, [navigate, permissions.canWriteJobs, permissionsHydrated, search.create]);
 
   const { data } = useQuery({
     ...schedulesQueryOptions({

@@ -54,12 +54,16 @@ const ProjectSwitcher = ({ user }: Props) => {
   const handleSwitch = useCallback(
     async (projectId: string) => {
       if (projectId === activeProjectId) {
+        setDropdownOpen(false);
         return;
       }
       if (setActiveProject.isPending) {
         return;
       }
 
+      const previousProjectId = activeProjectId;
+      setActiveProjectId(projectId);
+      setDropdownOpen(false);
       const switchPromise = setActiveProject.mutateAsync({ projectId });
 
       toast.promise(switchPromise, {
@@ -70,10 +74,8 @@ const ProjectSwitcher = ({ user }: Props) => {
 
       try {
         await switchPromise;
-        setActiveProjectId(projectId);
-        setDropdownOpen(false);
       } catch {
-        // handled by toast
+        setActiveProjectId(previousProjectId);
       }
     },
     [activeProjectId, setActiveProject]
@@ -141,11 +143,8 @@ const ProjectSwitcher = ({ user }: Props) => {
               checked={project.id === activeProjectId}
               disabled={setActiveProject.isPending}
               key={project.id}
-              onClick={() => {
-                handleSwitch(project.id);
-              }}
-              onSelect={(e) => {
-                e.preventDefault();
+              onClick={(event) => {
+                event.preventDefault();
                 handleSwitch(project.id);
               }}
             >

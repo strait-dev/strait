@@ -138,7 +138,8 @@ function JobsPage() {
   const pauseJob = usePauseJob();
   const resumeJob = useResumeJob();
   const deleteJob = useDeleteJob();
-  const { permissions } = useProjectPermissions(session.user.activeProjectId);
+  const { isHydrated: permissionsHydrated, permissions } =
+    useProjectPermissions(session.user.activeProjectId);
   const [query, setQuery] = useState(search.query ?? "");
 
   useEffect(() => {
@@ -146,15 +147,17 @@ function JobsPage() {
   }, [search.query]);
 
   useEffect(() => {
-    if (search.create === "1") {
+    if (search.create === "1" && permissionsHydrated) {
       setEditingJob(null);
-      setFormOpen(true);
+      if (permissions.canWriteJobs) {
+        setFormOpen(true);
+      }
       navigate({
         search: (prev) => ({ ...prev, create: undefined }),
         replace: true,
       });
     }
-  }, [navigate, search.create]);
+  }, [navigate, permissions.canWriteJobs, permissionsHydrated, search.create]);
 
   const { data } = useQuery({
     ...jobsQueryOptions({

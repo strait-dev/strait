@@ -349,7 +349,8 @@ function CreateWebhookPage() {
           </Button>
           <Button
             disabled={!isHydrated || createWebhook.isPending}
-            type="submit"
+            onClick={() => handleSubmit()}
+            type="button"
           >
             {createWebhook.isPending ? (
               <Spinner />

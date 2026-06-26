@@ -141,17 +141,25 @@ function WorkflowsPage() {
   const pauseWorkflow = usePauseWorkflow();
   const resumeWorkflow = useResumeWorkflow();
   const deleteWorkflow = useDeleteWorkflow();
-  const { permissions } = useProjectPermissions(session.user.activeProjectId);
+  const { isHydrated: permissionsHydrated, permissions } =
+    useProjectPermissions(session.user.activeProjectId);
 
   useEffect(() => {
-    if (search.create === "1") {
-      setFormOpen(true);
+    if (search.create === "1" && permissionsHydrated) {
+      if (permissions.canWriteWorkflows) {
+        setFormOpen(true);
+      }
       navigate({
         search: (prev) => ({ ...prev, create: undefined }),
         replace: true,
       });
     }
-  }, [navigate, search.create]);
+  }, [
+    navigate,
+    permissions.canWriteWorkflows,
+    permissionsHydrated,
+    search.create,
+  ]);
 
   const selectedStatuses = search.status ?? [];
 

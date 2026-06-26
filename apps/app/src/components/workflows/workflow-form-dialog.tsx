@@ -104,7 +104,7 @@ export default function WorkflowFormDialog({
 
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>
-      <DialogContent className="sm:max-w-xl">
+      <DialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto sm:max-w-xl">
         <form
           onSubmit={(event) => {
             event.preventDefault();
@@ -187,7 +187,13 @@ export default function WorkflowFormDialog({
             <DialogClose render={<Button variant="secondary" />}>
               Cancel
             </DialogClose>
-            <Button disabled={createWorkflow.isPending} type="submit">
+            <Button
+              disabled={createWorkflow.isPending}
+              onClick={() => {
+                submit().catch(() => undefined);
+              }}
+              type="button"
+            >
               {createWorkflow.isPending ? <Spinner /> : null}
               {createWorkflow.isPending ? "Creating..." : "Create workflow"}
             </Button>

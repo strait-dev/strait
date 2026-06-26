@@ -165,7 +165,7 @@ export default function JobFormDialog({
 
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>
-      <DialogContent className="sm:max-w-2xl">
+      <DialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto sm:max-w-2xl">
         <form
           onSubmit={(event) => {
             event.preventDefault();
@@ -349,7 +349,13 @@ export default function JobFormDialog({
             <DialogClose render={<Button variant="secondary" />}>
               Cancel
             </DialogClose>
-            <Button disabled={isPending} type="submit">
+            <Button
+              disabled={isPending}
+              onClick={() => {
+                submit().catch(() => undefined);
+              }}
+              type="button"
+            >
               {isPending ? <Spinner /> : null}
               {isPending ? "Saving..." : labels.submit}
             </Button>

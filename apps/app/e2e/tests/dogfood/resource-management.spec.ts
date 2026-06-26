@@ -771,7 +771,12 @@ async function selectCommand(page: Page, commandName: string) {
     name: commandName,
   });
   const firstFallbackLink = fallbackLink.first();
-  if (await firstFallbackLink.isVisible({ timeout: 1000 }).catch(() => false)) {
+  if (
+    await firstFallbackLink
+      .waitFor({ state: "visible", timeout: 15_000 })
+      .then(() => true)
+      .catch(() => false)
+  ) {
     await page.getByLabel("Command palette").fill(commandName);
     await firstFallbackLink.click();
     return;
@@ -789,7 +794,10 @@ async function selectCommand(page: Page, commandName: string) {
     }
   }
   const dialog = page.getByRole("dialog", { name: "Command Palette" });
-  const input = dialog.locator("[cmdk-input], input").first();
+  const input = dialog
+    .getByRole("combobox")
+    .or(dialog.locator("input"))
+    .first();
   await expect(input).toBeVisible({ timeout: 5000 });
   await input.fill(commandName);
   await dialog.getByText(commandName, { exact: true }).click();
