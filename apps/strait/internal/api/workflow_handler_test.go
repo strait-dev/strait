@@ -3903,7 +3903,7 @@ func TestListWorkflowRunsByProject_TagKeyWithoutStatusSucceeds(t *testing.T) {
 			called = true
 			require.Equal(t, "proj-1", projectID)
 			require.Equal(t, "env", tagKey)
-			require.Equal(t, "", tagValue)
+			require.Empty(t, tagValue)
 			return []domain.WorkflowRun{{ID: "wr-1", ProjectID: projectID}}, nil
 		},
 	}

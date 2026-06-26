@@ -123,8 +123,8 @@ bun run sentry:upload-sourcemaps
 
 The upload script uses the same release name (`SENTRY_RELEASE`, or
 `STRAIT_VERSION+STRAIT_COMMIT`) as the Go server. It uploads generated `.map`
-files from `.next`, `dist`, or `.output`, then removes `.map` files from public
-output directories so the deployed dashboard bundle does not expose sourcemaps.
+files from `dist` or `.output`, then removes `.map` files from public output
+directories so the deployed dashboard bundle does not expose sourcemaps.
 
 Manual smoke check: after deploy, trigger a handled dashboard error in the
 release environment and confirm Sentry shows an un-minified stack trace under

@@ -12,13 +12,10 @@
       "**/*.{ts,tsx,js,jsx,json,css}",
       "**/convex/**/*.ts",
       "!node_modules",
-      "!.next",
       "!.turbo",
       "!tanstack",
       "!dist",
       "!build",
-      "!**/.context",
-      "!**/.deepsec",
       "!**/_generated",
       "!**/routeTree.gen.ts",
       "!apps/app/src/lib/api/schema.d.ts",
@@ -95,9 +92,6 @@
           "suspicious": {
             "noImplicitAnyLet": "off",
             "noEvolvingTypes": "off"
-          },
-          "nursery": {
-            "noShadow": "off"
           }
         }
       }

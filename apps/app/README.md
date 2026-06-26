@@ -161,9 +161,8 @@ src/
 
 ## Environment Variables
 
-Secrets are managed via Infisical (project: `strait`, environments: `dev`/`stg`/`prd`).
-
-For local development: `infisical run --env=dev -- bun dev`
+For local development, copy `.env.example` to `apps/app/.env` and keep real
+secrets out of git.
 
 | Variable | Purpose |
 |---|---|

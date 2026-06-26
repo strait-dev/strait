@@ -12,7 +12,7 @@ import (
 	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp"
 	"go.opentelemetry.io/otel/sdk/log"
 	"go.opentelemetry.io/otel/sdk/resource"
-	semconv "go.opentelemetry.io/otel/semconv/v1.40.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 )
 
 // InitLogBridge creates an slog handler that exports log records via OTLP to
@@ -43,7 +43,7 @@ func InitLogBridge(ctx context.Context, serviceName, endpoint, environment strin
 		semconv.ServiceName(serviceName),
 	}
 	if environment != "" {
-		attrs = append(attrs, semconv.DeploymentEnvironmentName(environment))
+		attrs = append(attrs, semconv.DeploymentEnvironmentNameKey.String(environment))
 	}
 
 	res, err := resource.Merge(

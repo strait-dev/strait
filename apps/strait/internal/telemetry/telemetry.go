@@ -13,7 +13,7 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	semconv "go.opentelemetry.io/otel/semconv/v1.40.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 )
 
 // Init sets up OpenTelemetry tracing with an OTLP HTTP exporter.
@@ -44,7 +44,7 @@ func Init(ctx context.Context, serviceName, endpoint, environment string) (func(
 		semconv.ServiceName(serviceName),
 	}
 	if environment != "" {
-		attrs = append(attrs, semconv.DeploymentEnvironmentName(environment))
+		attrs = append(attrs, semconv.DeploymentEnvironmentNameKey.String(environment))
 	}
 
 	res, err := resource.Merge(

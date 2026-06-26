@@ -5,6 +5,7 @@ useDefault = true
 description = "Allowlist for test fixtures, docs examples, build artifacts, and dev-only config"
 
 paths = [
+    '''^\.agents/''',
     '''_test\.go$''',
     '''_test\.ts$''',
     '''__tests__/''',

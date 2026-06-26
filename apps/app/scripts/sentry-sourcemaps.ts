@@ -4,13 +4,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { type ReleaseEnv, resolveSentryRelease } from "./sentry-release";
 
-const BUILD_ROOTS = [".next", "dist", ".output"];
-const PUBLIC_ROOTS = [
-  ".next/static",
-  "dist/client",
-  ".output/public",
-  "public",
-];
+const BUILD_ROOTS = ["dist", ".output"];
+const PUBLIC_ROOTS = ["dist/client", ".output/public", "public"];
 const TRAILING_SLASH_RE = /\/$/;
 
 export type CliRunner = (
@@ -38,7 +33,7 @@ export async function uploadSourcemaps(
   const release = resolveSentryRelease(env);
   const sourcemaps = await findSourcemaps(cwd, BUILD_ROOTS);
   if (sourcemaps.length === 0) {
-    throw new Error("No sourcemaps found in .next, dist, or .output");
+    throw new Error("No sourcemaps found in dist or .output");
   }
 
   for (const sourcemap of sourcemaps) {

@@ -8,17 +8,22 @@ const __dirname = dirname(__filename);
 const appDir = resolve(__dirname, "..");
 const repoRoot = resolve(appDir, "../..");
 const straitDir = resolve(repoRoot, "apps/strait");
-const binaryPath = resolve(repoRoot, ".context/bin/strait-e2e");
+const binaryPath = resolve(repoRoot, ".turbo/strait-e2e/strait");
 const devVarsPath = resolve(appDir, ".dev.vars");
+const envFileVars = {
+  ...readDotEnv(resolve(repoRoot, ".env")),
+  ...readDotEnv(resolve(appDir, ".env")),
+  ...readDotEnv(devVarsPath),
+};
+const runtimeEnv = { ...envFileVars, ...process.env };
 
-const apiPort = process.env.E2E_STRAIT_PORT || "18082";
-const grpcPort = process.env.E2E_STRAIT_GRPC_PORT || "15053";
+const apiPort = runtimeEnv.E2E_STRAIT_PORT || "18082";
+const grpcPort = runtimeEnv.E2E_STRAIT_GRPC_PORT || "15053";
 const databaseUrl =
-  process.env.DATABASE_URL ||
+  runtimeEnv.DATABASE_URL ||
   "postgres://strait:strait@localhost:15432/strait?sslmode=disable";
-const redisUrl = process.env.REDIS_URL || "redis://localhost:16379";
-const straitApiUrl =
-  process.env.STRAIT_API_URL || `http://localhost:${apiPort}`;
+const redisUrl = runtimeEnv.REDIS_URL || "redis://localhost:16379";
+const straitApiUrl = runtimeEnv.STRAIT_API_URL || `http://localhost:${apiPort}`;
 const defaultPlaywrightArgs = ["tests/harness", "tests/core-dashboard"];
 const playwrightArgs =
   process.argv.length > 2 ? process.argv.slice(2) : defaultPlaywrightArgs;
@@ -40,24 +45,17 @@ async function main() {
   }
 
   await ensureLocalDependencies();
-  await run("infisical", [
-    "export",
-    "--env=dev",
-    "--format=dotenv",
-    `--output-file=${devVarsPath}`,
-  ]);
 
   fs.mkdirSync(dirname(binaryPath), { recursive: true });
   await run("go", ["build", "-p", "1", "-o", binaryPath, "./cmd/strait"], {
     cwd: straitDir,
-    env: { ...process.env, GOMAXPROCS: process.env.GOMAXPROCS || "2" },
+    env: { ...runtimeEnv, GOMAXPROCS: runtimeEnv.GOMAXPROCS || "2" },
   });
 
   const backend = spawn(binaryPath, ["--mode", "all"], {
     cwd: repoRoot,
     env: {
-      ...process.env,
-      ...readDotEnv(devVarsPath),
+      ...runtimeEnv,
       DATABASE_URL: databaseUrl,
       REDIS_URL: redisUrl,
       PORT: apiPort,
@@ -82,12 +80,12 @@ async function main() {
   await run("bun", ["run", "e2e", "--", ...playwrightArgs], {
     cwd: appDir,
     env: {
-      ...process.env,
+      ...runtimeEnv,
       DATABASE_URL: databaseUrl,
-      AUTH_DATABASE_URL: process.env.AUTH_DATABASE_URL || databaseUrl,
+      AUTH_DATABASE_URL: runtimeEnv.AUTH_DATABASE_URL || databaseUrl,
       REDIS_URL: redisUrl,
       STRAIT_API_URL: straitApiUrl,
-      EXPECT_BASE_URL: process.env.EXPECT_BASE_URL || "http://localhost:5173",
+      EXPECT_BASE_URL: runtimeEnv.EXPECT_BASE_URL || "http://localhost:5173",
     },
   });
 
