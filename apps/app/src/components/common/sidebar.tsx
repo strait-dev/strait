@@ -362,7 +362,7 @@ const AppSidebar = ({ session }: Props) => {
               <SidebarMenuItem key={item.url}>
                 <SidebarMenuButton
                   active={isActive(item)}
-                  render={<Link to={item.url} />}
+                  render={<Link reloadDocument to={item.url} />}
                   tooltip={item.title}
                 >
                   <HugeiconsIcon
@@ -395,7 +395,7 @@ const AppSidebar = ({ session }: Props) => {
                     <SidebarMenuItem key={item.url}>
                       <SidebarMenuButton
                         active={isActive(item)}
-                        render={<Link to={item.url} />}
+                        render={<Link reloadDocument to={item.url} />}
                         tooltip={item.title}
                       >
                         <HugeiconsIcon
@@ -422,7 +422,7 @@ const AppSidebar = ({ session }: Props) => {
                     pathname === "/app/billing" ||
                     pathname.startsWith("/app/billing/")
                   }
-                  render={<Link to="/app/billing" />}
+                  render={<Link reloadDocument to="/app/billing" />}
                   tooltip="Billing"
                 >
                   <HugeiconsIcon

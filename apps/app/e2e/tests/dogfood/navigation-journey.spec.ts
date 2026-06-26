@@ -66,11 +66,11 @@ test.describe("Dogfood navigation, search, and filters journey", () => {
       await expect(page.getByText("Total Runs (24h)")).toBeVisible();
       await expect(page.getByText("Queued")).toBeVisible();
 
-      await navigateViaSidebar(page, "Jobs", /\/app\/jobs/);
+      await navigateViaSidebar(page, "Jobs", "/app/jobs");
       await page.getByLabel("Search").fill(job.name);
       await expect(page.getByText(job.name)).toBeVisible({ timeout: 15_000 });
 
-      await navigateViaSidebar(page, "Runs", /\/app\/runs/);
+      await navigateViaSidebar(page, "Runs", "/app/runs");
       await page.getByLabel("Search").fill(completedRun.id.slice(0, 8));
       await expect(
         page.getByRole("link", { name: completedRun.id.slice(0, 8) }).first()
@@ -79,19 +79,19 @@ test.describe("Dogfood navigation, search, and filters journey", () => {
         page.getByText(/completed|succeeded/i).first()
       ).toBeVisible();
 
-      await navigateViaSidebar(page, "Schedules", /\/app\/schedules/);
+      await navigateViaSidebar(page, "Schedules", "/app/schedules");
       await page.getByLabel("Search").fill(schedule.name);
       await expect(page.getByText(schedule.name)).toBeVisible({
         timeout: 15_000,
       });
 
-      await navigateViaSidebar(page, "Workflows", /\/app\/workflows/);
+      await navigateViaSidebar(page, "Workflows", "/app/workflows");
       await page.getByLabel("Search").fill(workflow.name);
       await expect(page.getByText(workflow.name)).toBeVisible({
         timeout: 15_000,
       });
 
-      await navigateViaSidebar(page, "Dead Letter", /\/app\/dlq/);
+      await navigateViaSidebar(page, "Dead Letter", "/app/dlq");
       await page.getByLabel("Search").fill(dlq.run.id.slice(0, 8));
       await expect(
         page.getByRole("row", { name: new RegExp(dlq.run.id.slice(0, 8)) })
@@ -99,17 +99,17 @@ test.describe("Dogfood navigation, search, and filters journey", () => {
         timeout: 15_000,
       });
 
-      await navigateViaSidebar(page, "Events", /\/app\/events/);
+      await navigateViaSidebar(page, "Events", "/app/events");
       await page.getByLabel("Search").fill(eventKey);
       await expect(
         page.getByRole("row", { name: new RegExp(`Waiting ${eventKey}`) })
       ).toBeVisible({ timeout: 15_000 });
 
-      await navigateViaSidebar(page, "Logs", /\/app\/logs/);
+      await navigateViaSidebar(page, "Logs", "/app/logs");
       await page.getByLabel("Search").fill(eventKey);
       await expect(page.getByText(eventKey)).toBeVisible({ timeout: 15_000 });
 
-      await navigateViaSidebar(page, "Webhooks", /\/app\/webhooks/);
+      await navigateViaSidebar(page, "Webhooks", "/app/webhooks");
       await page.getByLabel("Search").fill("dogfood-nav-webhook");
       expect(webhook.id).toBeTruthy();
       await expect(page.getByText(webhookUrl)).toBeVisible({
@@ -164,9 +164,7 @@ test.describe("Dogfood navigation, search, and filters journey", () => {
   });
 });
 
-async function navigateViaSidebar(page: Page, label: string, url: RegExp) {
-  await page
-    .locator('[data-sidebar="menu-button"]', { hasText: label })
-    .click();
-  await expect(page).toHaveURL(url);
+async function navigateViaSidebar(page: Page, label: string, path: string) {
+  await page.locator(`a[href="${path}"]`, { hasText: label }).click();
+  await expect(page).toHaveURL(new RegExp(`${path}$`));
 }
