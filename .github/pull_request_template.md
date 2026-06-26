@@ -4,7 +4,7 @@
 
 ## Why
 
-<!-- Context and motivation. Link the Linear issue if applicable. -->
+<!-- Context and motivation. Link the GitHub issue if applicable. -->
 
 ## What changed
 
@@ -27,6 +27,7 @@
 - [ ] Docs updated (if behavior, API, or config changed)
 - [ ] OpenAPI spec updated (if endpoints changed)
 - [ ] Migration includes both up and down files (if schema changed)
+- [ ] No secrets, credentials, customer data, or private runbooks included
 - [ ] No breaking changes (or noted below)
 
 ## Breaking changes
@@ -52,7 +53,7 @@ they should watch for after upgrading. This text lands in the squash
 commit body and release-please includes it under the changelog
 entry.
 
-Skip for: refactors, internal infra, test-only changes, dependency
+Skip for: refactors, internal infrastructure, test-only changes, dependency
 bumps. Required for: feat / fix / perf / breaking. -->
 
 ## Risks and follow-ups

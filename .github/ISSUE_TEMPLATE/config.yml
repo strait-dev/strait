@@ -6,3 +6,6 @@ contact_links:
   - name: Discussions
     url: https://github.com/strait-dev/strait/discussions
     about: Ask questions and share ideas in Discussions.
+  - name: Security reports
+    url: mailto:security@strait.dev
+    about: Report vulnerabilities privately. Do not open a public issue for security problems.

@@ -21,11 +21,17 @@ Instead, email **security@strait.dev** with:
 - The affected version(s)
 - Any potential impact assessment
 
+Do not include live credentials, full database dumps, or customer data unless we explicitly ask for a secure transfer path. Redacted logs, minimal proofs of concept, and synthetic test data are preferred.
+
 We will acknowledge your report within **48 hours** and aim to provide a fix or mitigation within **7 days** for critical issues.
+
+For non-security bugs, setup questions, and feature requests, use GitHub Issues or GitHub Discussions instead of the security mailbox.
 
 ## Security Practices
 
-- All dependencies are monitored for known vulnerabilities via `govulncheck` and GitHub Security Advisories
+- Go dependencies are checked with `govulncheck`
+- JavaScript dependencies are checked with Bun audit, with critical advisories treated as release blockers
+- Secrets are scanned with gitleaks in local hooks and CI
 - GitHub Actions workflows use pinned SHA hashes for supply chain security
 - Docker images are published to `ghcr.io` with signed metadata
 - The Go binary is compiled with race detection in CI
