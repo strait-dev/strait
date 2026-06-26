@@ -25,16 +25,16 @@ bun install
 # Install git hooks.
 lefthook install
 
-# Start Postgres, Redis, and Sequin (CDC).
-# Postgres maps to host port 15432, Redis to 16379 (avoids clashing
-# with Postgres/Redis already running on your machine).
-cd apps/strait && docker compose up -d
-
 # Set up environment (copy and fill in secrets).
 cp .env.example .env
 # Edit .env. The defaults already point at the dev compose ports:
 #   DATABASE_URL=postgres://strait:strait@localhost:15432/strait?sslmode=disable
 #   REDIS_URL=redis://localhost:16379
+
+# Start Postgres, Redis, and Sequin (CDC).
+# Postgres maps to host port 15432, Redis to 16379 (avoids clashing
+# with Postgres/Redis already running on your machine).
+cd apps/strait && docker compose up -d
 ```
 
 ## Running Locally
@@ -104,7 +104,13 @@ The docs linter checks MDX structure, internal links, anchors, example hosts, bi
 
 Keep customer documentation in `apps/docs`, `README.md`, and `SELFHOST.md`. These files should explain what customers can do with Strait and how to do it.
 
-Package READMEs are for contributors and should stay short: purpose, entry points, commands, and ownership context. Do not add launch plans, billing cutovers, incident notes, private checklists, or internal runbooks to the repo. Keep those in the team's private workspace.
+Package READMEs are for contributors and should stay short: purpose, entry points, commands, and ownership context. Do not add launch plans, billing cutovers, incident notes, private checklists, or internal runbooks to the repo. Keep those outside the public repository.
+
+## Support expectations
+
+Use GitHub Discussions for questions, troubleshooting, and design discussion. Use GitHub Issues for reproducible bugs and public feature requests.
+
+Do not post secrets, customer data, private logs, database dumps, `.env` files, or vulnerability details in public issues or discussions. Send vulnerability reports to [security@strait.dev](mailto:security@strait.dev); see [SECURITY.md](SECURITY.md).
 
 ## Commit Conventions
 

@@ -16,7 +16,7 @@ pre-commit:
       priority: 1
       run: |
         if command -v gitleaks > /dev/null 2>&1; then
-          gitleaks protect --staged --config=apps/strait/.gitleaks.toml --no-banner
+          gitleaks protect --staged --config=.gitleaks.toml --no-banner
         fi
       fail_text: "Secrets detected in staged files"
       timeout: 30s
@@ -44,7 +44,7 @@ pre-push:
         - run: test "${SKIP_RUN_ALL:-0}" = "1"
       run: |
         if command -v gitleaks > /dev/null 2>&1; then
-          gitleaks detect --source=. --config=apps/strait/.gitleaks.toml --no-banner --log-opts="origin/master..HEAD"
+          gitleaks detect --source=. --config=.gitleaks.toml --no-banner --log-opts="origin/master..HEAD"
         fi
       fail_text: "Secrets detected in commits being pushed"
       timeout: 60s

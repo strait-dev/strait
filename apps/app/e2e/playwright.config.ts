@@ -5,6 +5,9 @@ import { defineConfig, devices } from "@playwright/test";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const appDir = resolve(__dirname, "..");
+const repoRoot = resolve(appDir, "../..");
+const repoEnvPath = resolve(repoRoot, ".env");
+const appEnvPath = resolve(appDir, ".env");
 const devVarsPath = resolve(appDir, ".dev.vars");
 const isCI = !!process.env.CI;
 const localEnvOverrideKeys = [
@@ -22,7 +25,7 @@ function shellQuote(value: string) {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
-/** Collect local service overrides passed through the outer Infisical command. */
+/** Collect local service overrides passed through the outer test command. */
 function localEnvOverrides() {
   const overrides: Record<string, string> = {};
   for (const key of localEnvOverrideKeys) {
@@ -47,6 +50,13 @@ const devVarsOverrideCommand = envOverrides
       `printf '\\n${key}=%s\\n' ${shellQuote(value)} >> ${shellQuote(devVarsPath)}`
   )
   .join(" && ");
+const loadDotenvCommand = [
+  "set -a",
+  `[ ! -f ${shellQuote(repoEnvPath)} ] || . ${shellQuote(repoEnvPath)}`,
+  `[ ! -f ${shellQuote(appEnvPath)} ] || . ${shellQuote(appEnvPath)}`,
+  `[ ! -f ${shellQuote(devVarsPath)} ] || . ${shellQuote(devVarsPath)}`,
+  "set +a",
+].join(" && ");
 
 export default defineConfig({
   testDir: "./tests",
@@ -81,10 +91,10 @@ export default defineConfig({
     : {
         command: [
           `cd ${shellQuote(appDir)}`,
-          `infisical export --env=dev --format=dotenv --output-file=${shellQuote(devVarsPath)} >/dev/null`,
+          loadDotenvCommand,
           devVarsOverrideCommand,
-          `infisical run --env=dev -- ${envPrefix} bun run db:migrate:bun`,
-          `DISABLE_NGROK=1 infisical run --env=dev -- ${envPrefix} VITE_DISABLE_DEVTOOLS=1 bun run dev --host 127.0.0.1`,
+          `${envPrefix} bun run db:migrate:bun`,
+          `DISABLE_NGROK=1 ${envPrefix} VITE_DISABLE_DEVTOOLS=1 bun run dev --host 127.0.0.1`,
         ]
           .filter(Boolean)
           .join(" && "),

@@ -134,7 +134,6 @@ function walkMarkdown(dir, out = []) {
       name === "node_modules" ||
       name === ".git" ||
       name === ".turbo" ||
-      name === ".next" ||
       name === "dist" ||
       name === "build"
     ) {

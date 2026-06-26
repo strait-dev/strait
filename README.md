@@ -46,6 +46,8 @@ export STRAIT_PROJECT_ID=proj_replace_with_your_project_id
 
 Use community self-hosting when you need local evaluation, compliance controls, residency control, or full ownership of the runtime.
 
+Prerequisites: Docker with Compose v2, Git, and a POSIX shell.
+
 ```bash
 git clone https://github.com/strait-dev/strait.git
 cd strait
@@ -161,6 +163,16 @@ lefthook run pre-commit
 ```
 
 See [`AGENTS.md`](AGENTS.md) for the full contributor guide: tech stack, module layout, coding conventions, testing patterns, and repository workflow.
+
+---
+
+## Support And Security
+
+Use [GitHub Discussions](https://github.com/strait-dev/strait/discussions) for questions, setup help, and design discussion. Use [GitHub Issues](https://github.com/strait-dev/strait/issues) for reproducible bugs and public feature requests.
+
+Do not open public issues for vulnerabilities, exposed credentials, or reports that include private data. Email security reports to [security@strait.dev](mailto:security@strait.dev). See [`SECURITY.md`](SECURITY.md) for the disclosure process and response targets.
+
+Cloud customers should use their contracted support channel for production incidents and account-specific help.
 
 ---
 
