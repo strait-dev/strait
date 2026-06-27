@@ -29,12 +29,6 @@ import {
 import { authMiddleware } from "@/middlewares/auth";
 import { requireActiveOrgAdmin } from "@/middlewares/require-access";
 
-const getAddonPriceMap = (): Record<string, string | undefined> => ({
-  concurrency_100: process.env.STRIPE_ADDON_CONCURRENCY_100_PRICE_ID,
-  history_30d: process.env.STRIPE_ADDON_HISTORY_30D_PRICE_ID,
-  environments_5: process.env.STRIPE_ADDON_ENVIRONMENTS_5_PRICE_ID,
-});
-
 const startAddonCheckoutServerFn = createServerFn({ method: "POST" })
   .inputValidator((data: { checkoutSlug: string }) => data)
   .middleware([authMiddleware])
@@ -49,7 +43,16 @@ const startAddonCheckoutServerFn = createServerFn({ method: "POST" })
     if (!addon) {
       throw new Error(`Invalid addon: ${data.checkoutSlug}`);
     }
-    const priceId = getAddonPriceMap()[addon.type];
+    if (!addon.lookupKey) {
+      throw new Error(`Missing Stripe lookup key for addon: ${addon.type}`);
+    }
+
+    const prices = await stripe.prices.list({
+      active: true,
+      limit: 1,
+      lookup_keys: [addon.lookupKey],
+    });
+    const priceId = prices.data[0]?.id;
     if (!priceId) {
       throw new Error(`Missing Stripe price for addon: ${addon.type}`);
     }

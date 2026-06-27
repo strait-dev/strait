@@ -13,6 +13,8 @@ import type { ActiveAddonTypeSlug, PlanTierSlug } from "./types";
 export type AddonCatalogItem = {
   /** Addon type identifier matching the Go backend. */
   type: ActiveAddonTypeSlug;
+  /** Stripe lookup key matching the backend billing catalog. */
+  lookupKey: string;
   /** Human-readable addon name. */
   name: string;
   /** Short description of what the addon provides. */
@@ -52,6 +54,7 @@ const addonPackUnit = (type: string): string => {
 /** The complete addon product catalog with pricing and checkout slugs. */
 export const ADDON_CATALOG: AddonCatalogItem[] = ACTIVE_ADDONS.map((addon) => ({
   type: addon.type,
+  lookupKey: addon.lookupKey,
   name: addon.displayName,
   description: addonDescription(addon.type),
   packSize: addon.packSize,
