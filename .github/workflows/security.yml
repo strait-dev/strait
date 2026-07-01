@@ -137,4 +137,17 @@ jobs:
         run: echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Run gitleaks
-        run: gitleaks detect --source=. --config=apps/strait/.gitleaks.toml --no-banner --verbose --exit-code=1
+        run: |
+          default_branch="${{ github.event.repository.default_branch }}"
+          push_before="${{ github.event.before }}"
+          zero_sha="0000000000000000000000000000000000000000"
+
+          if [[ "${{ github.ref_name }}" == "$default_branch" && "$push_before" != "$zero_sha" ]]; then
+            log_opts="$push_before..${{ github.sha }}"
+          else
+            git fetch --no-tags --prune --depth=1 origin "$default_branch"
+            merge_base="$(git merge-base HEAD "origin/$default_branch")"
+            log_opts="$merge_base..HEAD"
+          fi
+
+          gitleaks detect --source=. --config=apps/strait/.gitleaks.toml --no-banner --verbose --exit-code=1 --log-opts="$log_opts"
