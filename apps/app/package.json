@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "PORT=5173 vite dev --host localhost --port 5173 --strictPort",
-    "build": "bun run build:node",
+    "build": "bun run build:cloudflare",
     "build:node": "STRAIT_APP_TARGET=node vite build",
     "build:cloudflare": "STRAIT_APP_TARGET=cloudflare vite build",
     "build:vercel": "STRAIT_APP_TARGET=vercel vite build",

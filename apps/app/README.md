@@ -37,7 +37,7 @@ Vercel are explicit hosted targets because they need platform-specific output.
 |---|---|---|---|
 | Docker / Node | `bun run build:node` | `.output/server/index.mjs` | Self-hosting and Docker-capable platforms |
 | Vercel | `bun run build:vercel` | `.vercel/output` | Managed hosted dashboard |
-| Cloudflare Workers | `bun run build:cloudflare` | `dist/` | Worker-hosted dashboard with Hyperdrive |
+| Cloudflare Workers | `bun run build` | `dist/` | Worker-hosted dashboard with Hyperdrive |
 
 The canonical portable path is the Docker image:
 
@@ -70,8 +70,8 @@ server internally:
 | Server entrypoint | `.output/server/index.mjs` |
 | Container command | `.output/server/index.mjs` |
 
-`bun run build` intentionally aliases the same portable Node target for hosts
-that run the app without Docker. Use `bun start` on those direct Node hosts.
+Use `bun run build:node` and `bun start` on direct Node hosts that run the app
+without Docker.
 
 ### Deploy to Vercel
 
@@ -108,15 +108,15 @@ plugin, so it produces `dist/` instead of Nitro Node output.
 |---|---|
 | Root directory | `apps/app` |
 | Install command | `bun install --frozen-lockfile` |
-| Build command | `bun run build:cloudflare` |
+| Build command | `bun run build` |
 | Preview deploy command | `bunx wrangler versions upload` |
 | Production deploy command | `bunx wrangler deploy` |
 | Worker config | `apps/app/wrangler.jsonc` |
 | Worker entrypoint | `@tanstack/react-start/server-entry` |
 
-Do not use `bun run build` for Cloudflare Workers Builds. That command produces
-the portable Docker/Node server output, not the Worker module graph that Wrangler
-uploads from `dist/`.
+Cloudflare Workers Builds can use the default `bun run build` command. That
+command is intentionally Cloudflare-safe because Workers Builds commonly runs it
+before `wrangler versions upload`.
 
 Required Cloudflare secrets are set in the Workers dashboard under Variables and
 Secrets. Non-secret defaults live in `wrangler.jsonc` so Cloudflare's deploy flow
@@ -190,7 +190,7 @@ src/
 | Command | Description |
 |---|---|
 | `bun dev` | Start dev server on port 5173 |
-| `bun build` | Production build for the portable Node target |
+| `bun run build` | Production build for Cloudflare Workers |
 | `bun run build:node` | Build Nitro `node-server` output |
 | `bun run build:vercel` | Build Vercel output |
 | `bun run build:cloudflare` | Build Cloudflare Worker output |
