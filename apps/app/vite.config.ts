@@ -13,16 +13,46 @@ const enableNgrok =
   process.env.ENABLE_NGROK === "1" && !process.env.DISABLE_NGROK;
 
 /**
- * Build target selector. Defaults to portable Node output. Vercel is an
- * explicit secondary target for the hosted dashboard and one-click deploys.
+ * Build target selector. Defaults to portable Node output. Cloudflare and
+ * Vercel are explicit secondary targets for hosted deployments.
  */
-const deployTarget: "node" | "vercel" =
-  process.env.STRAIT_APP_TARGET === "vercel" ||
-  process.env.BUILD_TARGET === "vercel"
-    ? "vercel"
-    : "node";
+type DeployTarget = "cloudflare" | "node" | "vercel";
 
-const nitroPreset = deployTarget === "vercel" ? "vercel" : "node-server";
+function resolveDeployTarget(env: NodeJS.ProcessEnv): DeployTarget {
+  if (
+    env.STRAIT_APP_TARGET === "cloudflare" ||
+    env.BUILD_TARGET === "cloudflare"
+  ) {
+    return "cloudflare";
+  }
+  if (env.STRAIT_APP_TARGET === "vercel" || env.BUILD_TARGET === "vercel") {
+    return "vercel";
+  }
+  return "node";
+}
+
+function resolveNitroPreset(target: DeployTarget) {
+  if (target === "cloudflare") {
+    return "cloudflare_module";
+  }
+  if (target === "vercel") {
+    return "vercel";
+  }
+  return "node-server";
+}
+
+const deployTarget = resolveDeployTarget(process.env);
+const nitroPreset = resolveNitroPreset(deployTarget);
+
+const isCloudflareBuild = deployTarget === "cloudflare";
+
+const nitroCloudflareConfig = isCloudflareBuild
+  ? {
+      deployConfig: false,
+      nodeCompat: true,
+    }
+  : undefined;
+
 const emitSourcemapsForSentry = process.env.SENTRY_UPLOAD_SOURCEMAPS === "true";
 
 const sentryRelease = maybeResolveSentryRelease(process.env);
@@ -103,7 +133,10 @@ export default defineConfig(({ command }) => ({
       },
       srcDirectory: "src",
     }),
-    nitro({ preset: nitroPreset }),
+    nitro({
+      preset: nitroPreset,
+      ...(nitroCloudflareConfig ? { cloudflare: nitroCloudflareConfig } : {}),
+    }),
     viteReact(),
     sentryTanstackStart({
       org: process.env.SENTRY_ORG,

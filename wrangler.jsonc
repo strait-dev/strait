@@ -1,0 +1,57 @@
+// Strait App - Cloudflare Workers configuration.
+//
+// Cloudflare Workers Builds runs the configured deploy command from the
+// repository root, so this file points Wrangler at the app workspace output.
+// The build command emits Nitro's cloudflare_module preset before upload.
+{
+  "name": "strait-app",
+  "compatibility_date": "2026-07-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "main": "apps/app/.output/server/index.mjs",
+  "assets": {
+    "binding": "ASSETS",
+    "directory": "apps/app/.output/public"
+  },
+  "build": {
+    "command": "bun run --cwd apps/app build:cloudflare"
+  },
+  "no_bundle": true,
+  "rules": [
+    {
+      "type": "ESModule",
+      "globs": ["**/*.mjs", "**/*.js"]
+    }
+  ],
+  "observability": {
+    "enabled": true
+  },
+  "placement": {
+    "mode": "smart"
+  },
+  "hyperdrive": [
+    {
+      "binding": "HYPERDRIVE",
+      "id": "7ad425b88d1240f584ce89c67d2fa5a7",
+      "localConnectionString": "postgres://strait:strait@localhost:5432/strait?sslmode=disable"
+    }
+  ],
+  "keep_vars": true,
+  "vars": {
+    "BETTER_AUTH_URL": "https://strait-app.workers.dev",
+    "STRAIT_API_URL": "https://api.strait.dev",
+    "OIDC_ISSUER": "https://api.strait.dev",
+    "OIDC_AUDIENCE": "strait-app",
+    "GOOGLE_CLIENT_ID": "",
+    "VITE_GOOGLE_CLIENT_ID": "",
+    "GITHUB_CLIENT_ID": "",
+    "STRIPE_STARTER_MONTHLY_PRICE_ID": "",
+    "STRIPE_STARTER_YEARLY_PRICE_ID": "",
+    "STRIPE_PRO_MONTHLY_PRICE_ID": "",
+    "STRIPE_PRO_YEARLY_PRICE_ID": "",
+    "STRIPE_SCALE_MONTHLY_PRICE_ID": "",
+    "STRIPE_SCALE_YEARLY_PRICE_ID": "",
+    "RESEND_SUPPORT_EMAIL": "noreply@example.com",
+    "VITE_SENTRY_ENVIRONMENT": "production",
+    "VITE_POSTHOG_HOST": ""
+  }
+}
