@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"sort"
-	"unsafe"
 )
 
 // hashIdempotencyKey returns the SHA-256 digest of the idempotency key as hex,
@@ -16,9 +15,7 @@ func hashIdempotencyKey(key string) string {
 	if key == "" {
 		return ""
 	}
-	// sha256.Sum256 only reads the input synchronously, so this avoids copying
-	// the idempotency key before hashing it for the trigger audit hot path.
-	sum := sha256.Sum256(unsafe.Slice(unsafe.StringData(key), len(key)))
+	sum := sha256.Sum256([]byte(key))
 	var out [sha256.Size * 2]byte
 	hex.Encode(out[:], sum[:])
 	return string(out[:])

@@ -40,6 +40,11 @@ describe("checkout policy", () => {
 
     expect(source).toContain("getAddonCatalogItem(data.checkoutSlug)");
     expect(source).toContain("isAddonAvailableOnPlan(addon.type, usage.plan)");
+    expect(source).toContain("stripe.prices.list");
+    expect(source).toContain("lookup_keys: [addon.lookupKey]");
+    expect(source).not.toContain("STRIPE_ADDON_CONCURRENCY_100_PRICE_ID");
+    expect(source).not.toContain("STRIPE_ADDON_HISTORY_30D_PRICE_ID");
+    expect(source).not.toContain("STRIPE_ADDON_ENVIRONMENTS_5_PRICE_ID");
     expect(source).not.toContain("STRIPE_ADDON_COMPLIANCE_ARCHIVE_PRICE_ID");
     expect(source).not.toContain("STRIPE_ADDON_DEDICATED_WORKER_POOL_PRICE_ID");
     expect(source).not.toContain("STRIPE_ADDON_DEDICATED_POOL_PRICE_ID");
