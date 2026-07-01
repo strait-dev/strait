@@ -31,6 +31,7 @@ import (
 	"strait/internal/scheduler"
 	"strait/internal/store"
 	"strait/internal/telemetry"
+	"strait/internal/transactional"
 	"strait/internal/webhook"
 	"strait/internal/worker"
 	"strait/internal/workflow"
@@ -49,7 +50,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/redis/go-redis/v9"
-	"github.com/resend/resend-go/v2"
 	"github.com/sourcegraph/conc/pool"
 )
 
@@ -61,6 +61,13 @@ func shutdownReason(err error) string {
 		return "timeout"
 	}
 	return "forced"
+}
+
+func newTransactionalEmailClient(cfg *config.Config) *transactional.Client {
+	if cfg == nil {
+		return nil
+	}
+	return transactional.NewClient(cfg.AppInternalURL, cfg.InternalSecret, cfg.TransactionalEmailTimeout, slog.Default())
 }
 
 func logWorkerShutdownStart(logger *slog.Logger, startedAt time.Time, inFlightRuns int64, drainTimeout time.Duration) {
@@ -422,7 +429,7 @@ func startNotificationWorker(g *pool.ContextPool, cfg *config.Config, queries *s
 	notifWorker := notification.NewWorkerWithEmail(
 		queries,
 		httpClient,
-		cfg.ResendAPIKey,
+		newTransactionalEmailClient(cfg),
 		cfg.ResendFromEmail,
 		notification.WithWebhookAllowPrivateEndpoints(cfg.AllowPrivateEndpoints),
 	)
@@ -655,11 +662,11 @@ func stripeWebhookOptions(cfg *config.Config, billingStore *billing.PgStore) []b
 	if posthogClient := billing.NewPostHogClient(cfg.PostHogAPIKey, cfg.PostHogHost, slog.Default()); posthogClient != nil {
 		opts = append(opts, billing.WithPostHog(posthogClient))
 	}
-	if cfg.ResendAPIKey != "" {
-		resendClient := billing.NewResendWelcomeEmailFunc(cfg.ResendAPIKey, cfg.ResendFromEmail)
-		opts = append(opts, billing.WithWelcomeEmail(resendClient))
+	emailClient := newTransactionalEmailClient(cfg)
+	if welcomeEmail := billing.NewTransactionalWelcomeEmailFunc(emailClient, cfg.ResendFromEmail); welcomeEmail != nil {
+		opts = append(opts, billing.WithWelcomeEmail(welcomeEmail))
 	}
-	if billingEmailSender := billing.NewBillingEmailSender(cfg.ResendAPIKey, "billing@strait.dev", slog.Default()); billingEmailSender != nil {
+	if billingEmailSender := billing.NewBillingEmailSender(emailClient, "billing@strait.dev", slog.Default()); billingEmailSender != nil {
 		opts = append(opts, billing.WithBillingEmails(billingEmailSender))
 	}
 	opts = append(opts, billing.WithEdition(cfg.Edition))
@@ -1195,13 +1202,14 @@ func appendBillingEnforcementSchedulerOptions(
 		scheduler.NewWebhookMessageCleanup(schedulerBillingStore, slog.Default()),
 	))
 
-	billingEmailSender := billing.NewBillingEmailSender(cfg.ResendAPIKey, "billing@strait.dev", slog.Default())
+	emailClient := newTransactionalEmailClient(cfg)
+	billingEmailSender := billing.NewBillingEmailSender(emailClient, "billing@strait.dev", slog.Default())
 	contractExpiryChecker := scheduler.NewContractExpiryChecker(schedulerBillingStore, billingEmailSender, 24*time.Hour).
 		WithOrgCacheInvalidator(billingEnforcer)
 	opts = append(opts, scheduler.WithContractExpiryChecker(contractExpiryChecker))
 	slog.Info("contract expiry checker enabled")
 
-	opts = appendUsageReportEmailer(opts, cfg, schedulerBillingStore)
+	opts = appendUsageReportEmailer(opts, schedulerBillingStore, emailClient)
 	opts = append(opts, scheduler.WithOrgRetentionResolver(billing.NewPlanRetentionResolver(schedulerBillingStore)))
 	slog.Info("per-org plan retention enabled")
 
@@ -1224,15 +1232,15 @@ func appendBillingEnforcementSchedulerOptions(
 
 func appendUsageReportEmailer(
 	opts []scheduler.SchedulerOption,
-	cfg *config.Config,
 	schedulerBillingStore *billing.PgStore,
+	emailClient scheduler.TransactionalEmailSender,
 ) []scheduler.SchedulerOption {
-	if cfg.ResendAPIKey == "" {
+	if emailClient == nil {
 		return opts
 	}
 	usageReportEmailer := scheduler.NewUsageReportEmailer(
 		schedulerBillingStore,
-		resend.NewClient(cfg.ResendAPIKey).Emails,
+		emailClient,
 		"billing@strait.dev",
 		24*time.Hour,
 	)

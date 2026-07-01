@@ -1206,7 +1206,7 @@ func TestWorker_DispatchesClaimedDeliveriesConcurrently(t *testing.T) {
 func TestEmailSender_XSSInPayloadFields(t *testing.T) {
 	t.Parallel()
 
-	mock := &mockResendClient{}
+	mock := &mockNotificationEmailClient{}
 	sender := NewEmailSenderWithClient(mock, "alerts@strait.dev")
 
 	channel := &domain.NotificationChannel{
@@ -1233,15 +1233,14 @@ func TestEmailSender_XSSInPayloadFields(t *testing.T) {
 	require.Len(t, mock.calls,
 		1)
 
-	// The HTML body must escape the XSS attempt.
-	body := mock.calls[0].Html
-	assert.NotContains(t, body, "<script>")
+	assert.Equal(t, "notification.spending_limit_warning", mock.calls[0].Template)
+	assert.Equal(t, `<script>alert("xss")</script>`, mock.calls[0].Props["orgId"])
 }
 
 func TestEmailSender_InvalidPayloadJSON(t *testing.T) {
 	t.Parallel()
 
-	mock := &mockResendClient{}
+	mock := &mockNotificationEmailClient{}
 	sender := NewEmailSenderWithClient(mock, "alerts@strait.dev")
 
 	channel := &domain.NotificationChannel{
@@ -1259,15 +1258,14 @@ func TestEmailSender_InvalidPayloadJSON(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, mock.calls,
 		1)
-	assert.NotEmpty(t, mock.calls[0].Html)
-
-	// The fallback should still produce some HTML body.
+	assert.Equal(t, "notification.generic", mock.calls[0].Template)
+	assert.Equal(t, "{not valid json", mock.calls[0].Props["payload"])
 }
 
 func TestEmailSender_NilPayload(t *testing.T) {
 	t.Parallel()
 
-	mock := &mockResendClient{}
+	mock := &mockNotificationEmailClient{}
 	sender := NewEmailSenderWithClient(mock, "alerts@strait.dev")
 
 	channel := &domain.NotificationChannel{

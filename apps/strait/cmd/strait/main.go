@@ -457,7 +457,7 @@ func runServe(ctx context.Context, modeOverride string) error {
 		if cfg.BillingEnforcementEnabled {
 			enforcerOpts = append(enforcerOpts, billing.WithRequireRedis())
 		}
-		billingEmailSender := billing.NewBillingEmailSender(cfg.ResendAPIKey, "billing@strait.dev", slog.Default())
+		billingEmailSender := billing.NewBillingEmailSender(newTransactionalEmailClient(cfg), "billing@strait.dev", slog.Default())
 		if billingEmailSender != nil {
 			enforcerOpts = append(enforcerOpts, billing.WithEnforcerBillingEmails(billingEmailSender))
 		}

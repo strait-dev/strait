@@ -327,18 +327,10 @@ func TestAdv_UsageFlusher_ConcurrentFlush(t *testing.T) {
 func TestAdv_UsageReportEmailer_VeryLargeUsageValues(t *testing.T) {
 	t.Parallel()
 
-	// Test that buildUsageReportHTML handles near-MaxInt64 values without panic.
-	html := buildUsageReportHTML(
-		"org-large",
-		"enterprise",
-		time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
-		time.Date(2025, 2, 1, 0, 0, 0, 0, time.UTC),
-		math.MaxInt64,
-		999,
-		math.MaxInt64,
-	)
-	require.NotEmpty(t,
-		html)
+	records := []billing.UsageRecord{
+		{ComputeCostMicro: math.MaxInt64, UsageCostMicro: 0},
+	}
+	require.Equal(t, int64(math.MaxInt64), sumUsageRecordSpend(records))
 }
 
 // billingAdvMockDowngradeStore is a thread-safe mock for concurrent downgrade tests.

@@ -3,14 +3,13 @@ package scheduler
 import (
 	"context"
 	"errors"
-	"strings"
 	"testing"
 	"time"
 
 	"strait/internal/billing"
 	"strait/internal/domain"
+	"strait/internal/transactional"
 
-	"github.com/resend/resend-go/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -332,16 +331,16 @@ func (m *mockReportStore) CountHTTPJobsByOrg(context.Context, string) (int, erro
 }
 
 type mockResendAPI struct {
-	sent []*resend.SendEmailRequest
+	sent []transactional.Request
 	err  error
 }
 
-func (m *mockResendAPI) SendWithContext(_ context.Context, params *resend.SendEmailRequest) (*resend.SendEmailResponse, error) {
+func (m *mockResendAPI) Send(_ context.Context, params transactional.Request) error {
 	m.sent = append(m.sent, params)
 	if m.err != nil {
-		return nil, m.err
+		return m.err
 	}
-	return &resend.SendEmailResponse{Id: "msg-123"}, nil
+	return nil
 }
 
 func TestUsageReportEmailer_SendsForEndedPeriod(t *testing.T) {
@@ -375,15 +374,19 @@ func TestUsageReportEmailer_SendsForEndedPeriod(t *testing.T) {
 		1)
 
 	msg := emailAPI.sent[0]
-	assert.Equal(t, "admin@example.com",
-
-		msg.
-			To[0])
+	assert.Equal(t, "billing.usage_report", msg.Template)
+	assert.Equal(t, "admin@example.com", msg.To[0])
+	assert.Equal(t, "billing@test.dev", msg.From)
+	assert.NotEmpty(t, msg.IdempotencyKey)
 	require.Len(t, msg.
 		Attachments,
 		1)
 	assert.NotEmpty(t,
 		msg.Attachments[0].Filename)
+	assert.NotEmpty(t,
+		msg.Attachments[0].ContentBase64)
+	assert.Equal(t, "application/pdf",
+		msg.Attachments[0].ContentType)
 }
 
 func TestDeepSecUsageReportEmailer_CatchesUpMissedEndedPeriod(t *testing.T) {
@@ -608,7 +611,7 @@ func TestUsageReportEmailer_RetriesSameDayAfterSendFailure(t *testing.T) {
 		adminEmails: map[string][]string{"org-1": {"admin@example.com"}},
 	}
 
-	emailAPI := &mockResendAPI{err: errors.New("resend unavailable")}
+	emailAPI := &mockResendAPI{err: errors.New("app unavailable")}
 	emailer := NewUsageReportEmailer(store, emailAPI, "billing@test.dev", time.Hour)
 	emailer.checkAndSend(context.Background())
 	emailAPI.err = nil
@@ -776,11 +779,8 @@ func TestUsageReportEmailer_UsesBoundedPeriodTotals(t *testing.T) {
 		sent,
 		1)
 
-	html := emailAPI.sent[0].Html
-	require.Contains(t, html, "$1.00")
-	require.False(t, strings.Contains(html,
-		"$10.00") ||
-		strings.Contains(html, "$9.00"))
+	props := emailAPI.sent[0].Props
+	require.Equal(t, "$1.00", props["overageAmount"])
 	require.GreaterOrEqual(t, len(store.usagePeriodCalls), 2)
 
 	for _, call := range store.usagePeriodCalls {

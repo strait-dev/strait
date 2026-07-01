@@ -80,9 +80,9 @@ func FuzzEmailConfigParsing(f *testing.F) {
 	})
 }
 
-// FuzzSubjectForEvent exercises the email subject generator with arbitrary
-// event types to ensure it never panics.
-func FuzzSubjectForEvent(f *testing.F) {
+// FuzzEmailTemplateForEventType exercises event-to-template mapping with
+// arbitrary event types to ensure it never panics.
+func FuzzEmailTemplateForEventType(f *testing.F) {
 	f.Add(domain.NotificationEventSpendingLimitWarning)
 	f.Add(domain.NotificationEventSpendingLimitReached)
 	f.Add(domain.NotificationEventCostAnomaly)
@@ -94,14 +94,15 @@ func FuzzSubjectForEvent(f *testing.F) {
 	f.Add("\x00\x01\x02\x03")
 
 	f.Fuzz(func(t *testing.T, eventType string) {
-		result := subjectForEvent(eventType, nil)
-		assert.NotEmpty(t, result)
+		template, props := emailTemplateForEvent(eventType, json.RawMessage(`{}`))
+		assert.NotEmpty(t, template)
+		assert.NotNil(t, props)
 	})
 }
 
-// FuzzHTMLBodyForEvent exercises the HTML email body generator with arbitrary
-// event types and JSON payloads. The function must never panic.
-func FuzzHTMLBodyForEvent(f *testing.F) {
+// FuzzEmailTemplateForEventPayload exercises template prop mapping with
+// arbitrary event types and JSON payloads. The function must never panic.
+func FuzzEmailTemplateForEventPayload(f *testing.F) {
 	f.Add(domain.NotificationEventSpendingLimitWarning, []byte(`{"org_id":"org-1","overage_pct":80,"spending_limit_usd":100,"current_spend_usd":80}`))
 	f.Add(domain.NotificationEventSpendingLimitReached, []byte(`{"org_id":"org-1","spending_limit_usd":100,"current_spend_usd":100}`))
 	f.Add(domain.NotificationEventCostAnomaly, []byte(`{"org_id":"org-1","severity":"high","spike_ratio":3.5,"today_spend":50000,"avg_7d_spend":15000,"top_contributor":"job-x"}`))
@@ -116,8 +117,9 @@ func FuzzHTMLBodyForEvent(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, eventType string, payload []byte) {
 		// Must never panic regardless of input.
-		result := htmlBodyForEvent(eventType, json.RawMessage(payload))
-		assert.NotEmpty(t, result)
+		template, props := emailTemplateForEvent(eventType, json.RawMessage(payload))
+		assert.NotEmpty(t, template)
+		assert.NotNil(t, props)
 	})
 }
 

@@ -5,7 +5,6 @@ import (
 	"math"
 	"testing"
 	"time"
-	"unicode/utf8"
 
 	"strait/internal/billing"
 	"strait/internal/domain"
@@ -116,24 +115,6 @@ func FuzzCronScheduler_NextSchedule(f *testing.F) {
 		cs := NewCronScheduler(ctx, s, &mockQueue{}, nil)
 		// Must not panic. Error is acceptable for invalid expressions.
 		_ = cs.LoadJobs(ctx)
-	})
-}
-
-func FuzzUsageReportEmailer_HTML(f *testing.F) {
-	f.Add("org-1", "pro", int64(100_000), 1, int64(50_000))
-	f.Add("", "", int64(0), 0, int64(0))
-	f.Add("<script>alert('xss')</script>", "free", int64(-1), -1, int64(-1))
-	f.Add("org'; DROP TABLE--", "starter", int64(math.MaxInt64), 999, int64(math.MaxInt64))
-	f.Add("\u00e9\u00e8\u00ea\u4e16\u754c\u00fc", "enterprise", int64(1), 0, int64(0))
-
-	f.Fuzz(func(t *testing.T, orgID, planTier string, creditMicro int64, addonCount int, overageMicro int64) {
-		periodStart := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
-		periodEnd := time.Date(2025, 2, 1, 0, 0, 0, 0, time.UTC)
-
-		// Must not panic on any input combination.
-		html := buildUsageReportHTML(orgID, planTier, periodStart, periodEnd, creditMicro, addonCount, overageMicro)
-		assert.True(t, utf8.
-			ValidString(html))
 	})
 }
 

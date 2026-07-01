@@ -48,13 +48,13 @@ func NewWorker(ns store.NotificationStore, client *http.Client, webhookOptions .
 }
 
 // NewWorkerWithEmail creates a notification worker and registers the email
-// sender when Resend credentials are configured.
-func NewWorkerWithEmail(ns store.NotificationStore, client *http.Client, resendAPIKey, resendFromEmail string, webhookOptions ...WebhookSenderOption) *Worker {
+// sender when the transactional email client is configured.
+func NewWorkerWithEmail(ns store.NotificationStore, client *http.Client, emailClient TransactionalEmailClient, fromEmail string, webhookOptions ...WebhookSenderOption) *Worker {
 	w := NewWorker(ns, client, webhookOptions...)
-	if resendAPIKey == "" {
+	if emailClient == nil {
 		return w
 	}
-	emailSender, err := NewEmailSender(resendAPIKey, resendFromEmail)
+	emailSender, err := NewEmailSender(emailClient, fromEmail)
 	if err != nil {
 		slog.Warn("failed to initialize email notification sender", "error", err)
 		return w
