@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"strconv"
 	"time"
-	"unsafe"
 
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
@@ -168,15 +167,13 @@ func (cb *RedisWebhookCircuitBreaker) openKey(url string) string {
 }
 
 func hashURL(url string) string {
-	// Sum256 consumes the input synchronously and does not retain it, so this
-	// avoids copying the URL string on every circuit-breaker key lookup.
-	sum := sha256.Sum256(unsafe.Slice(unsafe.StringData(url), len(url)))
+	sum := sha256.Sum256([]byte(url))
 	var out [sha256.Size * 2]byte
 	hex.Encode(out[:], sum[:])
 	return string(out[:])
 }
 
 func writeURLHashHex(dst []byte, url string) {
-	sum := sha256.Sum256(unsafe.Slice(unsafe.StringData(url), len(url)))
+	sum := sha256.Sum256([]byte(url))
 	hex.Encode(dst, sum[:])
 }

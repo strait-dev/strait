@@ -12,7 +12,7 @@ import "reflect-metadata";
 import { Data, Effect } from "effect";
 import Stripe from "stripe";
 
-const STRIPE_API_VERSION = "2026-04-22.dahlia";
+const STRIPE_API_VERSION = "2026-06-24.dahlia";
 const CUSTOMER_LIST_LIMIT = 100;
 const ORG_ID_METADATA_KEY = "org_id";
 const USER_ID_METADATA_KEY = "user_id";

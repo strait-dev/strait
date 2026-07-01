@@ -1,3 +1,4 @@
+import { cloudflare } from "@cloudflare/vite-plugin";
 import { sentryTanstackStart } from "@sentry/tanstackstart-react/vite";
 import tailwindcss from "@tailwindcss/vite";
 import { devtools } from "@tanstack/devtools-vite";
@@ -13,16 +14,28 @@ const enableNgrok =
   process.env.ENABLE_NGROK === "1" && !process.env.DISABLE_NGROK;
 
 /**
- * Build target selector. Defaults to portable Node output. Vercel is an
- * explicit secondary target for the hosted dashboard and one-click deploys.
+ * Build target selector. Defaults to portable Node output. Cloudflare and
+ * Vercel are explicit secondary targets for hosted deployments.
  */
-const deployTarget: "node" | "vercel" =
-  process.env.STRAIT_APP_TARGET === "vercel" ||
-  process.env.BUILD_TARGET === "vercel"
-    ? "vercel"
-    : "node";
+type DeployTarget = "cloudflare" | "node" | "vercel";
 
+function resolveDeployTarget(env: NodeJS.ProcessEnv): DeployTarget {
+  if (
+    env.STRAIT_APP_TARGET === "cloudflare" ||
+    env.BUILD_TARGET === "cloudflare"
+  ) {
+    return "cloudflare";
+  }
+  if (env.STRAIT_APP_TARGET === "vercel" || env.BUILD_TARGET === "vercel") {
+    return "vercel";
+  }
+  return "node";
+}
+
+const deployTarget = resolveDeployTarget(process.env);
+const isCloudflareBuild = deployTarget === "cloudflare";
 const nitroPreset = deployTarget === "vercel" ? "vercel" : "node-server";
+
 const emitSourcemapsForSentry = process.env.SENTRY_UPLOAD_SOURCEMAPS === "true";
 
 const sentryRelease = maybeResolveSentryRelease(process.env);
@@ -94,6 +107,9 @@ export default defineConfig(({ command }) => ({
     tsconfigPaths: true,
   },
   plugins: [
+    ...(isCloudflareBuild
+      ? [cloudflare({ viteEnvironment: { name: "ssr" } })]
+      : []),
     wellKnownOAuthPlugin(),
     ...(command === "serve" ? [devtools()] : []),
     tailwindcss(),
@@ -103,7 +119,7 @@ export default defineConfig(({ command }) => ({
       },
       srcDirectory: "src",
     }),
-    nitro({ preset: nitroPreset }),
+    ...(isCloudflareBuild ? [] : [nitro({ preset: nitroPreset })]),
     viteReact(),
     sentryTanstackStart({
       org: process.env.SENTRY_ORG,

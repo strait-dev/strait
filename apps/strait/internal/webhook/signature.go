@@ -11,7 +11,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unsafe"
 )
 
 var timestampedHMACSeparator = []byte{'.'}
@@ -38,7 +37,7 @@ func validateHMACSHA256(secret string, body []byte, headerValue string) error {
 		return fmt.Errorf("invalid hmac-sha256 header format: missing sha256= prefix")
 	}
 
-	mac := hmac.New(sha256.New, readOnlyStringBytes(secret))
+	mac := hmac.New(sha256.New, []byte(secret))
 	mac.Write(body)
 
 	if !equalHMACHexString(expected, mac.Sum(nil)) {
@@ -111,8 +110,8 @@ func validateStripeV1(secret string, body []byte, headerValue string) error {
 		return fmt.Errorf("stripe-v1 timestamp too old: %ds", int(age))
 	}
 
-	mac := hmac.New(sha256.New, readOnlyStringBytes(secret))
-	_, _ = mac.Write(readOnlyStringBytes(ts))
+	mac := hmac.New(sha256.New, []byte(secret))
+	_, _ = mac.Write([]byte(ts))
 	_, _ = mac.Write(timestampedHMACSeparator)
 	_, _ = mac.Write(body)
 	var digest [sha256.Size]byte
@@ -136,7 +135,7 @@ func validateGitHubSHA256(secret string, body []byte, headerValue string) error 
 
 // ComputeHMACSHA256 computes a HMAC-SHA256 signature and returns the hex digest.
 func ComputeHMACSHA256(secret string, body []byte) string {
-	mac := hmac.New(sha256.New, readOnlyStringBytes(secret))
+	mac := hmac.New(sha256.New, []byte(secret))
 	mac.Write(body)
 	return hmacHexString(mac)
 }
@@ -144,15 +143,9 @@ func ComputeHMACSHA256(secret string, body []byte) string {
 // ComputeTimestampedHMACSHA256 signs "timestamp.body" so receivers can reject
 // stale replay attempts while still validating the exact delivered bytes.
 func ComputeTimestampedHMACSHA256(secret, timestamp string, body []byte) string {
-	mac := hmac.New(sha256.New, readOnlyStringBytes(secret))
-	_, _ = mac.Write(readOnlyStringBytes(timestamp))
+	mac := hmac.New(sha256.New, []byte(secret))
+	_, _ = mac.Write([]byte(timestamp))
 	_, _ = mac.Write(timestampedHMACSeparator)
 	_, _ = mac.Write(body)
 	return hmacHexString(mac)
-}
-
-func readOnlyStringBytes(s string) []byte {
-	// hmac.New consumes the key synchronously into its own pads; this avoids a
-	// temporary []byte(secret) allocation in webhook signing and verification.
-	return unsafe.Slice(unsafe.StringData(s), len(s))
 }

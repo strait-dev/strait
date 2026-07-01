@@ -12,6 +12,6 @@
     "typecheck": "echo 'No typecheck needed for Mintlify docs'"
   },
   "devDependencies": {
-    "mintlify": "latest"
+    "mintlify": "^4.2.647"
   }
 }

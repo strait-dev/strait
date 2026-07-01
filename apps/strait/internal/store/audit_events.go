@@ -12,7 +12,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unsafe"
 
 	"strait/internal/domain"
 
@@ -64,7 +63,7 @@ func ComputeAuditSignature(ev *domain.AuditEvent, key []byte) string {
 		canonical = auditSignatureCanonicalV1(ev)
 	}
 	if canonical != "" {
-		_, _ = mac.Write(unsafe.Slice(unsafe.StringData(canonical), len(canonical)))
+		_, _ = mac.Write([]byte(canonical))
 	}
 	var sum [sha256.Size]byte
 	digest := mac.Sum(sum[:0])
