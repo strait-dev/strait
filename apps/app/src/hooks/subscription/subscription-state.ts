@@ -39,6 +39,7 @@ export type SubscriptionData = {
   status: string;
   productId: string;
   priceId: string;
+  lookupKey: string;
   currentPeriodEnd: Date | null;
   cancelAtPeriodEnd: boolean;
 };
@@ -187,7 +188,7 @@ type DeriveSubscriptionStateInput = {
  * Derive the full subscription state from raw inputs.
  *
  * Resolution order for the plan:
- * 1. Stripe price-to-plan mapping ({@link planFromProduct})
+ * 1. Stripe lookup-key or price-to-plan mapping ({@link planFromProduct})
  * 2. Go backend usage API ({@link backendPlan})
  * 3. Default to `"free"`
  *
@@ -231,6 +232,7 @@ export const deriveSubscriptionState = ({
           status,
           productId: subscription.productId,
           priceId: subscription.priceId,
+          lookupKey: subscription.lookupKey,
           currentPeriodEnd: subscription.currentPeriodEnd,
           cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
           recurringInterval: subscription.recurringInterval,

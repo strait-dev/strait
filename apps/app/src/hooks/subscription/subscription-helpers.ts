@@ -48,12 +48,14 @@ export const toNormalizedSubscription = (
 ): NormalizedSubscription => {
   const item = getFirstItem(sub);
   const priceId = item?.price?.id ?? "";
+  const lookupKey = item?.price?.lookup_key ?? "";
 
   return {
     id: sub.id,
     status: sub.status,
     productId: priceId,
     priceId,
+    lookupKey,
     currentPeriodEnd: fromUnix(item?.current_period_end),
     cancelAtPeriodEnd: sub.cancel_at_period_end,
     recurringInterval: item?.price?.recurring?.interval ?? null,

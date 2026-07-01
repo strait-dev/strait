@@ -178,7 +178,6 @@ secrets out of git.
 | `STRIPE_SECRET_KEY` | Stripe API secret key |
 | `STRIPE_PUBLISHABLE_KEY` | Stripe publishable key (client-side) |
 | `STRIPE_WEBHOOK_SECRET` | Stripe webhook signature verification |
-| `STRIPE_*_PRICE_ID` | Stripe Price IDs for plan tiers and addons |
 | `RESEND_API_KEY` | Transactional email via Resend |
 | `VITE_SENTRY_DSN` | Sentry client-side DSN |
 | `VITE_POSTHOG_KEY` / `VITE_POSTHOG_HOST` | PostHog analytics |

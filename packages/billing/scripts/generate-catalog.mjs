@@ -265,6 +265,9 @@ function generateProductsTs() {
   const plans = Object.fromEntries(
     catalog.plans.map((plan) => [plan.tier, toPlanTs(plan)])
   );
+  const planLookupKeys = Object.fromEntries(
+    catalog.plans.map((plan) => [plan.tier, plan.lookupKeys])
+  );
   const apiPlans = catalog.plans.map(toApiPlan);
   const activeAddons = catalog.addons.filter(
     (addon) => addon.status === "active"
@@ -339,6 +342,12 @@ export type Plan = {
   badge?: string;
 };
 
+export type PlanLookupKeys = {
+  monthly: string;
+  annual: string;
+  overage: string;
+};
+
 export type PlanApiResponse = {
   tier: PlanKey;
   display_name: string;
@@ -408,6 +417,8 @@ export const ACTIVE_ADDON_KEYS: ActiveAddonKey[] = ${JSON.stringify(activeAddonO
 export const ROADMAP_ADDON_KEYS: RoadmapAddonKey[] = ${JSON.stringify(roadmapAddonOrder, null, 2)} as RoadmapAddonKey[];
 
 export const PLANS: Record<PlanKey, Plan> = ${JSON.stringify(plans, null, 2)} as Record<PlanKey, Plan>;
+
+export const PLAN_LOOKUP_KEYS: Record<PlanKey, PlanLookupKeys> = ${JSON.stringify(planLookupKeys, null, 2)} as Record<PlanKey, PlanLookupKeys>;
 
 export const PLAN_API_RESPONSE: PlanApiResponse[] = ${JSON.stringify(apiPlans, null, 2)} as PlanApiResponse[];
 

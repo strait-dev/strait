@@ -14,6 +14,7 @@ const makeSub = (
   status: "active",
   productId: "price_starter_monthly",
   priceId: "price_starter_monthly",
+  lookupKey: "strait_starter_monthly",
   currentPeriodEnd: new Date("2026-05-01T00:00:00Z"),
   cancelAtPeriodEnd: false,
   recurringInterval: "month",

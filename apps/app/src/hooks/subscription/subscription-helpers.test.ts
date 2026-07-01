@@ -25,6 +25,7 @@ const makeSub = (
       current_period_start?: number;
       price?: {
         id?: string;
+        lookup_key?: string;
         recurring?: { interval?: string };
       };
     }>;
@@ -134,6 +135,7 @@ describe("toNormalizedSubscription", () => {
           current_period_end: 1_735_689_600,
           price: {
             id: "price_pro_monthly",
+            lookup_key: "strait_pro_monthly",
             recurring: { interval: "month" },
           },
         },
@@ -147,6 +149,7 @@ describe("toNormalizedSubscription", () => {
       status: "active",
       productId: "price_pro_monthly",
       priceId: "price_pro_monthly",
+      lookupKey: "strait_pro_monthly",
       currentPeriodEnd: new Date("2025-01-01T00:00:00.000Z"),
       cancelAtPeriodEnd: false,
       recurringInterval: "month",
@@ -200,6 +203,7 @@ describe("toNormalizedSubscription", () => {
 
     expect(result.priceId).toBe("");
     expect(result.productId).toBe("");
+    expect(result.lookupKey).toBe("");
     expect(result.currentPeriodEnd).toBeNull();
     expect(result.recurringInterval).toBeNull();
   });
@@ -363,6 +367,7 @@ describe("selectBestSubscription", () => {
           current_period_end: 1_735_689_600,
           price: {
             id: "price_pro_yearly",
+            lookup_key: "strait_pro_annual",
             recurring: { interval: "year" },
           },
         },
@@ -376,6 +381,7 @@ describe("selectBestSubscription", () => {
       status: "active",
       productId: "price_pro_yearly",
       priceId: "price_pro_yearly",
+      lookupKey: "strait_pro_annual",
       currentPeriodEnd: new Date("2025-01-01T00:00:00.000Z"),
       cancelAtPeriodEnd: true,
       recurringInterval: "year",

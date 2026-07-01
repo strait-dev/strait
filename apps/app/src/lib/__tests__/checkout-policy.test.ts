@@ -32,6 +32,25 @@ describe("checkout policy", () => {
     expect(source).not.toContain("STRIPE_ENTERPRISE_LARGE_YEARLY_PRICE_ID");
   });
 
+  it("resolves plan checkout prices by shared Stripe lookup keys", () => {
+    const source = readFileSync(
+      join(sourceRoot, "routes/app/upgrade.tsx"),
+      "utf8"
+    );
+
+    expect(source).toContain("PLAN_LOOKUP_KEYS");
+    expect(source).toContain("stripe.prices.list");
+    expect(source).toContain("lookup_keys: [lookupKey]");
+    expect(source).not.toContain("STRIPE_STARTER_MONTHLY_PRICE_ID");
+    expect(source).not.toContain("STRIPE_STARTER_YEARLY_PRICE_ID");
+    expect(source).not.toContain("STRIPE_PRO_MONTHLY_PRICE_ID");
+    expect(source).not.toContain("STRIPE_PRO_YEARLY_PRICE_ID");
+    expect(source).not.toContain("STRIPE_SCALE_MONTHLY_PRICE_ID");
+    expect(source).not.toContain("STRIPE_SCALE_YEARLY_PRICE_ID");
+    expect(source).not.toContain("STRIPE_BUSINESS_MONTHLY_PRICE_ID");
+    expect(source).not.toContain("STRIPE_BUSINESS_YEARLY_PRICE_ID");
+  });
+
   it("keeps roadmap add-ons out of app checkout price maps", () => {
     const source = readFileSync(
       join(sourceRoot, "components/billing/addons-tab.tsx"),

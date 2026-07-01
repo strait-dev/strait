@@ -70,6 +70,12 @@ export type Plan = {
   badge?: string;
 };
 
+export type PlanLookupKeys = {
+  monthly: string;
+  annual: string;
+  overage: string;
+};
+
 export type PlanApiResponse = {
   tier: PlanKey;
   display_name: string;
@@ -485,6 +491,39 @@ export const PLANS: Record<PlanKey, Plan> = {
     badge: "Contact sales",
   },
 } as Record<PlanKey, Plan>;
+
+export const PLAN_LOOKUP_KEYS: Record<PlanKey, PlanLookupKeys> = {
+  free: {
+    monthly: "strait_free_monthly",
+    annual: "",
+    overage: "strait_overage_free",
+  },
+  starter: {
+    monthly: "strait_starter_monthly",
+    annual: "strait_starter_annual",
+    overage: "strait_overage_starter",
+  },
+  pro: {
+    monthly: "strait_pro_monthly",
+    annual: "strait_pro_annual",
+    overage: "strait_overage_pro",
+  },
+  scale: {
+    monthly: "strait_scale_monthly",
+    annual: "strait_scale_annual",
+    overage: "strait_overage_scale",
+  },
+  business: {
+    monthly: "strait_business_monthly",
+    annual: "strait_business_annual",
+    overage: "strait_overage_business",
+  },
+  enterprise: {
+    monthly: "",
+    annual: "",
+    overage: "",
+  },
+} as Record<PlanKey, PlanLookupKeys>;
 
 export const PLAN_API_RESPONSE: PlanApiResponse[] = [
   {
