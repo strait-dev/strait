@@ -45,6 +45,7 @@
         "date-fns": "^4.4.0",
         "drizzle-orm": "^0.45.2",
         "effect": "^3.21.4",
+        "es-toolkit": "^1.45.1",
         "generate-password-ts": "^1.6.5",
         "jose": "^6.2.3",
         "nanoid": "^5.1.16",
