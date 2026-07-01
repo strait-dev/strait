@@ -88,14 +88,15 @@ func run(ctx context.Context, cfg config) error {
 	if err != nil {
 		return fmt.Errorf("dial %s: %w", cfg.GRPCAddr, err)
 	}
-	defer conn.Close() //nolint:errcheck
+	defer conn.Close()
 
 	client := workerv1.NewWorkerServiceClient(conn)
 	streamCtx, streamCancel := context.WithCancel(ctx)
+	defer streamCancel()
+
 	outCtx := metadata.NewOutgoingContext(streamCtx, metadata.Pairs("authorization", "Bearer "+cfg.APIKey))
 	stream, err := client.StreamTasks(outCtx)
 	if err != nil {
-		streamCancel()
 		return fmt.Errorf("open stream: %w", err)
 	}
 
@@ -105,10 +106,7 @@ func run(ctx context.Context, cfg config) error {
 	slog.Info("dogfood worker registered", "worker_id", cfg.WorkerID, "queue", cfg.QueueName)
 
 	var wg conc.WaitGroup
-	defer func() {
-		streamCancel()
-		wg.Wait()
-	}()
+	defer wg.Wait()
 
 	inbound := make(chan *workerv1.ServerMessage, 16)
 	outbound := make(chan *workerv1.WorkerMessage, 16)
