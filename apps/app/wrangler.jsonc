@@ -1,19 +1,19 @@
 // Strait App - Cloudflare Workers configuration.
 //
-// Cloudflare Workers Builds runs the configured deploy command from the
-// repository root, so this file points Wrangler at the app workspace output.
+// Cloudflare Workers Builds runs this app with `apps/app` as the project root,
+// so paths in this file are relative to the app workspace.
 // The build command emits Nitro's cloudflare_module preset before upload.
 {
   "name": "strait-app",
   "compatibility_date": "2026-07-01",
   "compatibility_flags": ["nodejs_compat"],
-  "main": "apps/app/.output/server/index.mjs",
+  "main": ".output/server/index.mjs",
   "assets": {
     "binding": "ASSETS",
-    "directory": "apps/app/.output/public"
+    "directory": ".output/public"
   },
   "build": {
-    "command": "bun run --cwd apps/app build:cloudflare"
+    "command": "bun run build:cloudflare"
   },
   "no_bundle": true,
   "rules": [
