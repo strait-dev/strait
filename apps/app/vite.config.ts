@@ -1,3 +1,4 @@
+import { cloudflare } from "@cloudflare/vite-plugin";
 import { sentryTanstackStart } from "@sentry/tanstackstart-react/vite";
 import tailwindcss from "@tailwindcss/vite";
 import { devtools } from "@tanstack/devtools-vite";
@@ -31,27 +32,9 @@ function resolveDeployTarget(env: NodeJS.ProcessEnv): DeployTarget {
   return "node";
 }
 
-function resolveNitroPreset(target: DeployTarget) {
-  if (target === "cloudflare") {
-    return "cloudflare_module";
-  }
-  if (target === "vercel") {
-    return "vercel";
-  }
-  return "node-server";
-}
-
 const deployTarget = resolveDeployTarget(process.env);
-const nitroPreset = resolveNitroPreset(deployTarget);
-
 const isCloudflareBuild = deployTarget === "cloudflare";
-
-const nitroCloudflareConfig = isCloudflareBuild
-  ? {
-      deployConfig: false,
-      nodeCompat: true,
-    }
-  : undefined;
+const nitroPreset = deployTarget === "vercel" ? "vercel" : "node-server";
 
 const emitSourcemapsForSentry = process.env.SENTRY_UPLOAD_SOURCEMAPS === "true";
 
@@ -124,6 +107,9 @@ export default defineConfig(({ command }) => ({
     tsconfigPaths: true,
   },
   plugins: [
+    ...(isCloudflareBuild
+      ? [cloudflare({ viteEnvironment: { name: "ssr" } })]
+      : []),
     wellKnownOAuthPlugin(),
     ...(command === "serve" ? [devtools()] : []),
     tailwindcss(),
@@ -133,10 +119,7 @@ export default defineConfig(({ command }) => ({
       },
       srcDirectory: "src",
     }),
-    nitro({
-      preset: nitroPreset,
-      ...(nitroCloudflareConfig ? { cloudflare: nitroCloudflareConfig } : {}),
-    }),
+    ...(isCloudflareBuild ? [] : [nitro({ preset: nitroPreset })]),
     viteReact(),
     sentryTanstackStart({
       org: process.env.SENTRY_ORG,
