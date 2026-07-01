@@ -35,6 +35,7 @@ import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import type { EventTrigger, PaginatedResponse } from "@/hooks/api/types";
 import { eventsQueryOptions } from "@/hooks/api/use-events";
 import { useCursorPagination } from "@/hooks/use-cursor-pagination";
+import { useHydratedTableData } from "@/hooks/use-hydrated-table-data";
 import { ActivityIcon, SearchIcon } from "@/lib/icons";
 import { EVENT_STATUSES } from "@/lib/status";
 import { stopInteractiveRowClick } from "@/lib/table-interactions";
@@ -119,9 +120,10 @@ function EventsPage() {
     }
     return items.filter((event) => selectedStatuses.includes(event.status));
   }, [typed, hasProject, search.query, selectedStatuses]);
+  const tableData = useHydratedTableData(events);
 
   const table = useReactTable({
-    data: events,
+    data: tableData.data,
     columns: logColumns,
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
@@ -180,7 +182,7 @@ function EventsPage() {
         />
       </div>
 
-      <div onClickCapture={stopInteractiveRowClick}>
+      <section aria-label="Events" onClickCapture={stopInteractiveRowClick}>
         <DataGrid
           emptyMessage={
             <Empty className="h-[300px]">
@@ -199,7 +201,10 @@ function EventsPage() {
               </EmptyHeader>
             </Empty>
           }
-          recordCount={table.getRowModel().rows.length}
+          loading={tableData.isLoading}
+          recordCount={
+            tableData.isHydrated ? table.getRowModel().rows.length : 0
+          }
           table={table}
           tableClassNames={{ base: "min-w-[1200px]" }}
         >
@@ -224,7 +229,7 @@ function EventsPage() {
             table={table}
           />
         </DataGrid>
-      </div>
+      </section>
     </Shell>
   );
 }

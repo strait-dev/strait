@@ -50,11 +50,12 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 import { formatDistanceToNow } from "date-fns";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import DetailPageSkeleton from "@/components/common/detail-page-skeleton";
 import EntityNotFound from "@/components/common/entity-not-found";
 import ErrorComponent from "@/components/common/error-component";
 import WorkflowDAGFlow from "@/components/dashboard/workflow-dag-flow";
+import { RESOURCE_TABLE_CLASS_NAMES } from "@/components/tables/resource-table";
 import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import type {
   PaginatedResponse,
@@ -71,7 +72,12 @@ import {
   workflowRunsQueryOptions,
   workflowStepsQueryOptions,
 } from "@/hooks/api/use-workflows";
+import {
+  type ProjectPermissionFlags,
+  useProjectPermissions,
+} from "@/hooks/auth/use-project-permissions";
 import { useCurrentPlan } from "@/hooks/billing/use-current-plan";
+import { useHydratedTableData } from "@/hooks/use-hydrated-table-data";
 import {
   ActivityIcon,
   CheckCircleIcon,
@@ -80,22 +86,74 @@ import {
   PlayActionIcon,
   RefreshIcon,
   TagIcon,
+  WorkflowIcon,
 } from "@/lib/icons";
 import { canUseFeature } from "@/lib/plan-tiers";
+import type { AppRouteContext } from "@/routes/app/layout";
 
 export const Route = createFileRoute("/app/workflows/$id")({
   head: () => ({ meta: [{ title: "Workflow · Strait" }] }),
   loader: async ({ context, params }) => {
+    const { session } = context as AppRouteContext;
     await Promise.all([
       context.queryClient.ensureQueryData(workflowQueryOptions(params.id)),
       context.queryClient.ensureQueryData(workflowStepsQueryOptions(params.id)),
       context.queryClient.ensureQueryData(workflowRunsQueryOptions(params.id)),
     ]);
+    return { session };
   },
   pendingComponent: DetailPageSkeleton,
   errorComponent: ErrorComponent,
   component: WorkflowDetailPage,
 });
+
+function formatDurationMs(ms: number) {
+  if (!Number.isFinite(ms) || ms < 0) {
+    return "--";
+  }
+  if (ms < 1000) {
+    return `${ms}ms`;
+  }
+  if (ms < 60_000) {
+    return `${(ms / 1000).toFixed(1)}s`;
+  }
+
+  const minutes = Math.floor(ms / 60_000);
+  const seconds = Math.round((ms % 60_000) / 1000);
+  return `${minutes}m ${seconds}s`;
+}
+
+function formatWorkflowRunDuration(run: WorkflowRun) {
+  if (!(run.started_at && run.finished_at)) {
+    return "--";
+  }
+
+  return formatDurationMs(
+    new Date(run.finished_at).getTime() - new Date(run.started_at).getTime()
+  );
+}
+
+function averageWorkflowRunDuration(runs: WorkflowRun[]) {
+  const durations = runs
+    .map((run) => {
+      if (!(run.started_at && run.finished_at)) {
+        return null;
+      }
+      const ms =
+        new Date(run.finished_at).getTime() -
+        new Date(run.started_at).getTime();
+      return Number.isFinite(ms) && ms >= 0 ? ms : null;
+    })
+    .filter((duration): duration is number => duration !== null);
+
+  if (durations.length === 0) {
+    return "--";
+  }
+
+  const avg =
+    durations.reduce((sum, duration) => sum + duration, 0) / durations.length;
+  return formatDurationMs(avg);
+}
 
 const workflowRunColumns: ColumnDef<WorkflowRun>[] = [
   {
@@ -120,6 +178,20 @@ const workflowRunColumns: ColumnDef<WorkflowRun>[] = [
     ),
   },
   {
+    id: "duration",
+    header: "Duration",
+    cell: ({ row }) => formatWorkflowRunDuration(row.original),
+  },
+  {
+    accessorKey: "error",
+    header: "Error",
+    cell: ({ row }) => (
+      <span className="line-clamp-1 text-muted-foreground text-xs">
+        {row.original.error || "--"}
+      </span>
+    ),
+  },
+  {
     accessorKey: "workflow_version",
     header: "Version",
     cell: ({ row }) => (
@@ -137,6 +209,83 @@ const workflowRunColumns: ColumnDef<WorkflowRun>[] = [
       }),
   },
 ];
+
+type WorkflowDagStep = {
+  dependencies: string[];
+  id: string;
+  name: string;
+  status: "pending";
+  type: string;
+};
+
+function WorkflowStepsCard({ steps }: { steps: WorkflowDagStep[] }) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-sm">Workflow Steps</CardTitle>
+      </CardHeader>
+      <CardContent>
+        {steps.length === 0 ? (
+          <p className="text-muted-foreground text-sm">
+            No workflow steps are available for the current version.
+          </p>
+        ) : (
+          <ItemGroup>
+            {steps.map((step, index) => {
+              const dependencies = step.dependencies.filter(Boolean);
+              return (
+                <Item key={step.id} size="xs" variant="ghost">
+                  <Badge mono size="xs" variant="secondary-light">
+                    {index + 1}
+                  </Badge>
+                  <ItemContent>
+                    <ItemTitle>{step.name}</ItemTitle>
+                    <p className="text-muted-foreground text-xs">
+                      {step.type}
+                      {dependencies.length > 0
+                        ? ` after ${dependencies.join(", ")}`
+                        : " with no dependencies"}
+                    </p>
+                  </ItemContent>
+                  <ItemActions>
+                    <Badge size="xs" variant="outline">
+                      {dependencies.length > 0
+                        ? `${dependencies.length} dependency${
+                            dependencies.length === 1 ? "" : "ies"
+                          }`
+                        : "root step"}
+                    </Badge>
+                  </ItemActions>
+                </Item>
+              );
+            })}
+          </ItemGroup>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function FailureSummaryCard({ failedRuns }: { failedRuns: number }) {
+  if (failedRuns === 0) {
+    return null;
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-sm">Failure Summary</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <p className="text-muted-foreground text-sm">
+          {failedRuns} recent workflow run
+          {failedRuns === 1 ? " has" : "s have"} failed or timed out. Open the
+          Recent Runs tab to inspect the failed run rows and errors.
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
 
 type LockedDAGFeature = {
   title: string;
@@ -165,8 +314,65 @@ function getLockedDAGFeature(
   return null;
 }
 
+function useIsHydrated() {
+  const [isHydrated, setIsHydrated] = useState(false);
+
+  useEffect(() => {
+    setIsHydrated(true);
+  }, []);
+
+  return isHydrated;
+}
+
+function WorkflowActions({
+  permissions,
+  workflow,
+}: {
+  permissions: ProjectPermissionFlags;
+  workflow: Workflow;
+}) {
+  const isHydrated = useIsHydrated();
+  const triggerWorkflow = useTriggerWorkflow();
+  const pauseWorkflow = usePauseWorkflow();
+  const resumeWorkflow = useResumeWorkflow();
+
+  return (
+    <div className="flex gap-2">
+      {permissions.canTriggerWorkflows && (
+        <Button
+          disabled={!isHydrated || triggerWorkflow.isPending}
+          onClick={() => triggerWorkflow.mutate({ workflowId: workflow.id })}
+        >
+          <HugeiconsIcon className="mr-1.5 size-3.5" icon={PlayActionIcon} />
+          Trigger
+        </Button>
+      )}
+      {permissions.canWriteWorkflows && (
+        <Button
+          disabled={
+            !isHydrated || pauseWorkflow.isPending || resumeWorkflow.isPending
+          }
+          onClick={() =>
+            workflow.enabled
+              ? pauseWorkflow.mutate({ workflowId: workflow.id })
+              : resumeWorkflow.mutate({ workflowId: workflow.id })
+          }
+          variant="outline"
+        >
+          <HugeiconsIcon
+            className="mr-1.5 size-3.5"
+            icon={workflow.enabled ? PauseActionIcon : PlayActionIcon}
+          />
+          {workflow.enabled ? "Pause" : "Resume"}
+        </Button>
+      )}
+    </div>
+  );
+}
+
 function WorkflowDetailPage() {
   const { id } = Route.useParams();
+  const { session } = Route.useLoaderData();
   const navigate = useNavigate();
   const currentPlan = useCurrentPlan();
   usePageEvent("workflow_detail_viewed", { workflow_id: id });
@@ -180,10 +386,9 @@ function WorkflowDetailPage() {
     data: PaginatedResponse<WorkflowRun> | undefined;
   };
   const runs = runsData?.data ?? [];
+  const tableData = useHydratedTableData(runs);
+  const { permissions } = useProjectPermissions(session.user.activeProjectId);
   const [activeTab, setActiveTab] = useState("overview");
-  const triggerWorkflow = useTriggerWorkflow();
-  const pauseWorkflow = usePauseWorkflow();
-  const resumeWorkflow = useResumeWorkflow();
 
   // Map API steps to the shape WorkflowDAGFlow expects
   const dagSteps = (apiSteps ?? []).map((s: WorkflowStep) => ({
@@ -195,7 +400,7 @@ function WorkflowDetailPage() {
   }));
 
   const runsTable = useReactTable({
-    data: runs ?? [],
+    data: tableData.data,
     columns: workflowRunColumns,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
@@ -206,8 +411,12 @@ function WorkflowDetailPage() {
   const totalRuns = runs?.length ?? 0;
   const successfulRuns =
     runs?.filter((r) => r.status === "completed").length ?? 0;
+  const failedRuns =
+    runs?.filter((r) => r.status === "failed" || r.status === "timed_out")
+      .length ?? 0;
   const successRate =
     totalRuns > 0 ? Math.round((successfulRuns / totalRuns) * 100) : 0;
+  const avgDuration = averageWorkflowRunDuration(runs);
   const recentRuns = (runs ?? []).slice(0, 5);
   const hasApprovalGate = dagSteps.some((step) => step.type === "approval");
   const hasSubWorkflow = dagSteps.some((step) => step.type === "sub_workflow");
@@ -245,30 +454,7 @@ function WorkflowDetailPage() {
             </p>
           )}
         </div>
-        <div className="flex gap-2">
-          <Button
-            disabled={triggerWorkflow.isPending}
-            onClick={() => triggerWorkflow.mutate({ workflowId: workflow.id })}
-          >
-            <HugeiconsIcon className="mr-1.5 size-3.5" icon={PlayActionIcon} />
-            Trigger
-          </Button>
-          <Button
-            disabled={pauseWorkflow.isPending || resumeWorkflow.isPending}
-            onClick={() =>
-              workflow.enabled
-                ? pauseWorkflow.mutate({ workflowId: workflow.id })
-                : resumeWorkflow.mutate({ workflowId: workflow.id })
-            }
-            variant="outline"
-          >
-            <HugeiconsIcon
-              className="mr-1.5 size-3.5"
-              icon={workflow.enabled ? PauseActionIcon : PlayActionIcon}
-            />
-            {workflow.enabled ? "Pause" : "Resume"}
-          </Button>
-        </div>
+        <WorkflowActions permissions={permissions} workflow={workflow} />
       </div>
 
       {/* Tabs */}
@@ -283,7 +469,7 @@ function WorkflowDetailPage() {
         {/* Overview Tab */}
         <TabsContent className="mt-6 space-y-6" value="overview">
           {/* Stats row */}
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
             <MetricCard
               icon={CheckCircleIcon}
               size="sm"
@@ -297,12 +483,20 @@ function WorkflowDetailPage() {
               value={totalRuns}
             />
             <MetricCard
+              icon={WorkflowIcon}
+              size="sm"
+              title="Steps"
+              value={dagSteps.length}
+            />
+            <MetricCard
               icon={ClockIcon}
               size="sm"
               title="Avg Duration"
-              value="--"
+              value={avgDuration}
             />
           </div>
+
+          <WorkflowStepsCard steps={dagSteps} />
 
           {/* Recent activity timeline */}
           <Card>
@@ -331,10 +525,20 @@ function WorkflowDetailPage() {
                       <Badge size="xs" variant="outline">
                         {run.triggered_by}
                       </Badge>
+                      {run.error ? (
+                        <Badge size="xs" variant="destructive">
+                          {run.error}
+                        </Badge>
+                      ) : null}
                       <ItemActions>
-                        {formatDistanceToNow(new Date(run.created_at), {
-                          addSuffix: true,
-                        })}
+                        <span className="text-muted-foreground">
+                          {formatWorkflowRunDuration(run)}
+                        </span>
+                        <span>
+                          {formatDistanceToNow(new Date(run.created_at), {
+                            addSuffix: true,
+                          })}
+                        </span>
                       </ItemActions>
                     </Item>
                   ))}
@@ -342,6 +546,7 @@ function WorkflowDetailPage() {
               )}
             </CardContent>
           </Card>
+          <FailureSummaryCard failedRuns={failedRuns} />
         </TabsContent>
 
         {/* DAG Tab */}
@@ -389,9 +594,10 @@ function WorkflowDetailPage() {
                 </EmptyHeader>
               </Empty>
             }
-            recordCount={runs.length}
+            loading={tableData.isLoading}
+            recordCount={tableData.isHydrated ? runs.length : 0}
             table={runsTable}
-            tableClassNames={{ base: "min-w-[1200px]" }}
+            tableClassNames={RESOURCE_TABLE_CLASS_NAMES}
           >
             <DataGridContainer>
               <DataGridScrollArea>

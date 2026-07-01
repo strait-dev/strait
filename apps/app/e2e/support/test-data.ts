@@ -53,7 +53,10 @@ export class TestDataFactory {
       timeout_secs: 10,
       ...overrides,
     });
-    this.cleanup.add(() => this.api.deleteJob(job.id));
+    this.cleanup.add(async () => {
+      await this.api.deleteRunsForJob(job.id).catch(() => undefined);
+      await this.api.deleteJob(job.id);
+    });
     return job;
   }
 
@@ -70,16 +73,34 @@ export class TestDataFactory {
 
   async deadLetterRun(prefix: string) {
     const job = await this.job(prefix, {
-      endpoint_url: this.api.fakeEndpoint("/success"),
+      endpoint_url: this.api.fakeEndpoint("/status/400"),
       max_attempts: 1,
-      timeout_secs: 10,
+      timeout_secs: 5,
     });
     const run = await this.api.triggerJob(job.id, { expected: "dead-letter" });
-    await this.api.forceRunDeadLetter(
-      run.id,
-      `${job.name} exhausted retries in e2e`
-    );
+    const failedRun = await this.api
+      .waitForRunStatus(run.id, ["failed", "dead_letter"], 15_000)
+      .catch(() => run);
+    if (failedRun.status !== "dead_letter") {
+      await this.api.forceRunDeadLetter(
+        run.id,
+        `${job.name} exhausted retries in e2e`
+      );
+    }
+    await this.waitForDlqEntry(run.id);
     return { job, run: { ...run, status: "dead_letter" } };
+  }
+
+  private async waitForDlqEntry(runId: string) {
+    const deadline = Date.now() + 15_000;
+    while (Date.now() < deadline) {
+      const entries = await this.api.listDlqEntries({ limit: 100 });
+      if (entries.data.some((entry) => entry.id === runId)) {
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+    throw new Error(`Run ${runId} did not appear in the DLQ`);
   }
 
   async successfulJobRun(prefix: string, timeoutMs = 30_000) {

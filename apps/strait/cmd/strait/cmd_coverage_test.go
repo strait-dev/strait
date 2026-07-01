@@ -604,6 +604,27 @@ func TestNilSafeBillingEnforcer_NonNilInput(t *testing.T) {
 	require.Nil(t, got)
 }
 
+func TestBuildUsageService_NilDependencies(t *testing.T) {
+	t.Parallel()
+
+	require.Nil(t, buildUsageService(nil, nil))
+	require.Nil(t, buildUsageService(&billing.PgStore{}, nil))
+}
+
+func TestBuildUsageEnforcer_NilStore(t *testing.T) {
+	t.Parallel()
+
+	require.Nil(t, buildUsageEnforcer(nil, nil, nil, nil, nil))
+}
+
+func TestBuildUsageEnforcer_ReusesBillingEnforcer(t *testing.T) {
+	t.Parallel()
+
+	existing := &billing.Enforcer{}
+
+	require.Same(t, existing, buildUsageEnforcer(nil, existing, nil, nil, nil))
+}
+
 // services.go: logWorkerShutdownStart / logWorkerShutdownComplete
 
 func TestLogWorkerShutdownStart_NilLogger(t *testing.T) {

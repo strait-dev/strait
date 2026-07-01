@@ -1,5 +1,16 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@strait/ui/components/alert-dialog";
+import { Button } from "@strait/ui/components/button";
+import {
   DataGrid,
   DataGridContainer,
   DataGridScrollArea,
@@ -25,7 +36,7 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 import { zodValidator } from "@tanstack/zod-adapter";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { z } from "zod/v4";
 import { CursorPagination } from "@/components/common/cursor-pagination";
 import ErrorComponent from "@/components/common/error-component";
@@ -33,25 +44,36 @@ import { FacetedStatusFilter } from "@/components/common/faceted-status-filter";
 import NoProjectState from "@/components/common/no-project-state";
 import TablePageSkeleton from "@/components/common/table-page-skeleton";
 import ScheduleDetailSheet from "@/components/dashboard/schedule-detail-sheet";
+import JobFormDialog from "@/components/jobs/job-form-dialog";
+import {
+  getResourceTableInitialState,
+  RESOURCE_TABLE_CLASS_NAMES,
+} from "@/components/tables/resource-table";
 import { createScheduleColumns } from "@/components/tables/schedules-columns";
 import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import type { Job, PaginatedResponse } from "@/hooks/api/types";
 import {
   schedulesQueryOptions,
+  useDeleteSchedule,
   usePauseSchedule,
   useResumeSchedule,
   useTriggerSchedule,
 } from "@/hooks/api/use-schedules";
+import { useProjectPermissions } from "@/hooks/auth/use-project-permissions";
 import { useCursorPagination } from "@/hooks/use-cursor-pagination";
+import { useHydratedTableData } from "@/hooks/use-hydrated-table-data";
+import { usePermissionGatedCreateQuery } from "@/hooks/use-permission-gated-create-query";
 import {
   CalendarIcon,
   EyeIcon,
   PauseActionIcon,
   PlayActionIcon,
+  PlusIcon,
   SearchIcon,
+  TrashIcon,
 } from "@/lib/icons";
+import { scheduleResourcePermissions } from "@/lib/resource-permissions";
 import { ENABLED_STATUS_OPTIONS } from "@/lib/status";
-import { stopInteractiveRowClick } from "@/lib/table-interactions";
 import type { AppRouteContext } from "@/routes/app/layout";
 
 const searchArraySchema = z.preprocess(
@@ -59,11 +81,17 @@ const searchArraySchema = z.preprocess(
   z.array(z.string()).optional()
 );
 
+const createSearchSchema = z.preprocess(
+  (value) => (value == null ? undefined : String(value)),
+  z.string().optional()
+);
+
 export const searchSchema = z.object({
   query: z.string().optional(),
   status: searchArraySchema,
   cursor: z.string().optional(),
   perPage: z.coerce.number().optional(),
+  create: createSearchSchema,
 });
 
 export const Route = createFileRoute("/app/schedules/")({
@@ -72,13 +100,18 @@ export const Route = createFileRoute("/app/schedules/")({
   loaderDeps: ({ search }) => ({
     limit: search.perPage ?? 20,
     cursor: search.cursor,
+    query: search.query,
   }),
   loader: async ({ context, deps }) => {
     const { session } = context as AppRouteContext;
     const hasProject = !!session.user.activeProjectId;
     if (hasProject) {
       await context.queryClient.ensureQueryData(
-        schedulesQueryOptions({ limit: deps.limit, cursor: deps.cursor })
+        schedulesQueryOptions({
+          limit: deps.limit,
+          cursor: deps.cursor,
+          search: deps.query,
+        })
       );
     }
     return { hasProject, session };
@@ -99,14 +132,42 @@ function SchedulesPage() {
   );
   const [selectedSchedule, setSelectedSchedule] = useState<Job | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [formOpen, setFormOpen] = useState(false);
+  const [editingSchedule, setEditingSchedule] = useState<Job | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Job | null>(null);
   const triggerSchedule = useTriggerSchedule();
   const pauseSchedule = usePauseSchedule();
   const resumeSchedule = useResumeSchedule();
+  const deleteSchedule = useDeleteSchedule();
+  const { isHydrated: permissionsHydrated, permissions } =
+    useProjectPermissions(session.user.activeProjectId);
+  const actionPermissions = scheduleResourcePermissions(permissions);
+
+  const openCreateDialog = useCallback(() => {
+    setEditingSchedule(null);
+    setFormOpen(true);
+  }, []);
+
+  const clearCreateQuery = useCallback(() => {
+    navigate({
+      search: (prev) => ({ ...prev, create: undefined }),
+      replace: true,
+    });
+  }, [navigate]);
+
+  usePermissionGatedCreateQuery({
+    canCreate: actionPermissions.canCreate,
+    clearCreateQuery,
+    create: search.create,
+    isReady: permissionsHydrated,
+    openCreateDialog,
+  });
 
   const { data } = useQuery({
     ...schedulesQueryOptions({
       limit: pagination.perPage,
       cursor: pagination.cursor,
+      search: search.query,
     }),
     enabled: hasProject,
   });
@@ -116,7 +177,15 @@ function SchedulesPage() {
   const typed = data as PaginatedResponse<Job> | undefined;
 
   const filteredData = useMemo(() => {
-    const jobs = hasProject ? (typed?.data ?? []) : [];
+    let jobs = hasProject ? (typed?.data ?? []) : [];
+    const normalizedQuery = search.query?.trim().toLowerCase();
+    if (normalizedQuery) {
+      jobs = jobs.filter((job: Job) =>
+        [job.name, job.slug, job.description, job.cron]
+          .filter(Boolean)
+          .some((value) => value?.toLowerCase().includes(normalizedQuery))
+      );
+    }
     if (selectedStatuses.length === 0) {
       return jobs;
     }
@@ -129,31 +198,46 @@ function SchedulesPage() {
       }
       return false;
     });
-  }, [typed, selectedStatuses, hasProject]);
+  }, [typed, selectedStatuses, hasProject, search.query]);
 
   const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({});
+  const tableData = useHydratedTableData(filteredData);
 
   const table = useReactTable({
-    data: filteredData,
+    data: tableData.data,
     columns: createScheduleColumns({
       onView: (schedule) => {
         setSelectedSchedule(schedule);
         setSheetOpen(true);
       },
-      onTrigger: (schedule) => triggerSchedule.mutate({ id: schedule.id }),
-      onPauseResume: (schedule) => {
-        if (schedule.enabled) {
-          pauseSchedule.mutate({ id: schedule.id });
-        } else {
-          resumeSchedule.mutate({ id: schedule.id });
-        }
-      },
+      onEdit: actionPermissions.canEdit
+        ? (schedule) => {
+            setEditingSchedule(schedule);
+            setFormOpen(true);
+          }
+        : undefined,
+      onTrigger: actionPermissions.canTrigger
+        ? (schedule) => triggerSchedule.mutate({ id: schedule.id })
+        : undefined,
+      onPauseResume: actionPermissions.canPauseResume
+        ? (schedule) => {
+            if (schedule.paused || !schedule.enabled) {
+              resumeSchedule.mutate({ id: schedule.id });
+            } else {
+              pauseSchedule.mutate({ id: schedule.id });
+            }
+          }
+        : undefined,
+      onDelete: actionPermissions.canDelete
+        ? (schedule) => setDeleteTarget(schedule)
+        : undefined,
     }),
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
     getSortedRowModel: getSortedRowModel(),
     manualPagination: true,
     enableRowSelection: true,
+    initialState: getResourceTableInitialState(),
     onRowSelectionChange: setRowSelection,
     state: { globalFilter: search.query ?? "", rowSelection },
     onGlobalFilterChange: (query) =>
@@ -261,18 +345,35 @@ function SchedulesPage() {
           }))}
           values={selectedStatuses}
         />
+
+        {actionPermissions.canCreate && (
+          <Button
+            className="shrink-0"
+            render={(props) => (
+              <a {...props} href="/app/schedules?create=1">
+                {props.children}
+              </a>
+            )}
+          >
+            <HugeiconsIcon className="size-4" icon={PlusIcon} />
+            Create schedule
+          </Button>
+        )}
       </div>
 
-      <div onClickCapture={stopInteractiveRowClick}>
+      <section aria-label="Schedules">
         <DataGrid
           emptyMessage={emptyState}
+          loading={tableData.isLoading}
           onRowClick={(schedule) => {
             setSelectedSchedule(schedule);
             setSheetOpen(true);
           }}
-          recordCount={table.getRowModel().rows.length}
+          recordCount={
+            tableData.isHydrated ? table.getRowModel().rows.length : 0
+          }
           table={table}
-          tableClassNames={{ base: "min-w-[1200px]" }}
+          tableClassNames={RESOURCE_TABLE_CLASS_NAMES}
         >
           <DataGridContainer>
             <DataGridScrollArea>
@@ -311,45 +412,118 @@ function SchedulesPage() {
                         }
                       },
                     },
+                    ...(actionPermissions.canDelete
+                      ? [
+                          {
+                            label: "Delete",
+                            icon: TrashIcon,
+                            onClick: () => {
+                              const schedule = table
+                                .getRowModel()
+                                .rows.find(
+                                  (r) => r.id === selectedIds[0]
+                                )?.original;
+                              if (schedule) {
+                                setDeleteTarget(schedule);
+                              }
+                            },
+                          },
+                        ]
+                      : []),
                   ]
                 : []),
-              {
-                label: "Trigger",
-                icon: PlayActionIcon,
-                onClick: () => {
-                  for (const id of selectedIds) {
-                    triggerSchedule.mutate({ id });
-                  }
-                },
-              },
-              {
-                label: "Pause",
-                icon: PauseActionIcon,
-                onClick: () => {
-                  for (const id of selectedIds) {
-                    pauseSchedule.mutate({ id });
-                  }
-                },
-              },
-              {
-                label: "Resume",
-                icon: PlayActionIcon,
-                onClick: () => {
-                  for (const id of selectedIds) {
-                    resumeSchedule.mutate({ id });
-                  }
-                },
-              },
+              ...(actionPermissions.canTrigger
+                ? [
+                    {
+                      label: "Trigger",
+                      icon: PlayActionIcon,
+                      onClick: () => {
+                        for (const id of selectedIds) {
+                          triggerSchedule.mutate({ id });
+                        }
+                      },
+                    },
+                  ]
+                : []),
+              ...(actionPermissions.canPauseResume
+                ? [
+                    {
+                      label: "Pause",
+                      icon: PauseActionIcon,
+                      onClick: () => {
+                        for (const id of selectedIds) {
+                          pauseSchedule.mutate({ id });
+                        }
+                      },
+                    },
+                    {
+                      label: "Resume",
+                      icon: PlayActionIcon,
+                      onClick: () => {
+                        for (const id of selectedIds) {
+                          resumeSchedule.mutate({ id });
+                        }
+                      },
+                    },
+                  ]
+                : []),
             ]}
           />
         </DataGrid>
-      </div>
+      </section>
 
       <ScheduleDetailSheet
         onOpenChange={setSheetOpen}
         open={sheetOpen}
         schedule={selectedSchedule}
       />
+
+      <JobFormDialog
+        job={editingSchedule}
+        kind="schedule"
+        onOpenChange={setFormOpen}
+        onSaved={(schedule) => {
+          setSelectedSchedule((current) =>
+            current?.id === schedule.id ? schedule : current
+          );
+        }}
+        open={formOpen}
+      />
+
+      <AlertDialog
+        onOpenChange={(open) => {
+          if (!open) {
+            setDeleteTarget(null);
+          }
+        }}
+        open={!!deleteTarget}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete schedule?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This permanently deletes {deleteTarget?.name}. Existing run
+              history remains available from the runs view.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={deleteSchedule.isPending}
+              onClick={() => {
+                if (deleteTarget) {
+                  deleteSchedule.mutate(deleteTarget.id, {
+                    onSuccess: () => setDeleteTarget(null),
+                  });
+                }
+              }}
+            >
+              <HugeiconsIcon className="size-4" icon={TrashIcon} />
+              Delete schedule
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Shell>
   );
 }

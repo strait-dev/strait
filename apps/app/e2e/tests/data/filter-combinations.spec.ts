@@ -29,7 +29,7 @@ test.describe("Job filter combinations", () => {
     await page.goto(`/app/jobs?query=${encodeURIComponent(prefix)}`, {
       waitUntil: "domcontentloaded",
     });
-    await expect(page.getByRole("table", { name: "Jobs" })).toBeVisible();
+    await expect(page.getByRole("region", { name: "Jobs" })).toBeVisible();
     await expect(page.getByText(`${prefix}-0`)).toBeVisible();
 
     await page.goto("/app/jobs?query=missing-job-xyz", {
@@ -39,7 +39,7 @@ test.describe("Job filter combinations", () => {
     await expect(page.getByText("0 rows")).toBeVisible();
 
     await page.goto("/app/jobs", { waitUntil: "domcontentloaded" });
-    await expect(page.getByRole("table", { name: "Jobs" })).toBeVisible();
+    await expect(page.getByRole("region", { name: "Jobs" })).toBeVisible();
   });
 
   test("status filter exposes selectable job status options", async ({

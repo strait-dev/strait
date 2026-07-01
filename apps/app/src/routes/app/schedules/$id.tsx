@@ -39,7 +39,7 @@ import {
   getSortedRowModel,
   useReactTable,
 } from "@tanstack/react-table";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import DetailPageSkeleton from "@/components/common/detail-page-skeleton";
 import EntityNotFound from "@/components/common/entity-not-found";
 import ErrorComponent from "@/components/common/error-component";
@@ -53,6 +53,8 @@ import {
   useTriggerJob,
 } from "@/hooks/api/use-jobs";
 import { runsQueryOptions } from "@/hooks/api/use-runs";
+import { useProjectPermissions } from "@/hooks/auth/use-project-permissions";
+import { useHydratedTableData } from "@/hooks/use-hydrated-table-data";
 import {
   ActivityIcon,
   CalendarIcon,
@@ -63,16 +65,19 @@ import {
   RefreshIcon,
   TagIcon,
 } from "@/lib/icons";
+import type { AppRouteContext } from "@/routes/app/layout";
 
 export const Route = createFileRoute("/app/schedules/$id")({
   head: () => ({ meta: [{ title: "Schedule · Strait" }] }),
   loader: async ({ context, params }) => {
+    const { session } = context as AppRouteContext;
     await Promise.all([
       context.queryClient.ensureQueryData(jobQueryOptions(params.id)),
       context.queryClient.ensureQueryData(
         runsQueryOptions({ job_id: params.id })
       ),
     ]);
+    return { session };
   },
   pendingComponent: DetailPageSkeleton,
   errorComponent: ErrorComponent,
@@ -81,6 +86,7 @@ export const Route = createFileRoute("/app/schedules/$id")({
 
 function ScheduleDetailPage() {
   const { id } = Route.useParams();
+  const { session } = Route.useLoaderData();
   usePageEvent("schedule_detail_viewed", { schedule_id: id });
   const { data: job } = useSuspenseQuery(jobQueryOptions(id)) as {
     data: Job | undefined;
@@ -89,12 +95,20 @@ function ScheduleDetailPage() {
     data: PaginatedResponse<JobRun> | undefined;
   };
   const [activeTab, setActiveTab] = useState("history");
+  const [isHydrated, setIsHydrated] = useState(false);
   const triggerJob = useTriggerJob();
   const pauseJob = usePauseJob();
   const resumeJob = useResumeJob();
+  const projectId = session.user.activeProjectId || job?.project_id || "active";
+  const { permissions } = useProjectPermissions(projectId);
+  const tableData = useHydratedTableData(runs?.data ?? []);
+
+  useEffect(() => {
+    setIsHydrated(true);
+  }, []);
 
   const runsTable = useReactTable({
-    data: runs?.data ?? [],
+    data: tableData.data,
     columns: createRunColumns(),
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
@@ -109,6 +123,11 @@ function ScheduleDetailPage() {
     );
   }
 
+  const isPaused = job.paused || !job.enabled;
+  const canMutateSchedule =
+    permissions.canWriteJobs || job.created_by === session.user.id;
+  const canTriggerSchedule = permissions.canTriggerJobs || canMutateSchedule;
+
   return (
     <Shell>
       {/* Header */}
@@ -118,36 +137,42 @@ function ScheduleDetailPage() {
             <h1 className="text-balance font-normal text-xl tracking-tight">
               {job.name}
             </h1>
-            <StatusBadge
-              showDot
-              status={job.enabled ? "completed" : "paused"}
-            />
+            <StatusBadge showDot status={isPaused ? "paused" : "completed"} />
           </div>
           {job.description && (
             <p className="text-muted-foreground text-sm">{job.description}</p>
           )}
         </div>
         <div className="flex gap-2">
-          <Button
-            disabled={triggerJob.isPending}
-            onClick={() => triggerJob.mutate({ id })}
-          >
-            <HugeiconsIcon className="mr-1.5 size-3.5" icon={PlayActionIcon} />
-            Trigger
-          </Button>
-          <Button
-            disabled={pauseJob.isPending || resumeJob.isPending}
-            onClick={() =>
-              job.enabled ? pauseJob.mutate({ id }) : resumeJob.mutate({ id })
-            }
-            variant="outline"
-          >
-            <HugeiconsIcon
-              className="mr-1.5 size-3.5"
-              icon={job.enabled ? PauseActionIcon : PlayActionIcon}
-            />
-            {job.enabled ? "Pause" : "Resume"}
-          </Button>
+          {canTriggerSchedule && (
+            <Button
+              disabled={!isHydrated || triggerJob.isPending}
+              onClick={() => triggerJob.mutate({ id })}
+            >
+              <HugeiconsIcon
+                className="mr-1.5 size-3.5"
+                icon={PlayActionIcon}
+              />
+              Trigger
+            </Button>
+          )}
+          {canMutateSchedule && (
+            <Button
+              disabled={
+                !isHydrated || pauseJob.isPending || resumeJob.isPending
+              }
+              onClick={() =>
+                isPaused ? resumeJob.mutate({ id }) : pauseJob.mutate({ id })
+              }
+              variant="outline"
+            >
+              <HugeiconsIcon
+                className="mr-1.5 size-3.5"
+                icon={isPaused ? PlayActionIcon : PauseActionIcon}
+              />
+              {isPaused ? "Resume" : "Pause"}
+            </Button>
+          )}
         </div>
       </div>
 
@@ -198,7 +223,8 @@ function ScheduleDetailPage() {
                 </EmptyHeader>
               </Empty>
             }
-            recordCount={runs?.data.length ?? 0}
+            loading={tableData.isLoading}
+            recordCount={tableData.isHydrated ? (runs?.data.length ?? 0) : 0}
             table={runsTable}
             tableClassNames={{ base: "min-w-[1200px]" }}
           >

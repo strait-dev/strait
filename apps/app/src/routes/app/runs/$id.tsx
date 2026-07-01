@@ -5,17 +5,6 @@ import {
   AlertDescription,
   AlertTitle,
 } from "@strait/ui/components/alert";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@strait/ui/components/alert-dialog";
 import { Button } from "@strait/ui/components/button";
 import {
   Card,
@@ -60,7 +49,7 @@ import {
 } from "@strait/ui/components/toggle-group";
 import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import DetailPageSkeleton from "@/components/common/detail-page-skeleton";
 import EntityNotFound from "@/components/common/entity-not-found";
 import ErrorComponent from "@/components/common/error-component";
@@ -78,16 +67,20 @@ import {
   useCancelRun,
   useRetryRun,
 } from "@/hooks/api/use-runs";
+import { useProjectPermissions } from "@/hooks/auth/use-project-permissions";
 import { formatDuration } from "@/lib/format";
 import { AlertCircleIcon, RefreshIcon, XCircleIcon } from "@/lib/icons";
+import type { AppRouteContext } from "@/routes/app/layout";
 
 export const Route = createFileRoute("/app/runs/$id")({
   head: () => ({ meta: [{ title: "Run details · Strait" }] }),
   loader: async ({ context, params }) => {
+    const { session } = context as AppRouteContext;
     await context.queryClient.ensureQueryData(runQueryOptions(params.id));
     await context.queryClient
       .prefetchQuery(runEventsQueryOptions(params.id))
       .catch(() => undefined);
+    return { session };
   },
   pendingComponent: DetailPageSkeleton,
   errorComponent: ErrorComponent,
@@ -129,6 +122,7 @@ const EXECUTION_TRACE_SEGMENTS: {
 
 function RunDetailPage() {
   const { id } = Route.useParams();
+  const { session } = Route.useLoaderData();
   usePageEvent("run_detail_viewed", { run_id: id });
   const { data: run } = useSuspenseQuery(runQueryOptions(id)) as {
     data: JobRun | undefined;
@@ -147,9 +141,16 @@ function RunDetailPage() {
   };
   const events = eventsData?.data ?? [];
   const [activeTab, setActiveTab] = useState("logs");
+  const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
+  const [isHydrated, setIsHydrated] = useState(false);
   const [levelFilter, setLevelFilter] = useState<LevelFilter>("all");
   const retryRun = useRetryRun();
   const cancelRun = useCancelRun();
+  const { permissions } = useProjectPermissions(session.user.activeProjectId);
+
+  useEffect(() => {
+    setIsHydrated(true);
+  }, []);
 
   const filteredEvents = useMemo(() => {
     if (levelFilter === "all") {
@@ -207,9 +208,9 @@ function RunDetailPage() {
           </p>
         </div>
         <div className="flex shrink-0 gap-2">
-          {isFailed && (
+          {isFailed && permissions.canWriteRuns && (
             <Button
-              disabled={retryRun.isPending}
+              disabled={!isHydrated || retryRun.isPending}
               onClick={() => retryRun.mutate({ run_id: run.id })}
               variant="outline"
             >
@@ -217,39 +218,40 @@ function RunDetailPage() {
               {retryRun.isPending ? "Retrying…" : "Retry"}
             </Button>
           )}
-          {isActive && (
-            <AlertDialog>
-              <AlertDialogTrigger
-                render={
-                  <Button disabled={cancelRun.isPending} variant="outline">
-                    <HugeiconsIcon
-                      className="mr-1.5"
-                      icon={XCircleIcon}
-                      size={14}
-                    />
-                    {cancelRun.isPending ? "Cancelling…" : "Cancel"}
-                  </Button>
+          {isActive && permissions.canWriteRuns && cancelDialogOpen && (
+            <>
+              <Button
+                disabled={!isHydrated || cancelRun.isPending}
+                onClick={() => setCancelDialogOpen(false)}
+                variant="outline"
+              >
+                Keep running
+              </Button>
+              <Button
+                disabled={!isHydrated || cancelRun.isPending}
+                onClick={() =>
+                  cancelRun.mutate(
+                    { run_id: run.id },
+                    {
+                      onSettled: () => setCancelDialogOpen(false),
+                    }
+                  )
                 }
-              />
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Cancel this run?</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    The run is currently {run.status}. Cancelling stops
-                    execution and marks the run as canceled. This cannot be
-                    undone.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Keep running</AlertDialogCancel>
-                  <AlertDialogAction
-                    onClick={() => cancelRun.mutate({ run_id: run.id })}
-                  >
-                    Cancel run
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
+                variant="destructive"
+              >
+                {cancelRun.isPending ? "Cancelling..." : "Cancel run"}
+              </Button>
+            </>
+          )}
+          {isActive && permissions.canWriteRuns && !cancelDialogOpen && (
+            <Button
+              disabled={!isHydrated || cancelRun.isPending}
+              onClick={() => setCancelDialogOpen(true)}
+              variant="outline"
+            >
+              <HugeiconsIcon className="mr-1.5" icon={XCircleIcon} size={14} />
+              {cancelRun.isPending ? "Cancelling..." : "Cancel"}
+            </Button>
           )}
         </div>
       </div>
@@ -384,6 +386,7 @@ function formatTimelineTimestamp(value: string) {
 }
 
 function RunTimeline({ run }: { run: JobRun }) {
+  const [isHydrated, setIsHydrated] = useState(false);
   const steps: TimelineStep[] = [
     { label: "Created", at: run.created_at },
     { label: "Scheduled", at: run.scheduled_at },
@@ -391,10 +394,14 @@ function RunTimeline({ run }: { run: JobRun }) {
     { label: "Finished", at: run.finished_at },
   ];
   const activeStep = steps.filter((step) => !!step.at).length;
-  const duration = formatDuration(
-    run.started_at ?? null,
-    run.finished_at ?? null
-  );
+  const duration =
+    run.finished_at || isHydrated
+      ? formatDuration(run.started_at ?? null, run.finished_at ?? null)
+      : "In progress";
+
+  useEffect(() => {
+    setIsHydrated(true);
+  }, []);
 
   return (
     <div className="flex flex-col gap-4">

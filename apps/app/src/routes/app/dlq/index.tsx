@@ -45,6 +45,10 @@ import NoProjectState from "@/components/common/no-project-state";
 import TablePageSkeleton from "@/components/common/table-page-skeleton";
 import RunDetailSheet from "@/components/dashboard/run-detail-sheet";
 import { createDlqColumns } from "@/components/tables/dlq-columns";
+import {
+  getResourceTableInitialState,
+  RESOURCE_TABLE_CLASS_NAMES,
+} from "@/components/tables/resource-table";
 import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import type { JobRun, PaginatedResponse } from "@/hooks/api/types";
 import {
@@ -54,10 +58,12 @@ import {
   useDiscardDlqItem,
   useRetryDlqItem,
 } from "@/hooks/api/use-dlq";
+import { useProjectPermissions } from "@/hooks/auth/use-project-permissions";
 import { useCursorPagination } from "@/hooks/use-cursor-pagination";
+import { useHydratedTableData } from "@/hooks/use-hydrated-table-data";
 import { AlertIcon, RefreshIcon, SearchIcon, TrashIcon } from "@/lib/icons";
+import { dlqResourcePermissions } from "@/lib/resource-permissions";
 import { DLQ_ERROR_TYPES } from "@/lib/status";
-import { stopInteractiveRowClick } from "@/lib/table-interactions";
 import type { AppRouteContext } from "@/routes/app/layout";
 
 const searchArraySchema = z.preprocess(
@@ -119,13 +125,15 @@ function DlqPage() {
   const bulkDiscard = useBulkDiscardDlq();
   const retryDlqItem = useRetryDlqItem();
   const discardDlqItem = useDiscardDlqItem();
+  const { permissions } = useProjectPermissions(session.user.activeProjectId);
+  const actionPermissions = dlqResourcePermissions(permissions);
 
   const typed = data as PaginatedResponse<JobRun> | undefined;
-  const tableData = hasProject ? (typed?.data ?? []) : [];
+  const apiData = hasProject ? (typed?.data ?? []) : [];
   const selectedErrorTypes = search.errorType ?? [];
 
   const filteredData = useMemo(() => {
-    let runs = tableData;
+    let runs = apiData;
     const query = search.query?.trim().toLowerCase();
     if (query) {
       runs = runs.filter((run) =>
@@ -151,23 +159,30 @@ function DlqPage() {
           .some((value) => value?.toLowerCase().includes(errorType))
       )
     );
-  }, [tableData, search.query, selectedErrorTypes]);
+  }, [apiData, search.query, selectedErrorTypes]);
+  const tableData = useHydratedTableData(filteredData);
 
   const table = useReactTable({
-    data: filteredData,
+    data: tableData.data,
     columns: createDlqColumns({
       onView: (run) => {
         setSelectedRun(run);
         setSheetOpen(true);
       },
-      onRetry: (run) => retryDlqItem.mutate({ id: run.id }),
-      onDiscard: (run) => discardDlqItem.mutate({ id: run.id }),
+      onRetry: actionPermissions.canRetry
+        ? (run) => retryDlqItem.mutate({ id: run.id })
+        : undefined,
+      onDiscard: actionPermissions.canDiscard
+        ? (run) => discardDlqItem.mutate({ id: run.id })
+        : undefined,
+      disabled: !tableData.isHydrated,
     }),
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
     getSortedRowModel: getSortedRowModel(),
     manualPagination: true,
     enableRowSelection: true,
+    initialState: getResourceTableInitialState(),
     onRowSelectionChange: setRowSelection,
     state: { rowSelection },
     getRowId: (row) => row.id,
@@ -273,7 +288,7 @@ function DlqPage() {
           values={selectedErrorTypes}
         />
 
-        {hasSelection ? (
+        {actionPermissions.canRetry && hasSelection ? (
           <>
             <Button
               disabled={bulkRetry.isPending}
@@ -320,6 +335,7 @@ function DlqPage() {
             </AlertDialog>
           </>
         ) : (
+          actionPermissions.canRetry &&
           totalCount > 0 && (
             <AlertDialog>
               <AlertDialogTrigger
@@ -362,17 +378,20 @@ function DlqPage() {
       </div>
 
       {/* Table */}
-      <div onClickCapture={stopInteractiveRowClick}>
+      <section aria-label="Dead letter queue">
         <div className="pt-2">
           <DataGrid
             emptyMessage={emptyState}
+            loading={tableData.isLoading}
             onRowClick={(run) => {
               setSelectedRun(run);
               setSheetOpen(true);
             }}
-            recordCount={table.getRowModel().rows.length}
+            recordCount={
+              tableData.isHydrated ? table.getRowModel().rows.length : 0
+            }
             table={table}
-            tableClassNames={{ base: "min-w-[1200px]" }}
+            tableClassNames={RESOURCE_TABLE_CLASS_NAMES}
           >
             <DataGridContainer>
               <DataGridScrollArea>
@@ -396,7 +415,7 @@ function DlqPage() {
             />
           </DataGrid>
         </div>
-      </div>
+      </section>
 
       <RunDetailSheet
         onOpenChange={setSheetOpen}

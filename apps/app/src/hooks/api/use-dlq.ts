@@ -1,3 +1,4 @@
+import { toast } from "@strait/ui/components/toast";
 import {
   keepPreviousData,
   queryOptions,
@@ -136,6 +137,7 @@ export const useRetryDlqItem = () => {
       getPostHog()?.capture("dlq_item_retried", { run_id: variables.id });
     },
     onError: (err, variables, context) => {
+      toast.error("Failed to retry dead-letter run.");
       if (context?.previousLists) {
         restoreDlqLists(queryClient, context.previousLists);
       }
@@ -168,6 +170,7 @@ export const useDiscardDlqItem = () => {
       getPostHog()?.capture("dlq_item_discarded", { run_id: variables.id });
     },
     onError: (err, variables, context) => {
+      toast.error("Failed to discard dead-letter run.");
       if (context?.previousLists) {
         restoreDlqLists(queryClient, context.previousLists);
       }
@@ -202,6 +205,7 @@ export const useBulkRetryDlq = () => {
       });
     },
     onError: (err, variables, context) => {
+      toast.error("Failed to retry dead-letter runs.");
       if (context?.previousLists) {
         restoreDlqLists(queryClient, context.previousLists);
       }
@@ -240,6 +244,7 @@ export const useBulkDiscardDlq = () => {
       });
     },
     onError: (err, variables, context) => {
+      toast.error("Failed to discard dead-letter runs.");
       if (context?.previousLists) {
         restoreDlqLists(queryClient, context.previousLists);
       }

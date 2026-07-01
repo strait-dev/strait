@@ -5,8 +5,10 @@ import { fileURLToPath } from "node:url";
 import pg from "pg";
 import { signInAndSaveState } from "./setup/auth";
 import {
+  ensureLimitedMemberExists,
   ensureOrgExists,
   ensureProjectExists,
+  ensureProjectRbacExists,
   ensureUserExists,
 } from "./setup/db";
 import { ensureUnlimitedE2EPlan } from "./support/auth-db";
@@ -29,6 +31,10 @@ export default async function globalSetup() {
 
   const email = process.env.E2E_USER_EMAIL;
   const password = process.env.E2E_USER_PASSWORD;
+  const limitedEmail =
+    process.env.E2E_LIMITED_USER_EMAIL ?? "e2e-limited@strait.local";
+  const limitedPassword =
+    process.env.E2E_LIMITED_USER_PASSWORD ?? password ?? "password123456";
   const authDbUrl = process.env.AUTH_DATABASE_URL;
   const baseURL = process.env.EXPECT_BASE_URL || "http://localhost:5173";
   const apiURL = process.env.STRAIT_API_URL || "http://localhost:8080";
@@ -66,20 +72,49 @@ export default async function globalSetup() {
         apiURL,
         internalSecret
       );
+      const limitedUser = await ensureLimitedMemberExists(
+        pool,
+        limitedEmail,
+        limitedPassword,
+        baseURL,
+        orgId,
+        projectId
+      );
+      await ensureProjectRbacExists(pool, projectId, user.id, limitedUser.id);
       await ensureUnlimitedE2EPlan(orgId);
 
       fs.mkdirSync("playwright/.auth", { recursive: true });
       fs.writeFileSync(
         "playwright/.auth/project.json",
-        JSON.stringify({ projectId, orgId, userId: user.id, fakeEndpointUrl })
+        JSON.stringify({
+          projectId,
+          orgId,
+          userId: user.id,
+          limitedUserId: limitedUser.id,
+          limitedUserEmail: limitedEmail,
+          fakeEndpointUrl,
+        })
       );
-      writeRunContext({ projectId, orgId, userId: user.id, fakeEndpointUrl });
+      writeRunContext({
+        projectId,
+        orgId,
+        userId: user.id,
+        limitedUserId: limitedUser.id,
+        limitedUserEmail: limitedEmail,
+        fakeEndpointUrl,
+      });
     } finally {
       await pool.end();
     }
   }
 
   await signInAndSaveState(baseURL, email, password);
+  await signInAndSaveState(
+    baseURL,
+    limitedEmail,
+    limitedPassword,
+    "playwright/.auth/limited-user.json"
+  );
 }
 
 async function ensureFakeEndpoint() {

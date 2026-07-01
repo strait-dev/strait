@@ -58,11 +58,11 @@ test.describe("Project isolation", () => {
   }) => {
     await page.goto("/app/jobs", { waitUntil: "domcontentloaded" });
 
-    await expect(page.getByRole("table", { name: "Jobs" })).toBeVisible();
-    await page.getByPlaceholder("Search jobs...").fill(activeJobName);
+    await expect(page.getByRole("region", { name: "Jobs" })).toBeVisible();
+    await page.getByLabel("Search").fill(activeJobName);
     await expect(page.getByText(activeJobName)).toBeVisible();
 
-    await page.getByPlaceholder("Search jobs...").fill(isolatedJobName);
+    await page.getByLabel("Search").fill(isolatedJobName);
     await expect(page.getByText(isolatedJobName)).not.toBeVisible();
   });
 });
