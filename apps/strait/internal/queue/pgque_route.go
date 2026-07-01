@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"strings"
 	"time"
-	"unsafe"
 
 	"strait/internal/domain"
 	"strait/internal/store"
@@ -22,9 +21,7 @@ const (
 )
 
 func pgQueQueueName(routeKey string) string {
-	// Sum256 consumes the route key synchronously and never retains it, so this
-	// avoids copying long worker route keys before hashing them.
-	sum := sha256.Sum256(unsafe.Slice(unsafe.StringData(routeKey), len(routeKey)))
+	sum := sha256.Sum256([]byte(routeKey))
 	var queueName [len(pgQueQueuePrefix) + 32]byte
 	copy(queueName[:], pgQueQueuePrefix)
 	hex.Encode(queueName[len(pgQueQueuePrefix):], sum[:16])

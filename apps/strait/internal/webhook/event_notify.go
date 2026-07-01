@@ -28,7 +28,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-	"unsafe"
 
 	"strait/internal/billing"
 	"strait/internal/clickhouse"
@@ -1712,9 +1711,7 @@ func writeStringToHash(w io.Writer, value string) {
 	if value == "" {
 		return
 	}
-	// hash.Hash implementations consume the bytes synchronously; this avoids
-	// copying hot-path delivery ids before HMAC signing.
-	_, _ = w.Write(unsafe.Slice(unsafe.StringData(value), len(value)))
+	_, _ = w.Write([]byte(value))
 }
 
 // ComputeReplayKeyUnsigned derives a deterministic replay key for

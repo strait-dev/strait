@@ -4,7 +4,6 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
-	"unsafe"
 )
 
 var hmacSeparator = []byte(".")
@@ -13,8 +12,8 @@ var hmacSeparator = []byte(".")
 // dispatch. Format: `v1=<hex>`. Timestamp is unix seconds as decimal
 // string. The signature covers `<timestamp>.<body>`.
 func SignHTTPDispatch(secret string, timestamp string, body []byte) string {
-	mac := hmac.New(sha256.New, unsafe.Slice(unsafe.StringData(secret), len(secret)))
-	mac.Write(unsafe.Slice(unsafe.StringData(timestamp), len(timestamp)))
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte(timestamp))
 	mac.Write(hmacSeparator)
 	mac.Write(body)
 
