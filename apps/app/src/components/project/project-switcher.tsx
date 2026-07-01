@@ -33,7 +33,12 @@ const ProjectSwitcher = ({ user }: Props) => {
 
   const organizationId = user.defaultOrganizationId ?? "";
   const [activeProjectId, setActiveProjectId] = useState(user.activeProjectId);
-  const { permissions } = useProjectPermissions(activeProjectId);
+  const projectPermissions = useProjectPermissions(activeProjectId);
+  const { permissions } = projectPermissions;
+  const permissionsReady =
+    !activeProjectId ||
+    projectPermissions.isSuccess ||
+    projectPermissions.isError;
   const canCreateProject = !activeProjectId || permissions.canManageProjects;
 
   useEffect(() => {
@@ -121,7 +126,10 @@ const ProjectSwitcher = ({ user }: Props) => {
       <DropdownMenu onOpenChange={setDropdownOpen} open={dropdownOpen}>
         <DropdownMenuTrigger
           render={
-            <SidebarMenuButton className="w-full" disabled={!isHydrated} />
+            <SidebarMenuButton
+              className="w-full"
+              disabled={!(isHydrated && permissionsReady)}
+            />
           }
         >
           <HugeiconsIcon

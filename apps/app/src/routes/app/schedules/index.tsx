@@ -36,7 +36,7 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 import { zodValidator } from "@tanstack/zod-adapter";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { z } from "zod/v4";
 import { CursorPagination } from "@/components/common/cursor-pagination";
 import ErrorComponent from "@/components/common/error-component";
@@ -45,6 +45,10 @@ import NoProjectState from "@/components/common/no-project-state";
 import TablePageSkeleton from "@/components/common/table-page-skeleton";
 import ScheduleDetailSheet from "@/components/dashboard/schedule-detail-sheet";
 import JobFormDialog from "@/components/jobs/job-form-dialog";
+import {
+  getResourceTableInitialState,
+  RESOURCE_TABLE_CLASS_NAMES,
+} from "@/components/tables/resource-table";
 import { createScheduleColumns } from "@/components/tables/schedules-columns";
 import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import type { Job, PaginatedResponse } from "@/hooks/api/types";
@@ -58,6 +62,7 @@ import {
 import { useProjectPermissions } from "@/hooks/auth/use-project-permissions";
 import { useCursorPagination } from "@/hooks/use-cursor-pagination";
 import { useHydratedTableData } from "@/hooks/use-hydrated-table-data";
+import { usePermissionGatedCreateQuery } from "@/hooks/use-permission-gated-create-query";
 import {
   CalendarIcon,
   EyeIcon,
@@ -67,6 +72,7 @@ import {
   SearchIcon,
   TrashIcon,
 } from "@/lib/icons";
+import { scheduleResourcePermissions } from "@/lib/resource-permissions";
 import { ENABLED_STATUS_OPTIONS } from "@/lib/status";
 import type { AppRouteContext } from "@/routes/app/layout";
 
@@ -135,19 +141,27 @@ function SchedulesPage() {
   const deleteSchedule = useDeleteSchedule();
   const { isHydrated: permissionsHydrated, permissions } =
     useProjectPermissions(session.user.activeProjectId);
+  const actionPermissions = scheduleResourcePermissions(permissions);
 
-  useEffect(() => {
-    if (search.create === "1" && permissionsHydrated) {
-      setEditingSchedule(null);
-      if (permissions.canWriteJobs) {
-        setFormOpen(true);
-      }
-      navigate({
-        search: (prev) => ({ ...prev, create: undefined }),
-        replace: true,
-      });
-    }
-  }, [navigate, permissions.canWriteJobs, permissionsHydrated, search.create]);
+  const openCreateDialog = useCallback(() => {
+    setEditingSchedule(null);
+    setFormOpen(true);
+  }, []);
+
+  const clearCreateQuery = useCallback(() => {
+    navigate({
+      search: (prev) => ({ ...prev, create: undefined }),
+      replace: true,
+    });
+  }, [navigate]);
+
+  usePermissionGatedCreateQuery({
+    canCreate: actionPermissions.canCreate,
+    clearCreateQuery,
+    create: search.create,
+    isReady: permissionsHydrated,
+    openCreateDialog,
+  });
 
   const { data } = useQuery({
     ...schedulesQueryOptions({
@@ -196,16 +210,16 @@ function SchedulesPage() {
         setSelectedSchedule(schedule);
         setSheetOpen(true);
       },
-      onEdit: permissions.canWriteJobs
+      onEdit: actionPermissions.canEdit
         ? (schedule) => {
             setEditingSchedule(schedule);
             setFormOpen(true);
           }
         : undefined,
-      onTrigger: permissions.canTriggerJobs
+      onTrigger: actionPermissions.canTrigger
         ? (schedule) => triggerSchedule.mutate({ id: schedule.id })
         : undefined,
-      onPauseResume: permissions.canWriteJobs
+      onPauseResume: actionPermissions.canPauseResume
         ? (schedule) => {
             if (schedule.paused || !schedule.enabled) {
               resumeSchedule.mutate({ id: schedule.id });
@@ -214,7 +228,7 @@ function SchedulesPage() {
             }
           }
         : undefined,
-      onDelete: permissions.canWriteJobs
+      onDelete: actionPermissions.canDelete
         ? (schedule) => setDeleteTarget(schedule)
         : undefined,
     }),
@@ -223,6 +237,7 @@ function SchedulesPage() {
     getSortedRowModel: getSortedRowModel(),
     manualPagination: true,
     enableRowSelection: true,
+    initialState: getResourceTableInitialState(),
     onRowSelectionChange: setRowSelection,
     state: { globalFilter: search.query ?? "", rowSelection },
     onGlobalFilterChange: (query) =>
@@ -331,7 +346,7 @@ function SchedulesPage() {
           values={selectedStatuses}
         />
 
-        {permissions.canWriteJobs && (
+        {actionPermissions.canCreate && (
           <Button
             className="shrink-0"
             render={(props) => (
@@ -358,7 +373,7 @@ function SchedulesPage() {
             tableData.isHydrated ? table.getRowModel().rows.length : 0
           }
           table={table}
-          tableClassNames={{ base: "min-w-[1200px]" }}
+          tableClassNames={RESOURCE_TABLE_CLASS_NAMES}
         >
           <DataGridContainer>
             <DataGridScrollArea>
@@ -397,7 +412,7 @@ function SchedulesPage() {
                         }
                       },
                     },
-                    ...(permissions.canWriteJobs
+                    ...(actionPermissions.canDelete
                       ? [
                           {
                             label: "Delete",
@@ -417,7 +432,7 @@ function SchedulesPage() {
                       : []),
                   ]
                 : []),
-              ...(permissions.canTriggerJobs
+              ...(actionPermissions.canTrigger
                 ? [
                     {
                       label: "Trigger",
@@ -430,7 +445,7 @@ function SchedulesPage() {
                     },
                   ]
                 : []),
-              ...(permissions.canWriteJobs
+              ...(actionPermissions.canPauseResume
                 ? [
                     {
                       label: "Pause",

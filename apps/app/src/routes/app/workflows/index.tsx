@@ -35,7 +35,7 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 import { zodValidator } from "@tanstack/zod-adapter";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { z } from "zod/v4";
 import { CursorPagination } from "@/components/common/cursor-pagination";
 import ErrorComponent from "@/components/common/error-component";
@@ -43,6 +43,10 @@ import { FacetedStatusFilter } from "@/components/common/faceted-status-filter";
 import NoProjectState from "@/components/common/no-project-state";
 import TablePageSkeleton from "@/components/common/table-page-skeleton";
 import WorkflowDetailSheet from "@/components/dashboard/workflow-detail-sheet";
+import {
+  getResourceTableInitialState,
+  RESOURCE_TABLE_CLASS_NAMES,
+} from "@/components/tables/resource-table";
 import { createWorkflowColumns } from "@/components/tables/workflows-columns";
 import WorkflowFormDialog from "@/components/workflows/workflow-form-dialog";
 import { usePageEvent } from "@/hooks/analytics/use-page-event";
@@ -57,6 +61,7 @@ import {
 import { useProjectPermissions } from "@/hooks/auth/use-project-permissions";
 import { useCursorPagination } from "@/hooks/use-cursor-pagination";
 import { useHydratedTableData } from "@/hooks/use-hydrated-table-data";
+import { usePermissionGatedCreateQuery } from "@/hooks/use-permission-gated-create-query";
 import {
   EyeIcon,
   PauseActionIcon,
@@ -66,6 +71,7 @@ import {
   TrashIcon,
   WorkflowIcon,
 } from "@/lib/icons";
+import { workflowResourcePermissions } from "@/lib/resource-permissions";
 import { ENABLED_STATUS_OPTIONS } from "@/lib/status";
 import type { AppRouteContext } from "@/routes/app/layout";
 
@@ -143,23 +149,26 @@ function WorkflowsPage() {
   const deleteWorkflow = useDeleteWorkflow();
   const { isHydrated: permissionsHydrated, permissions } =
     useProjectPermissions(session.user.activeProjectId);
+  const actionPermissions = workflowResourcePermissions(permissions);
 
-  useEffect(() => {
-    if (search.create === "1" && permissionsHydrated) {
-      if (permissions.canWriteWorkflows) {
-        setFormOpen(true);
-      }
-      navigate({
-        search: (prev) => ({ ...prev, create: undefined }),
-        replace: true,
-      });
-    }
-  }, [
-    navigate,
-    permissions.canWriteWorkflows,
-    permissionsHydrated,
-    search.create,
-  ]);
+  const openCreateDialog = useCallback(() => {
+    setFormOpen(true);
+  }, []);
+
+  const clearCreateQuery = useCallback(() => {
+    navigate({
+      search: (prev) => ({ ...prev, create: undefined }),
+      replace: true,
+    });
+  }, [navigate]);
+
+  usePermissionGatedCreateQuery({
+    canCreate: actionPermissions.canCreate,
+    clearCreateQuery,
+    create: search.create,
+    isReady: permissionsHydrated,
+    openCreateDialog,
+  });
 
   const selectedStatuses = search.status ?? [];
 
@@ -198,10 +207,10 @@ function WorkflowsPage() {
         setSelectedWorkflow(workflow);
         setSheetOpen(true);
       },
-      onTrigger: permissions.canTriggerWorkflows
+      onTrigger: actionPermissions.canTrigger
         ? (workflow) => triggerWorkflow.mutate({ workflowId: workflow.id })
         : undefined,
-      onPauseResume: permissions.canWriteWorkflows
+      onPauseResume: actionPermissions.canPauseResume
         ? (workflow) => {
             if (workflow.enabled) {
               pauseWorkflow.mutate({ workflowId: workflow.id });
@@ -210,7 +219,7 @@ function WorkflowsPage() {
             }
           }
         : undefined,
-      onDelete: permissions.canWriteWorkflows
+      onDelete: actionPermissions.canDelete
         ? (workflow) => setDeleteTarget(workflow)
         : undefined,
     }),
@@ -219,6 +228,7 @@ function WorkflowsPage() {
     getSortedRowModel: getSortedRowModel(),
     manualPagination: true,
     enableRowSelection: true,
+    initialState: getResourceTableInitialState(),
     onRowSelectionChange: setRowSelection,
     state: { globalFilter: search.query ?? "", rowSelection },
     onGlobalFilterChange: (query) =>
@@ -300,7 +310,7 @@ function WorkflowsPage() {
           values={selectedStatuses}
         />
 
-        {permissions.canWriteWorkflows && (
+        {actionPermissions.canCreate && (
           <Button
             className="shrink-0"
             render={(props) => (
@@ -324,7 +334,7 @@ function WorkflowsPage() {
             tableData.isHydrated ? table.getRowModel().rows.length : 0
           }
           table={table}
-          tableClassNames={{ base: "min-w-[1200px]" }}
+          tableClassNames={RESOURCE_TABLE_CLASS_NAMES}
         >
           <DataGridContainer>
             <DataGridScrollArea>
@@ -364,7 +374,7 @@ function WorkflowsPage() {
                     },
                   ]
                 : []),
-              ...(permissions.canTriggerWorkflows
+              ...(actionPermissions.canTrigger
                 ? [
                     {
                       label: "Trigger",
@@ -377,7 +387,7 @@ function WorkflowsPage() {
                     },
                   ]
                 : []),
-              ...(permissions.canWriteWorkflows
+              ...(actionPermissions.canPauseResume
                 ? [
                     {
                       label: "Pause",

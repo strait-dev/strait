@@ -16,6 +16,7 @@ const workerBinaryPath = resolve(
   ".context/bin/strait-dogfood-worker"
 );
 const dogfoodStateDir = resolve(repoRoot, ".context/dogfood");
+const dogfoodLockPath = resolve(dogfoodStateDir, "dogfood-local.lock");
 const nativePostgresDataDir = resolve(dogfoodStateDir, "postgres");
 const nativePostgresSocketDir = resolve(dogfoodStateDir, "postgres-socket");
 const nativeRedisDataDir = resolve(dogfoodStateDir, "redis");
@@ -141,6 +142,8 @@ async function main() {
     return;
   }
 
+  acquireDogfoodRunLock();
+
   if (options.reset) {
     console.log("Resetting local dogfood state...");
     await resetLocalState();
@@ -180,6 +183,63 @@ async function main() {
   });
 
   await cleanup();
+}
+
+function acquireDogfoodRunLock() {
+  fs.mkdirSync(dogfoodStateDir, { recursive: true });
+
+  try {
+    return createDogfoodRunLock();
+  } catch (error) {
+    if (error?.code !== "EEXIST") {
+      throw error;
+    }
+  }
+
+  const existing = readDogfoodRunLock();
+  if (existing?.pid && !processIsRunning(existing.pid)) {
+    fs.rmSync(dogfoodLockPath, { force: true });
+    return createDogfoodRunLock();
+  }
+
+  const detail = existing?.pid ? `pid ${existing.pid}` : "unknown process";
+  throw new Error(
+    `Another dogfood-local run is already active (${detail}). ` +
+      `Wait for it to finish, or remove ${dogfoodLockPath} if the process is gone.`
+  );
+}
+
+function createDogfoodRunLock() {
+  const fd = fs.openSync(dogfoodLockPath, "wx");
+  fs.writeFileSync(
+    fd,
+    `${JSON.stringify({ pid: process.pid, started_at: new Date().toISOString() })}\n`
+  );
+  cleanupTasks.push(() => {
+    try {
+      fs.closeSync(fd);
+    } catch {
+      // Ignore cleanup failures.
+    }
+    fs.rmSync(dogfoodLockPath, { force: true });
+  });
+}
+
+function readDogfoodRunLock() {
+  try {
+    return JSON.parse(fs.readFileSync(dogfoodLockPath, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+function processIsRunning(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function parseArgs(args) {
@@ -1261,6 +1321,6 @@ function stopServer(server) {
 async function cleanup() {
   while (cleanupTasks.length > 0) {
     const task = cleanupTasks.pop();
-    await task().catch(() => undefined);
+    await Promise.resolve(task()).catch(() => undefined);
   }
 }

@@ -54,6 +54,15 @@ export function createActionsColumn<T>(actions: ActionItem<T>[]): ColumnDef<T> {
 
   return {
     id: "actions",
+    header: "",
+    maxSize: 128,
+    meta: {
+      cellClassName:
+        "bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80",
+      headerClassName:
+        "bg-muted/95 backdrop-blur supports-[backdrop-filter]:bg-muted/80",
+    },
+    size: 112,
     cell: ({ row }) => (
       // biome-ignore lint/a11y/useKeyWithClickEvents lint/a11y/noNoninteractiveElementInteractions lint/a11y/noStaticElementInteractions: stopPropagation isolates row actions from row-click delegation
       <div

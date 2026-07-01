@@ -41,92 +41,25 @@ import { useProjectPermissions } from "@/hooks/auth/use-project-permissions";
 import { subscriptionStateQueryOptions } from "@/hooks/subscription/use-subscription";
 import { isCommunityEdition } from "@/lib/edition";
 import {
-  AlertIcon,
-  BriefcaseIcon,
   ChevronDownIcon,
-  ClockIcon,
   CreditCardIcon,
-  DashboardIcon,
-  FileTextIcon,
   HelpCircleIcon,
-  LayersIcon,
-  PlayActionIcon,
   SearchIcon,
-  SettingsOutlineIcon,
-  SparklesIcon,
-  TrendingUpIcon,
-  UserIcon,
-  WebhookIcon,
-  WorkflowIcon,
 } from "@/lib/icons";
 import type { Session } from "@/routes/__root";
 import OrganizationDropdownMenu from "../organization/organization-dropdown-menu";
 import ProjectSwitcher from "../project/project-switcher";
 import PaymentPendingCard from "../subscription/payment-pending-card";
 import TemporaryAccessUpgradeCard from "../subscription/temporary-access-upgrade-card";
-
-type NavItem = {
-  title: string;
-  url: string;
-  icon: typeof DashboardIcon;
-  /** When true, only highlight on exact match (e.g. `/app` but not `/app/jobs`). */
-  exact?: boolean;
-};
-
-type CommandRoute = NavItem & {
-  keywords: string[];
-};
-
-type CommandMenuItem = {
-  label: string;
-  href?: string;
-  icon?: typeof DashboardIcon;
-  shortcut?: string;
-  keywords?: string[];
-  onSelect: () => void;
-};
-
-type CommandMenuGroup = {
-  heading: string;
-  items: CommandMenuItem[];
-};
-
-const mainNav: NavItem[] = [
-  {
-    title: "Getting Started",
-    url: "/app",
-    icon: SparklesIcon,
-    exact: true,
-  },
-  { title: "Dashboard", url: "/app/dashboard", icon: DashboardIcon },
-  { title: "Analytics", url: "/app/analytics", icon: TrendingUpIcon },
-  { title: "Jobs", url: "/app/jobs", icon: BriefcaseIcon },
-  { title: "Workflows", url: "/app/workflows", icon: WorkflowIcon },
-  { title: "Runs", url: "/app/runs", icon: PlayActionIcon },
-  { title: "Schedules", url: "/app/schedules", icon: ClockIcon },
-  { title: "Dead Letter", url: "/app/dlq", icon: AlertIcon },
-];
-
-const observabilityNav: NavItem[] = [
-  { title: "Logs", url: "/app/logs", icon: FileTextIcon },
-  { title: "Events", url: "/app/events", icon: LayersIcon },
-  { title: "Webhooks", url: "/app/webhooks", icon: WebhookIcon },
-];
-
-const commandRoutes: CommandRoute[] = [
-  ...mainNav.map((item) => ({
-    title: item.title,
-    url: item.url,
-    icon: item.icon,
-    keywords: [item.title.toLowerCase()],
-  })),
-  ...observabilityNav.map((item) => ({
-    title: item.title,
-    url: item.url,
-    icon: item.icon,
-    keywords: [item.title.toLowerCase()],
-  })),
-];
+import {
+  buildQuickCreateCommands,
+  buildSidebarCommandGroups,
+  commandValue,
+  mainNav,
+  type NavItem,
+  observabilityNav,
+  type SidebarCommandItem,
+} from "./sidebar-commands";
 
 type Props = {
   session: NonNullable<Session>;
@@ -159,82 +92,25 @@ const AppSidebar = ({ session }: Props) => {
     ? `/app/org/${session.user.defaultOrganizationId}`
     : "/app/settings";
 
-  const quickActions = useMemo<CommandMenuItem[]>(() => {
-    const items: CommandMenuItem[] = [];
-    if (permissions.canWriteJobs) {
-      items.push(
-        {
-          label: "Create job",
-          href: "/app/jobs?create=1",
-          icon: BriefcaseIcon,
-          shortcut: "⌘N",
-          keywords: ["new", "create", "add"],
-          onSelect: () => {
-            globalThis.location.href = "/app/jobs?create=1";
-          },
-        },
-        {
-          label: "Create schedule",
-          href: "/app/schedules?create=1",
-          icon: ClockIcon,
-          keywords: ["new", "create", "add", "cron"],
-          onSelect: () => {
-            globalThis.location.href = "/app/schedules?create=1";
-          },
-        }
-      );
-    }
-    if (permissions.canWriteWorkflows) {
-      items.push({
-        label: "Create workflow",
-        href: "/app/workflows?create=1",
-        icon: WorkflowIcon,
-        keywords: ["new", "create", "add", "pipeline"],
-        onSelect: () => {
-          globalThis.location.href = "/app/workflows?create=1";
-        },
-      });
-    }
-    return items;
-  }, [permissions.canWriteJobs, permissions.canWriteWorkflows]);
+  const quickActions = useMemo(
+    () => buildQuickCreateCommands(permissions),
+    [permissions]
+  );
 
-  const commandGroups = useMemo<CommandMenuGroup[]>(() => {
-    const groups: CommandMenuGroup[] = [
-      {
-        heading: "Navigation",
-        items: commandRoutes.map((route) => ({
-          label: route.title,
-          icon: route.icon,
-          keywords: route.keywords,
-          onSelect: () => navigate({ to: route.url }),
-        })),
-      },
-      {
-        heading: "Settings",
-        items: [
-          {
-            label: "Account Settings",
-            icon: UserIcon,
-            keywords: ["profile", "password", "email", "account"],
-            onSelect: () => navigate({ to: "/app/settings" }),
-          },
-          {
-            label: "Organization Settings",
-            icon: SettingsOutlineIcon,
-            keywords: ["org", "team", "billing", "subscription", "members"],
-            onSelect: () => navigate({ to: orgSettingsRoute }),
-          },
-        ],
-      },
-    ];
-    if (quickActions.length > 0) {
-      groups.push({
-        heading: "Quick Actions",
-        items: quickActions,
-      });
+  const commandGroups = useMemo(
+    () => buildSidebarCommandGroups(permissions, orgSettingsRoute),
+    [orgSettingsRoute, permissions]
+  );
+
+  const runCommand = (item: SidebarCommandItem) => {
+    if (item.href) {
+      globalThis.location.href = item.href;
+      return;
     }
-    return groups;
-  }, [navigate, orgSettingsRoute, quickActions]);
+    if (item.url) {
+      navigate({ to: item.url });
+    }
+  };
 
   /** Check whether a nav item is active based on the current pathname. */
   const isActive = (item: NavItem) => {
@@ -340,14 +216,10 @@ const AppSidebar = ({ session }: Props) => {
                         <CommandItem
                           key={item.label}
                           onSelect={() => {
-                            item.onSelect();
+                            runCommand(item);
                             setCommandOpen(false);
                           }}
-                          value={
-                            item.keywords
-                              ? [item.label, ...item.keywords].join(" ")
-                              : item.label
-                          }
+                          value={commandValue(item)}
                         >
                           {item.icon ? (
                             <HugeiconsIcon icon={item.icon} size={16} />

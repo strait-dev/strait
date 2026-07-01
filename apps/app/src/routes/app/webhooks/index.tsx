@@ -43,6 +43,10 @@ import ErrorComponent from "@/components/common/error-component";
 import { FacetedStatusFilter } from "@/components/common/faceted-status-filter";
 import NoProjectState from "@/components/common/no-project-state";
 import TablePageSkeleton from "@/components/common/table-page-skeleton";
+import {
+  getResourceTableInitialState,
+  RESOURCE_TABLE_CLASS_NAMES,
+} from "@/components/tables/resource-table";
 import { createWebhookColumns } from "@/components/tables/webhooks-columns";
 import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import type { PaginatedResponse, WebhookSubscription } from "@/hooks/api/types";
@@ -60,6 +64,7 @@ import {
   TrashIcon,
   WebhookIcon,
 } from "@/lib/icons";
+import { webhookResourcePermissions } from "@/lib/resource-permissions";
 import { WEBHOOK_STATUS_OPTIONS } from "@/lib/status";
 import type { AppRouteContext } from "@/routes/app/layout";
 
@@ -150,6 +155,7 @@ function WebhooksPage() {
   const deleteWebhook = useDeleteWebhook();
   const [deleteTarget, setDeleteTarget] = useState<string[] | null>(null);
   const { permissions } = useProjectPermissions(session.user.activeProjectId);
+  const actionPermissions = webhookResourcePermissions(permissions);
 
   const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({});
   const tableData = useHydratedTableData(filteredData);
@@ -157,7 +163,7 @@ function WebhooksPage() {
     data: tableData.data,
     columns: createWebhookColumns({
       onView: handleRowClick,
-      onDelete: permissions.canWriteWebhooks
+      onDelete: actionPermissions.canDelete
         ? (wh) => setDeleteTarget([wh.id])
         : undefined,
       disabled: !tableData.isHydrated,
@@ -167,6 +173,7 @@ function WebhooksPage() {
     getSortedRowModel: getSortedRowModel(),
     manualPagination: true,
     enableRowSelection: true,
+    initialState: getResourceTableInitialState(),
     onRowSelectionChange: setRowSelection,
     state: { globalFilter: search.query ?? "", rowSelection },
     onGlobalFilterChange: (query) =>
@@ -280,7 +287,7 @@ function WebhooksPage() {
           values={selectedStatuses}
         />
 
-        {permissions.canWriteWebhooks && (
+        {actionPermissions.canCreate && (
           <Button
             className="ml-auto"
             disabled={!hasProject}
@@ -301,7 +308,7 @@ function WebhooksPage() {
             tableData.isHydrated ? table.getRowModel().rows.length : 0
           }
           table={table}
-          tableClassNames={{ base: "min-w-[1200px]" }}
+          tableClassNames={RESOURCE_TABLE_CLASS_NAMES}
         >
           <DataGridContainer>
             <DataGridScrollArea>
@@ -341,7 +348,7 @@ function WebhooksPage() {
                     },
                   ]
                 : []),
-              ...(permissions.canWriteWebhooks
+              ...(actionPermissions.canDelete
                 ? [
                     {
                       label: "Delete",

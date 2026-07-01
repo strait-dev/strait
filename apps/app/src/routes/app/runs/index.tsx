@@ -33,6 +33,10 @@ import { FacetedStatusFilter } from "@/components/common/faceted-status-filter";
 import NoProjectState from "@/components/common/no-project-state";
 import TablePageSkeleton from "@/components/common/table-page-skeleton";
 import RunDetailSheet from "@/components/dashboard/run-detail-sheet";
+import {
+  getResourceTableInitialState,
+  RESOURCE_TABLE_CLASS_NAMES,
+} from "@/components/tables/resource-table";
 import { createRunColumns } from "@/components/tables/runs-columns";
 import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import type { JobRun, PaginatedResponse, RunStatus } from "@/hooks/api/types";
@@ -51,6 +55,7 @@ import {
   SearchIcon,
   XCircleIcon,
 } from "@/lib/icons";
+import { runResourcePermissions } from "@/lib/resource-permissions";
 import { RUN_STATUS_OPTIONS } from "@/lib/status";
 import { stopInteractiveRowClick } from "@/lib/table-interactions";
 import type { AppRouteContext } from "@/routes/app/layout";
@@ -114,6 +119,7 @@ function RunsPage() {
   const retryRun = useRetryRun();
   const cancelRun = useCancelRun();
   const { permissions } = useProjectPermissions(session.user.activeProjectId);
+  const actionPermissions = runResourcePermissions(permissions);
 
   const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({});
   const selectedStatuses = (search.status ?? []) as RunStatus[];
@@ -169,10 +175,10 @@ function RunsPage() {
         setSelectedRun(run);
         setSheetOpen(true);
       },
-      onRetry: permissions.canWriteRuns
+      onRetry: actionPermissions.canRetry
         ? (run) => retryRun.mutate({ run_id: run.id })
         : undefined,
-      onCancel: permissions.canWriteRuns
+      onCancel: actionPermissions.canCancel
         ? (run) => cancelRun.mutate({ run_id: run.id })
         : undefined,
     }),
@@ -181,6 +187,7 @@ function RunsPage() {
     getSortedRowModel: getSortedRowModel(),
     manualPagination: true,
     enableRowSelection: true,
+    initialState: getResourceTableInitialState(),
     onRowSelectionChange: setRowSelection,
     state: { globalFilter: search.query ?? "", rowSelection },
     onGlobalFilterChange: (query) =>
@@ -303,7 +310,7 @@ function RunsPage() {
             tableData.isHydrated ? table.getRowModel().rows.length : 0
           }
           table={table}
-          tableClassNames={{ base: "min-w-[1200px]" }}
+          tableClassNames={RESOURCE_TABLE_CLASS_NAMES}
         >
           <DataGridContainer>
             <DataGridScrollArea>
@@ -343,27 +350,35 @@ function RunsPage() {
                     },
                   ]
                 : []),
-              ...(permissions.canWriteRuns
+              ...(actionPermissions.canRetry || actionPermissions.canCancel
                 ? [
-                    {
-                      label: "Retry",
-                      icon: RefreshIcon,
-                      onClick: () => {
-                        for (const id of selectedIds) {
-                          retryRun.mutate({ run_id: id });
-                        }
-                      },
-                    },
-                    {
-                      label: "Cancel",
-                      icon: XCircleIcon,
-                      onClick: () => {
-                        for (const id of selectedIds) {
-                          cancelRun.mutate({ run_id: id });
-                        }
-                      },
-                      variant: "destructive" as const,
-                    },
+                    ...(actionPermissions.canRetry
+                      ? [
+                          {
+                            label: "Retry",
+                            icon: RefreshIcon,
+                            onClick: () => {
+                              for (const id of selectedIds) {
+                                retryRun.mutate({ run_id: id });
+                              }
+                            },
+                          },
+                        ]
+                      : []),
+                    ...(actionPermissions.canCancel
+                      ? [
+                          {
+                            label: "Cancel",
+                            icon: XCircleIcon,
+                            onClick: () => {
+                              for (const id of selectedIds) {
+                                cancelRun.mutate({ run_id: id });
+                              }
+                            },
+                            variant: "destructive" as const,
+                          },
+                        ]
+                      : []),
                   ]
                 : []),
             ]}

@@ -1,13 +1,11 @@
-import { HugeiconsIcon } from "@hugeicons/react";
 import { Badge } from "@strait/ui/components/badge";
-import { buttonVariants } from "@strait/ui/components/button";
 import { StatusBadge } from "@strait/ui/components/status-badge";
 import { Link } from "@tanstack/react-router";
 import type { ColumnDef } from "@tanstack/react-table";
 import { RelativeTime } from "@/components/common/relative-time";
 import type { WebhookSubscription } from "@/hooks/api/types";
 import { EyeIcon, TrashIcon } from "@/lib/icons";
-import { createSelectColumn } from "./shared-columns";
+import { createActionsColumn, createSelectColumn } from "./shared-columns";
 
 type WebhookColumnActions = {
   onView?: (webhook: WebhookSubscription) => void;
@@ -58,50 +56,18 @@ export const createWebhookColumns = (
     header: "Created",
     cell: ({ row }) => <RelativeTime value={row.original.created_at} />,
   },
-  {
-    id: "actions",
-    cell: ({ row }) => {
-      const webhook = row.original;
-      return (
-        <div className="flex items-center justify-end gap-1" data-no-row-click>
-          <Link
-            aria-label="View"
-            className={buttonVariants({ size: "icon-sm", variant: "ghost" })}
-            onClick={(event) => event.stopPropagation()}
-            params={{ id: webhook.id }}
-            to="/app/webhooks/$id"
-          >
-            <HugeiconsIcon
-              aria-hidden="true"
-              className="size-3.5"
-              icon={EyeIcon}
-            />
-          </Link>
-          {actions.onDelete && (
-            <button
-              aria-label="Delete"
-              className={buttonVariants({
-                size: "icon-sm",
-                variant: "destructive",
-              })}
-              disabled={actions.disabled}
-              onClick={(event) => {
-                event.stopPropagation();
-                actions.onDelete?.(webhook);
-              }}
-              type="button"
-            >
-              <HugeiconsIcon
-                aria-hidden="true"
-                className="size-3.5"
-                icon={TrashIcon}
-              />
-            </button>
-          )}
-        </div>
-      );
+  createActionsColumn<WebhookSubscription>([
+    {
+      label: "View",
+      icon: EyeIcon,
+      onClick: (row) => actions.onView?.(row.original),
     },
-    enableSorting: false,
-    enableHiding: false,
-  },
+    {
+      label: "Delete",
+      hidden: !actions.onDelete,
+      icon: TrashIcon,
+      onClick: (row) => actions.onDelete?.(row.original),
+      variant: "destructive",
+    },
+  ]),
 ];

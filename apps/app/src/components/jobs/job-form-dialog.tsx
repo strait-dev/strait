@@ -349,13 +349,7 @@ export default function JobFormDialog({
             <DialogClose render={<Button variant="secondary" />}>
               Cancel
             </DialogClose>
-            <Button
-              disabled={isPending}
-              onClick={() => {
-                submit().catch(() => undefined);
-              }}
-              type="button"
-            >
+            <Button disabled={isPending} type="submit">
               {isPending ? <Spinner /> : null}
               {isPending ? "Saving..." : labels.submit}
             </Button>

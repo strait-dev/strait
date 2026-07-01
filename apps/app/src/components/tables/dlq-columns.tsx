@@ -1,11 +1,10 @@
-import { HugeiconsIcon } from "@hugeicons/react";
-import { Button, buttonVariants } from "@strait/ui/components/button";
+import { Button } from "@strait/ui/components/button";
 import { IdCell } from "@strait/ui/components/id-cell";
 import type { ColumnDef } from "@tanstack/react-table";
 import { RelativeTime } from "@/components/common/relative-time";
 import type { JobRun } from "@/hooks/api/types";
 import { EyeIcon, RefreshIcon, TrashIcon } from "@/lib/icons";
-import { createSelectColumn } from "./shared-columns";
+import { createActionsColumn, createSelectColumn } from "./shared-columns";
 
 type DlqColumnActions = {
   onView?: (run: JobRun) => void;
@@ -65,49 +64,24 @@ export const createDlqColumns = (
     header: "Failed At",
     cell: ({ row }) => <RelativeTime value={row.original.created_at} />,
   },
-  {
-    id: "actions",
-    cell: ({ row }) => {
-      const run = row.original;
-      return (
-        <div className="flex items-center justify-end gap-1" data-no-row-click>
-          {[
-            { label: "View", icon: EyeIcon, onClick: actions.onView },
-            { label: "Retry", icon: RefreshIcon, onClick: actions.onRetry },
-            {
-              label: "Discard",
-              icon: TrashIcon,
-              onClick: actions.onDiscard,
-              destructive: true,
-            },
-          ]
-            .filter((action) => !!action.onClick)
-            .map((action) => (
-              <button
-                aria-label={action.label}
-                className={buttonVariants({
-                  size: "icon-sm",
-                  variant: action.destructive ? "destructive" : "ghost",
-                })}
-                disabled={actions.disabled}
-                key={action.label}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  action.onClick?.(run);
-                }}
-                type="button"
-              >
-                <HugeiconsIcon
-                  aria-hidden="true"
-                  className="size-3.5"
-                  icon={action.icon}
-                />
-              </button>
-            ))}
-        </div>
-      );
+  createActionsColumn<JobRun>([
+    {
+      label: "View",
+      icon: EyeIcon,
+      onClick: (row) => actions.onView?.(row.original),
     },
-    enableSorting: false,
-    enableHiding: false,
-  },
+    {
+      label: "Retry",
+      hidden: !actions.onRetry,
+      icon: RefreshIcon,
+      onClick: (row) => actions.onRetry?.(row.original),
+    },
+    {
+      label: "Discard",
+      hidden: !actions.onDiscard,
+      icon: TrashIcon,
+      onClick: (row) => actions.onDiscard?.(row.original),
+      variant: "destructive",
+    },
+  ]),
 ];

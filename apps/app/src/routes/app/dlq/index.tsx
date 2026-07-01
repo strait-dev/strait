@@ -45,6 +45,10 @@ import NoProjectState from "@/components/common/no-project-state";
 import TablePageSkeleton from "@/components/common/table-page-skeleton";
 import RunDetailSheet from "@/components/dashboard/run-detail-sheet";
 import { createDlqColumns } from "@/components/tables/dlq-columns";
+import {
+  getResourceTableInitialState,
+  RESOURCE_TABLE_CLASS_NAMES,
+} from "@/components/tables/resource-table";
 import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import type { JobRun, PaginatedResponse } from "@/hooks/api/types";
 import {
@@ -58,6 +62,7 @@ import { useProjectPermissions } from "@/hooks/auth/use-project-permissions";
 import { useCursorPagination } from "@/hooks/use-cursor-pagination";
 import { useHydratedTableData } from "@/hooks/use-hydrated-table-data";
 import { AlertIcon, RefreshIcon, SearchIcon, TrashIcon } from "@/lib/icons";
+import { dlqResourcePermissions } from "@/lib/resource-permissions";
 import { DLQ_ERROR_TYPES } from "@/lib/status";
 import type { AppRouteContext } from "@/routes/app/layout";
 
@@ -121,6 +126,7 @@ function DlqPage() {
   const retryDlqItem = useRetryDlqItem();
   const discardDlqItem = useDiscardDlqItem();
   const { permissions } = useProjectPermissions(session.user.activeProjectId);
+  const actionPermissions = dlqResourcePermissions(permissions);
 
   const typed = data as PaginatedResponse<JobRun> | undefined;
   const apiData = hasProject ? (typed?.data ?? []) : [];
@@ -163,10 +169,10 @@ function DlqPage() {
         setSelectedRun(run);
         setSheetOpen(true);
       },
-      onRetry: permissions.canWriteRuns
+      onRetry: actionPermissions.canRetry
         ? (run) => retryDlqItem.mutate({ id: run.id })
         : undefined,
-      onDiscard: permissions.canWriteRuns
+      onDiscard: actionPermissions.canDiscard
         ? (run) => discardDlqItem.mutate({ id: run.id })
         : undefined,
       disabled: !tableData.isHydrated,
@@ -176,6 +182,7 @@ function DlqPage() {
     getSortedRowModel: getSortedRowModel(),
     manualPagination: true,
     enableRowSelection: true,
+    initialState: getResourceTableInitialState(),
     onRowSelectionChange: setRowSelection,
     state: { rowSelection },
     getRowId: (row) => row.id,
@@ -281,7 +288,7 @@ function DlqPage() {
           values={selectedErrorTypes}
         />
 
-        {permissions.canWriteRuns && hasSelection ? (
+        {actionPermissions.canRetry && hasSelection ? (
           <>
             <Button
               disabled={bulkRetry.isPending}
@@ -328,7 +335,7 @@ function DlqPage() {
             </AlertDialog>
           </>
         ) : (
-          permissions.canWriteRuns &&
+          actionPermissions.canRetry &&
           totalCount > 0 && (
             <AlertDialog>
               <AlertDialogTrigger
@@ -384,7 +391,7 @@ function DlqPage() {
               tableData.isHydrated ? table.getRowModel().rows.length : 0
             }
             table={table}
-            tableClassNames={{ base: "min-w-[1200px]" }}
+            tableClassNames={RESOURCE_TABLE_CLASS_NAMES}
           >
             <DataGridContainer>
               <DataGridScrollArea>
