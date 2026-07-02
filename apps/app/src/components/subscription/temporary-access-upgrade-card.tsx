@@ -17,7 +17,7 @@ const TemporaryAccessUpgradeCard = () => {
   const temporaryAccessContent = useMemo(() => {
     if (trialDaysLeft === null || trialDaysLeft <= 0) {
       return {
-        title: "Temporary Access Active",
+        title: "Temporary access active",
         message:
           "Choose a launch plan to keep your paid-plan limits after this period ends.",
         color: "green" as const,
@@ -47,7 +47,7 @@ const TemporaryAccessUpgradeCard = () => {
     }
 
     return {
-      title: "Temporary Access Active",
+      title: "Temporary access active",
       message: accessMessage,
       color: "green" as const,
     };

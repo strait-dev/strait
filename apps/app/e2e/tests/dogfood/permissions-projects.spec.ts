@@ -488,7 +488,7 @@ test.describe("Dogfood limited-user permissions and project isolation", () => {
     await page.getByRole("tab", { name: "Team" }).click();
     await expect(page.getByText("Team members")).toBeVisible();
     await expect(
-      page.getByRole("button", { name: "Invite Member" })
+      page.getByRole("button", { name: "Invite member" })
     ).toBeHidden();
     await expect(page.getByRole("button", { name: "Remove" })).toBeHidden();
   });

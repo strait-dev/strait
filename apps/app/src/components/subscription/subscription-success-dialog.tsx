@@ -67,7 +67,7 @@ const SubscriptionSuccessDialog = ({
           </div>
           <CredenzaTitle className="text-balance text-2xl">
             {isNewSubscription ? "Welcome to Strait!" : null}
-            {isUpgrade ? "Subscription Updated!" : null}
+            {isUpgrade ? "Subscription updated!" : null}
           </CredenzaTitle>
           <CredenzaDescription className="mt-3 text-base text-muted-foreground">
             {isNewSubscription
@@ -83,10 +83,10 @@ const SubscriptionSuccessDialog = ({
         <div className="px-6 pb-2">
           <div className="flex justify-center gap-3">
             <Badge iconLeft={SparklesIcon} size="lg" variant="success">
-              Plan Limits Active
+              Plan limits active
             </Badge>
             <Badge iconLeft={CreditCardIcon} size="lg" variant="info-light">
-              Manage Billing
+              Manage billing
             </Badge>
           </div>
         </div>

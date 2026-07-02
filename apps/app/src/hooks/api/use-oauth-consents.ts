@@ -30,7 +30,7 @@ export const fetchOAuthConsents = createServerFn({ method: "GET" })
       (await (await getAuth()).api.getOAuthConsents({ headers })) ?? [];
     const items: OAuthConsentItem[] = [];
     for (const consent of consents as any[]) {
-      let clientName = "Unknown Application";
+      let clientName = "Unknown application";
       try {
         const client = await (
           (await getAuth()).api as any

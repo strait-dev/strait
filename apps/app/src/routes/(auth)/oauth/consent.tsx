@@ -98,7 +98,7 @@ const fetchClientInfo = createServerFn({ method: "GET" })
         return null;
       }
       return {
-        name: (client as any).client_name ?? "Unknown Application",
+        name: (client as any).client_name ?? "Unknown application",
         clientId: (client as any).client_id ?? data.clientId,
         redirectUrls: (client as any).redirect_uris ?? [],
       } satisfies ClientInfo;
@@ -266,13 +266,13 @@ function OAuthConsentPage() {
 
   // -- Render -----------------------------------------------------------------
 
-  const clientName = clientInfo?.name ?? "Unknown Application";
+  const clientName = clientInfo?.name ?? "Unknown application";
   const redirectHost = resolveRedirectHost(clientInfo, search.redirect_uri);
 
   return (
     <AuthLayout
       description={`"${clientName}" wants access to your Strait account`}
-      title="Authorize Application"
+      title="Authorize application"
     >
       <div className="flex flex-col gap-4">
         {/* Client warning for unrecognized clients */}
@@ -415,7 +415,7 @@ function ConsentMissingParams() {
   return (
     <AuthLayout
       description="The authorization request is missing required parameters."
-      title="Invalid Request"
+      title="Invalid request"
     >
       <p className="text-center text-muted-foreground text-sm">
         This page should be accessed through an OAuth authorization flow. Please
@@ -429,7 +429,7 @@ function ConsentLoading() {
   return (
     <AuthLayout
       description="Loading application details..."
-      title="Authorize Application"
+      title="Authorize application"
     >
       <div className="flex items-center justify-center py-8">
         <Spinner className="text-primary" size="lg" />

@@ -46,6 +46,7 @@ import TablePageSkeleton from "@/components/common/table-page-skeleton";
 import {
   getResourceTableInitialState,
   RESOURCE_TABLE_CLASS_NAMES,
+  RESOURCE_TABLE_EMPTY_CLASS_NAME,
 } from "@/components/tables/resource-table";
 import { createWebhookColumns } from "@/components/tables/webhooks-columns";
 import { usePageEvent } from "@/hooks/analytics/use-page-event";
@@ -219,7 +220,7 @@ function WebhooksPage() {
   }
 
   const emptyState = hasProject ? (
-    <Empty className="h-[300px]">
+    <Empty className={RESOURCE_TABLE_EMPTY_CLASS_NAME}>
       <EmptyHeader>
         <EmptyMedia media="icon" size="lg">
           <HugeiconsIcon

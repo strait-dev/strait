@@ -48,6 +48,7 @@ import { createDlqColumns } from "@/components/tables/dlq-columns";
 import {
   getResourceTableInitialState,
   RESOURCE_TABLE_CLASS_NAMES,
+  RESOURCE_TABLE_EMPTY_CLASS_NAME,
 } from "@/components/tables/resource-table";
 import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import type { JobRun, PaginatedResponse } from "@/hooks/api/types";
@@ -228,7 +229,7 @@ function DlqPage() {
   const totalCount = filteredData.length;
 
   const emptyState = hasProject ? (
-    <Empty className="h-[300px]">
+    <Empty className={RESOURCE_TABLE_EMPTY_CLASS_NAME}>
       <EmptyHeader>
         <EmptyMedia media="icon" size="lg">
           <HugeiconsIcon className="size-6 text-foreground" icon={AlertIcon} />

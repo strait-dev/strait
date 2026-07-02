@@ -38,8 +38,8 @@ const QueueHealthChart = ({ hasProject = true }: { hasProject?: boolean }) => {
     { metric: "Queued", count: stats?.queued ?? 0 },
     { metric: "Executing", count: stats?.executing ?? 0 },
     { metric: "Delayed", count: stats?.delayed ?? 0 },
-    { metric: "Active Jobs", count: health?.active_jobs ?? 0 },
-    { metric: "Total Jobs", count: health?.total_jobs ?? 0 },
+    { metric: "Active jobs", count: health?.active_jobs ?? 0 },
+    { metric: "Total jobs", count: health?.total_jobs ?? 0 },
   ];
 
   const total = chartData.reduce((sum, d) => sum + d.count, 0);
@@ -48,7 +48,7 @@ const QueueHealthChart = ({ hasProject = true }: { hasProject?: boolean }) => {
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="font-medium text-sm">Queue Health</CardTitle>
+        <CardTitle className="font-medium text-sm">Queue health</CardTitle>
       </CardHeader>
       <CardContent>
         <div className="h-[240px]">

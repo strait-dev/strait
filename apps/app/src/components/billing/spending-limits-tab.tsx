@@ -127,14 +127,14 @@ const SpendingLimitsTab = () => {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 font-medium text-sm">
-            Spending Limit
+            Spending limit
             <Badge variant="default">{planName}</Badge>
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-6">
           <div>
             <div className="flex items-baseline justify-between">
-              <p className="text-muted-foreground text-sm">Current Spend</p>
+              <p className="text-muted-foreground text-sm">Current spend</p>
               <p className="font-medium text-foreground text-lg tabular-nums">
                 ${spending.current_spend_usd.toFixed(2)}
                 <span className="text-muted-foreground text-sm">
@@ -154,14 +154,14 @@ const SpendingLimitsTab = () => {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <p className="text-muted-foreground text-xs">
-                Included Allowance
+                Included allowance
               </p>
               <p className="mt-1 font-medium text-foreground tabular-nums">
                 Plan run allowance
               </p>
             </div>
             <div>
-              <p className="text-muted-foreground text-xs">Overage Spend</p>
+              <p className="text-muted-foreground text-xs">Overage spend</p>
               <p className="mt-1 font-medium text-foreground tabular-nums">
                 ${spending.overage_spend_usd.toFixed(2)}
               </p>
@@ -186,7 +186,7 @@ const SpendingLimitsTab = () => {
       <Card>
         <CardHeader>
           <CardTitle className="font-medium text-sm">
-            Set Spending Limit
+            Set spending limit
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">

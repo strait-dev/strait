@@ -1,6 +1,6 @@
 import { expect, test } from "../../fixtures";
 
-test.describe("Delete Account", () => {
+test.describe("Delete account", () => {
   test.slow();
   test.beforeEach(async ({ page }) => {
     await page.goto("/app/settings");
@@ -8,8 +8,8 @@ test.describe("Delete Account", () => {
 
   test("delete account section visible", async ({ page }) => {
     const section = page
-      .getByText("Delete Account", { exact: true })
-      .or(page.getByText("Danger Zone"));
+      .getByText("Delete account", { exact: true })
+      .or(page.getByText("Danger zone"));
     if (
       await section
         .first()

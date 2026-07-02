@@ -8,12 +8,15 @@ import { Spinner } from "@strait/ui/components/spinner";
 import { toast } from "@strait/ui/components/toast";
 import { useForm } from "@tanstack/react-form";
 import { useState } from "react";
+import { flushSync } from "react-dom";
 import { z } from "zod";
+import { useHasMounted } from "@/hooks/use-has-mounted";
 import { getPostHog } from "@/lib/analytics";
 import { authClient } from "@/lib/auth-client";
 import { formatFieldErrors } from "@/lib/form-errors";
 import { MailIcon } from "@/lib/icons";
 import { captureSentryAuthError } from "@/lib/sentry";
+import { waitForMinimumSubmitFeedback } from "@/lib/submit-feedback";
 import { consumeUtmParams, utmToSetOnce } from "@/lib/utm";
 
 const signUpSchema = z.object({
@@ -29,41 +32,52 @@ type SignUpFormProps = {
 
 const SignUpForm = ({ redirectTo, disabled }: SignUpFormProps) => {
   const [emailSent, setEmailSent] = useState(false);
+  const [isSubmitPending, setIsSubmitPending] = useState(false);
+  const hasMounted = useHasMounted();
 
   const form = useForm({
     defaultValues: { name: "", email: "", password: "" },
     validators: { onChange: signUpSchema },
     onSubmit: async ({ value }) => {
       const { name, email, password } = signUpSchema.parse(value);
-      const result = await authClient.signUp.email({
-        name,
-        email,
-        password,
-        callbackURL: redirectTo ?? "/app",
-      });
+      setIsSubmitPending(true);
+      const submitStartedAt = Date.now();
 
-      if (result.error) {
-        captureSentryAuthError(result.error, {
-          operation: "signup",
+      try {
+        const result = await authClient.signUp.email({
+          name,
           email,
-          provider: "email",
+          password,
+          callbackURL: redirectTo ?? "/app",
         });
-        toast.error(
-          result.error.message ?? "Failed to create account. Please try again."
-        );
-        return;
-      }
 
-      const utm = consumeUtmParams();
-      const setOnce: Record<string, string> = {
-        initial_signup_date: new Date().toISOString(),
-        ...(utm ? utmToSetOnce(utm) : {}),
-      };
-      getPostHog()?.capture("auth_signed_up", {
-        method: "email",
-        $set_once: setOnce,
-      });
-      setEmailSent(true);
+        if (result.error) {
+          captureSentryAuthError(result.error, {
+            operation: "signup",
+            email,
+            provider: "email",
+          });
+          toast.error(
+            result.error.message ??
+              "Failed to create account. Please try again."
+          );
+          return;
+        }
+
+        const utm = consumeUtmParams();
+        const setOnce: Record<string, string> = {
+          initial_signup_date: new Date().toISOString(),
+          ...(utm ? utmToSetOnce(utm) : {}),
+        };
+        getPostHog()?.capture("auth_signed_up", {
+          method: "email",
+          $set_once: setOnce,
+        });
+        setEmailSent(true);
+      } finally {
+        await waitForMinimumSubmitFeedback(submitStartedAt);
+        setIsSubmitPending(false);
+      }
     },
   });
 
@@ -86,6 +100,14 @@ const SignUpForm = ({ redirectTo, disabled }: SignUpFormProps) => {
     <form
       onSubmit={(e) => {
         e.preventDefault();
+        e.stopPropagation();
+        if (isSubmitPending) {
+          return;
+        }
+        const formValues = Object.fromEntries(new FormData(e.currentTarget));
+        if (signUpSchema.safeParse(formValues).success) {
+          flushSync(() => setIsSubmitPending(true));
+        }
         form.handleSubmit();
       }}
     >
@@ -108,8 +130,9 @@ const SignUpForm = ({ redirectTo, disabled }: SignUpFormProps) => {
                 autoComplete="name"
                 disabled={disabled}
                 id={field.name}
+                name={field.name}
                 onBlur={field.handleBlur}
-                onChange={(e) => field.handleChange(e.target.value)}
+                onInput={(e) => field.handleChange(e.currentTarget.value)}
                 placeholder="Enter your full name"
                 type="text"
                 value={field.state.value}
@@ -142,8 +165,9 @@ const SignUpForm = ({ redirectTo, disabled }: SignUpFormProps) => {
                 autoComplete="email"
                 disabled={disabled}
                 id={field.name}
+                name={field.name}
                 onBlur={field.handleBlur}
-                onChange={(e) => field.handleChange(e.target.value)}
+                onInput={(e) => field.handleChange(e.currentTarget.value)}
                 placeholder="you@example.com"
                 type="email"
                 value={field.state.value}
@@ -176,8 +200,9 @@ const SignUpForm = ({ redirectTo, disabled }: SignUpFormProps) => {
                 autoComplete="new-password"
                 disabled={disabled}
                 id={field.name}
+                name={field.name}
                 onBlur={field.handleBlur}
-                onChange={(e) => field.handleChange(e.target.value)}
+                onInput={(e) => field.handleChange(e.currentTarget.value)}
                 placeholder="At least 8 characters"
                 value={field.state.value}
               />
@@ -193,11 +218,26 @@ const SignUpForm = ({ redirectTo, disabled }: SignUpFormProps) => {
 
         <Button
           className="w-full"
-          disabled={disabled || form.state.isSubmitting}
+          disabled={!hasMounted || disabled || isSubmitPending}
+          onClick={(e) => {
+            if (isSubmitPending) {
+              return;
+            }
+            const formElement = e.currentTarget.form;
+            if (!formElement) {
+              return;
+            }
+            const formValues = Object.fromEntries(new FormData(formElement));
+            if (signUpSchema.safeParse(formValues).success) {
+              e.preventDefault();
+              flushSync(() => setIsSubmitPending(true));
+              form.handleSubmit();
+            }
+          }}
           type="submit"
           variant="brand-solid"
         >
-          {form.state.isSubmitting ? <Spinner /> : null}
+          {isSubmitPending ? <Spinner /> : null}
           Create account
         </Button>
       </div>

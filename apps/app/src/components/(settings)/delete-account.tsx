@@ -98,6 +98,7 @@ const DeleteAccount = ({ user }: Props) => {
       <form
         onSubmit={(e) => {
           e.preventDefault();
+          e.stopPropagation();
           form.handleSubmit();
         }}
       >
@@ -130,7 +131,7 @@ const DeleteAccount = ({ user }: Props) => {
                     }
                     id={field.name}
                     onBlur={field.handleBlur}
-                    onChange={(e) => field.handleChange(e.target.value)}
+                    onInput={(e) => field.handleChange(e.currentTarget.value)}
                     placeholder="Enter your email to confirm"
                     type="email"
                     value={field.state.value}
@@ -162,7 +163,7 @@ const DeleteAccount = ({ user }: Props) => {
                     }
                     id={field.name}
                     onBlur={field.handleBlur}
-                    onChange={(e) => field.handleChange(e.target.value)}
+                    onInput={(e) => field.handleChange(e.currentTarget.value)}
                     placeholder="Enter your current password"
                     value={field.state.value}
                   />

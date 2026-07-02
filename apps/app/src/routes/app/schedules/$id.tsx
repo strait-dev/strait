@@ -43,6 +43,7 @@ import { useEffect, useState } from "react";
 import DetailPageSkeleton from "@/components/common/detail-page-skeleton";
 import EntityNotFound from "@/components/common/entity-not-found";
 import ErrorComponent from "@/components/common/error-component";
+import { RESOURCE_TABLE_EMPTY_CLASS_NAME } from "@/components/tables/resource-table";
 import { createRunColumns } from "@/components/tables/runs-columns";
 import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import type { Job, JobRun, PaginatedResponse } from "@/hooks/api/types";
@@ -187,7 +188,7 @@ function ScheduleDetailPage() {
             />
             <div>
               <p className="font-medium text-muted-foreground text-xs uppercase">
-                Cron Schedule
+                Cron schedule
               </p>
               <Badge mono size="sm" variant="secondary-light">
                 {job.cron || "No schedule"}
@@ -200,14 +201,14 @@ function ScheduleDetailPage() {
       {/* Tabs */}
       <Tabs className="w-full" onValueChange={setActiveTab} value={activeTab}>
         <TabsList>
-          <TabsTrigger value="history">Run History</TabsTrigger>
+          <TabsTrigger value="history">Run history</TabsTrigger>
           <TabsTrigger value="settings">Settings</TabsTrigger>
         </TabsList>
 
         <TabsContent className="mt-6" value="history">
           <DataGrid
             emptyMessage={
-              <Empty className="h-[300px]">
+              <Empty className={RESOURCE_TABLE_EMPTY_CLASS_NAME}>
                 <EmptyHeader>
                   <EmptyMedia media="icon" size="lg">
                     <HugeiconsIcon

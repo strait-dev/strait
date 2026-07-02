@@ -18,15 +18,15 @@ test.describe("Clipboard interactions", () => {
     });
     await selectTab(page, "API Keys");
     await expect(page.getByText("Manage API keys")).toBeVisible();
-    await page.getByRole("button", { name: "Create Key" }).click();
+    await page.getByRole("button", { name: "Create key" }).click();
 
     const dialog = page.getByRole("dialog");
     await dialog.getByLabel("Key Name").fill(keyName);
     await dialog.getByRole("combobox").click();
     await page.getByRole("option", { name: "30 days" }).click();
-    await dialog.getByRole("button", { name: "Create Key" }).click();
+    await dialog.getByRole("button", { name: "Create key" }).click();
     await expect(
-      dialog.getByRole("heading", { name: "API Key Created" })
+      dialog.getByRole("heading", { name: "API key created" })
     ).toBeVisible({ timeout: 15_000 });
 
     await expect(

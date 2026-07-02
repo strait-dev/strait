@@ -55,7 +55,10 @@ import DetailPageSkeleton from "@/components/common/detail-page-skeleton";
 import EntityNotFound from "@/components/common/entity-not-found";
 import ErrorComponent from "@/components/common/error-component";
 import WorkflowDAGFlow from "@/components/dashboard/workflow-dag-flow";
-import { RESOURCE_TABLE_CLASS_NAMES } from "@/components/tables/resource-table";
+import {
+  RESOURCE_TABLE_CLASS_NAMES,
+  RESOURCE_TABLE_EMPTY_CLASS_NAME,
+} from "@/components/tables/resource-table";
 import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import type {
   PaginatedResponse,
@@ -222,7 +225,7 @@ function WorkflowStepsCard({ steps }: { steps: WorkflowDagStep[] }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-sm">Workflow Steps</CardTitle>
+        <CardTitle className="text-sm">Workflow steps</CardTitle>
       </CardHeader>
       <CardContent>
         {steps.length === 0 ? (
@@ -274,13 +277,13 @@ function FailureSummaryCard({ failedRuns }: { failedRuns: number }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-sm">Failure Summary</CardTitle>
+        <CardTitle className="text-sm">Failure summary</CardTitle>
       </CardHeader>
       <CardContent>
         <p className="text-muted-foreground text-sm">
           {failedRuns} recent workflow run
           {failedRuns === 1 ? " has" : "s have"} failed or timed out. Open the
-          Recent Runs tab to inspect the failed run rows and errors.
+          Recent runs tab to inspect the failed run rows and errors.
         </p>
       </CardContent>
     </Card>
@@ -299,7 +302,7 @@ function getLockedDAGFeature(
 ): LockedDAGFeature | null {
   if (hasApprovalGate && !canUseFeature(currentPlan, "approval_gates")) {
     return {
-      title: "Approval Gates",
+      title: "Approval gates",
       description: "Requires the Pro plan or higher",
     };
   }
@@ -462,7 +465,7 @@ function WorkflowDetailPage() {
         <TabsList>
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="dag">DAG</TabsTrigger>
-          <TabsTrigger value="runs">Recent Runs</TabsTrigger>
+          <TabsTrigger value="runs">Recent runs</TabsTrigger>
           <TabsTrigger value="settings">Settings</TabsTrigger>
         </TabsList>
 
@@ -473,13 +476,13 @@ function WorkflowDetailPage() {
             <MetricCard
               icon={CheckCircleIcon}
               size="sm"
-              title="Success Rate"
+              title="Success rate"
               value={`${successRate}%`}
             />
             <MetricCard
               icon={ActivityIcon}
               size="sm"
-              title="Total Runs"
+              title="Total runs"
               value={totalRuns}
             />
             <MetricCard
@@ -491,7 +494,7 @@ function WorkflowDetailPage() {
             <MetricCard
               icon={ClockIcon}
               size="sm"
-              title="Avg Duration"
+              title="Avg duration"
               value={avgDuration}
             />
           </div>
@@ -501,7 +504,7 @@ function WorkflowDetailPage() {
           {/* Recent activity timeline */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-sm">Recent Activity</CardTitle>
+              <CardTitle className="text-sm">Recent activity</CardTitle>
             </CardHeader>
             <CardContent>
               {recentRuns.length === 0 ? (
@@ -575,11 +578,11 @@ function WorkflowDetailPage() {
           </FeatureLock>
         </TabsContent>
 
-        {/* Recent Runs Tab */}
+        {/* Recent runs Tab */}
         <TabsContent className="mt-6" value="runs">
           <DataGrid
             emptyMessage={
-              <Empty className="h-[300px]">
+              <Empty className={RESOURCE_TABLE_EMPTY_CLASS_NAME}>
                 <EmptyHeader>
                   <EmptyMedia media="icon" size="lg">
                     <HugeiconsIcon
@@ -625,12 +628,12 @@ function WorkflowDetailPage() {
               />
               <ConfigRow
                 icon={RefreshIcon}
-                label="Max Concurrent Runs"
+                label="Max concurrent runs"
                 value={String(workflow.max_concurrent_runs)}
               />
               <ConfigRow
                 icon={RefreshIcon}
-                label="Max Parallel Steps"
+                label="Max parallel steps"
                 value={String(workflow.max_parallel_steps)}
               />
               <ConfigRow
@@ -647,12 +650,12 @@ function WorkflowDetailPage() {
               )}
               <ConfigRow
                 icon={RefreshIcon}
-                label="Skip If Running"
+                label="Skip if running"
                 value={workflow.skip_if_running ? "Yes" : "No"}
               />
               <ConfigRow
                 icon={RefreshIcon}
-                label="Version Policy"
+                label="Version policy"
                 value={workflow.version_policy}
               />
             </CardContent>

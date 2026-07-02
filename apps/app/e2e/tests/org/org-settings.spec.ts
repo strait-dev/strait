@@ -1,6 +1,6 @@
 import { expect, test } from "../../fixtures";
 
-test.describe("Organization Settings Navigation", () => {
+test.describe("Organization settings Navigation", () => {
   test("direct organization settings URL opens the tabbed settings shell", async ({
     api,
     page,

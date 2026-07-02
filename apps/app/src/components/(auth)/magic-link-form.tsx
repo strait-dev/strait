@@ -7,12 +7,15 @@ import { Spinner } from "@strait/ui/components/spinner";
 import { toast } from "@strait/ui/components/toast";
 import { useForm } from "@tanstack/react-form";
 import { useState } from "react";
+import { flushSync } from "react-dom";
 import { z } from "zod";
+import { useHasMounted } from "@/hooks/use-has-mounted";
 import { getPostHog } from "@/lib/analytics";
 import { authClient } from "@/lib/auth-client";
 import { formatFieldErrors } from "@/lib/form-errors";
 import { MailIcon } from "@/lib/icons";
 import { captureSentryAuthError } from "@/lib/sentry";
+import { waitForMinimumSubmitFeedback } from "@/lib/submit-feedback";
 
 const magicLinkSchema = z.object({
   email: z.email("Invalid email address"),
@@ -25,31 +28,42 @@ type MagicLinkFormProps = {
 
 const MagicLinkForm = ({ redirectTo, disabled }: MagicLinkFormProps) => {
   const [sent, setSent] = useState(false);
+  const [isSubmitPending, setIsSubmitPending] = useState(false);
+  const hasMounted = useHasMounted();
 
   const form = useForm({
     defaultValues: { email: "" },
     validators: { onChange: magicLinkSchema },
     onSubmit: async ({ value }) => {
       const { email } = magicLinkSchema.parse(value);
-      const result = await authClient.signIn.magicLink({
-        email,
-        callbackURL: redirectTo ?? "/app",
-      });
+      setIsSubmitPending(true);
+      const submitStartedAt = Date.now();
 
-      if (result.error) {
-        captureSentryAuthError(result.error, {
-          operation: "magic-link",
+      try {
+        const result = await authClient.signIn.magicLink({
           email,
-          provider: "magic-link",
+          callbackURL: redirectTo ?? "/app",
         });
-        toast.error(
-          result.error.message ?? "Failed to send magic link. Please try again."
-        );
-        return;
-      }
 
-      getPostHog()?.capture("auth_signed_in", { method: "magic_link" });
-      setSent(true);
+        if (result.error) {
+          captureSentryAuthError(result.error, {
+            operation: "magic-link",
+            email,
+            provider: "magic-link",
+          });
+          toast.error(
+            result.error.message ??
+              "Failed to send magic link. Please try again."
+          );
+          return;
+        }
+
+        getPostHog()?.capture("auth_signed_in", { method: "magic_link" });
+        setSent(true);
+      } finally {
+        await waitForMinimumSubmitFeedback(submitStartedAt);
+        setIsSubmitPending(false);
+      }
     },
   });
 
@@ -72,6 +86,14 @@ const MagicLinkForm = ({ redirectTo, disabled }: MagicLinkFormProps) => {
     <form
       onSubmit={(e) => {
         e.preventDefault();
+        e.stopPropagation();
+        if (isSubmitPending) {
+          return;
+        }
+        const formValues = Object.fromEntries(new FormData(e.currentTarget));
+        if (magicLinkSchema.safeParse(formValues).success) {
+          flushSync(() => setIsSubmitPending(true));
+        }
         form.handleSubmit();
       }}
     >
@@ -94,8 +116,9 @@ const MagicLinkForm = ({ redirectTo, disabled }: MagicLinkFormProps) => {
                 autoComplete="email"
                 disabled={disabled}
                 id={field.name}
+                name={field.name}
                 onBlur={field.handleBlur}
-                onChange={(e) => field.handleChange(e.target.value)}
+                onInput={(e) => field.handleChange(e.currentTarget.value)}
                 placeholder="you@example.com"
                 type="email"
                 value={field.state.value}
@@ -112,11 +135,26 @@ const MagicLinkForm = ({ redirectTo, disabled }: MagicLinkFormProps) => {
 
         <Button
           className="w-full"
-          disabled={disabled || form.state.isSubmitting}
+          disabled={!hasMounted || disabled || isSubmitPending}
+          onClick={(e) => {
+            if (isSubmitPending) {
+              return;
+            }
+            const formElement = e.currentTarget.form;
+            if (!formElement) {
+              return;
+            }
+            const formValues = Object.fromEntries(new FormData(formElement));
+            if (magicLinkSchema.safeParse(formValues).success) {
+              e.preventDefault();
+              flushSync(() => setIsSubmitPending(true));
+              form.handleSubmit();
+            }
+          }}
           type="submit"
           variant="brand-solid"
         >
-          {form.state.isSubmitting ? <Spinner /> : null}
+          {isSubmitPending ? <Spinner /> : null}
           Send magic link
         </Button>
       </div>

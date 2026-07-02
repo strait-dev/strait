@@ -69,7 +69,7 @@ const JobDetailSheet = ({ job, open, onOpenChange }: JobDetailSheetProps) => {
           <div className="grid grid-cols-3 gap-2">
             <MetricCard size="sm" title="Success %" value="98.2%" />
             <MetricCard size="sm" title="Runs" value="1,247" />
-            <MetricCard size="sm" title="Last Run" value="2m ago" />
+            <MetricCard size="sm" title="Last run" value="2m ago" />
           </div>
 
           {/* Configuration */}
@@ -129,10 +129,10 @@ const JobDetailSheet = ({ job, open, onOpenChange }: JobDetailSheetProps) => {
             </div>
           )}
 
-          {/* Recent Runs Preview */}
+          {/* Recent runs Preview */}
           <div>
             <h4 className="mb-2 font-medium text-muted-foreground text-xs uppercase">
-              Recent Runs
+              Recent runs
             </h4>
             <ItemGroup className="gap-2">
               {[

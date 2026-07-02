@@ -56,7 +56,7 @@ const LiveActivityFeed = ({ hasProject = true }: { hasProject?: boolean }) => {
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="font-medium text-sm">Live Activity</CardTitle>
+        <CardTitle className="font-medium text-sm">Live activity</CardTitle>
       </CardHeader>
       <CardContent className="p-0">
         <ActivityFeed

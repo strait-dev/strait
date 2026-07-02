@@ -170,6 +170,7 @@ const OrganizationInfo = ({
       <form
         onSubmit={(e) => {
           e.preventDefault();
+          e.stopPropagation();
           form.handleSubmit();
         }}
       >
@@ -209,7 +210,7 @@ const OrganizationInfo = ({
                       disabled={!canEdit}
                       id={field.name}
                       onBlur={field.handleBlur}
-                      onChange={(e) => field.handleChange(e.target.value)}
+                      onInput={(e) => field.handleChange(e.currentTarget.value)}
                       placeholder="Organization name"
                       type="text"
                       value={field.state.value}
@@ -242,7 +243,7 @@ const OrganizationInfo = ({
                       disabled={!canEdit}
                       id={field.name}
                       onBlur={field.handleBlur}
-                      onChange={(e) => field.handleChange(e.target.value)}
+                      onInput={(e) => field.handleChange(e.currentTarget.value)}
                       placeholder="organization-slug"
                       type="text"
                       value={field.state.value ?? ""}
@@ -278,7 +279,7 @@ const OrganizationInfo = ({
                       disabled={!canEdit}
                       id={field.name}
                       onBlur={field.handleBlur}
-                      onChange={(e) => field.handleChange(e.target.value)}
+                      onInput={(e) => field.handleChange(e.currentTarget.value)}
                       placeholder="org@example.com"
                       type="email"
                       value={field.state.value ?? ""}
@@ -311,7 +312,7 @@ const OrganizationInfo = ({
                       disabled={!canEdit}
                       id={field.name}
                       onBlur={field.handleBlur}
-                      onChange={(e) => field.handleChange(e.target.value)}
+                      onInput={(e) => field.handleChange(e.currentTarget.value)}
                       placeholder="https://example.com"
                       type="url"
                       value={field.state.value ?? ""}
@@ -346,7 +347,7 @@ const OrganizationInfo = ({
                     disabled={!canEdit}
                     id={field.name}
                     onBlur={field.handleBlur}
-                    onChange={(e) => field.handleChange(e.target.value)}
+                    onInput={(e) => field.handleChange(e.currentTarget.value)}
                     placeholder="A brief description of your organization"
                     value={field.state.value ?? ""}
                   />

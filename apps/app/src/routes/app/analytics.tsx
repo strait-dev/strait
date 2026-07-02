@@ -40,7 +40,7 @@ const RUN_VOLUME_CONFIG = {
 } satisfies ChartConfig;
 
 const SUCCESS_RATE_CONFIG = {
-  success_rate: { label: "Success Rate", color: "chart-1" },
+  success_rate: { label: "Success rate", color: "chart-1" },
 } satisfies ChartConfig;
 
 const formatDollars = (value: number) => `$${(value / 100).toFixed(2)}`;
@@ -89,10 +89,10 @@ function AnalyticsPage() {
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        {/* Cost Trends */}
+        {/* Cost trends */}
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="font-medium text-sm">Cost Trends</CardTitle>
+            <CardTitle className="font-medium text-sm">Cost trends</CardTitle>
           </CardHeader>
           <CardContent>
             {costData.length > 0 ? (
@@ -113,11 +113,11 @@ function AnalyticsPage() {
           </CardContent>
         </Card>
 
-        {/* Top Cost Contributors */}
+        {/* Top cost contributors */}
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="font-medium text-sm">
-              Top Cost Contributors
+              Top cost contributors
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -141,10 +141,10 @@ function AnalyticsPage() {
           </CardContent>
         </Card>
 
-        {/* Run Volume */}
+        {/* Run volume */}
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="font-medium text-sm">Run Volume</CardTitle>
+            <CardTitle className="font-medium text-sm">Run volume</CardTitle>
           </CardHeader>
           <CardContent>
             {costData.length > 0 ? (
@@ -166,7 +166,7 @@ function AnalyticsPage() {
         {/* Performance */}
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="font-medium text-sm">Success Rate</CardTitle>
+            <CardTitle className="font-medium text-sm">Success rate</CardTitle>
           </CardHeader>
           <CardContent>
             {perfData.length > 0 ? (

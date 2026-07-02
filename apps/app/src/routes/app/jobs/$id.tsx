@@ -50,6 +50,7 @@ import DetailPageSkeleton from "@/components/common/detail-page-skeleton";
 import EntityNotFound from "@/components/common/entity-not-found";
 import ErrorComponent from "@/components/common/error-component";
 import RunDetailSheet from "@/components/dashboard/run-detail-sheet";
+import { RESOURCE_TABLE_EMPTY_CLASS_NAME } from "@/components/tables/resource-table";
 import { createRunColumns } from "@/components/tables/runs-columns";
 import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import type { Job, JobRun, PaginatedResponse } from "@/hooks/api/types";
@@ -116,7 +117,7 @@ const HEALTH_WINDOWS: { value: HealthWindow; label: string }[] = [
 const STATUS_DISTRIBUTION_CONFIG = {
   Completed: { label: "Completed", color: "chart-1" },
   Failed: { label: "Failed", color: "chart-2" },
-  "Timed Out": { label: "Timed Out", color: "chart-5" },
+  "Timed out": { label: "Timed out", color: "chart-5" },
   Canceled: { label: "Canceled", color: "chart-5" },
 } satisfies ChartConfig;
 
@@ -262,7 +263,7 @@ function JobDetailPage() {
         value: health.failed_runs,
       },
       {
-        name: "Timed Out",
+        name: "Timed out",
         value: health.timed_out_runs,
       },
       {
@@ -319,7 +320,7 @@ function JobDetailPage() {
       <Tabs className="w-full" onValueChange={setActiveTab} value={activeTab}>
         <TabsList>
           <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="runs">Recent Runs</TabsTrigger>
+          <TabsTrigger value="runs">Recent runs</TabsTrigger>
         </TabsList>
 
         <TabsContent className="mt-6 space-y-6" value="overview">
@@ -340,27 +341,27 @@ function JobDetailPage() {
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <MetricCard
               size="sm"
-              title="Success Rate"
+              title="Success rate"
               value={stats.successRate}
             />
-            <MetricCard size="sm" title="Total Runs" value={stats.totalRuns} />
+            <MetricCard size="sm" title="Total runs" value={stats.totalRuns} />
             <MetricCard
               size="sm"
-              title="Avg Duration"
+              title="Avg duration"
               value={stats.avgDuration}
             />
             <MetricCard
               size="sm"
-              title="Failed Runs"
+              title="Failed runs"
               value={stats.failedRuns}
             />
           </div>
 
-          {/* Run Status Distribution */}
+          {/* Run status distribution */}
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="font-medium text-sm">
-                Run Status Distribution
+                Run status distribution
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -446,7 +447,7 @@ function JobDetailPage() {
           <div onClickCapture={stopInteractiveRowClick}>
             <DataGrid
               emptyMessage={
-                <Empty className="h-[300px]">
+                <Empty className={RESOURCE_TABLE_EMPTY_CLASS_NAME}>
                   <EmptyHeader>
                     <EmptyMedia media="icon" size="lg">
                       <HugeiconsIcon

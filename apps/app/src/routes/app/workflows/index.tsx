@@ -46,6 +46,7 @@ import WorkflowDetailSheet from "@/components/dashboard/workflow-detail-sheet";
 import {
   getResourceTableInitialState,
   RESOURCE_TABLE_CLASS_NAMES,
+  RESOURCE_TABLE_EMPTY_CLASS_NAME,
 } from "@/components/tables/resource-table";
 import { createWorkflowColumns } from "@/components/tables/workflows-columns";
 import WorkflowFormDialog from "@/components/workflows/workflow-form-dialog";
@@ -262,7 +263,7 @@ function WorkflowsPage() {
   }
 
   const emptyState = hasProject ? (
-    <Empty className="h-[300px]">
+    <Empty className={RESOURCE_TABLE_EMPTY_CLASS_NAME}>
       <EmptyHeader>
         <EmptyMedia media="icon" size="lg">
           <HugeiconsIcon

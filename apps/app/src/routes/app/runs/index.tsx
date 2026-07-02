@@ -36,6 +36,7 @@ import RunDetailSheet from "@/components/dashboard/run-detail-sheet";
 import {
   getResourceTableInitialState,
   RESOURCE_TABLE_CLASS_NAMES,
+  RESOURCE_TABLE_EMPTY_CLASS_NAME,
 } from "@/components/tables/resource-table";
 import { createRunColumns } from "@/components/tables/runs-columns";
 import { usePageEvent } from "@/hooks/analytics/use-page-event";
@@ -221,7 +222,7 @@ function RunsPage() {
   }
 
   const emptyState = hasProject ? (
-    <Empty className="h-[300px]">
+    <Empty className={RESOURCE_TABLE_EMPTY_CLASS_NAME}>
       <EmptyHeader>
         <EmptyMedia media="icon" size="lg">
           <HugeiconsIcon

@@ -61,7 +61,7 @@ export const createDlqColumns = (
   },
   {
     accessorKey: "created_at",
-    header: "Failed At",
+    header: "Failed at",
     cell: ({ row }) => <RelativeTime value={row.original.created_at} />,
   },
   createActionsColumn<JobRun>([

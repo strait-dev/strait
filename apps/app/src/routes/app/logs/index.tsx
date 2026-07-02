@@ -32,6 +32,7 @@ import NoProjectState from "@/components/common/no-project-state";
 import TablePageSkeleton from "@/components/common/table-page-skeleton";
 import ExpandedEventDetail from "@/components/events/expanded-event-detail";
 import { logColumns } from "@/components/events/log-columns";
+import { RESOURCE_TABLE_EMPTY_CLASS_NAME } from "@/components/tables/resource-table";
 import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import type { EventTrigger, PaginatedResponse } from "@/hooks/api/types";
 import { eventsQueryOptions } from "@/hooks/api/use-events";
@@ -161,7 +162,7 @@ function LogsPage() {
   }
 
   const emptyState = hasProject ? (
-    <Empty className="h-[300px]">
+    <Empty className={RESOURCE_TABLE_EMPTY_CLASS_NAME}>
       <EmptyHeader>
         <EmptyMedia media="icon" size="lg">
           <HugeiconsIcon

@@ -119,7 +119,7 @@ const DowngradePreviewContent = ({
           <TableRow>
             <TableHead>Resource</TableHead>
             <TableHead className="text-right">Current</TableHead>
-            <TableHead className="text-right">New Limit</TableHead>
+            <TableHead className="text-right">New limit</TableHead>
             <TableHead className="text-right">Status</TableHead>
           </TableRow>
         </TableHeader>

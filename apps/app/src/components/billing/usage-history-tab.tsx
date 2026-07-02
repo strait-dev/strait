@@ -100,7 +100,7 @@ const UsageHistoryTab = () => {
     <div className="space-y-6">
       <Card>
         <CardHeader className="flex flex-row items-center justify-between pb-2">
-          <CardTitle className="font-medium text-sm">Daily Usage</CardTitle>
+          <CardTitle className="font-medium text-sm">Daily usage</CardTitle>
           <div className="flex items-center gap-2">
             <Button
               disabled={isEmpty || csvExport.isPending}
@@ -167,7 +167,7 @@ const UsageHistoryTab = () => {
                 <TableRow>
                   <TableHead>Date</TableHead>
                   <TableHead className="text-right">Runs</TableHead>
-                  <TableHead className="text-right">Run Spend</TableHead>
+                  <TableHead className="text-right">Run spend</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>

@@ -61,7 +61,7 @@ const PaymentPendingCard = () => {
             variant="outline"
           >
             <HugeiconsIcon className="size-3" icon={CreditCardIcon} />
-            View Details
+            View details
           </Button>
         </div>
       }

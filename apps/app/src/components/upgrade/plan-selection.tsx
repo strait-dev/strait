@@ -133,7 +133,7 @@ const PricingCardBadges = ({
           iconLeft={StarIcon}
           variant="info-light"
         >
-          Most Popular
+          Most popular
         </Badge>
       );
     }
@@ -209,7 +209,7 @@ const PricingCard = ({
 
   const getCardButtonText = () => {
     if (isFreePlan) {
-      return "Get Started Free";
+      return "Get started free";
     }
     if (isEnterprise) {
       return "Contact sales";

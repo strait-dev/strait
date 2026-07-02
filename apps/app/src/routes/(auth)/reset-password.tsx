@@ -9,14 +9,17 @@ import { toast } from "@strait/ui/components/toast";
 import { useForm } from "@tanstack/react-form";
 import { createFileRoute, Link, redirect } from "@tanstack/react-router";
 import { useState } from "react";
+import { flushSync } from "react-dom";
 import * as z from "zod";
 import AuthLayout from "@/components/(auth)/auth-layout";
 import ErrorComponent from "@/components/common/error-component";
 import NotFound from "@/components/common/not-found";
+import { useHasMounted } from "@/hooks/use-has-mounted";
 import { authClient } from "@/lib/auth-client";
 import { formatFieldErrors } from "@/lib/form-errors";
 import { CheckCircleIcon } from "@/lib/icons";
 import { captureSentryAuthError } from "@/lib/sentry";
+import { waitForMinimumSubmitFeedback } from "@/lib/submit-feedback";
 
 const resetPasswordSearchSchema = z.object({
   token: z.string(),
@@ -49,29 +52,39 @@ export const Route = createFileRoute("/(auth)/reset-password")({
 function ResetPasswordPage() {
   const { token, error: searchError } = Route.useSearch();
   const [success, setSuccess] = useState(false);
+  const [isSubmitPending, setIsSubmitPending] = useState(false);
+  const hasMounted = useHasMounted();
 
   const form = useForm({
     defaultValues: { password: "", confirmPassword: "" },
     validators: { onChange: resetPasswordSchema },
     onSubmit: async ({ value }) => {
-      const result = await authClient.resetPassword({
-        newPassword: value.password,
-        token,
-      });
+      setIsSubmitPending(true);
+      const submitStartedAt = Date.now();
 
-      if (result.error) {
-        captureSentryAuthError(result.error, {
-          operation: "password-reset",
-          provider: "email",
+      try {
+        const result = await authClient.resetPassword({
+          newPassword: value.password,
+          token,
         });
-        toast.error(
-          result.error.message ??
-            "Failed to reset password. The link may have expired."
-        );
-        return;
-      }
 
-      setSuccess(true);
+        if (result.error) {
+          captureSentryAuthError(result.error, {
+            operation: "password-reset",
+            provider: "email",
+          });
+          toast.error(
+            result.error.message ??
+              "Failed to reset password. The link may have expired."
+          );
+          return;
+        }
+
+        setSuccess(true);
+      } finally {
+        await waitForMinimumSubmitFeedback(submitStartedAt);
+        setIsSubmitPending(false);
+      }
     },
   });
 
@@ -107,6 +120,16 @@ function ResetPasswordPage() {
           <form
             onSubmit={(e) => {
               e.preventDefault();
+              e.stopPropagation();
+              if (isSubmitPending) {
+                return;
+              }
+              const formValues = Object.fromEntries(
+                new FormData(e.currentTarget)
+              );
+              if (resetPasswordSchema.safeParse(formValues).success) {
+                flushSync(() => setIsSubmitPending(true));
+              }
               form.handleSubmit();
             }}
           >
@@ -128,8 +151,9 @@ function ResetPasswordPage() {
                       }
                       autoComplete="new-password"
                       id={field.name}
+                      name={field.name}
                       onBlur={field.handleBlur}
-                      onChange={(e) => field.handleChange(e.target.value)}
+                      onInput={(e) => field.handleChange(e.currentTarget.value)}
                       placeholder="At least 8 characters"
                       value={field.state.value}
                     />
@@ -162,8 +186,9 @@ function ResetPasswordPage() {
                       }
                       autoComplete="new-password"
                       id={field.name}
+                      name={field.name}
                       onBlur={field.handleBlur}
-                      onChange={(e) => field.handleChange(e.target.value)}
+                      onInput={(e) => field.handleChange(e.currentTarget.value)}
                       placeholder="Re-enter your password"
                       value={field.state.value}
                     />
@@ -179,11 +204,28 @@ function ResetPasswordPage() {
 
               <Button
                 className="w-full"
-                disabled={form.state.isSubmitting}
+                disabled={!hasMounted || isSubmitPending}
+                onClick={(e) => {
+                  if (isSubmitPending) {
+                    return;
+                  }
+                  const formElement = e.currentTarget.form;
+                  if (!formElement) {
+                    return;
+                  }
+                  const formValues = Object.fromEntries(
+                    new FormData(formElement)
+                  );
+                  if (resetPasswordSchema.safeParse(formValues).success) {
+                    e.preventDefault();
+                    flushSync(() => setIsSubmitPending(true));
+                    form.handleSubmit();
+                  }
+                }}
                 type="submit"
                 variant="brand-solid"
               >
-                {form.state.isSubmitting ? <Spinner /> : null}
+                {isSubmitPending ? <Spinner /> : null}
                 Reset password
               </Button>
             </div>

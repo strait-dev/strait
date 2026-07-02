@@ -184,16 +184,16 @@ const SupportDialog = ({ user }: Props) => {
             size="icon"
             type="button"
             variant="outline"
-          />
+          >
+            <HugeiconsIcon
+              aria-hidden="true"
+              className="size-4"
+              icon={HelpCircleIcon}
+            />
+            <span className="sr-only">Get help</span>
+          </Button>
         }
-      >
-        <HugeiconsIcon
-          aria-hidden="true"
-          className="size-4"
-          icon={HelpCircleIcon}
-        />
-        <span className="sr-only">Get help</span>
-      </CredenzaTrigger>
+      />
 
       <CredenzaContent className="flex max-h-[90vh] max-w-3xl flex-col md:max-w-[600px]">
         <CredenzaHeader className="flex-none">
@@ -245,7 +245,7 @@ const SupportDialog = ({ user }: Props) => {
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="technical">
-                            Technical Issue
+                            Technical issue
                           </SelectItem>
                           <SelectItem value="billing">Billing</SelectItem>
                           <SelectItem value="account">Account</SelectItem>
@@ -326,7 +326,7 @@ const SupportDialog = ({ user }: Props) => {
                   name="message"
                   render={({ field, fieldState }) => (
                     <Field data-invalid={fieldState.invalid}>
-                      <FieldLabel>Problem Description</FieldLabel>
+                      <FieldLabel>Problem description</FieldLabel>
                       <Textarea
                         className="min-h-[100px] resize-none"
                         placeholder="Describe the problem in detail..."
@@ -367,7 +367,7 @@ const SupportDialog = ({ user }: Props) => {
                 name="expected_result"
                 render={({ field, fieldState }) => (
                   <Field data-invalid={fieldState.invalid}>
-                    <FieldLabel>Expected Result</FieldLabel>
+                    <FieldLabel>Expected result</FieldLabel>
                     <Textarea
                       className="min-h-[100px] resize-none"
                       placeholder="What should happen?"
@@ -383,7 +383,7 @@ const SupportDialog = ({ user }: Props) => {
                 name="actual_result"
                 render={({ field, fieldState }) => (
                   <Field data-invalid={fieldState.invalid}>
-                    <FieldLabel>Actual Result</FieldLabel>
+                    <FieldLabel>Actual result</FieldLabel>
                     <Textarea
                       className="min-h-[100px] resize-none"
                       placeholder="What is happening?"
@@ -404,7 +404,7 @@ const SupportDialog = ({ user }: Props) => {
             type="submit"
           >
             {form.formState.isSubmitting || isPending ? <Spinner /> : null}
-            Send Request {cooldownTime > 0 ? `(${cooldownTime}s)` : ""}
+            Send request {cooldownTime > 0 ? `(${cooldownTime}s)` : ""}
           </Button>
         </form>
       </CredenzaContent>

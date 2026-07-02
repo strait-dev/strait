@@ -97,7 +97,7 @@ function RouteComponent() {
             </TabsTrigger>
             <TabsTrigger className="flex items-center gap-2" value="apps">
               <HugeiconsIcon className="size-4" icon={LinkSquareIcon} />
-              Authorized Apps
+              Authorized apps
             </TabsTrigger>
           </TabsList>
 

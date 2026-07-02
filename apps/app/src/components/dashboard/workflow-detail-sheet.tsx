@@ -97,7 +97,7 @@ const WorkflowDetailSheet = ({
           <div className="grid grid-cols-3 gap-2">
             <MetricCard size="sm" title="Success %" value="96.5%" />
             <MetricCard size="sm" title="Runs" value="584" />
-            <MetricCard size="sm" title="Last Run" value="8m ago" />
+            <MetricCard size="sm" title="Last run" value="8m ago" />
           </div>
 
           {/* Step List Preview */}
@@ -152,11 +152,11 @@ const WorkflowDetailSheet = ({
               <DescriptionDetails className="font-mono">
                 {workflow.timeout_secs}s
               </DescriptionDetails>
-              <DescriptionTerm>Max Concurrent</DescriptionTerm>
+              <DescriptionTerm>Max concurrent</DescriptionTerm>
               <DescriptionDetails className="font-mono">
                 {workflow.max_concurrent_runs}
               </DescriptionDetails>
-              <DescriptionTerm>Max Parallel Steps</DescriptionTerm>
+              <DescriptionTerm>Max parallel steps</DescriptionTerm>
               <DescriptionDetails className="font-mono">
                 {workflow.max_parallel_steps}
               </DescriptionDetails>

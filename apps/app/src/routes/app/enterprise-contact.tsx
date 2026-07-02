@@ -59,12 +59,12 @@ const submitEnterpriseContact = createServerFn({ method: "POST" })
       subject: `Enterprise inquiry from ${data.company}`,
       text: [
         `Name: ${data.name}`,
-        `Account Email: ${email}`,
+        `Account email: ${email}`,
         `Company: ${data.company}`,
-        `Team Size: ${data.teamSize}`,
-        ...(data.useCase ? [`Use Case: ${data.useCase}`] : []),
+        `Team size: ${data.teamSize}`,
+        ...(data.useCase ? [`Use case: ${data.useCase}`] : []),
         ...(data.expectedSpend
-          ? [`Expected Spend: ${data.expectedSpend}`]
+          ? [`Expected spend: ${data.expectedSpend}`]
           : []),
         `Message: ${data.message}`,
       ].join("\n"),
@@ -122,7 +122,7 @@ function EnterpriseContactPage() {
           <HugeiconsIcon icon={ChevronLeftIcon} size={14} />
         </Button>
         <h1 className="text-balance font-normal text-xl tracking-tight">
-          Contact Enterprise Sales
+          Contact enterprise sales
         </h1>
       </div>
 
@@ -130,6 +130,7 @@ function EnterpriseContactPage() {
         className="mx-auto max-w-2xl space-y-6"
         onSubmit={(e) => {
           e.preventDefault();
+          e.stopPropagation();
           form.handleSubmit();
         }}
       >
@@ -159,7 +160,7 @@ function EnterpriseContactPage() {
                     }
                     id={field.name}
                     onBlur={field.handleBlur}
-                    onChange={(e) => field.handleChange(e.target.value)}
+                    onInput={(e) => field.handleChange(e.currentTarget.value)}
                     placeholder="Jane Smith"
                     value={field.state.value}
                   />
@@ -190,7 +191,7 @@ function EnterpriseContactPage() {
                     }
                     id={field.name}
                     onBlur={field.handleBlur}
-                    onChange={(e) => field.handleChange(e.target.value)}
+                    onInput={(e) => field.handleChange(e.currentTarget.value)}
                     placeholder="jane@company.com"
                     type="email"
                     value={field.state.value}
@@ -222,7 +223,7 @@ function EnterpriseContactPage() {
                     }
                     id={field.name}
                     onBlur={field.handleBlur}
-                    onChange={(e) => field.handleChange(e.target.value)}
+                    onInput={(e) => field.handleChange(e.currentTarget.value)}
                     placeholder="Acme Inc."
                     value={field.state.value}
                   />
@@ -355,7 +356,7 @@ function EnterpriseContactPage() {
                     }
                     id={field.name}
                     onBlur={field.handleBlur}
-                    onChange={(e) => field.handleChange(e.target.value)}
+                    onInput={(e) => field.handleChange(e.currentTarget.value)}
                     placeholder="Tell us about your infrastructure needs..."
                     rows={5}
                     value={field.state.value}

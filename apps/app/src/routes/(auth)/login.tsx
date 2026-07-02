@@ -13,7 +13,7 @@ import SocialProviders from "@/components/(auth)/social-providers";
 import ErrorComponent from "@/components/common/error-component";
 import NotFound from "@/components/common/not-found";
 import { authSearchSchema } from "@/lib/auth-search-schema";
-import { BuildingIcon, MailIcon } from "@/lib/icons";
+import { MailIcon } from "@/lib/icons";
 import { storeUtmParams } from "@/lib/utm";
 
 const OAUTH_ERROR_MESSAGES: Record<string, string> = {
@@ -101,14 +101,6 @@ function LoginPage() {
       >
         <HugeiconsIcon className="size-4" icon={MailIcon} />
         Sign in with magic link
-      </Button>
-      <Button
-        className="w-full"
-        render={<Link to="/sso" />}
-        variant="secondary-outline"
-      >
-        <HugeiconsIcon className="size-4" icon={BuildingIcon} />
-        SSO roadmap
       </Button>
       <p className="text-center text-muted-foreground text-sm">
         Don't have an account?{" "}

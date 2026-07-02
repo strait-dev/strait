@@ -17,7 +17,7 @@ test.describe("Authenticated app shell", () => {
       "Workflows",
       "Runs",
       "Schedules",
-      "Dead Letter",
+      "Dead letter",
       "Logs",
       "Events",
       "Webhooks",
@@ -35,14 +35,25 @@ test.describe("Authenticated app shell", () => {
   });
 
   test("keeps core dashboard navigation usable on mobile", async ({ page }) => {
+    const routeCrashes = watchForRouteCrashes(page);
+
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto("/app/dashboard", { waitUntil: "domcontentloaded" });
 
-    await expect(page.getByText("Total Runs (24h)")).toBeVisible();
-    await page.goto("/app/jobs", { waitUntil: "domcontentloaded" });
+    await expect(page.getByText("Total runs (24h)")).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Get help" }).locator("svg")
+    ).toBeVisible();
+
+    await page.goto("/app/jobs?query=__e2e_empty_mobile__", {
+      waitUntil: "domcontentloaded",
+    });
     await expect(page.getByRole("region", { name: "Jobs" })).toBeVisible();
+    await expect(page.getByText("No jobs found")).toBeVisible();
+
     await page.goto("/app/workflows", { waitUntil: "domcontentloaded" });
     await expect(page.getByRole("region", { name: "Workflows" })).toBeVisible();
+    routeCrashes.assertNoCrashes();
   });
 });
 

@@ -19,7 +19,7 @@ test.describe("Organization team members", () => {
     }
     await expect(page.getByText(/owner/i).first()).toBeVisible();
 
-    await page.getByRole("button", { name: "Invite Member" }).click();
+    await page.getByRole("button", { name: "Invite member" }).click();
     await expect(
       page.getByRole("dialog").getByRole("heading", {
         name: "Invite a team member",

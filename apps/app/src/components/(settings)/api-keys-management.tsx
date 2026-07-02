@@ -338,6 +338,7 @@ const ApiKeysManagement = ({ projectId }: ApiKeysManagementProps) => {
                     <form
                       onSubmit={(e) => {
                         e.preventDefault();
+                        e.stopPropagation();
                         form.handleSubmit();
                       }}
                     >

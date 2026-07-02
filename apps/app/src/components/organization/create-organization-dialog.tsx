@@ -107,6 +107,7 @@ const CreateOrganizationDialog = ({
           className="flex flex-col gap-4"
           onSubmit={(e) => {
             e.preventDefault();
+            e.stopPropagation();
             form.handleSubmit();
           }}
         >
@@ -137,7 +138,7 @@ const CreateOrganizationDialog = ({
                     autoFocus
                     id={field.name}
                     onBlur={field.handleBlur}
-                    onChange={(e) => field.handleChange(e.target.value)}
+                    onInput={(e) => field.handleChange(e.currentTarget.value)}
                     placeholder="Enter the organization name"
                     type="text"
                     value={field.state.value}
@@ -171,7 +172,7 @@ const CreateOrganizationDialog = ({
                     }
                     id={field.name}
                     onBlur={field.handleBlur}
-                    onChange={(e) => field.handleChange(e.target.value)}
+                    onInput={(e) => field.handleChange(e.currentTarget.value)}
                     placeholder="What does this organization do?"
                     rows={3}
                     value={field.state.value}

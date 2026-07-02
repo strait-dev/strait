@@ -34,7 +34,7 @@ const TopJobsChart = ({ hasProject = true }: { hasProject?: boolean }) => {
     <Card>
       <CardHeader className="pb-2">
         <CardTitle className="font-medium text-sm">
-          Top Jobs by Execution Count
+          Top jobs by execution count
         </CardTitle>
       </CardHeader>
       <CardContent>

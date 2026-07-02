@@ -188,14 +188,14 @@ const UsageDashboard = () => {
             onClick={() => navigate({ to: "/app/upgrade" })}
             variant="outline"
           >
-            Upgrade Plan
+            Upgrade plan
           </Button>
           <Button
             disabled={isRedirecting}
             onClick={handleManageBilling}
             variant="outline"
           >
-            Manage Billing
+            Manage billing
           </Button>
         </div>
       </div>
@@ -204,20 +204,20 @@ const UsageDashboard = () => {
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
         {renderUsageGauge({
           display: usage.usage.monthly_runs.display,
-          label: "Runs This Month",
+          label: "Runs this month",
           limit: usage.usage.monthly_runs.limit,
           percent: usage.usage.monthly_runs.percent,
           used: usage.usage.monthly_runs.used,
         })}
         {renderUsageGauge({
-          label: "Concurrent Runs",
+          label: "Concurrent runs",
           limit: usage.usage.concurrent_runs.limit,
           percent: usage.usage.concurrent_runs.percent,
           used: usage.usage.concurrent_runs.used,
         })}
         <Card>
           <CardContent className="flex h-full min-h-[152px] flex-col justify-center p-4">
-            <p className="text-muted-foreground text-xs">Period Spend</p>
+            <p className="text-muted-foreground text-xs">Period spend</p>
             <p className="mt-3 font-medium text-2xl tabular-nums">
               {formatMicroUsd(usage.period_spend_microusd)}
             </p>
@@ -395,14 +395,14 @@ const UsageDashboard = () => {
             onClick={handleManageBilling}
             variant="link"
           >
-            Manage Billing
+            Manage billing
           </Button>
           <Button
             disabled={isRedirecting}
             onClick={handleViewInvoices}
             variant="link"
           >
-            View Invoices
+            View invoices
           </Button>
         </div>
       </div>

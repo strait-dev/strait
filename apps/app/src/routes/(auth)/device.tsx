@@ -71,7 +71,7 @@ function DeviceAuthPage() {
     return (
       <AuthLayout
         description="Enter the code shown in your terminal to authorize the CLI."
-        title="Device Authorization"
+        title="Device authorization"
       >
         <p className="text-center text-muted-foreground text-sm">
           No authorization code provided. Run <Kbd>strait login</Kbd> in your
@@ -103,7 +103,7 @@ function DeviceAuthPage() {
     return (
       <AuthLayout
         description="You can close this window and return to your terminal."
-        title="Device Authorized"
+        title="Device authorized"
       >
         <div className="flex flex-col items-center gap-3">
           <EmptyMedia media="icon" size="lg" variant="success">

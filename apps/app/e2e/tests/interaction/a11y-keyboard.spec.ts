@@ -15,7 +15,7 @@ test.describe("Keyboard and accessibility interactions", () => {
     );
 
     await expect(
-      page.getByRole("heading", { name: "Command Palette" })
+      page.getByRole("heading", { name: "Command palette" })
     ).toBeVisible();
     await expect(page.getByRole("link", { name: "Webhooks" })).toBeVisible();
 

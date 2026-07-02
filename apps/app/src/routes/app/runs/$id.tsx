@@ -110,7 +110,7 @@ const EXECUTION_TRACE_SEGMENTS: {
 }[] = [
   {
     key: "queue_wait_ms",
-    label: "Queue Wait",
+    label: "Queue wait",
     color: "var(--muted-foreground)",
   },
   { key: "dequeue_ms", label: "Dequeue", color: "var(--chart-1)" },
@@ -239,7 +239,7 @@ function RunDetailPage() {
                 }
                 variant="destructive"
               >
-                {cancelRun.isPending ? "Cancelling..." : "Cancel run"}
+                {cancelRun.isPending ? "Canceling..." : "Cancel run"}
               </Button>
             </>
           )}
@@ -250,7 +250,7 @@ function RunDetailPage() {
               variant="outline"
             >
               <HugeiconsIcon className="mr-1.5" icon={XCircleIcon} size={14} />
-              {cancelRun.isPending ? "Cancelling..." : "Cancel"}
+              {cancelRun.isPending ? "Canceling..." : "Cancel"}
             </Button>
           )}
         </div>

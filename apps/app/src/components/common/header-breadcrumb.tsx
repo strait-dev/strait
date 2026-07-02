@@ -63,7 +63,7 @@ const HeaderBreadcrumb = () => {
       // If previous segment was "org", this is the org ID — label it
       if (i > 0 && segments[i - 1] === "org") {
         result.push({
-          label: "Organization Settings",
+          label: "Organization settings",
           href,
           isPage,
         });

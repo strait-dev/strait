@@ -1,6 +1,6 @@
 import { expect, test } from "../../fixtures";
 
-test.describe("Command Palette", () => {
+test.describe("Command palette", () => {
   test("opens with keyboard shortcut", async ({ page }) => {
     await page.goto("/app/dashboard");
     await page.keyboard.press("Meta+k");

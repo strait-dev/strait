@@ -1,6 +1,6 @@
 import { expect, test } from "../../fixtures";
 
-test.describe("Two-Factor Authentication", () => {
+test.describe("Two-factor authentication", () => {
   test.slow();
   test.beforeEach(async ({ page }) => {
     await page.goto("/app/settings");
@@ -8,7 +8,7 @@ test.describe("Two-Factor Authentication", () => {
 
   test("2FA section visible on settings page", async ({ page }) => {
     const section = page
-      .getByText("Two-Factor Authentication", { exact: true })
+      .getByText("Two-factor authentication", { exact: true })
       .or(page.getByText("2FA"));
     if (
       await section

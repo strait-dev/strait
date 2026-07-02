@@ -39,7 +39,7 @@ const FailedRunsByJobChart = ({
     <Card>
       <CardHeader className="pb-2">
         <CardTitle className="font-medium text-sm">
-          Failed Runs by Job
+          Failed runs by Job
         </CardTitle>
       </CardHeader>
       <CardContent>

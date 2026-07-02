@@ -92,6 +92,7 @@ const PersonalInfo = ({ user }: Props) => {
       <form
         onSubmit={(e) => {
           e.preventDefault();
+          e.stopPropagation();
           form.handleSubmit();
         }}
       >
@@ -114,7 +115,7 @@ const PersonalInfo = ({ user }: Props) => {
                     }
                     id={field.name}
                     onBlur={field.handleBlur}
-                    onChange={(e) => field.handleChange(e.target.value)}
+                    onInput={(e) => field.handleChange(e.currentTarget.value)}
                     placeholder="Enter your full name"
                     type="text"
                     value={field.state.value}
@@ -146,7 +147,7 @@ const PersonalInfo = ({ user }: Props) => {
                     }
                     id={field.name}
                     onBlur={field.handleBlur}
-                    onChange={(e) => field.handleChange(e.target.value)}
+                    onInput={(e) => field.handleChange(e.currentTarget.value)}
                     placeholder="Enter your email"
                     type="email"
                     value={field.state.value}

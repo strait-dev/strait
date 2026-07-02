@@ -22,7 +22,7 @@ test.describe("Organization RBAC permissions", () => {
 
       await expect(page.getByText("Manage who has access")).toBeVisible();
       await expect(
-        page.getByRole("button", { name: "Invite Member" })
+        page.getByRole("button", { name: "Invite member" })
       ).toHaveCount(0);
       await expect(page.getByRole("button", { name: "Leave" })).toBeVisible();
     } finally {
@@ -45,7 +45,7 @@ test.describe("Organization RBAC permissions", () => {
     await selectTab(page, "Team");
 
     await expect(
-      page.getByRole("button", { name: "Invite Member" })
+      page.getByRole("button", { name: "Invite member" })
     ).toBeVisible();
   });
 });

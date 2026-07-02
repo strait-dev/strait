@@ -131,7 +131,7 @@ const AppSidebar = ({ session }: Props) => {
               alt="Strait logo"
               className="h-8 w-auto"
               height={20}
-              src="/strait.svg"
+              src="/strait-logo-black.svg"
               width={20}
             />
           </Link>
@@ -197,7 +197,7 @@ const AppSidebar = ({ session }: Props) => {
               showCloseButton={false}
             >
               <DialogHeader className="sr-only">
-                <DialogTitle>Command Palette</DialogTitle>
+                <DialogTitle>Command palette</DialogTitle>
                 <DialogDescription>
                   Search for a command to run...
                 </DialogDescription>

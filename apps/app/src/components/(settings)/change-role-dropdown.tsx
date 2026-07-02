@@ -131,7 +131,7 @@ const ChangeRoleDropdown = ({
       <AlertDialog onOpenChange={setOwnerConfirmOpen} open={ownerConfirmOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Transfer Ownership?</AlertDialogTitle>
+            <AlertDialogTitle>Transfer ownership?</AlertDialogTitle>
             <AlertDialogDescription>
               This will make {memberName || "this member"} the owner of the
               organization. You will be demoted to admin.
@@ -144,7 +144,7 @@ const ChangeRoleDropdown = ({
               onClick={handleConfirmOwnerTransfer}
             >
               {isUpdating ? <Spinner size="xs" /> : null}
-              Transfer Ownership
+              Transfer ownership
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

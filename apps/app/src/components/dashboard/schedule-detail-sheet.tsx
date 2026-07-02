@@ -78,7 +78,7 @@ const ScheduleDetailSheet = ({
               </DescriptionDetails>
               <DescriptionTerm>
                 <HugeiconsIcon className="size-3.5" icon={RefreshIcon} />
-                Max Attempts
+                Max attempts
               </DescriptionTerm>
               <DescriptionDetails className="font-mono">
                 {schedule.max_attempts}

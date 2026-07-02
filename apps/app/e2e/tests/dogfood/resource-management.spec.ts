@@ -608,7 +608,7 @@ async function expectWorkflowRunVisible(
   await page.goto(`/app/workflows/${workflowId}`, {
     waitUntil: "domcontentloaded",
   });
-  await page.getByRole("tab", { name: "Recent Runs" }).click();
+  await page.getByRole("tab", { name: "Recent runs" }).click();
   await expect(
     page.getByText(workflowRunId.slice(0, 8), { exact: true })
   ).toBeVisible({ timeout: 15_000 });
@@ -786,14 +786,14 @@ async function selectCommand(page: Page, commandName: string) {
     await page.getByRole("button", { name: /search/i }).click();
     if (
       await page
-        .getByRole("dialog", { name: "Command Palette" })
+        .getByRole("dialog", { name: "Command palette" })
         .isVisible({ timeout: 3000 })
         .catch(() => false)
     ) {
       break;
     }
   }
-  const dialog = page.getByRole("dialog", { name: "Command Palette" });
+  const dialog = page.getByRole("dialog", { name: "Command palette" });
   const input = dialog
     .getByRole("combobox")
     .or(dialog.locator("input"))

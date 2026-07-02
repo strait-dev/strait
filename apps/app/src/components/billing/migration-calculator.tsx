@@ -98,7 +98,7 @@ const MigrationCalculator = () => {
     <div className="space-y-6">
       <div className="text-center">
         <h2 className="text-balance font-normal text-foreground text-lg tracking-tight">
-          Compare & Save
+          Compare & save
         </h2>
         <p className="text-muted-foreground text-sm">
           See how much you could save by switching to Strait
@@ -121,7 +121,7 @@ const MigrationCalculator = () => {
       {/* Usage Inputs */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-sm">Your Current Usage</CardTitle>
+          <CardTitle className="text-sm">Your current usage</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <Field>
@@ -169,7 +169,7 @@ const MigrationCalculator = () => {
           </Field>
 
           <Button className="w-full" onClick={handleCalculate}>
-            Calculate Savings
+            Calculate savings
           </Button>
         </CardContent>
       </Card>
@@ -223,7 +223,7 @@ const MigrationCalculator = () => {
             </div>
 
             <Button className="w-full" variant="default">
-              Get Started Free
+              Get started free
             </Button>
           </CardContent>
         </Card>

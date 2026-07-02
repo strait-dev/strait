@@ -101,7 +101,12 @@ export async function ensureProjectExists(
 ) {
   let projectId = existingProjectId;
 
-  if (!projectId) {
+  if (projectId) {
+    await pool.query(
+      "UPDATE project SET name = $1 WHERE id = $2 AND name = $3",
+      ["Default project", projectId, "Default Project"]
+    );
+  } else {
     projectId = crypto.randomUUID();
     const projectSlug = `project-${projectId.slice(0, 8)}`;
 
@@ -122,7 +127,7 @@ export async function ensureProjectExists(
     await pool.query(
       `INSERT INTO project (id, organization_id, name, slug, created_by)
        VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING`,
-      [projectId, orgId, "Default Project", projectSlug, userId]
+      [projectId, orgId, "Default project", projectSlug, userId]
     );
 
     await pool.query(
@@ -278,7 +283,7 @@ async function syncProjectToApi(
       body: JSON.stringify({
         id: projectId,
         org_id: orgId,
-        name: "Default Project",
+        name: "Default project",
       }),
     });
     if (res.ok || res.status === 409) {

@@ -48,6 +48,7 @@ import JobFormDialog from "@/components/jobs/job-form-dialog";
 import {
   getResourceTableInitialState,
   RESOURCE_TABLE_CLASS_NAMES,
+  RESOURCE_TABLE_EMPTY_CLASS_NAME,
 } from "@/components/tables/resource-table";
 import { createScheduleColumns } from "@/components/tables/schedules-columns";
 import { usePageEvent } from "@/hooks/analytics/use-page-event";
@@ -279,7 +280,7 @@ function SchedulesPage() {
   }
 
   const emptyState = hasProject ? (
-    <Empty className="h-[300px]">
+    <Empty className={RESOURCE_TABLE_EMPTY_CLASS_NAME}>
       <EmptyHeader>
         <EmptyMedia media="icon" size="lg">
           <HugeiconsIcon

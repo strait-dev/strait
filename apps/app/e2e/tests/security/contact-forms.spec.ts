@@ -63,7 +63,7 @@ test.describe("Contact form validation", () => {
     await page.goto("/app/enterprise-contact");
 
     await expect(
-      page.getByRole("heading", { name: "Contact Enterprise Sales" })
+      page.getByRole("heading", { name: "Contact enterprise sales" })
     ).toBeVisible();
     await expect(page.getByLabel("Name")).toBeVisible();
     await expect(page.getByLabel("Email")).toBeVisible();

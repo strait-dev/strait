@@ -105,7 +105,7 @@ const SubscriptionOverview = () => {
       case "past_due":
       case "unpaid":
         return {
-          message: "Needs Attention",
+          message: "Needs attention",
           icon: AlarmClockIcon,
           variant: "destructive" as const,
         };
@@ -225,7 +225,7 @@ const SubscriptionOverview = () => {
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <div className="space-y-1">
                   <div className="font-medium text-muted-foreground text-sm">
-                    Billing Cycle
+                    Billing cycle
                   </div>
                   <p className="font-normal">{planInfo.intervalName}</p>
                 </div>
@@ -233,7 +233,7 @@ const SubscriptionOverview = () => {
                 {subscription?.currentPeriodEnd ? (
                   <div className="space-y-1">
                     <div className="font-medium text-muted-foreground text-sm">
-                      {planInfo.isCanceled ? "Cancels On" : "Next Billing"}
+                      {planInfo.isCanceled ? "Cancels on" : "Next billing"}
                     </div>
                     <p className="font-normal">
                       {new Date(
@@ -255,7 +255,7 @@ const SubscriptionOverview = () => {
       {/* Subscription Management Actions */}
       <Card>
         <CardHeader>
-          <CardTitle>Manage Your Subscription</CardTitle>
+          <CardTitle>Manage your subscription</CardTitle>
           <CardDescription>
             Access the customer portal to manage your subscription, payment
             methods, and view invoices.
@@ -304,7 +304,7 @@ const SubscriptionOverview = () => {
 
           <Alert>
             <HugeiconsIcon className="size-4" icon={AlertCircleIcon} />
-            <AlertTitle>Customer Portal</AlertTitle>
+            <AlertTitle>Customer portal</AlertTitle>
             <AlertDescription>
               Update payment methods, download invoices, view payment history,
               and manage your subscription details.

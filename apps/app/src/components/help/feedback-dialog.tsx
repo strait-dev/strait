@@ -172,12 +172,16 @@ const FeedbackDialog = ({ user }: Props) => {
             size="icon"
             type="button"
             variant="outline"
-          />
+          >
+            <HugeiconsIcon
+              aria-hidden="true"
+              className="size-4"
+              icon={ChatIcon}
+            />
+            <span className="sr-only">Send feedback</span>
+          </Button>
         }
-      >
-        <HugeiconsIcon aria-hidden="true" className="size-4" icon={ChatIcon} />
-        <span className="sr-only">Send feedback</span>
-      </CredenzaTrigger>
+      />
 
       <CredenzaContent>
         <CredenzaHeader>

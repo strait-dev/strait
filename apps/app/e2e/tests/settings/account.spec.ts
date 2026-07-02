@@ -34,7 +34,7 @@ test.describe("Settings - Account", () => {
 
   test("two-factor authentication section exists", async ({ page }) => {
     const section = page
-      .getByText("Two-Factor Authentication", { exact: true })
+      .getByText("Two-factor authentication", { exact: true })
       .or(page.getByText("2FA"));
     if (
       await section
@@ -48,7 +48,7 @@ test.describe("Settings - Account", () => {
 
   test("sessions section exists", async ({ page }) => {
     const section = page
-      .getByText("Active Sessions", { exact: true })
+      .getByText("Active sessions", { exact: true })
       .or(page.getByText("Sessions"));
     if (
       await section
@@ -62,8 +62,8 @@ test.describe("Settings - Account", () => {
 
   test("delete account section exists", async ({ page }) => {
     const section = page
-      .getByText("Delete Account", { exact: true })
-      .or(page.getByText("Danger Zone"));
+      .getByText("Delete account", { exact: true })
+      .or(page.getByText("Danger zone"));
     if (
       await section
         .first()

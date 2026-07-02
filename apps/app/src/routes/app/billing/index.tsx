@@ -115,11 +115,11 @@ function RouteComponent() {
             </TabsTrigger>
             <TabsTrigger className="flex items-center gap-2" value="history">
               <HugeiconsIcon className="size-4" icon={ActivityIcon} />
-              Usage History
+              Usage history
             </TabsTrigger>
             <TabsTrigger className="flex items-center gap-2" value="projects">
               <HugeiconsIcon className="size-4" icon={BriefcaseIcon} />
-              Project Costs
+              Project costs
             </TabsTrigger>
             <TabsTrigger className="flex items-center gap-2" value="spending">
               <HugeiconsIcon className="size-4" icon={TrendingUpIcon} />

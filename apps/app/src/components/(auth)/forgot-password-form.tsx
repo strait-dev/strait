@@ -7,11 +7,14 @@ import { Spinner } from "@strait/ui/components/spinner";
 import { toast } from "@strait/ui/components/toast";
 import { useForm } from "@tanstack/react-form";
 import { useState } from "react";
+import { flushSync } from "react-dom";
 import { z } from "zod";
+import { useHasMounted } from "@/hooks/use-has-mounted";
 import { authClient } from "@/lib/auth-client";
 import { formatFieldErrors } from "@/lib/form-errors";
 import { MailIcon } from "@/lib/icons";
 import { captureSentryAuthError } from "@/lib/sentry";
+import { waitForMinimumSubmitFeedback } from "@/lib/submit-feedback";
 
 const forgotPasswordSchema = z.object({
   email: z.email("Invalid email address"),
@@ -23,31 +26,41 @@ type ForgotPasswordFormProps = {
 
 const ForgotPasswordForm = ({ disabled }: ForgotPasswordFormProps) => {
   const [sent, setSent] = useState(false);
+  const [isSubmitPending, setIsSubmitPending] = useState(false);
+  const hasMounted = useHasMounted();
 
   const form = useForm({
     defaultValues: { email: "" },
     validators: { onChange: forgotPasswordSchema },
     onSubmit: async ({ value }) => {
       const { email } = forgotPasswordSchema.parse(value);
-      const result = await authClient.requestPasswordReset({
-        email,
-        redirectTo: "/reset-password",
-      });
+      setIsSubmitPending(true);
+      const submitStartedAt = Date.now();
 
-      if (result.error) {
-        captureSentryAuthError(result.error, {
-          operation: "password-reset-request",
+      try {
+        const result = await authClient.requestPasswordReset({
           email,
-          provider: "email",
+          redirectTo: "/reset-password",
         });
-        toast.error(
-          result.error.message ??
-            "Failed to send reset email. Please try again."
-        );
-        return;
-      }
 
-      setSent(true);
+        if (result.error) {
+          captureSentryAuthError(result.error, {
+            operation: "password-reset-request",
+            email,
+            provider: "email",
+          });
+          toast.error(
+            result.error.message ??
+              "Failed to send reset email. Please try again."
+          );
+          return;
+        }
+
+        setSent(true);
+      } finally {
+        await waitForMinimumSubmitFeedback(submitStartedAt);
+        setIsSubmitPending(false);
+      }
     },
   });
 
@@ -69,6 +82,14 @@ const ForgotPasswordForm = ({ disabled }: ForgotPasswordFormProps) => {
     <form
       onSubmit={(e) => {
         e.preventDefault();
+        e.stopPropagation();
+        if (isSubmitPending) {
+          return;
+        }
+        const formValues = Object.fromEntries(new FormData(e.currentTarget));
+        if (forgotPasswordSchema.safeParse(formValues).success) {
+          flushSync(() => setIsSubmitPending(true));
+        }
         form.handleSubmit();
       }}
     >
@@ -91,8 +112,9 @@ const ForgotPasswordForm = ({ disabled }: ForgotPasswordFormProps) => {
                 autoComplete="email"
                 disabled={disabled}
                 id={field.name}
+                name={field.name}
                 onBlur={field.handleBlur}
-                onChange={(e) => field.handleChange(e.target.value)}
+                onInput={(e) => field.handleChange(e.currentTarget.value)}
                 placeholder="you@example.com"
                 type="email"
                 value={field.state.value}
@@ -109,11 +131,26 @@ const ForgotPasswordForm = ({ disabled }: ForgotPasswordFormProps) => {
 
         <Button
           className="w-full"
-          disabled={disabled || form.state.isSubmitting}
+          disabled={!hasMounted || disabled || isSubmitPending}
+          onClick={(e) => {
+            if (isSubmitPending) {
+              return;
+            }
+            const formElement = e.currentTarget.form;
+            if (!formElement) {
+              return;
+            }
+            const formValues = Object.fromEntries(new FormData(formElement));
+            if (forgotPasswordSchema.safeParse(formValues).success) {
+              e.preventDefault();
+              flushSync(() => setIsSubmitPending(true));
+              form.handleSubmit();
+            }
+          }}
           type="submit"
           variant="brand-solid"
         >
-          {form.state.isSubmitting ? <Spinner /> : null}
+          {isSubmitPending ? <Spinner /> : null}
           Send reset link
         </Button>
       </div>

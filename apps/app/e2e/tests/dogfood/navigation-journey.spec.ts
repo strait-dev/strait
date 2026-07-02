@@ -63,7 +63,7 @@ test.describe("Dogfood navigation, search, and filters journey", () => {
 
     try {
       await page.goto("/app/dashboard", { waitUntil: "domcontentloaded" });
-      await expect(page.getByText("Total Runs (24h)")).toBeVisible();
+      await expect(page.getByText("Total runs (24h)")).toBeVisible();
       await expect(page.getByText("Queued")).toBeVisible();
 
       await navigateViaSidebar(page, "Jobs", "/app/jobs");
@@ -91,7 +91,7 @@ test.describe("Dogfood navigation, search, and filters journey", () => {
         timeout: 15_000,
       });
 
-      await navigateViaSidebar(page, "Dead Letter", "/app/dlq");
+      await navigateViaSidebar(page, "Dead letter", "/app/dlq");
       await page.getByLabel("Search").fill(dlq.run.id.slice(0, 8));
       await expect(
         page.getByRole("row", { name: new RegExp(dlq.run.id.slice(0, 8)) })

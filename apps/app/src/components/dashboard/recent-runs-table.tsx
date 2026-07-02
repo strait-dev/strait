@@ -51,7 +51,7 @@ const RecentRunsTable = ({ hasProject = true }: { hasProject?: boolean }) => {
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="font-medium text-sm">Recent Runs</CardTitle>
+        <CardTitle className="font-medium text-sm">Recent runs</CardTitle>
       </CardHeader>
       <CardContent className="p-0">
         <Table>

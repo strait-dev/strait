@@ -48,6 +48,41 @@ test.describe("Login", () => {
     await expect(page).toHaveURL(/login/);
   });
 
+  test("sign in button shows loading while submitting", async ({ page }) => {
+    let interceptedSignIn = false;
+    await page.route("**/api/auth/sign-in/email**", async (route) => {
+      interceptedSignIn = true;
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      await route.fulfill({
+        status: 401,
+        contentType: "application/json",
+        body: JSON.stringify({ error: { message: "Invalid credentials" } }),
+      });
+    });
+
+    await page.goto("/login");
+    await waitForClientRouter(page);
+    await fillControlledInput(page.locator("#email"), "invalid@example.com");
+    await fillControlledInput(page.locator("#password"), "wrongpassword123");
+
+    const signInButton = page.locator("form button[type=submit]");
+    await expect(signInButton).toContainText("Sign in");
+    const click = signInButton.click();
+    await expect(signInButton).toBeDisabled();
+    await expect(signInButton.locator("svg")).toBeVisible();
+    await click;
+    expect(interceptedSignIn).toBe(true);
+  });
+
+  test("does not expose SSO while it is not configured", async ({ page }) => {
+    await page.goto("/login");
+    await waitForClientRouter(page);
+
+    await expect(page.getByRole("link", { name: /sso roadmap/i })).toHaveCount(
+      0
+    );
+  });
+
   test("forgot password link navigates correctly", async ({ page }) => {
     await page.goto("/login");
     await waitForClientRouter(page);

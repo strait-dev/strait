@@ -79,7 +79,7 @@ test.describe("Dogfood settings and project journeys", () => {
 
       await createProjectFromSwitcher(
         page,
-        "Default Project",
+        "Default project",
         secondProjectName
       );
       await expect(page.getByText("Project created successfully!")).toBeVisible(
@@ -117,9 +117,9 @@ test.describe("Dogfood settings and project journeys", () => {
       await page.getByLabel("Search").fill(defaultJob.name);
       await expect(page.getByText(defaultJob.name)).not.toBeVisible();
 
-      await switchProject(page, secondProject.projectName, "Default Project");
+      await switchProject(page, secondProject.projectName, "Default project");
       await expect(
-        page.getByRole("button", { name: "Default Project" }).first()
+        page.getByRole("button", { name: "Default project" }).first()
       ).toBeVisible({ timeout: 15_000 });
 
       await page.goto("/app/jobs", { waitUntil: "domcontentloaded" });

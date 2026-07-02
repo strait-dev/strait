@@ -87,6 +87,7 @@ const CreateProjectDialog = ({
         <form
           onSubmit={(e) => {
             e.preventDefault();
+            e.stopPropagation();
             form.handleSubmit();
           }}
         >
@@ -117,8 +118,8 @@ const CreateProjectDialog = ({
                     autoFocus
                     id={field.name}
                     onBlur={field.handleBlur}
-                    onChange={(e) => field.handleChange(e.target.value)}
-                    placeholder="My Project"
+                    onInput={(e) => field.handleChange(e.currentTarget.value)}
+                    placeholder="My project"
                     value={field.state.value}
                   />
                   {field.state.meta.isTouched &&
@@ -150,7 +151,7 @@ const CreateProjectDialog = ({
                     }
                     id={field.name}
                     onBlur={field.handleBlur}
-                    onChange={(e) => field.handleChange(e.target.value)}
+                    onInput={(e) => field.handleChange(e.currentTarget.value)}
                     placeholder="What is this project for?"
                     rows={3}
                     value={field.state.value}

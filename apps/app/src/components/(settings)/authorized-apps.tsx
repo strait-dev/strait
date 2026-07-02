@@ -60,7 +60,7 @@ export function AuthorizedApps() {
     return (
       <Card>
         <CardHeader>
-          <CardTitle>Authorized Apps</CardTitle>
+          <CardTitle>Authorized apps</CardTitle>
           <CardDescription>
             Applications that have access to your account via OAuth.
           </CardDescription>
@@ -78,7 +78,7 @@ export function AuthorizedApps() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Authorized Apps</CardTitle>
+        <CardTitle>Authorized apps</CardTitle>
         <CardDescription>
           Applications that have access to your account via OAuth. Revoking
           access will immediately invalidate all tokens for that application.

@@ -54,6 +54,7 @@ import { useEffect, useState } from "react";
 import DetailPageSkeleton from "@/components/common/detail-page-skeleton";
 import EntityNotFound from "@/components/common/entity-not-found";
 import ErrorComponent from "@/components/common/error-component";
+import { RESOURCE_TABLE_EMPTY_CLASS_NAME } from "@/components/tables/resource-table";
 import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import type { WebhookDelivery } from "@/hooks/api/types";
 import {
@@ -105,7 +106,7 @@ const deliveryColumns = [
   },
   {
     accessorKey: "last_status_code",
-    header: "HTTP Status",
+    header: "HTTP status",
     cell: ({ row }: { row: { original: WebhookDelivery } }) => (
       <Badge mono size="xs" variant="secondary-light">
         {row.original.last_status_code ?? "-"}
@@ -274,7 +275,7 @@ function WebhookDetailPage() {
 
         <TabsContent value="deliveries">
           {deliveriesError ? (
-            <Empty className="h-[300px]">
+            <Empty className={RESOURCE_TABLE_EMPTY_CLASS_NAME}>
               <EmptyHeader>
                 <EmptyMedia media="icon" size="lg">
                   <HugeiconsIcon
@@ -292,7 +293,7 @@ function WebhookDetailPage() {
           ) : (
             <DataGrid
               emptyMessage={
-                <Empty className="h-[300px]">
+                <Empty className={RESOURCE_TABLE_EMPTY_CLASS_NAME}>
                   <EmptyHeader>
                     <EmptyMedia media="icon" size="lg">
                       <HugeiconsIcon

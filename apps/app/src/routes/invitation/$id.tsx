@@ -15,7 +15,7 @@ import {
 } from "@/hooks/auth/use-invitation";
 import { authClient } from "@/lib/auth-client";
 import { getSession } from "@/lib/auth-handler";
-import { UsersAltIcon } from "@/lib/icons";
+import { GlobeIcon, UsersAltIcon } from "@/lib/icons";
 import { captureException, captureSentryAuthError } from "@/lib/sentry";
 
 const searchParamsSchema = z.object({
@@ -215,7 +215,7 @@ function RouteComponent() {
   // If user is not authenticated, show the Google sign-in option
   if (!session?.user) {
     return (
-      <AuthLayout title="Accept Invitation">
+      <AuthLayout title="Accept invitation">
         <div className="flex flex-col gap-6">
           <div className="flex flex-col items-center gap-4 text-center">
             <EmptyMedia media="icon" size="lg">
@@ -252,13 +252,10 @@ function RouteComponent() {
               </>
             ) : (
               <>
-                <img
-                  alt="Google Logo"
+                <HugeiconsIcon
+                  aria-hidden="true"
                   className="size-4 shrink-0"
-                  height={16}
-                  loading="lazy"
-                  src="/strait.svg"
-                  width={16}
+                  icon={GlobeIcon}
                 />
                 <span>Continue with Google</span>
               </>
@@ -271,7 +268,7 @@ function RouteComponent() {
 
   // User is authenticated, show accept/reject options
   return (
-    <AuthLayout title="Accept Invitation">
+    <AuthLayout title="Accept invitation">
       <div className="flex flex-col gap-6">
         <div className="flex flex-col items-center gap-4 text-center">
           <EmptyMedia media="icon" size="lg">

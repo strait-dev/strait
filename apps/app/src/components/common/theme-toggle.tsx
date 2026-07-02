@@ -27,13 +27,13 @@ const ThemeToggle = () => {
       {mounted && theme === "dark" ? (
         <HugeiconsIcon
           aria-hidden="true"
-          className="size-4 transition-all"
+          className="size-4 transition-transform"
           icon={SunIcon}
         />
       ) : (
         <HugeiconsIcon
           aria-hidden="true"
-          className="size-4 transition-all"
+          className="size-4 transition-transform"
           icon={MoonIcon}
         />
       )}

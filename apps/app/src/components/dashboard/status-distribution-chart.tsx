@@ -15,7 +15,7 @@ import { CheckCircleIcon } from "@/lib/icons";
 const CHART_CONFIG = {
   Completed: { label: "Completed", color: "chart-1" },
   Failed: { label: "Failed", color: "chart-2" },
-  "Timed Out": { label: "Timed Out", color: "chart-5" },
+  "Timed out": { label: "Timed out", color: "chart-5" },
   Canceled: { label: "Canceled", color: "chart-5" },
 } satisfies ChartConfig;
 
@@ -41,7 +41,7 @@ const StatusDistributionChart = ({
           value: throughput.failed,
         },
         {
-          name: "Timed Out",
+          name: "Timed out",
           value: throughput.timed_out,
         },
         {
@@ -58,7 +58,7 @@ const StatusDistributionChart = ({
     <Card>
       <CardHeader className="pb-2">
         <CardTitle className="font-medium text-sm">
-          Status Distribution
+          Status distribution
         </CardTitle>
       </CardHeader>
       <CardContent>

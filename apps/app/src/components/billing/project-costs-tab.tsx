@@ -32,7 +32,7 @@ type BudgetDialogState = {
 } | null;
 
 const COST_BY_PROJECT_CONFIG = {
-  total_microusd: { label: "Total Cost", color: "chart-3" },
+  total_microusd: { label: "Total cost", color: "chart-3" },
 } satisfies ChartConfig;
 
 const ProjectCostsTab = () => {
@@ -71,24 +71,24 @@ const ProjectCostsTab = () => {
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
         <MetricCard
           size="sm"
-          title="Total Runs"
+          title="Total runs"
           value={totals.runs.toLocaleString()}
         />
         <MetricCard
           size="sm"
-          title="Run Spend"
+          title="Run spend"
           value={formatMicroUsd(totals.spend)}
         />
         <MetricCard
           size="sm"
-          title="Total Cost"
+          title="Total cost"
           value={formatMicroUsd(totals.total)}
         />
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle className="font-medium text-sm">Cost by Project</CardTitle>
+          <CardTitle className="font-medium text-sm">Cost by project</CardTitle>
         </CardHeader>
         <CardContent>
           <BarChart
@@ -116,7 +116,7 @@ const ProjectCostsTab = () => {
               <TableRow>
                 <TableHead>Project</TableHead>
                 <TableHead className="text-right">Runs</TableHead>
-                <TableHead className="text-right">Run Spend</TableHead>
+                <TableHead className="text-right">Run spend</TableHead>
                 <TableHead className="text-right">Total</TableHead>
                 <TableHead className="text-right">Budget</TableHead>
               </TableRow>
@@ -179,7 +179,7 @@ const ProjectCostsTab = () => {
                           size="xs"
                           variant="ghost"
                         >
-                          Set Budget
+                          Set budget
                         </Button>
                       )}
                     </TableCell>
