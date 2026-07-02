@@ -12,6 +12,7 @@ export const Route = createFileRoute("/(auth)/sso")({
       throw redirect({ to: search.redirect ?? "/app" });
     }
   },
+  head: () => ({ meta: [{ title: "SSO · Strait" }] }),
   errorComponent: ErrorComponent,
   notFoundComponent: NotFound,
   component: SsoPage,

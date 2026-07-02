@@ -74,9 +74,8 @@ const TwoFactorSetup = ({ enabled }: Props) => {
     } catch (err) {
       captureException(err);
       setError("Something went wrong.");
-    } finally {
-      setIsLoading(false);
     }
+    setIsLoading(false);
   }, [password]);
 
   const handleVerify = useCallback(async () => {
@@ -102,9 +101,8 @@ const TwoFactorSetup = ({ enabled }: Props) => {
     } catch (err) {
       captureException(err);
       toast.error("Verification failed.");
-    } finally {
-      setIsLoading(false);
     }
+    setIsLoading(false);
   }, [verifyCode, queryClient]);
 
   const handleDisable = useCallback(async () => {
@@ -134,9 +132,8 @@ const TwoFactorSetup = ({ enabled }: Props) => {
     } catch (err) {
       captureException(err);
       setError("Something went wrong.");
-    } finally {
-      setIsLoading(false);
     }
+    setIsLoading(false);
   }, [password, queryClient]);
 
   if (step === "qr") {

@@ -37,9 +37,8 @@ import {
   getCoreRowModel,
   getPaginationRowModel,
   getSortedRowModel,
-  useReactTable,
 } from "@tanstack/react-table";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import DetailPageSkeleton from "@/components/common/detail-page-skeleton";
 import EntityNotFound from "@/components/common/entity-not-found";
 import ErrorComponent from "@/components/common/error-component";
@@ -55,7 +54,9 @@ import {
 } from "@/hooks/api/use-jobs";
 import { runsQueryOptions } from "@/hooks/api/use-runs";
 import { useProjectPermissions } from "@/hooks/auth/use-project-permissions";
+import { useAppReactTable } from "@/hooks/use-app-react-table";
 import { useHydratedTableData } from "@/hooks/use-hydrated-table-data";
+import { useIsHydrated } from "@/hooks/use-is-hydrated";
 import {
   ActivityIcon,
   CalendarIcon,
@@ -69,7 +70,6 @@ import {
 import type { AppRouteContext } from "@/routes/app/layout";
 
 export const Route = createFileRoute("/app/schedules/$id")({
-  head: () => ({ meta: [{ title: "Schedule · Strait" }] }),
   loader: async ({ context, params }) => {
     const { session } = context as AppRouteContext;
     await Promise.all([
@@ -80,6 +80,7 @@ export const Route = createFileRoute("/app/schedules/$id")({
     ]);
     return { session };
   },
+  head: () => ({ meta: [{ title: "Schedule · Strait" }] }),
   pendingComponent: DetailPageSkeleton,
   errorComponent: ErrorComponent,
   component: ScheduleDetailPage,
@@ -96,7 +97,7 @@ function ScheduleDetailPage() {
     data: PaginatedResponse<JobRun> | undefined;
   };
   const [activeTab, setActiveTab] = useState("history");
-  const [isHydrated, setIsHydrated] = useState(false);
+  const isHydrated = useIsHydrated();
   const triggerJob = useTriggerJob();
   const pauseJob = usePauseJob();
   const resumeJob = useResumeJob();
@@ -104,11 +105,7 @@ function ScheduleDetailPage() {
   const { permissions } = useProjectPermissions(projectId);
   const tableData = useHydratedTableData(runs?.data ?? []);
 
-  useEffect(() => {
-    setIsHydrated(true);
-  }, []);
-
-  const runsTable = useReactTable({
+  const runsTable = useAppReactTable({
     data: tableData.data,
     columns: createRunColumns(),
     getCoreRowModel: getCoreRowModel(),

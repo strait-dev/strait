@@ -20,7 +20,6 @@ import {
   getCoreRowModel,
   getFilteredRowModel,
   getSortedRowModel,
-  useReactTable,
 } from "@tanstack/react-table";
 import { zodValidator } from "@tanstack/zod-adapter";
 import { useMemo } from "react";
@@ -35,6 +34,7 @@ import { RESOURCE_TABLE_EMPTY_CLASS_NAME } from "@/components/tables/resource-ta
 import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import type { EventTrigger, PaginatedResponse } from "@/hooks/api/types";
 import { eventsQueryOptions } from "@/hooks/api/use-events";
+import { useAppReactTable } from "@/hooks/use-app-react-table";
 import { useCursorPagination } from "@/hooks/use-cursor-pagination";
 import { useHydratedTableData } from "@/hooks/use-hydrated-table-data";
 import { ActivityIcon, SearchIcon } from "@/lib/icons";
@@ -55,7 +55,6 @@ export const searchSchema = z.object({
 });
 
 export const Route = createFileRoute("/app/events/")({
-  head: () => ({ meta: [{ title: "Events · Strait" }] }),
   validateSearch: zodValidator(searchSchema),
   loaderDeps: ({ search }) => ({
     limit: search.perPage ?? 20,
@@ -74,10 +73,13 @@ export const Route = createFileRoute("/app/events/")({
     }
     return { hasProject, session };
   },
+  head: () => ({ meta: [{ title: "Events · Strait" }] }),
   pendingComponent: TablePageSkeleton,
   errorComponent: ErrorComponent,
   component: EventsPage,
 });
+
+const EMPTY_ARRAY: never[] = [];
 
 function EventsPage() {
   usePageEvent("events_viewed");
@@ -97,7 +99,7 @@ function EventsPage() {
   });
 
   const typed = data as PaginatedResponse<EventTrigger> | undefined;
-  const selectedStatuses = search.status ?? [];
+  const selectedStatuses = search.status ?? EMPTY_ARRAY;
   const events = useMemo(() => {
     let items = hasProject ? (typed?.data ?? []) : [];
     const query = search.query?.trim().toLowerCase();
@@ -123,7 +125,7 @@ function EventsPage() {
   }, [typed, hasProject, search.query, selectedStatuses]);
   const tableData = useHydratedTableData(events);
 
-  const table = useReactTable({
+  const table = useAppReactTable({
     data: tableData.data,
     columns: logColumns,
     getCoreRowModel: getCoreRowModel(),

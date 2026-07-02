@@ -104,7 +104,7 @@ const AppSidebar = ({ session }: Props) => {
 
   const runCommand = (item: SidebarCommandItem) => {
     if (item.href) {
-      globalThis.location.href = item.href;
+      globalThis.location.assign(item.href);
       return;
     }
     if (item.url) {

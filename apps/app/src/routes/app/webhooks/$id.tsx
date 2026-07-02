@@ -47,10 +47,9 @@ import {
   getCoreRowModel,
   getPaginationRowModel,
   getSortedRowModel,
-  useReactTable,
 } from "@tanstack/react-table";
 import { formatDistanceToNow } from "date-fns";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import DetailPageSkeleton from "@/components/common/detail-page-skeleton";
 import EntityNotFound from "@/components/common/entity-not-found";
 import ErrorComponent from "@/components/common/error-component";
@@ -64,7 +63,9 @@ import {
   webhookQueryOptions,
 } from "@/hooks/api/use-webhooks";
 import { useProjectPermissions } from "@/hooks/auth/use-project-permissions";
+import { useAppReactTable } from "@/hooks/use-app-react-table";
 import { useHydratedTableData } from "@/hooks/use-hydrated-table-data";
+import { useIsHydrated } from "@/hooks/use-is-hydrated";
 import {
   ChevronLeftIcon,
   ClockIcon,
@@ -76,12 +77,12 @@ import {
 import type { AppRouteContext } from "@/routes/app/layout";
 
 export const Route = createFileRoute("/app/webhooks/$id")({
-  head: () => ({ meta: [{ title: "Webhook · Strait" }] }),
   loader: async ({ context, params }) => {
     const { session } = context as AppRouteContext;
     await context.queryClient.ensureQueryData(webhookQueryOptions(params.id));
     return { session };
   },
+  head: () => ({ meta: [{ title: "Webhook · Strait" }] }),
   pendingComponent: DetailPageSkeleton,
   errorComponent: ErrorComponent,
   component: WebhookDetailPage,
@@ -149,7 +150,7 @@ function WebhookDetailPage() {
 
   const { data: webhook } = useSuspenseQuery(webhookQueryOptions(id));
   const [activeTab, setActiveTab] = useState("settings");
-  const [isHydrated, setIsHydrated] = useState(false);
+  const isHydrated = useIsHydrated();
   const {
     data: deliveriesData,
     isError: deliveriesError,
@@ -164,16 +165,12 @@ function WebhookDetailPage() {
   const testWebhook = useTestWebhook();
   const { permissions } = useProjectPermissions(session.user.activeProjectId);
 
-  useEffect(() => {
-    setIsHydrated(true);
-  }, []);
-
   const deliveries = (deliveriesData?.data ?? []).filter(
     (delivery) => delivery.subscription_id === id
   );
   const tableData = useHydratedTableData(deliveries);
 
-  const table = useReactTable({
+  const table = useAppReactTable({
     data: tableData.data,
     columns: deliveryColumns,
     getCoreRowModel: getCoreRowModel(),

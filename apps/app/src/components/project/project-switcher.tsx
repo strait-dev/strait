@@ -10,13 +10,14 @@ import {
 import { SidebarMenuButton } from "@strait/ui/components/sidebar";
 import { toast } from "@strait/ui/components/toast";
 import { useQuery } from "@tanstack/react-query";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import type { Project } from "@/hooks/api/types";
 import {
   projectsQueryOptions,
   useSetActiveProject,
 } from "@/hooks/api/use-projects";
 import { useProjectPermissions } from "@/hooks/auth/use-project-permissions";
+import { useIsHydrated } from "@/hooks/use-is-hydrated";
 import { BriefcaseIcon, ChevronDownIcon, PlusIcon } from "@/lib/icons";
 import type { AuthUser } from "@/routes/__root";
 import CreateProjectDialog from "./create-project-dialog";
@@ -28,11 +29,18 @@ type Props = {
 const ProjectSwitcher = ({ user }: Props) => {
   const [createOpen, setCreateOpen] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
-  const [isHydrated, setIsHydrated] = useState(false);
+  const isHydrated = useIsHydrated();
   const setActiveProject = useSetActiveProject();
 
   const organizationId = user.defaultOrganizationId ?? "";
-  const [activeProjectId, setActiveProjectId] = useState(user.activeProjectId);
+  const [localActiveProject, setLocalActiveProject] = useState(() => ({
+    baseProjectId: user.activeProjectId,
+    projectId: user.activeProjectId,
+  }));
+  const activeProjectId =
+    localActiveProject.baseProjectId === user.activeProjectId
+      ? localActiveProject.projectId
+      : user.activeProjectId;
   const projectPermissions = useProjectPermissions(activeProjectId);
   const { permissions } = projectPermissions;
   const permissionsReady =
@@ -40,14 +48,6 @@ const ProjectSwitcher = ({ user }: Props) => {
     projectPermissions.isSuccess ||
     projectPermissions.isError;
   const canCreateProject = !activeProjectId || permissions.canManageProjects;
-
-  useEffect(() => {
-    setActiveProjectId(user.activeProjectId);
-  }, [user.activeProjectId]);
-
-  useEffect(() => {
-    setIsHydrated(true);
-  }, []);
 
   const { data: projects } = useQuery({
     ...projectsQueryOptions(organizationId),
@@ -66,8 +66,11 @@ const ProjectSwitcher = ({ user }: Props) => {
         return;
       }
 
-      const previousProjectId = activeProjectId;
-      setActiveProjectId(projectId);
+      const previousLocalActiveProject = localActiveProject;
+      setLocalActiveProject({
+        baseProjectId: user.activeProjectId,
+        projectId,
+      });
       setDropdownOpen(false);
       const switchPromise = setActiveProject.mutateAsync({ projectId });
 
@@ -80,15 +83,26 @@ const ProjectSwitcher = ({ user }: Props) => {
       try {
         await switchPromise;
       } catch {
-        setActiveProjectId(previousProjectId);
+        setLocalActiveProject(previousLocalActiveProject);
       }
     },
-    [activeProjectId, setActiveProject]
+    [
+      activeProjectId,
+      localActiveProject,
+      setActiveProject,
+      user.activeProjectId,
+    ]
   );
 
-  const handleCreated = useCallback((project: Project) => {
-    setActiveProjectId(project.id);
-  }, []);
+  const handleCreated = useCallback(
+    (project: Project) => {
+      setLocalActiveProject({
+        baseProjectId: user.activeProjectId,
+        projectId: project.id,
+      });
+    },
+    [user.activeProjectId]
+  );
 
   if (!organizationId) {
     return null;

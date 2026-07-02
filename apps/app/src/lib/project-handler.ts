@@ -100,11 +100,15 @@ export const listProjectsServerFn = createServerFn({ method: "GET" })
   )
   .middleware([authMiddleware])
   .handler(async ({ context, data }) => {
-    const { getAuthPool } = await import("@/lib/auth.server");
-    const { requireOrgAccess } = await import("@/middlewares/require-access");
-    await requireOrgAccess(context.user.id, data.organizationId);
+    const [{ getAuthPool }, { requireOrgAccess }] = await Promise.all([
+      import("@/lib/auth.server"),
+      import("@/middlewares/require-access"),
+    ]);
     const authPool = getAuthPool();
-    await ensureProjectTable(authPool);
+    await Promise.all([
+      requireOrgAccess(context.user.id, data.organizationId),
+      ensureProjectTable(authPool),
+    ]);
 
     const result = await authPool.query<Project>(
       `SELECT id, organization_id, name, slug, description, created_by, created_at::text, updated_at::text

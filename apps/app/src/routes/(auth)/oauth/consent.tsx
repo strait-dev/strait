@@ -86,8 +86,8 @@ const consentSearchSchema = z
   .catchall(optionalSearchParam);
 
 const fetchClientInfo = createServerFn({ method: "GET" })
-  .inputValidator(z.object({ clientId: z.string().min(1) }))
   .middleware([authMiddleware])
+  .inputValidator(z.object({ clientId: z.string().min(1) }))
   .handler(async ({ data }) => {
     try {
       const client = await ((await getAuth()).api as any).getOAuthClientPublic({
@@ -120,6 +120,7 @@ function clientInfoQueryOptions(clientId: string) {
 }
 
 const submitConsent = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
   .inputValidator(
     z.object({
       accept: z.boolean(),
@@ -127,7 +128,6 @@ const submitConsent = createServerFn({ method: "POST" })
       oauthQuery: z.string().optional(),
     })
   )
-  .middleware([authMiddleware])
   .handler(async ({ data }) => {
     const result = await (await getAuth()).api.oauth2Consent({
       body: {
@@ -142,6 +142,7 @@ const submitConsent = createServerFn({ method: "POST" })
 
 export const Route = createFileRoute("/(auth)/oauth/consent")({
   validateSearch: consentSearchSchema,
+  loaderDeps: ({ search }) => ({ clientId: search.client_id }),
   beforeLoad: ({ context, location }) => {
     if (!context.isAuthenticated) {
       throw redirect({
@@ -152,7 +153,6 @@ export const Route = createFileRoute("/(auth)/oauth/consent")({
       });
     }
   },
-  loaderDeps: ({ search }) => ({ clientId: search.client_id }),
   loader: ({ context, deps }) => {
     if (deps.clientId) {
       return context.queryClient.ensureQueryData(

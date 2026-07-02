@@ -38,8 +38,8 @@ import { getResend } from "@/lib/resend.server";
 import { authMiddleware } from "@/middlewares/auth";
 
 const submitEnterpriseContact = createServerFn({ method: "POST" })
-  .inputValidator(enterpriseContactSchema)
   .middleware([authMiddleware])
+  .inputValidator(enterpriseContactSchema)
   .handler(async ({ data, context }) => {
     await enforceRateLimit({
       key: `enterprise-contact:${context.user.id}`,

@@ -43,9 +43,8 @@ import {
   getFilteredRowModel,
   getPaginationRowModel,
   getSortedRowModel,
-  useReactTable,
 } from "@tanstack/react-table";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import DetailPageSkeleton from "@/components/common/detail-page-skeleton";
 import EntityNotFound from "@/components/common/entity-not-found";
 import ErrorComponent from "@/components/common/error-component";
@@ -70,7 +69,9 @@ import {
   type ProjectPermissionFlags,
   useProjectPermissions,
 } from "@/hooks/auth/use-project-permissions";
+import { useAppReactTable } from "@/hooks/use-app-react-table";
 import { useHydratedTableData } from "@/hooks/use-hydrated-table-data";
+import { useIsHydrated } from "@/hooks/use-is-hydrated";
 import {
   ActivityIcon,
   ClockIcon,
@@ -86,7 +87,6 @@ import { stopInteractiveRowClick } from "@/lib/table-interactions";
 import type { AppRouteContext } from "@/routes/app/layout";
 
 export const Route = createFileRoute("/app/jobs/$id")({
-  head: () => ({ meta: [{ title: "Job · Strait" }] }),
   loader: async ({ context, params }) => {
     const { session } = context as AppRouteContext;
     await Promise.all([
@@ -100,6 +100,7 @@ export const Route = createFileRoute("/app/jobs/$id")({
     ]);
     return { session };
   },
+  head: () => ({ meta: [{ title: "Job · Strait" }] }),
   pendingComponent: DetailPageSkeleton,
   errorComponent: ErrorComponent,
   component: JobDetailPage,
@@ -191,7 +192,7 @@ function JobDetailPage() {
   const [selectedRun, setSelectedRun] = useState<JobRun | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({});
-  const [isHydrated, setIsHydrated] = useState(false);
+  const isHydrated = useIsHydrated();
 
   const { data: health } = useQuery(jobHealthQueryOptions(id, healthWindow));
 
@@ -205,11 +206,7 @@ function JobDetailPage() {
   const jobRuns = runsData?.data ?? [];
   const tableData = useHydratedTableData(jobRuns);
 
-  useEffect(() => {
-    setIsHydrated(true);
-  }, []);
-
-  const table = useReactTable({
+  const table = useAppReactTable({
     data: tableData.data,
     columns: createRunColumns({
       onView: (run) => handleRowClick(run),

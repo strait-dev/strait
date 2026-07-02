@@ -84,6 +84,7 @@ export const Route = createFileRoute("/invitation/$id")({
       });
     }
   },
+  head: () => ({ meta: [{ title: "Invitation · Strait" }] }),
   component: RouteComponent,
 });
 
@@ -144,9 +145,8 @@ function RouteComponent() {
           ? err.message
           : "Error accepting invitation. Please try again."
       );
-    } finally {
-      setIsAccepting(false);
     }
+    setIsAccepting(false);
   }, [invitation.id, session?.user, navigate]);
 
   const handleRejectInvitation = useCallback(async () => {
@@ -350,9 +350,8 @@ function RouteComponent() {
                 } catch (err) {
                   captureException(err);
                   toast.error("Error signing out. Please try again.");
-                } finally {
-                  setIsSigningOut(false);
                 }
+                setIsSigningOut(false);
               }}
               size="xs"
               variant="link"

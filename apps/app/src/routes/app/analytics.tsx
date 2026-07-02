@@ -11,7 +11,8 @@ import { AreaChart, BarChart, LineChart } from "@strait/ui/components/charts";
 import { Shell } from "@strait/ui/components/shell";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { zodValidator } from "@tanstack/zod-adapter";
+import { z } from "zod";
 import ErrorComponent from "@/components/common/error-component";
 import {
   costTrendsQueryOptions,
@@ -47,18 +48,35 @@ const formatDollars = (value: number) => `$${(value / 100).toFixed(2)}`;
 const formatDollarsAxis = (value: number) => `$${(value / 100).toFixed(0)}`;
 const formatPercent = (value: number) => `${value.toFixed(1)}%`;
 
+const analyticsSearchSchema = z.object({
+  window: z.enum(["7d", "30d", "90d"]).optional().catch(undefined),
+});
+
 export const Route = createFileRoute("/app/analytics")({
+  validateSearch: zodValidator(analyticsSearchSchema),
+  loaderDeps: ({ search }) => ({ window: search.window ?? "30d" }),
+  loader: async ({ context, deps }) => {
+    await Promise.allSettled([
+      context.queryClient.ensureQueryData(costTrendsQueryOptions(deps.window)),
+      context.queryClient.ensureQueryData(topCostsQueryOptions(deps.window)),
+      context.queryClient.ensureQueryData(performanceQueryOptions(deps.window)),
+    ]);
+  },
   head: () => ({ meta: [{ title: "Analytics · Strait" }] }),
   errorComponent: ErrorComponent,
   component: AnalyticsPage,
 });
 
 function AnalyticsPage() {
-  const [window, setWindow] = useState<AnalyticsWindow>("30d");
+  const navigate = Route.useNavigate();
+  const search = Route.useSearch();
+  const selectedWindow = search.window ?? "30d";
 
-  const { data: costTrends } = useQuery(costTrendsQueryOptions(window));
-  const { data: topCosts } = useQuery(topCostsQueryOptions(window));
-  const { data: performance } = useQuery(performanceQueryOptions(window));
+  const { data: costTrends } = useQuery(costTrendsQueryOptions(selectedWindow));
+  const { data: topCosts } = useQuery(topCostsQueryOptions(selectedWindow));
+  const { data: performance } = useQuery(
+    performanceQueryOptions(selectedWindow)
+  );
 
   const costData = costTrends ?? [];
   const topCostData = topCosts ?? [];
@@ -79,8 +97,15 @@ function AnalyticsPage() {
           {WINDOWS.map((w) => (
             <Button
               key={w.value}
-              onClick={() => setWindow(w.value)}
-              variant={window === w.value ? "default" : "outline"}
+              onClick={() =>
+                navigate({
+                  search: (prev) => ({
+                    ...prev,
+                    window: w.value === "30d" ? undefined : w.value,
+                  }),
+                })
+              }
+              variant={selectedWindow === w.value ? "default" : "outline"}
             >
               {w.label}
             </Button>

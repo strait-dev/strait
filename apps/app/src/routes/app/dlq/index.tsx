@@ -33,7 +33,6 @@ import {
   getCoreRowModel,
   getFilteredRowModel,
   getSortedRowModel,
-  useReactTable,
 } from "@tanstack/react-table";
 import { zodValidator } from "@tanstack/zod-adapter";
 import { useCallback, useMemo, useState } from "react";
@@ -60,6 +59,7 @@ import {
   useRetryDlqItem,
 } from "@/hooks/api/use-dlq";
 import { useProjectPermissions } from "@/hooks/auth/use-project-permissions";
+import { useAppReactTable } from "@/hooks/use-app-react-table";
 import { useCursorPagination } from "@/hooks/use-cursor-pagination";
 import { useHydratedTableData } from "@/hooks/use-hydrated-table-data";
 import { AlertIcon, RefreshIcon, SearchIcon, TrashIcon } from "@/lib/icons";
@@ -79,8 +79,9 @@ export const searchSchema = z.object({
   perPage: z.coerce.number().optional(),
 });
 
+const EMPTY_ARRAY: never[] = [];
+
 export const Route = createFileRoute("/app/dlq/")({
-  head: () => ({ meta: [{ title: "Dead letter queue · Strait" }] }),
   validateSearch: zodValidator(searchSchema),
   loaderDeps: ({ search }) => ({
     limit: search.perPage ?? 20,
@@ -96,6 +97,7 @@ export const Route = createFileRoute("/app/dlq/")({
     }
     return { hasProject, session };
   },
+  head: () => ({ meta: [{ title: "Dead letter queue · Strait" }] }),
   pendingComponent: TablePageSkeleton,
   errorComponent: ErrorComponent,
   component: DlqPage,
@@ -130,8 +132,8 @@ function DlqPage() {
   const actionPermissions = dlqResourcePermissions(permissions);
 
   const typed = data as PaginatedResponse<JobRun> | undefined;
-  const apiData = hasProject ? (typed?.data ?? []) : [];
-  const selectedErrorTypes = search.errorType ?? [];
+  const apiData = hasProject ? (typed?.data ?? EMPTY_ARRAY) : EMPTY_ARRAY;
+  const selectedErrorTypes = search.errorType ?? EMPTY_ARRAY;
 
   const filteredData = useMemo(() => {
     let runs = apiData;
@@ -163,7 +165,7 @@ function DlqPage() {
   }, [apiData, search.query, selectedErrorTypes]);
   const tableData = useHydratedTableData(filteredData);
 
-  const table = useReactTable({
+  const table = useAppReactTable({
     data: tableData.data,
     columns: createDlqColumns({
       onView: (run) => {

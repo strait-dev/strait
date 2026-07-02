@@ -8,7 +8,7 @@ import {
 } from "@strait/ui/components/tabs";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
-import { Suspense, useEffect, useState } from "react";
+import { Suspense } from "react";
 import ApiKeysManagement from "@/components/(settings)/api-keys-management";
 import DeleteOrganization from "@/components/(settings)/delete-organization";
 import OrganizationInfo from "@/components/(settings)/organization-info";
@@ -20,11 +20,11 @@ import NotFound from "@/components/common/not-found";
 
 import { organizationQueryOptions } from "@/hooks/auth/use-organization";
 import { useOrganizationRole } from "@/hooks/auth/use-permissions";
+import { useIsHydrated } from "@/hooks/use-is-hydrated";
 import { BuildingIcon, CreditCardIcon, KeyIcon, UsersIcon } from "@/lib/icons";
 import type { AppRouteContext } from "@/routes/app/layout";
 
 export const Route = createFileRoute("/app/org/$id")({
-  head: () => ({ meta: [{ title: "Organization · Strait" }] }),
   loader: async ({ context, params }) => {
     const { session } = context as AppRouteContext;
     await context.queryClient.ensureQueryData(
@@ -32,6 +32,7 @@ export const Route = createFileRoute("/app/org/$id")({
     );
     return { session };
   },
+  head: () => ({ meta: [{ title: "Organization · Strait" }] }),
   errorComponent: DefaultCatchBoundary,
   notFoundComponent: () => <NotFound />,
   component: RouteComponent,
@@ -41,15 +42,11 @@ function RouteComponent() {
   const { session } = Route.useLoaderData();
   const params = Route.useParams();
   const organizationId = params.id;
-  const [isHydrated, setIsHydrated] = useState(false);
+  const isHydrated = useIsHydrated();
   const { data: organization } = useQuery(
     organizationQueryOptions(organizationId)
   );
   const { isAdmin } = useOrganizationRole(organizationId, session.user.id);
-
-  useEffect(() => {
-    setIsHydrated(true);
-  }, []);
 
   return (
     <Shell>

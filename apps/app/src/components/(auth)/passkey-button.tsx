@@ -42,9 +42,8 @@ const PasskeyButton = ({ disabled }: PasskeyButtonProps) => {
         provider: "passkey",
       });
       toast.error("Passkey sign in failed. Please try again.");
-    } finally {
-      setIsLoading(false);
     }
+    setIsLoading(false);
   };
 
   return (

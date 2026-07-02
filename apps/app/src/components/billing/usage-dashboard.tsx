@@ -115,13 +115,12 @@ const UsageDashboard = () => {
     try {
       const result = await getCustomerPortalUrlServerFn();
       if (result.url) {
-        window.location.href = result.url;
+        window.location.assign(result.url);
       }
     } catch {
       toast.error("Failed to open billing portal");
-    } finally {
-      setIsRedirecting(false);
     }
+    setIsRedirecting(false);
   };
 
   const handleViewInvoices = async () => {
@@ -129,13 +128,12 @@ const UsageDashboard = () => {
     try {
       const result = await getCustomerPortalUrlServerFn();
       if (result.url) {
-        window.location.href = result.url;
+        window.location.assign(result.url);
       }
     } catch {
       toast.error("Failed to load invoices");
-    } finally {
-      setIsRedirecting(false);
     }
+    setIsRedirecting(false);
   };
 
   if (isUsageError) {

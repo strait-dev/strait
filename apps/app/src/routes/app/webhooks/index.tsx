@@ -33,7 +33,6 @@ import {
   getCoreRowModel,
   getFilteredRowModel,
   getSortedRowModel,
-  useReactTable,
 } from "@tanstack/react-table";
 import { zodValidator } from "@tanstack/zod-adapter";
 import { useMemo, useState } from "react";
@@ -56,6 +55,7 @@ import {
   webhooksQueryOptions,
 } from "@/hooks/api/use-webhooks";
 import { useProjectPermissions } from "@/hooks/auth/use-project-permissions";
+import { useAppReactTable } from "@/hooks/use-app-react-table";
 import { useCursorPagination } from "@/hooks/use-cursor-pagination";
 import { useHydratedTableData } from "@/hooks/use-hydrated-table-data";
 import {
@@ -82,7 +82,6 @@ export const searchSchema = z.object({
 });
 
 export const Route = createFileRoute("/app/webhooks/")({
-  head: () => ({ meta: [{ title: "Webhooks · Strait" }] }),
   validateSearch: zodValidator(searchSchema),
   loaderDeps: ({ search }) => ({
     limit: search.perPage ?? 20,
@@ -98,10 +97,13 @@ export const Route = createFileRoute("/app/webhooks/")({
     }
     return { hasProject, session };
   },
+  head: () => ({ meta: [{ title: "Webhooks · Strait" }] }),
   pendingComponent: TablePageSkeleton,
   errorComponent: ErrorComponent,
   component: WebhooksPage,
 });
+
+const EMPTY_ARRAY: never[] = [];
 
 function WebhooksPage() {
   usePageEvent("webhooks_viewed");
@@ -120,7 +122,7 @@ function WebhooksPage() {
     enabled: hasProject,
   });
 
-  const selectedStatuses = search.status ?? [];
+  const selectedStatuses = search.status ?? EMPTY_ARRAY;
 
   const typed = data as PaginatedResponse<WebhookSubscription> | undefined;
 
@@ -160,7 +162,7 @@ function WebhooksPage() {
 
   const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({});
   const tableData = useHydratedTableData(filteredData);
-  const table = useReactTable({
+  const table = useAppReactTable({
     data: tableData.data,
     columns: createWebhookColumns({
       onView: handleRowClick,

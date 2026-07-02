@@ -22,7 +22,7 @@ import {
 import { Spinner } from "@strait/ui/components/spinner";
 import { Textarea } from "@strait/ui/components/textarea";
 import { toast } from "@strait/ui/components/toast";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import type { Job } from "@/hooks/api/types";
 import {
   type CreateJobInput,
@@ -91,8 +91,13 @@ export default function JobFormDialog({
 }: Props) {
   const createJob = useCreateJob();
   const updateJob = useUpdateJob();
-  const [form, setForm] = useState<JobFormState>(() => initialState(kind, job));
+  const initialForm = useMemo(() => initialState(kind, job), [job, kind]);
+  const [formUpdates, setFormUpdates] = useState<Partial<JobFormState>>({});
   const [error, setError] = useState<string | null>(null);
+  const form = useMemo(
+    () => ({ ...initialForm, ...formUpdates }),
+    [formUpdates, initialForm]
+  );
   const isEditing = Boolean(job?.id);
   const isPending = createJob.isPending || updateJob.isPending;
   const labels = useMemo(
@@ -113,18 +118,19 @@ export default function JobFormDialog({
     [isEditing, kind]
   );
 
-  useEffect(() => {
-    if (open) {
-      setForm(initialState(kind, job));
-      setError(null);
-    }
-  }, [job, kind, open]);
-
   function update<K extends keyof JobFormState>(
     key: K,
     value: JobFormState[K]
   ) {
-    setForm((current) => ({ ...current, [key]: value }));
+    setFormUpdates((current) => ({ ...current, [key]: value }));
+  }
+
+  function handleOpenChange(nextOpen: boolean) {
+    if (nextOpen) {
+      setFormUpdates({});
+      setError(null);
+    }
+    onOpenChange(nextOpen);
   }
 
   async function submit() {
@@ -164,7 +170,7 @@ export default function JobFormDialog({
   }
 
   return (
-    <Dialog onOpenChange={onOpenChange} open={open}>
+    <Dialog onOpenChange={handleOpenChange} open={open}>
       <DialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto sm:max-w-2xl">
         <form
           onSubmit={(event) => {

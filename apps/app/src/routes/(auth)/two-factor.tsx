@@ -12,6 +12,7 @@ export const Route = createFileRoute("/(auth)/two-factor")({
       throw redirect({ to: search.redirect ?? "/app" });
     }
   },
+  head: () => ({ meta: [{ title: "Two-factor verification · Strait" }] }),
   errorComponent: ErrorComponent,
   notFoundComponent: NotFound,
   component: TwoFactorPage,

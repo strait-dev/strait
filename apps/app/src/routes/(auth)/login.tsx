@@ -43,7 +43,6 @@ const getSocialProviderAvailability = createServerFn({ method: "GET" }).handler(
 );
 
 export const Route = createFileRoute("/(auth)/login")({
-  head: () => ({ meta: [{ title: "Sign in · Strait" }] }),
   validateSearch: authSearchSchema,
   beforeLoad: ({ context, search }) => {
     if (context.isAuthenticated) {
@@ -51,6 +50,7 @@ export const Route = createFileRoute("/(auth)/login")({
     }
   },
   loader: () => getSocialProviderAvailability(),
+  head: () => ({ meta: [{ title: "Sign in · Strait" }] }),
   errorComponent: ErrorComponent,
   notFoundComponent: NotFound,
   component: LoginPage,

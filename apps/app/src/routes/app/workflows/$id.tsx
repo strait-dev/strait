@@ -47,10 +47,9 @@ import {
   getCoreRowModel,
   getPaginationRowModel,
   getSortedRowModel,
-  useReactTable,
 } from "@tanstack/react-table";
 import { formatDistanceToNow } from "date-fns";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import DetailPageSkeleton from "@/components/common/detail-page-skeleton";
 import EntityNotFound from "@/components/common/entity-not-found";
 import ErrorComponent from "@/components/common/error-component";
@@ -80,7 +79,9 @@ import {
   useProjectPermissions,
 } from "@/hooks/auth/use-project-permissions";
 import { useCurrentPlan } from "@/hooks/billing/use-current-plan";
+import { useAppReactTable } from "@/hooks/use-app-react-table";
 import { useHydratedTableData } from "@/hooks/use-hydrated-table-data";
+import { useIsHydrated } from "@/hooks/use-is-hydrated";
 import {
   ActivityIcon,
   CheckCircleIcon,
@@ -95,7 +96,6 @@ import { canUseFeature } from "@/lib/plan-tiers";
 import type { AppRouteContext } from "@/routes/app/layout";
 
 export const Route = createFileRoute("/app/workflows/$id")({
-  head: () => ({ meta: [{ title: "Workflow · Strait" }] }),
   loader: async ({ context, params }) => {
     const { session } = context as AppRouteContext;
     await Promise.all([
@@ -105,6 +105,7 @@ export const Route = createFileRoute("/app/workflows/$id")({
     ]);
     return { session };
   },
+  head: () => ({ meta: [{ title: "Workflow · Strait" }] }),
   pendingComponent: DetailPageSkeleton,
   errorComponent: ErrorComponent,
   component: WorkflowDetailPage,
@@ -317,16 +318,6 @@ function getLockedDAGFeature(
   return null;
 }
 
-function useIsHydrated() {
-  const [isHydrated, setIsHydrated] = useState(false);
-
-  useEffect(() => {
-    setIsHydrated(true);
-  }, []);
-
-  return isHydrated;
-}
-
 function WorkflowActions({
   permissions,
   workflow,
@@ -402,7 +393,7 @@ function WorkflowDetailPage() {
     dependencies: s.depends_on ?? [],
   }));
 
-  const runsTable = useReactTable({
+  const runsTable = useAppReactTable({
     data: tableData.data,
     columns: workflowRunColumns,
     getCoreRowModel: getCoreRowModel(),

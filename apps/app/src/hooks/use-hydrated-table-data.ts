@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useIsHydrated } from "./use-is-hydrated";
 
 export type HydratedTableData<T> = {
   data: T[];
@@ -7,11 +7,7 @@ export type HydratedTableData<T> = {
 };
 
 export function useHydratedTableData<T>(data: T[]): HydratedTableData<T> {
-  const [isHydrated, setIsHydrated] = useState(false);
-
-  useEffect(() => {
-    setIsHydrated(true);
-  }, []);
+  const isHydrated = useIsHydrated();
 
   return {
     data: isHydrated ? data : [],

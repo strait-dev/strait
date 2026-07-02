@@ -219,7 +219,10 @@ function RouteComponent() {
           </header>
           <Separator />
         </div>
-        <div className="flex flex-1 flex-col gap-4 pt-0" vaul-drawer-wrapper="">
+        <div
+          className="flex flex-1 flex-col gap-4 pt-0"
+          {...{ "vaul-drawer-wrapper": "" }}
+        >
           <div className="space-y-2 px-4 pt-2">
             <PaymentStatusBanner />
             <UpgradeNudgeBanner />

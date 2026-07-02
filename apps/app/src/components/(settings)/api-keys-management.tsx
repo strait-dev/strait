@@ -55,11 +55,7 @@ import { Spinner } from "@strait/ui/components/spinner";
 import { toast } from "@strait/ui/components/toast";
 import { useForm } from "@tanstack/react-form";
 import { useQuery } from "@tanstack/react-query";
-import {
-  type ColumnDef,
-  getCoreRowModel,
-  useReactTable,
-} from "@tanstack/react-table";
+import { type ColumnDef, getCoreRowModel } from "@tanstack/react-table";
 import { useCallback, useMemo, useState } from "react";
 import { z } from "zod/v4";
 import type { APIKey } from "@/hooks/api/types";
@@ -69,6 +65,7 @@ import {
   useRevokeApiKey,
 } from "@/hooks/api/use-api-keys";
 import { useProjectPermissions } from "@/hooks/auth/use-project-permissions";
+import { useAppReactTable } from "@/hooks/use-app-react-table";
 import { useHydratedTableData } from "@/hooks/use-hydrated-table-data";
 import { formatFieldErrors } from "@/lib/form-errors";
 import { PlusIcon, TrashIcon } from "@/lib/icons";
@@ -277,7 +274,7 @@ const ApiKeysManagement = ({ projectId }: ApiKeysManagementProps) => {
     [canManageApiKeys, revokeKey.isPending, revokeKey.variables, handleRevoke]
   );
 
-  const table = useReactTable({
+  const table = useAppReactTable({
     data: tableData.data,
     columns,
     getCoreRowModel: getCoreRowModel(),

@@ -1,6 +1,6 @@
 import { queryOptions, useQuery } from "@tanstack/react-query";
 import { createServerFn } from "@tanstack/react-start";
-import { useEffect, useState } from "react";
+import { useIsHydrated } from "@/hooks/use-is-hydrated";
 import { apiPath, apiRequest } from "@/lib/api-client.server";
 import { authMiddleware } from "@/middlewares/auth";
 import {
@@ -170,12 +170,8 @@ export const projectPermissionsQueryOptions = (projectId?: string | null) =>
   });
 
 export function useProjectPermissions(projectId?: string | null) {
-  const [isHydrated, setIsHydrated] = useState(false);
+  const isHydrated = useIsHydrated();
   const query = useQuery(projectPermissionsQueryOptions(projectId));
-
-  useEffect(() => {
-    setIsHydrated(true);
-  }, []);
 
   return {
     ...query,

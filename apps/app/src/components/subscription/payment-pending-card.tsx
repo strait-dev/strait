@@ -23,16 +23,16 @@ const PaymentPendingCard = () => {
 
       if (result.error || !result.url) {
         toast.error(result.error || "Failed to open customer portal");
+        setIsLoading(false);
         return;
       }
 
       // Redirect to the portal URL
-      window.location.href = result.url;
+      window.location.assign(result.url);
     } catch {
       toast.error("Failed to open customer portal");
-    } finally {
-      setIsLoading(false);
     }
+    setIsLoading(false);
   }, []);
 
   // Don't render if there are no payment issues

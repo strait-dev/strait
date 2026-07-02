@@ -72,10 +72,10 @@ const startCheckoutInputSchema = z.object({
  * Reuses existing Stripe customers to avoid duplicates.
  */
 const startCheckoutServerFn = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
   .inputValidator((data: StartCheckoutInput) =>
     startCheckoutInputSchema.parse(data)
   )
-  .middleware([authMiddleware])
   .handler(async ({ data, context }) => {
     // Defense in depth: refuse to talk to Stripe in community edition
     // even if a caller bypasses the route guard below.
@@ -138,7 +138,6 @@ const upgradeSearchSchema = z.object({
 });
 
 export const Route = createFileRoute("/app/upgrade")({
-  head: () => ({ meta: [{ title: "Upgrade · Strait" }] }),
   validateSearch: zodValidator(upgradeSearchSchema),
   // Cloud-only: plan selection + Stripe checkout are not available
   // in the community edition. Redirect any inbound request to /app.
@@ -158,6 +157,7 @@ export const Route = createFileRoute("/app/upgrade")({
       comparisonFeatures: apiPlansToComparisonFeatures(apiPlans),
     };
   },
+  head: () => ({ meta: [{ title: "Upgrade · Strait" }] }),
   errorComponent: ErrorComponent,
   component: RouteComponent,
 });
@@ -274,14 +274,14 @@ function RouteComponent() {
       const result = await getCustomerPortalUrlServerFn();
       if (result.error || !result.url) {
         toast.error(result.error || "Failed to open customer portal");
+        setIsPortalLoading(false);
         return;
       }
-      window.location.href = result.url;
+      window.location.assign(result.url);
     } catch {
       toast.error("Failed to open customer portal");
-    } finally {
-      setIsPortalLoading(false);
     }
+    setIsPortalLoading(false);
   }, [trackSubscription]);
 
   const hasActiveSubscription = isActive;

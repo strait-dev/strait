@@ -10,7 +10,7 @@ import {
   CredenzaTitle,
 } from "@strait/ui/components/credenza";
 import { EmptyMedia } from "@strait/ui/components/empty";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CheckCircle2Icon, CreditCardIcon, SparklesIcon } from "@/lib/icons";
 
 type SubscriptionSuccessDialogProps = {
@@ -31,33 +31,41 @@ const SubscriptionSuccessDialog = ({
   isNewSubscription = false,
   isUpgrade = false,
 }: SubscriptionSuccessDialogProps) => {
-  const [open, setOpen] = useState(false);
-  const shownTimestampsRef = useRef(new Set<string>());
-  const onUrlCleanupRef = useRef(onUrlCleanup);
-  onUrlCleanupRef.current = onUrlCleanup;
+  const [dismissedKeys, setDismissedKeys] = useState<ReadonlySet<string>>(
+    () => new Set()
+  );
+  const cleanedKeysRef = useRef(new Set<string>());
+  const successKey = useMemo(() => {
+    if (isNewSubscription) {
+      return `new:${timestamp ?? "current"}`;
+    }
+    if (isUpgrade && timestamp) {
+      return `upgrade:${timestamp}`;
+    }
+    return null;
+  }, [isNewSubscription, isUpgrade, timestamp]);
+  const open = Boolean(successKey && !dismissedKeys.has(successKey));
 
   useEffect(() => {
-    if (isNewSubscription) {
-      setOpen(true);
-      onUrlCleanupRef.current?.();
-    } else if (
-      isUpgrade &&
-      timestamp &&
-      !shownTimestampsRef.current.has(timestamp)
-    ) {
-      shownTimestampsRef.current.add(timestamp);
-      setOpen(true);
-      onUrlCleanupRef.current?.();
+    if (successKey && open && !cleanedKeysRef.current.has(successKey)) {
+      cleanedKeysRef.current.add(successKey);
+      onUrlCleanup?.();
     }
-  }, [isNewSubscription, isUpgrade, timestamp]);
+  }, [onUrlCleanup, open, successKey]);
 
-  const handleClose = useCallback(() => {
-    setOpen(false);
-    onClose?.();
-  }, [onClose]);
+  const handleOpenChange = useCallback(
+    (nextOpen: boolean) => {
+      if (nextOpen || !successKey) {
+        return;
+      }
+      setDismissedKeys((current) => new Set(current).add(successKey));
+      onClose?.();
+    },
+    [onClose, successKey]
+  );
 
   return (
-    <Credenza onOpenChange={setOpen} open={open}>
+    <Credenza onOpenChange={handleOpenChange} open={open}>
       <CredenzaContent className="sm:max-w-[500px]">
         <CredenzaHeader className="text-center">
           <div className="mb-6 flex justify-center">
@@ -92,7 +100,9 @@ const SubscriptionSuccessDialog = ({
         </div>
 
         <CredenzaFooter className="flex justify-center pt-4">
-          <Button onClick={handleClose}>Start exploring</Button>
+          <Button onClick={() => handleOpenChange(false)}>
+            Start exploring
+          </Button>
         </CredenzaFooter>
       </CredenzaContent>
     </Credenza>

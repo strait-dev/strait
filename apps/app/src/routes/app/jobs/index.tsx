@@ -27,15 +27,14 @@ import {
 import { InputWithStartIcon } from "@strait/ui/components/input-with-start-icon";
 import { Shell } from "@strait/ui/components/shell";
 import { useQuery } from "@tanstack/react-query";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import {
   getCoreRowModel,
   getFilteredRowModel,
   getSortedRowModel,
-  useReactTable,
 } from "@tanstack/react-table";
 import { zodValidator } from "@tanstack/zod-adapter";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { z } from "zod/v4";
 import { CursorPagination } from "@/components/common/cursor-pagination";
 import ErrorComponent from "@/components/common/error-component";
@@ -60,6 +59,7 @@ import {
   useTriggerJob,
 } from "@/hooks/api/use-jobs";
 import { useProjectPermissions } from "@/hooks/auth/use-project-permissions";
+import { useAppReactTable } from "@/hooks/use-app-react-table";
 import { useCursorPagination } from "@/hooks/use-cursor-pagination";
 import { useHydratedTableData } from "@/hooks/use-hydrated-table-data";
 import { usePermissionGatedCreateQuery } from "@/hooks/use-permission-gated-create-query";
@@ -94,8 +94,9 @@ export const searchSchema = z.object({
   create: createSearchSchema,
 });
 
+const EMPTY_ARRAY: never[] = [];
+
 export const Route = createFileRoute("/app/jobs/")({
-  head: () => ({ meta: [{ title: "Jobs · Strait" }] }),
   validateSearch: zodValidator(searchSchema),
   loaderDeps: ({ search }) => ({
     limit: search.perPage ?? 20,
@@ -118,6 +119,7 @@ export const Route = createFileRoute("/app/jobs/")({
     }
     return { hasProject, session };
   },
+  head: () => ({ meta: [{ title: "Jobs · Strait" }] }),
   pendingComponent: TablePageSkeleton,
   errorComponent: ErrorComponent,
   component: JobsPage,
@@ -148,11 +150,14 @@ function JobsPage() {
   const { isHydrated: permissionsHydrated, permissions } =
     useProjectPermissions(session.user.activeProjectId);
   const actionPermissions = jobResourcePermissions(permissions);
-  const [query, setQuery] = useState(search.query ?? "");
-
-  useEffect(() => {
-    setQuery(search.query ?? "");
-  }, [search.query]);
+  const [queryDraft, setQueryDraft] = useState(() => ({
+    baseQuery: search.query ?? "",
+    value: search.query ?? "",
+  }));
+  const query =
+    queryDraft.baseQuery === (search.query ?? "")
+      ? queryDraft.value
+      : (search.query ?? "");
 
   const openCreateDialog = useCallback(() => {
     setEditingJob(null);
@@ -183,7 +188,7 @@ function JobsPage() {
     enabled: hasProject,
   });
 
-  const selectedStatuses = search.status ?? [];
+  const selectedStatuses = search.status ?? EMPTY_ARRAY;
 
   const typed = data as PaginatedResponse<Job> | undefined;
 
@@ -214,7 +219,7 @@ function JobsPage() {
   const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({});
   const tableData = useHydratedTableData(filteredData);
 
-  const table = useReactTable({
+  const table = useAppReactTable({
     data: tableData.data,
     columns: createJobColumns({
       onView: (job) => {
@@ -310,7 +315,10 @@ function JobsPage() {
           icon={<HugeiconsIcon icon={SearchIcon} size={16} />}
           onChange={(e) => {
             const nextQuery = e.target.value;
-            setQuery(nextQuery);
+            setQueryDraft({
+              baseQuery: search.query ?? "",
+              value: nextQuery,
+            });
             navigate({
               search: (prev) => ({
                 ...prev,
@@ -335,11 +343,7 @@ function JobsPage() {
         {actionPermissions.canCreate && (
           <Button
             className="shrink-0"
-            render={(props) => (
-              <a {...props} href="/app/jobs?create=1">
-                {props.children}
-              </a>
-            )}
+            render={<Link search={{ create: "1" }} to="/app/jobs" />}
           >
             <HugeiconsIcon className="size-4" icon={PlusIcon} />
             Create job

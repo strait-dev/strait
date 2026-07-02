@@ -10,6 +10,7 @@ import DefaultCatchBoundary from "@/components/common/default-catch-boundary";
 import NotFound from "@/components/common/not-found";
 
 export const Route = createFileRoute("/app/projects/$projectId/settings")({
+  head: () => ({ meta: [{ title: "Project settings · Strait" }] }),
   errorComponent: DefaultCatchBoundary,
   notFoundComponent: () => <NotFound />,
   component: RouteComponent,

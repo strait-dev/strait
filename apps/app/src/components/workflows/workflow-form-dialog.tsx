@@ -23,7 +23,7 @@ import { Spinner } from "@strait/ui/components/spinner";
 import { Textarea } from "@strait/ui/components/textarea";
 import { toast } from "@strait/ui/components/toast";
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import type { Job, PaginatedResponse, Workflow } from "@/hooks/api/types";
 import { jobsQueryOptions } from "@/hooks/api/use-jobs";
 import { useCreateWorkflow } from "@/hooks/api/use-workflows";
@@ -35,6 +35,13 @@ type Props = {
   onCreated?: (workflow: Workflow) => void;
 };
 
+type WorkflowFormState = {
+  description: string;
+  enabled: boolean;
+  jobId: string;
+  name: string;
+};
+
 export default function WorkflowFormDialog({
   open,
   onOpenChange,
@@ -44,38 +51,47 @@ export default function WorkflowFormDialog({
   const { data: jobs } = useQuery(jobsQueryOptions({ limit: 100 })) as {
     data: PaginatedResponse<Job> | undefined;
   };
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const [jobId, setJobId] = useState("");
-  const [enabled, setEnabled] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const wasOpen = useRef(false);
   const defaultJobId = jobs?.data[0]?.id ?? "";
+  const initialForm = useMemo<WorkflowFormState>(
+    () => ({
+      description: "",
+      enabled: true,
+      jobId: defaultJobId,
+      name: "",
+    }),
+    [defaultJobId]
+  );
+  const [formUpdates, setFormUpdates] = useState<Partial<WorkflowFormState>>(
+    {}
+  );
+  const [error, setError] = useState<string | null>(null);
+  const form = useMemo(
+    () => ({ ...initialForm, ...formUpdates }),
+    [formUpdates, initialForm]
+  );
 
-  useEffect(() => {
-    if (open && !wasOpen.current) {
-      setName("");
-      setDescription("");
-      setJobId(defaultJobId);
-      setEnabled(true);
+  function update<K extends keyof WorkflowFormState>(
+    key: K,
+    value: WorkflowFormState[K]
+  ) {
+    setFormUpdates((current) => ({ ...current, [key]: value }));
+  }
+
+  function handleOpenChange(nextOpen: boolean) {
+    if (nextOpen) {
+      setFormUpdates({});
       setError(null);
     }
-    wasOpen.current = open;
-  }, [defaultJobId, open]);
-
-  useEffect(() => {
-    if (open && !jobId) {
-      setJobId(defaultJobId);
-    }
-  }, [defaultJobId, jobId, open]);
+    onOpenChange(nextOpen);
+  }
 
   async function submit() {
-    const trimmedName = name.trim();
+    const trimmedName = form.name.trim();
     if (!trimmedName) {
       setError("Name is required.");
       return;
     }
-    if (!jobId) {
+    if (!form.jobId) {
       setError("Select a job for the first workflow step.");
       return;
     }
@@ -85,9 +101,9 @@ export default function WorkflowFormDialog({
       const workflow = await toast.promise(
         createWorkflow.mutateAsync({
           name: trimmedName,
-          description: description.trim(),
-          job_id: jobId,
-          enabled,
+          description: form.description.trim(),
+          job_id: form.jobId,
+          enabled: form.enabled,
         }),
         {
           loading: "Creating workflow...",
@@ -103,7 +119,7 @@ export default function WorkflowFormDialog({
   }
 
   return (
-    <Dialog onOpenChange={onOpenChange} open={open}>
+    <Dialog onOpenChange={handleOpenChange} open={open}>
       <DialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto sm:max-w-xl">
         <form
           onSubmit={(event) => {
@@ -128,9 +144,9 @@ export default function WorkflowFormDialog({
               <Input
                 autoFocus
                 id="workflow-name"
-                onChange={(event) => setName(event.target.value)}
+                onChange={(event) => update("name", event.target.value)}
                 placeholder="Onboard new account"
-                value={name}
+                value={form.name}
               />
             </Field>
 
@@ -140,18 +156,18 @@ export default function WorkflowFormDialog({
               </FieldLabel>
               <Textarea
                 id="workflow-description"
-                onChange={(event) => setDescription(event.target.value)}
+                onChange={(event) => update("description", event.target.value)}
                 placeholder="What does this workflow coordinate?"
                 rows={3}
-                value={description}
+                value={form.description}
               />
             </Field>
 
             <Field>
               <FieldLabel htmlFor="workflow-job">First job step</FieldLabel>
               <Select
-                onValueChange={(value) => setJobId(value ?? "")}
-                value={jobId}
+                onValueChange={(value) => update("jobId", value ?? "")}
+                value={form.jobId}
               >
                 <SelectTrigger id="workflow-job">
                   <SelectValue placeholder="Select a job" />
@@ -172,9 +188,11 @@ export default function WorkflowFormDialog({
                 htmlFor="workflow-enabled"
               >
                 <Checkbox
-                  checked={enabled}
+                  checked={form.enabled}
                   id="workflow-enabled"
-                  onCheckedChange={(checked) => setEnabled(Boolean(checked))}
+                  onCheckedChange={(checked) =>
+                    update("enabled", Boolean(checked))
+                  }
                 />
                 Enabled
               </label>

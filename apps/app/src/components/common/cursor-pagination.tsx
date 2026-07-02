@@ -13,7 +13,7 @@ import {
   SelectValue,
 } from "@strait/ui/components/select";
 import type { Table } from "@tanstack/react-table";
-import { useEffect, useState } from "react";
+import { useIsHydrated } from "@/hooks/use-is-hydrated";
 import { ChevronLeftIcon, ChevronRightIcon } from "@/lib/icons";
 
 const PAGE_SIZE_OPTIONS = [10, 20, 30, 40, 50] as const;
@@ -36,14 +36,10 @@ export const CursorPagination = <TData,>({
   cursor,
   table,
 }: CursorPaginationPropsWithTable<TData>) => {
-  const [isHydrated, setIsHydrated] = useState(false);
+  const isHydrated = useIsHydrated();
   const selectedCount = table.getFilteredSelectedRowModel().rows.length;
   const visibleCount = table.getRowModel().rows.length;
   const pageSize = String(cursor.pageSize);
-
-  useEffect(() => {
-    setIsHydrated(true);
-  }, []);
 
   return (
     <div className="flex w-full flex-col gap-2 self-center sm:flex-row sm:items-center sm:justify-between">

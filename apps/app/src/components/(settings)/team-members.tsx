@@ -40,11 +40,7 @@ import { Spinner } from "@strait/ui/components/spinner";
 import { toast } from "@strait/ui/components/toast";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import {
-  type ColumnDef,
-  getCoreRowModel,
-  useReactTable,
-} from "@tanstack/react-table";
+import { type ColumnDef, getCoreRowModel } from "@tanstack/react-table";
 import ChangeRoleDropdown from "@/components/(settings)/change-role-dropdown";
 import InviteMemberDialog from "@/components/(settings)/invite-member-dialog";
 import type { InvitationData } from "@/hooks/auth/use-invitation";
@@ -60,6 +56,7 @@ import {
   useRemoveMember,
 } from "@/hooks/auth/use-member";
 import { useOrganizationRole } from "@/hooks/auth/use-permissions";
+import { useAppReactTable } from "@/hooks/use-app-react-table";
 import { LogOutIcon, MailIcon, RefreshIcon, TrashIcon } from "@/lib/icons";
 
 interface TeamMembersProps {
@@ -407,7 +404,7 @@ const TeamMembers = ({ organizationId, currentUserId }: TeamMembersProps) => {
     },
   ];
 
-  const membersTable = useReactTable({
+  const membersTable = useAppReactTable({
     data: members ?? [],
     columns: memberColumns,
     getCoreRowModel: getCoreRowModel(),
@@ -415,7 +412,7 @@ const TeamMembers = ({ organizationId, currentUserId }: TeamMembersProps) => {
     getRowId: (row) => row.id,
   });
 
-  const invitationsTable = useReactTable({
+  const invitationsTable = useAppReactTable({
     data: pendingInvitations,
     columns: invitationColumns,
     getCoreRowModel: getCoreRowModel(),

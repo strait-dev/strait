@@ -48,6 +48,70 @@ const INTERVAL_NAMES = {
   year: "Annual",
 } as const;
 
+function getSubscriptionStatusInfo(status?: string) {
+  switch (status) {
+    case "active":
+      return {
+        message: "Active",
+        icon: CheckCircleIcon,
+        variant: "success" as const,
+      };
+    case "canceled":
+      return {
+        message: "Canceled",
+        icon: AlertCircleIcon,
+        variant: "destructive" as const,
+      };
+    case "incomplete":
+    case "past_due":
+    case "unpaid":
+      return {
+        message: "Needs attention",
+        icon: AlarmClockIcon,
+        variant: "destructive" as const,
+      };
+    default:
+      return {
+        message: "Inactive",
+        icon: null,
+        variant: "secondary" as const,
+      };
+  }
+}
+
+function getSubscriptionStatusMessage({
+  currentPeriodEnd,
+  isActive,
+  isCanceled,
+  needsAttention,
+}: {
+  currentPeriodEnd?: Date | string | null;
+  isActive: boolean;
+  isCanceled: boolean;
+  needsAttention: boolean;
+}) {
+  if (isActive && currentPeriodEnd) {
+    const nextBillingDate = new Date(currentPeriodEnd).toLocaleDateString(
+      "en-US",
+      {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+      }
+    );
+    return isCanceled
+      ? `Cancels on ${nextBillingDate}`
+      : `Next billing on ${nextBillingDate}`;
+  }
+  if (isCanceled) {
+    return "Your plan has been canceled. Choose a new plan to continue using Strait.";
+  }
+  if (needsAttention) {
+    return "Your subscription needs attention. Please update your payment method.";
+  }
+  return isActive ? "Active subscription" : "No active subscription";
+}
+
 const SubscriptionOverview = () => {
   const [isLoading, setIsLoading] = useState<string | null>(null);
 
@@ -62,15 +126,15 @@ const SubscriptionOverview = () => {
       const result = await getCustomerPortalUrlServerFn();
       if (result.error || !result.url) {
         toast.error(result.error || "Failed to open customer portal");
+        setIsLoading(null);
         return;
       }
-      window.location.href = result.url;
+      window.location.assign(result.url);
     } catch (error) {
       captureException(error);
       toast.error("Failed to open customer portal");
-    } finally {
-      setIsLoading(null);
     }
+    setIsLoading(null);
   }, []);
 
   // Memoize handlers
@@ -86,63 +150,9 @@ const SubscriptionOverview = () => {
     await openPortal("reactivate");
   }, [openPortal]);
 
-  // Helper functions to reduce complexity
-  const getStatusInfo = useCallback(() => {
-    switch (subscription?.status) {
-      case "active":
-        return {
-          message: "Active",
-          icon: CheckCircleIcon,
-          variant: "success" as const,
-        };
-      case "canceled":
-        return {
-          message: "Canceled",
-          icon: AlertCircleIcon,
-          variant: "destructive" as const,
-        };
-      case "incomplete":
-      case "past_due":
-      case "unpaid":
-        return {
-          message: "Needs attention",
-          icon: AlarmClockIcon,
-          variant: "destructive" as const,
-        };
-      default:
-        return {
-          message: "Inactive",
-          icon: null,
-          variant: "secondary" as const,
-        };
-    }
-  }, [subscription?.status]);
-
-  const getStatusMessage = useCallback(() => {
-    if (isActive && subscription?.currentPeriodEnd) {
-      const nextBillingDate = new Date(
-        subscription.currentPeriodEnd
-      ).toLocaleDateString("en-US", {
-        day: "numeric",
-        month: "short",
-        year: "numeric",
-      });
-      return isCanceled
-        ? `Cancels on ${nextBillingDate}`
-        : `Next billing on ${nextBillingDate}`;
-    }
-    if (isCanceled) {
-      return "Your plan has been canceled. Choose a new plan to continue using Strait.";
-    }
-    if (needsAttention) {
-      return "Your subscription needs attention. Please update your payment method.";
-    }
-    return isActive ? "Active subscription" : "No active subscription";
-  }, [isActive, subscription?.currentPeriodEnd, isCanceled, needsAttention]);
-
   // Memoize status and plan calculations
   const planInfo = useMemo(() => {
-    const statusInfo = getStatusInfo();
+    const statusInfo = getSubscriptionStatusInfo(subscription?.status);
     const planName = PLAN_NAMES[plan as keyof typeof PLAN_NAMES] || "Unknown";
     const intervalValue = subscription?.recurringInterval ?? "monthly";
     const intervalName =
@@ -152,22 +162,19 @@ const SubscriptionOverview = () => {
       planName,
       intervalName,
       statusInfo,
-      statusMessage: getStatusMessage(),
+      statusMessage: getSubscriptionStatusMessage({
+        currentPeriodEnd: subscription?.currentPeriodEnd,
+        isActive,
+        isCanceled,
+        needsAttention,
+      }),
       isActive: isActive || subscription?.status === "active",
       isCanceled: isCanceled || subscription?.status === "canceled",
       needsAttention:
         needsAttention ||
         ATTENTION_STATUSES.has((subscription?.status as string) ?? ""),
     };
-  }, [
-    subscription,
-    isActive,
-    isCanceled,
-    needsAttention,
-    getStatusInfo,
-    getStatusMessage,
-    plan,
-  ]);
+  }, [subscription, isActive, isCanceled, needsAttention, plan]);
 
   // No subscription case
   if (!subscription) {

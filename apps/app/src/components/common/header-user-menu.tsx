@@ -66,9 +66,8 @@ const HeaderUserMenu = ({ user }: Props) => {
     } catch (error) {
       captureException(error);
       toast.error("Error signing out. Please try again.");
-    } finally {
-      setIsSigningOut(false);
     }
+    setIsSigningOut(false);
   };
 
   return (

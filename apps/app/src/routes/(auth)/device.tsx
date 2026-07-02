@@ -25,12 +25,12 @@ type ApproveResponse = {
 };
 
 const approveDeviceCode = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
   .inputValidator(
     z.object({
       userCode: z.string().min(1),
     })
   )
-  .middleware([authMiddleware])
   .handler(async ({ context, data }) => {
     const projectId = await requireActiveProjectAccess(context);
     return await apiRequest<ApproveResponse>("/v1/cli/device-codes/approve", {
@@ -55,6 +55,7 @@ export const Route = createFileRoute("/(auth)/device")({
       });
     }
   },
+  head: () => ({ meta: [{ title: "Device authorization · Strait" }] }),
   errorComponent: ErrorComponent,
   notFoundComponent: NotFound,
   component: DeviceAuthPage,

@@ -2,10 +2,10 @@ import { defineEventHandler } from "vinxi/http";
 
 export default defineEventHandler(async (event) => {
   try {
-    const { auth } = await import("../../../src/lib/auth.server");
-    const { OAUTH_CORS_HEADERS } = await import(
-      "../../../src/lib/oauth-scopes"
-    );
+    const [{ auth }, { OAUTH_CORS_HEADERS }] = await Promise.all([
+      import("../../../src/lib/auth.server"),
+      import("../../../src/lib/oauth-scopes"),
+    ]);
     const data = await auth.api.getOAuthServerConfig();
 
     for (const [key, value] of Object.entries(OAUTH_CORS_HEADERS)) {

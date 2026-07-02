@@ -30,8 +30,8 @@ import { authMiddleware } from "@/middlewares/auth";
 import { requireActiveOrgAdmin } from "@/middlewares/require-access";
 
 const startAddonCheckoutServerFn = createServerFn({ method: "POST" })
-  .inputValidator((data: { checkoutSlug: string }) => data)
   .middleware([authMiddleware])
+  .inputValidator((data: { checkoutSlug: string }) => data)
   .handler(async ({ data, context }) => {
     // Defense in depth: refuse to talk to Stripe in community edition
     // even though this component is already unreachable from the nav.
@@ -198,9 +198,8 @@ const AddonsTab = () => {
                         }
                       } catch {
                         toast.error("Failed to start addon checkout");
-                      } finally {
-                        setLoadingSlug(null);
                       }
+                      setLoadingSlug(null);
                     }}
                     variant="outline"
                   >

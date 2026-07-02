@@ -8,7 +8,7 @@ import { Spinner } from "@strait/ui/components/spinner";
 import { toast } from "@strait/ui/components/toast";
 import { useForm } from "@tanstack/react-form";
 import { Link } from "@tanstack/react-router";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { z } from "zod";
 import { getPostHog } from "@/lib/analytics";
 import { authClient } from "@/lib/auth-client";
@@ -87,7 +87,7 @@ const SignInForm = ({
   onTwoFactorRequired,
 }: SignInFormProps) => {
   const [emailNotVerified, setEmailNotVerified] = useState(false);
-  const [unverifiedEmail, setUnverifiedEmail] = useState("");
+  const unverifiedEmailRef = useRef("");
   const [isResending, setIsResending] = useState(false);
 
   const form = useForm({
@@ -112,7 +112,7 @@ const SignInForm = ({
           onTwoFactorRequired,
           onEmailNotVerified: () => {
             setEmailNotVerified(true);
-            setUnverifiedEmail(email);
+            unverifiedEmailRef.current = email;
           },
         });
       }
@@ -123,15 +123,14 @@ const SignInForm = ({
     setIsResending(true);
     try {
       await authClient.sendVerificationEmail({
-        email: unverifiedEmail,
+        email: unverifiedEmailRef.current,
         callbackURL: "/verify-email",
       });
       toast.success("Verification email sent. Check your inbox.");
     } catch {
       toast.error("Failed to resend verification email.");
-    } finally {
-      setIsResending(false);
     }
+    setIsResending(false);
   };
 
   if (emailNotVerified) {
