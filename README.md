@@ -64,6 +64,23 @@ Full walkthrough and hardening guide: [`SELFHOST.md`](SELFHOST.md).
 
 The dashboard supports a portable Node/Docker target and a managed Vercel target. Full walkthrough: [`apps/app/README.md`](apps/app/README.md#deploy-to-vercel).
 
+### Cloud Runtime Environment
+
+Hosted Strait uses Infisical as the source of truth for runtime environment
+variables. Keep the `dev`, `staging`, and `prod` Infisical environments in
+sync with the variables documented in [Environment Variables](apps/docs/configuration/environment-variables.mdx).
+
+Go-triggered email delivery depends on both services:
+
+| Service | Variables |
+|---|---|
+| `apps/strait` | `APP_INTERNAL_URL`, `INTERNAL_SECRET`, `TRANSACTIONAL_EMAIL_TIMEOUT`, `RESEND_FROM_EMAIL` |
+| `apps/app` | `INTERNAL_SECRET`, `RESEND_API_KEY`, `RESEND_FROM_EMAIL`, `RESEND_SUPPORT_EMAIL` |
+
+`APP_INTERNAL_URL` points the Go service at the dashboard's internal
+transactional email endpoint. `INTERNAL_SECRET` must be the same value for the
+Go service and dashboard in each environment.
+
 ## What you get
 
 | | Self-host (community) | Cloud ([strait.dev](https://strait.dev)) |

@@ -223,8 +223,33 @@ secrets out of git.
 | `STRIPE_PUBLISHABLE_KEY` | Stripe publishable key (client-side) |
 | `STRIPE_WEBHOOK_SECRET` | Stripe webhook signature verification |
 | `RESEND_API_KEY` | Transactional email via Resend |
+| `RESEND_FROM_EMAIL` | Default sender for internal transactional emails |
+| `RESEND_SUPPORT_EMAIL` | Fallback sender for support and auth emails |
 | `VITE_SENTRY_DSN` | Sentry client-side DSN |
 | `VITE_POSTHOG_KEY` / `VITE_POSTHOG_HOST` | PostHog analytics |
+
+### Internal Transactional Email Endpoint
+
+The Go service sends billing, notification, and monthly usage-report emails by
+calling `POST /internal/transactional-email` on this app. The endpoint renders
+templates from `@strait/transactional` and sends them through Resend.
+
+Required app-side variables:
+
+| Variable | Purpose |
+|---|---|
+| `INTERNAL_SECRET` | Validates `X-Internal-Secret` from the Go service. Must match the Go service value. |
+| `RESEND_API_KEY` | Resend API key used by the app endpoint. |
+| `RESEND_FROM_EMAIL` | Primary sender for transactional emails. |
+| `RESEND_SUPPORT_EMAIL` | Fallback sender for app-owned auth and support emails. |
+
+Required Go-side variables for the same flow:
+
+| Variable | Purpose |
+|---|---|
+| `APP_INTERNAL_URL` | Base URL for this app, used to reach `/internal/transactional-email`. |
+| `INTERNAL_SECRET` | Same shared secret configured on the app. |
+| `TRANSACTIONAL_EMAIL_TIMEOUT` | HTTP timeout for the Go-to-app email request. Defaults to `5s`. |
 
 ## Architecture
 
