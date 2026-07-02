@@ -44,8 +44,20 @@ test.describe("Login", () => {
   test("empty form stays on login page", async ({ page }) => {
     await page.goto("/login");
     await waitForClientRouter(page);
-    await page.getByRole("button", { name: "Sign in", exact: true }).click();
+    await expect(
+      page.getByRole("button", { name: "Sign in", exact: true })
+    ).toBeDisabled();
     await expect(page).toHaveURL(/login/);
+  });
+
+  test("valid email and password keep sign in enabled", async ({ page }) => {
+    await page.goto("/login", { waitUntil: "domcontentloaded" });
+    await page.locator("#email").fill("e2e-owner@example.com");
+    await page.locator("#password").fill("dogfood-local-password");
+
+    const signInButton = page.locator("form button[type=submit]");
+    await expect(signInButton).toContainText("Sign in");
+    await expect(signInButton).toBeEnabled();
   });
 
   test("sign in button shows loading while submitting", async ({ page }) => {

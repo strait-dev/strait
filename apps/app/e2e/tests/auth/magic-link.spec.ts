@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import { resolve } from "node:path";
-import { expect, type Locator, test } from "@playwright/test";
+import { expect, type Locator, type Page, test } from "@playwright/test";
 
 const outboxPath = resolve("playwright/.auth/local-emails.jsonl");
 
@@ -34,9 +34,10 @@ test.describe("Magic link", () => {
     fs.rmSync(outboxPath, { force: true });
 
     await page.goto("/magic-link");
+    await waitForClientRouter(page);
     const submit = page.getByRole("button", { name: "Send magic link" });
-    await expect(submit).toBeEnabled();
     await fillControlledInput(page.locator("#email"), email);
+    await expect(submit).toBeEnabled();
 
     await submit.click();
     await expect(page.getByText("Check your email")).toBeVisible({
@@ -97,4 +98,12 @@ function readLatestMagicLink(email: string) {
 async function fillControlledInput(locator: Locator, value: string) {
   await locator.click();
   await locator.pressSequentially(value);
+}
+
+async function waitForClientRouter(page: Page) {
+  await page.waitForFunction(
+    () => Boolean((globalThis as { __TSR_ROUTER__?: unknown }).__TSR_ROUTER__),
+    null,
+    { timeout: 10_000 }
+  );
 }

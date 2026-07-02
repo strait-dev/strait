@@ -6,16 +6,12 @@ import { Input } from "@strait/ui/components/input";
 import { Spinner } from "@strait/ui/components/spinner";
 import { toast } from "@strait/ui/components/toast";
 import { useForm } from "@tanstack/react-form";
-import { useState } from "react";
-import { flushSync } from "react-dom";
 import { z } from "zod";
-import { useHasMounted } from "@/hooks/use-has-mounted";
 import { getPostHog } from "@/lib/analytics";
 import { authClient } from "@/lib/auth-client";
 import { formatFieldErrors } from "@/lib/form-errors";
 import { MailIcon } from "@/lib/icons";
 import { captureSentryAuthError } from "@/lib/sentry";
-import { waitForMinimumSubmitFeedback } from "@/lib/submit-feedback";
 
 const magicLinkSchema = z.object({
   email: z.email("Invalid email address"),
@@ -27,138 +23,116 @@ type MagicLinkFormProps = {
 };
 
 const MagicLinkForm = ({ redirectTo, disabled }: MagicLinkFormProps) => {
-  const [sent, setSent] = useState(false);
-  const [isSubmitPending, setIsSubmitPending] = useState(false);
-  const hasMounted = useHasMounted();
-
   const form = useForm({
     defaultValues: { email: "" },
-    validators: { onChange: magicLinkSchema },
+    validators: { onMount: magicLinkSchema, onChange: magicLinkSchema },
     onSubmit: async ({ value }) => {
       const { email } = magicLinkSchema.parse(value);
-      setIsSubmitPending(true);
-      const submitStartedAt = Date.now();
 
-      try {
-        const result = await authClient.signIn.magicLink({
+      const result = await authClient.signIn.magicLink({
+        email,
+        callbackURL: redirectTo ?? "/app",
+      });
+
+      if (result.error) {
+        captureSentryAuthError(result.error, {
+          operation: "magic-link",
           email,
-          callbackURL: redirectTo ?? "/app",
+          provider: "magic-link",
         });
-
-        if (result.error) {
-          captureSentryAuthError(result.error, {
-            operation: "magic-link",
-            email,
-            provider: "magic-link",
-          });
-          toast.error(
-            result.error.message ??
-              "Failed to send magic link. Please try again."
-          );
-          return;
-        }
-
-        getPostHog()?.capture("auth_signed_in", { method: "magic_link" });
-        setSent(true);
-      } finally {
-        await waitForMinimumSubmitFeedback(submitStartedAt);
-        setIsSubmitPending(false);
+        toast.error(
+          result.error.message ?? "Failed to send magic link. Please try again."
+        );
+        throw new Error(result.error.message ?? "Failed to send magic link");
       }
+
+      getPostHog()?.capture("auth_signed_in", { method: "magic_link" });
     },
   });
 
-  if (sent) {
-    return (
-      <div className="flex flex-col items-center gap-3 py-4 text-center">
-        <EmptyMedia media="icon" size="lg" variant="info">
-          <HugeiconsIcon className="size-6" icon={MailIcon} />
-        </EmptyMedia>
-        <p className="font-medium text-foreground text-sm">Check your email</p>
-        <p className="text-muted-foreground text-sm">
-          We sent a sign-in link to your email address. Click the link to sign
-          in.
-        </p>
-      </div>
-    );
-  }
-
   return (
-    <form
-      onSubmit={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        if (isSubmitPending) {
-          return;
-        }
-        const formValues = Object.fromEntries(new FormData(e.currentTarget));
-        if (magicLinkSchema.safeParse(formValues).success) {
-          flushSync(() => setIsSubmitPending(true));
-        }
-        form.handleSubmit();
-      }}
-    >
-      <div className="flex flex-col gap-4">
-        <form.Field name="email">
-          {(field) => (
-            <Field className="w-full">
-              <FieldLabel htmlFor={field.name}>Email</FieldLabel>
-              <Input
-                aria-describedby={
-                  field.state.meta.isTouched &&
-                  field.state.meta.errors.length > 0
-                    ? `${field.name}-error`
-                    : undefined
-                }
-                aria-invalid={
-                  field.state.meta.isTouched &&
-                  field.state.meta.errors.length > 0
-                }
-                autoComplete="email"
-                disabled={disabled}
-                id={field.name}
-                name={field.name}
-                onBlur={field.handleBlur}
-                onInput={(e) => field.handleChange(e.currentTarget.value)}
-                placeholder="you@example.com"
-                type="email"
-                value={field.state.value}
-              />
-              {field.state.meta.isTouched &&
-                field.state.meta.errors.length > 0 && (
-                  <FieldError id={`${field.name}-error`}>
-                    {formatFieldErrors(field.state.meta.errors)}
-                  </FieldError>
-                )}
-            </Field>
-          )}
-        </form.Field>
-
-        <Button
-          className="w-full"
-          disabled={!hasMounted || disabled || isSubmitPending}
-          onClick={(e) => {
-            if (isSubmitPending) {
-              return;
-            }
-            const formElement = e.currentTarget.form;
-            if (!formElement) {
-              return;
-            }
-            const formValues = Object.fromEntries(new FormData(formElement));
-            if (magicLinkSchema.safeParse(formValues).success) {
+    <form.Subscribe selector={(state) => state.isSubmitSuccessful}>
+      {(isSubmitSuccessful) =>
+        isSubmitSuccessful ? (
+          <div className="flex flex-col items-center gap-3 py-4 text-center">
+            <EmptyMedia media="icon" size="lg" variant="info">
+              <HugeiconsIcon className="size-6" icon={MailIcon} />
+            </EmptyMedia>
+            <p className="font-medium text-foreground text-sm">
+              Check your email
+            </p>
+            <p className="text-muted-foreground text-sm">
+              We sent a sign-in link to your email address. Click the link to
+              sign in.
+            </p>
+          </div>
+        ) : (
+          <form
+            onSubmit={(e) => {
               e.preventDefault();
-              flushSync(() => setIsSubmitPending(true));
-              form.handleSubmit();
-            }
-          }}
-          type="submit"
-          variant="brand-solid"
-        >
-          {isSubmitPending ? <Spinner /> : null}
-          Send magic link
-        </Button>
-      </div>
-    </form>
+              e.stopPropagation();
+              form.handleSubmit().catch(() => undefined);
+            }}
+          >
+            <div className="flex flex-col gap-4">
+              <form.Field name="email">
+                {(field) => (
+                  <Field className="w-full">
+                    <FieldLabel htmlFor={field.name}>Email</FieldLabel>
+                    <Input
+                      aria-describedby={
+                        field.state.meta.isTouched &&
+                        field.state.meta.errors.length > 0
+                          ? `${field.name}-error`
+                          : undefined
+                      }
+                      aria-invalid={
+                        field.state.meta.isTouched &&
+                        field.state.meta.errors.length > 0
+                      }
+                      autoComplete="email"
+                      disabled={disabled}
+                      id={field.name}
+                      name={field.name}
+                      onBlur={field.handleBlur}
+                      onInput={(e) => field.handleChange(e.currentTarget.value)}
+                      placeholder="you@example.com"
+                      type="email"
+                      value={field.state.value}
+                    />
+                    {field.state.meta.isTouched &&
+                      field.state.meta.errors.length > 0 && (
+                        <FieldError id={`${field.name}-error`}>
+                          {formatFieldErrors(field.state.meta.errors)}
+                        </FieldError>
+                      )}
+                  </Field>
+                )}
+              </form.Field>
+
+              <form.Subscribe
+                selector={(state) => ({
+                  canSubmit: state.canSubmit,
+                  isSubmitting: state.isSubmitting,
+                })}
+              >
+                {({ canSubmit, isSubmitting }) => (
+                  <Button
+                    className="w-full"
+                    disabled={disabled || !canSubmit || isSubmitting}
+                    type="submit"
+                    variant="brand-solid"
+                  >
+                    {isSubmitting ? <Spinner /> : null}
+                    Send magic link
+                  </Button>
+                )}
+              </form.Subscribe>
+            </div>
+          </form>
+        )
+      }
+    </form.Subscribe>
   );
 };
 

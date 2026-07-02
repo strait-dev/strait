@@ -9,15 +9,12 @@ import { toast } from "@strait/ui/components/toast";
 import { useForm } from "@tanstack/react-form";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
-import { flushSync } from "react-dom";
 import { z } from "zod";
-import { useHasMounted } from "@/hooks/use-has-mounted";
 import { getPostHog } from "@/lib/analytics";
 import { authClient } from "@/lib/auth-client";
 import { formatFieldErrors } from "@/lib/form-errors";
 import { MailIcon } from "@/lib/icons";
 import { captureSentryAuthError } from "@/lib/sentry";
-import { waitForMinimumSubmitFeedback } from "@/lib/submit-feedback";
 
 const signInSchema = z.object({
   email: z.email("Invalid email address"),
@@ -30,6 +27,60 @@ type SignInFormProps = {
   onTwoFactorRequired?: () => void;
 };
 
+type SignInAuthError = {
+  code?: string;
+  message?: string;
+  status?: number;
+};
+
+type SignInErrorHandlers = {
+  onEmailNotVerified: () => void;
+  onTwoFactorRequired?: () => void;
+};
+
+function handleSignInError(
+  error: SignInAuthError,
+  email: string,
+  { onEmailNotVerified, onTwoFactorRequired }: SignInErrorHandlers
+): never {
+  if (error.status === 403 && onTwoFactorRequired) {
+    onTwoFactorRequired();
+    throw new Error(error.message ?? "Two-factor required");
+  }
+
+  const message = error.message ?? "";
+
+  // Handle unverified email
+  if (
+    message.toLowerCase().includes("email is not verified") ||
+    error.code === "EMAIL_NOT_VERIFIED"
+  ) {
+    onEmailNotVerified();
+    throw new Error(message || "Email is not verified");
+  }
+
+  // Handle wrong provider (user signed up with OAuth, trying email/password)
+  if (
+    message.toLowerCase().includes("no credential account") ||
+    message.toLowerCase().includes("invalid credentials") ||
+    error.code === "INVALID_PASSWORD"
+  ) {
+    // Check if user exists with social account
+    toast.error(
+      "Invalid email or password. If you signed up with Google or GitHub, use that method instead."
+    );
+    throw new Error(message || "Invalid email or password");
+  }
+
+  captureSentryAuthError(error, {
+    operation: "email-signin",
+    email,
+    provider: "email",
+  });
+  toast.error(message || "Failed to sign in. Please try again.");
+  throw new Error(message || "Failed to sign in");
+}
+
 const SignInForm = ({
   redirectTo,
   disabled,
@@ -38,70 +89,32 @@ const SignInForm = ({
   const [emailNotVerified, setEmailNotVerified] = useState(false);
   const [unverifiedEmail, setUnverifiedEmail] = useState("");
   const [isResending, setIsResending] = useState(false);
-  const [isSubmitPending, setIsSubmitPending] = useState(false);
-  const hasMounted = useHasMounted();
 
   const form = useForm({
     defaultValues: { email: "", password: "" },
-    validators: { onChange: signInSchema },
+    validators: { onMount: signInSchema, onChange: signInSchema },
     onSubmit: async ({ value }) => {
       const { email, password } = signInSchema.parse(value);
       setEmailNotVerified(false);
-      setIsSubmitPending(true);
-      const submitStartedAt = Date.now();
 
-      try {
-        const result = await authClient.signIn.email({
-          email,
-          password,
-          callbackURL: redirectTo ?? "/app",
-        });
+      const result = await authClient.signIn.email({
+        email,
+        password,
+        callbackURL: redirectTo ?? "/app",
+      });
 
-        if (!result.error) {
-          getPostHog()?.capture("auth_signed_in", { method: "email" });
-        }
+      if (!result.error) {
+        getPostHog()?.capture("auth_signed_in", { method: "email" });
+      }
 
-        if (result.error) {
-          if (result.error.status === 403 && onTwoFactorRequired) {
-            onTwoFactorRequired();
-            return;
-          }
-
-          const message = result.error.message ?? "";
-
-          // Handle unverified email
-          if (
-            message.toLowerCase().includes("email is not verified") ||
-            result.error.code === "EMAIL_NOT_VERIFIED"
-          ) {
+      if (result.error) {
+        handleSignInError(result.error, email, {
+          onTwoFactorRequired,
+          onEmailNotVerified: () => {
             setEmailNotVerified(true);
             setUnverifiedEmail(email);
-            return;
-          }
-
-          // Handle wrong provider (user signed up with OAuth, trying email/password)
-          if (
-            message.toLowerCase().includes("no credential account") ||
-            message.toLowerCase().includes("invalid credentials") ||
-            result.error.code === "INVALID_PASSWORD"
-          ) {
-            // Check if user exists with social account
-            toast.error(
-              "Invalid email or password. If you signed up with Google or GitHub, use that method instead."
-            );
-            return;
-          }
-
-          captureSentryAuthError(result.error, {
-            operation: "email-signin",
-            email,
-            provider: "email",
-          });
-          toast.error(message || "Failed to sign in. Please try again.");
-        }
-      } finally {
-        await waitForMinimumSubmitFeedback(submitStartedAt);
-        setIsSubmitPending(false);
+          },
+        });
       }
     },
   });
@@ -156,14 +169,7 @@ const SignInForm = ({
       onSubmit={(e) => {
         e.preventDefault();
         e.stopPropagation();
-        if (isSubmitPending) {
-          return;
-        }
-        const formValues = Object.fromEntries(new FormData(e.currentTarget));
-        if (signInSchema.safeParse(formValues).success) {
-          flushSync(() => setIsSubmitPending(true));
-        }
-        form.handleSubmit();
+        form.handleSubmit().catch(() => undefined);
       }}
     >
       <div className="flex flex-col gap-4">
@@ -244,30 +250,24 @@ const SignInForm = ({
           )}
         </form.Field>
 
-        <Button
-          className="w-full"
-          disabled={!hasMounted || disabled || isSubmitPending}
-          onClick={(e) => {
-            if (isSubmitPending) {
-              return;
-            }
-            const formElement = e.currentTarget.form;
-            if (!formElement) {
-              return;
-            }
-            const formValues = Object.fromEntries(new FormData(formElement));
-            if (signInSchema.safeParse(formValues).success) {
-              e.preventDefault();
-              flushSync(() => setIsSubmitPending(true));
-              form.handleSubmit();
-            }
-          }}
-          type="submit"
-          variant="brand-solid"
+        <form.Subscribe
+          selector={(state) => ({
+            canSubmit: state.canSubmit,
+            isSubmitting: state.isSubmitting,
+          })}
         >
-          {isSubmitPending ? <Spinner /> : null}
-          Sign in
-        </Button>
+          {({ canSubmit, isSubmitting }) => (
+            <Button
+              className="w-full"
+              disabled={disabled || !canSubmit || isSubmitting}
+              type="submit"
+              variant="brand-solid"
+            >
+              {isSubmitting ? <Spinner /> : null}
+              Sign in
+            </Button>
+          )}
+        </form.Subscribe>
       </div>
     </form>
   );
