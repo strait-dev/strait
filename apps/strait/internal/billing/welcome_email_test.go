@@ -118,10 +118,11 @@ func TestNewTransactionalWelcomeEmailFunc_SendsExpectedTemplateIntents(t *testin
 			got := client.calls[0]
 			assert.Equal(t, tc.wantFrom, got.From)
 			assert.Equal(t, []string{"customer@example.com"}, got.To)
-			assert.Equal(t, tc.wantTemplate, got.Template)
+			assert.Equal(t, tc.wantTemplate, string(got.Template))
 			assert.Contains(t, got.IdempotencyKey, "billing:welcome:org-1:")
+			props := transactionalPropsMap(t, got.Props)
 			for key, want := range tc.wantProps {
-				assert.Equal(t, want, got.Props[key])
+				assert.EqualValues(t, want, props[key])
 			}
 		})
 	}

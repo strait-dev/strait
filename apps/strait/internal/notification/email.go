@@ -59,14 +59,8 @@ func (e *EmailSender) Send(ctx context.Context, channel *domain.NotificationChan
 		return fmt.Errorf("email recipient address is empty")
 	}
 
-	template, props := emailTemplateForEvent(delivery.EventType, delivery.Payload)
-	err := e.client.Send(ctx, transactional.Request{
-		Template:       template,
-		To:             []string{cfg.To},
-		From:           e.fromEmail,
-		IdempotencyKey: fmt.Sprintf("notification:%s:%s", delivery.ID, delivery.EventType),
-		Props:          props,
-	})
+	req := emailRequestForEvent([]string{cfg.To}, e.fromEmail, delivery.ID, delivery.EventType, delivery.Payload)
+	err := e.client.Send(ctx, req)
 	if err != nil {
 		return fmt.Errorf("send notification email through transactional endpoint: %w", err)
 	}
@@ -74,59 +68,76 @@ func (e *EmailSender) Send(ctx context.Context, channel *domain.NotificationChan
 	return nil
 }
 
-func emailTemplateForEvent(eventType string, payload json.RawMessage) (string, map[string]any) {
+func emailRequestForEvent(to []string, from, deliveryID, eventType string, payload json.RawMessage) transactional.Request {
 	data, ok := payloadMap(payload)
 	if !ok {
-		return genericEmailTemplate(eventType, payload)
+		return genericEmailTemplate(to, from, deliveryID, eventType, payload)
 	}
 
 	switch eventType {
 	case domain.NotificationEventSpendingLimitWarning:
-		return "notification.spending_limit_warning", map[string]any{
-			"orgId":          safeStr(data, "org_id"),
-			"overagePercent": fmt.Sprintf("%.0f%%", safeFloat(data, "overage_pct")),
-			"spendingLimit":  fmt.Sprintf("$%.2f", safeFloat(data, "spending_limit_usd")),
-			"currentSpend":   fmt.Sprintf("$%.2f", safeFloat(data, "current_spend_usd")),
-		}
+		return transactional.NotificationSpendingLimitWarningRequest(
+			to,
+			from,
+			deliveryID,
+			eventType,
+			safeStr(data, "org_id"),
+			fmt.Sprintf("%.0f%%", safeFloat(data, "overage_pct")),
+			fmt.Sprintf("$%.2f", safeFloat(data, "spending_limit_usd")),
+			fmt.Sprintf("$%.2f", safeFloat(data, "current_spend_usd")),
+		)
 	case domain.NotificationEventSpendingLimitReached:
-		return "notification.spending_limit_reached", map[string]any{
-			"orgId":         safeStr(data, "org_id"),
-			"spendingLimit": fmt.Sprintf("$%.2f", safeFloat(data, "spending_limit_usd")),
-			"currentSpend":  fmt.Sprintf("$%.2f", safeFloat(data, "current_spend_usd")),
-		}
+		return transactional.NotificationSpendingLimitReachedRequest(
+			to,
+			from,
+			deliveryID,
+			eventType,
+			safeStr(data, "org_id"),
+			fmt.Sprintf("$%.2f", safeFloat(data, "spending_limit_usd")),
+			fmt.Sprintf("$%.2f", safeFloat(data, "current_spend_usd")),
+		)
 	case domain.NotificationEventCostAnomaly:
-		return "notification.cost_anomaly", map[string]any{
-			"orgId":           safeStr(data, "org_id"),
-			"severity":        safeStr(data, "severity"),
-			"spikeRatio":      fmt.Sprintf("%.1fx", safeFloat(data, "spike_ratio")),
-			"todaySpend":      fmt.Sprintf("%d micro-USD", int64(safeFloat(data, "today_spend"))),
-			"sevenDayAverage": fmt.Sprintf("%d micro-USD", int64(safeFloat(data, "avg_7d_spend"))),
-			"topContributor":  safeStr(data, "top_contributor"),
-		}
+		return transactional.NotificationCostAnomalyRequest(
+			to,
+			from,
+			deliveryID,
+			eventType,
+			safeStr(data, "org_id"),
+			safeStr(data, "severity"),
+			fmt.Sprintf("%.1fx", safeFloat(data, "spike_ratio")),
+			fmt.Sprintf("%d micro-USD", int64(safeFloat(data, "today_spend"))),
+			fmt.Sprintf("%d micro-USD", int64(safeFloat(data, "avg_7d_spend"))),
+			safeStr(data, "top_contributor"),
+		)
 	case domain.NotificationEventBudgetThreshold:
-		return "notification.budget_threshold", map[string]any{
-			"projectId":        safeStr(data, "project_id"),
-			"thresholdPercent": fmt.Sprintf("%.0f%%", safeFloat(data, "threshold_pct")),
-			"dailyCost":        fmt.Sprintf("%d micro-USD", int64(safeFloat(data, "daily_cost_microusd"))),
-			"budgetLimit":      fmt.Sprintf("%d micro-USD", int64(safeFloat(data, "limit_microusd"))),
-		}
+		return transactional.NotificationBudgetThresholdRequest(
+			to,
+			from,
+			deliveryID,
+			eventType,
+			safeStr(data, "project_id"),
+			fmt.Sprintf("%.0f%%", safeFloat(data, "threshold_pct")),
+			fmt.Sprintf("%d micro-USD", int64(safeFloat(data, "daily_cost_microusd"))),
+			fmt.Sprintf("%d micro-USD", int64(safeFloat(data, "limit_microusd"))),
+		)
 	case notificationEventUsageForecastWarning:
-		return "notification.usage_forecast_warning", map[string]any{
-			"orgId":           safeStr(data, "org_id"),
-			"daysUntilLimit":  int(safeFloat(data, "days_until_limit")),
-			"recommendedPlan": safeStr(data, "recommended_plan"),
-			"projectedRuns":   int64(safeFloat(data, "projected_runs")),
-		}
+		return transactional.NotificationUsageForecastWarningRequest(
+			to,
+			from,
+			deliveryID,
+			eventType,
+			safeStr(data, "org_id"),
+			int64(safeFloat(data, "days_until_limit")),
+			safeStr(data, "recommended_plan"),
+			int64(safeFloat(data, "projected_runs")),
+		)
 	default:
-		return genericEmailTemplate(eventType, payload)
+		return genericEmailTemplate(to, from, deliveryID, eventType, payload)
 	}
 }
 
-func genericEmailTemplate(eventType string, payload json.RawMessage) (string, map[string]any) {
-	return "notification.generic", map[string]any{
-		"eventType": eventType,
-		"payload":   string(payload),
-	}
+func genericEmailTemplate(to []string, from, deliveryID, eventType string, payload json.RawMessage) transactional.Request {
+	return transactional.NotificationGenericRequest(to, from, deliveryID, eventType, string(payload))
 }
 
 func payloadMap(payload json.RawMessage) (map[string]any, bool) {

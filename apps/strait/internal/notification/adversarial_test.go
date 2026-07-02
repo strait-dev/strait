@@ -1233,8 +1233,9 @@ func TestEmailSender_XSSInPayloadFields(t *testing.T) {
 	require.Len(t, mock.calls,
 		1)
 
-	assert.Equal(t, "notification.spending_limit_warning", mock.calls[0].Template)
-	assert.Equal(t, `<script>alert("xss")</script>`, mock.calls[0].Props["orgId"])
+	assert.Equal(t, "notification.spending_limit_warning", string(mock.calls[0].Template))
+	props := transactionalPropsMap(t, mock.calls[0].Props)
+	assert.Equal(t, `<script>alert("xss")</script>`, props["orgId"])
 }
 
 func TestEmailSender_InvalidPayloadJSON(t *testing.T) {
@@ -1258,8 +1259,9 @@ func TestEmailSender_InvalidPayloadJSON(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, mock.calls,
 		1)
-	assert.Equal(t, "notification.generic", mock.calls[0].Template)
-	assert.Equal(t, "{not valid json", mock.calls[0].Props["payload"])
+	assert.Equal(t, "notification.generic", string(mock.calls[0].Template))
+	props := transactionalPropsMap(t, mock.calls[0].Props)
+	assert.Equal(t, "{not valid json", props["payload"])
 }
 
 func TestEmailSender_NilPayload(t *testing.T) {

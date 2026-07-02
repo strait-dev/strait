@@ -2,7 +2,6 @@ package scheduler
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
 	"log/slog"
 	"time"
@@ -189,10 +188,6 @@ func (re *UsageReportEmailer) sendReport(ctx context.Context, orgID string, sub 
 		return false
 	}
 
-	filename := fmt.Sprintf("strait-usage-%s-to-%s.pdf",
-		periodStart.Format("2006-01-02"),
-		periodEnd.Format("2006-01-02"))
-
 	// Get plan details and addon info for the report.
 	var addonCount int
 	if addons, err := re.store.ListActiveAddons(ctx, orgID); err == nil {
@@ -208,27 +203,17 @@ func (re *UsageReportEmailer) sendReport(ctx context.Context, orgID string, sub 
 		overageAmount = fmt.Sprintf("$%.2f", float64(overage)/1_000_000)
 	}
 
-	req := transactional.Request{
-		Template:       "billing.usage_report",
-		To:             emails,
-		From:           re.fromEmail,
-		IdempotencyKey: fmt.Sprintf("billing:usage_report:%s:%s", orgID, periodEnd.Format("2006-01-02")),
-		Props: map[string]any{
-			"orgId":         orgID,
-			"planTier":      sub.PlanTier,
-			"periodStart":   periodStart.Format("Jan 2"),
-			"periodEnd":     periodEnd.Format("Jan 2, 2006"),
-			"addonCount":    addonCount,
-			"overageAmount": overageAmount,
-		},
-		Attachments: []transactional.Attachment{
-			{
-				Filename:      filename,
-				ContentBase64: base64.StdEncoding.EncodeToString(pdfBytes),
-				ContentType:   "application/pdf",
-			},
-		},
-	}
+	req := transactional.BillingUsageReportRequest(
+		emails,
+		re.fromEmail,
+		orgID,
+		string(sub.PlanTier),
+		periodStart,
+		periodEnd,
+		addonCount,
+		overageAmount,
+		pdfBytes,
+	)
 
 	if err := re.emailAPI.Send(ctx, req); err != nil {
 		re.logger.Warn("usage report emailer: failed to send email",

@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -31,6 +32,15 @@ type mockReportStore struct {
 	channelBulkErr       error
 	createDeliveryErr    error
 	hasSentUsageReportFn func(ctx context.Context, orgID string, periodEnd time.Time) (bool, error)
+}
+
+func transactionalPropsMap(t *testing.T, props any) map[string]any {
+	t.Helper()
+	payload, err := json.Marshal(props)
+	require.NoError(t, err)
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(payload, &out))
+	return out
 }
 
 type usagePeriodCall struct {
@@ -374,7 +384,7 @@ func TestUsageReportEmailer_SendsForEndedPeriod(t *testing.T) {
 		1)
 
 	msg := emailAPI.sent[0]
-	assert.Equal(t, "billing.usage_report", msg.Template)
+	assert.Equal(t, "billing.usage_report", string(msg.Template))
 	assert.Equal(t, "admin@example.com", msg.To[0])
 	assert.Equal(t, "billing@test.dev", msg.From)
 	assert.NotEmpty(t, msg.IdempotencyKey)
@@ -779,7 +789,7 @@ func TestUsageReportEmailer_UsesBoundedPeriodTotals(t *testing.T) {
 		sent,
 		1)
 
-	props := emailAPI.sent[0].Props
+	props := transactionalPropsMap(t, emailAPI.sent[0].Props)
 	require.Equal(t, "$1.00", props["overageAmount"])
 	require.GreaterOrEqual(t, len(store.usagePeriodCalls), 2)
 

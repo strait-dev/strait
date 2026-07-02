@@ -2,6 +2,7 @@ package billing
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"testing"
@@ -24,6 +25,15 @@ func (m *mockBillingTransactionalClient) Send(ctx context.Context, req transacti
 		return m.sendFn(ctx, req)
 	}
 	return nil
+}
+
+func transactionalPropsMap(t *testing.T, props any) map[string]any {
+	t.Helper()
+	payload, err := json.Marshal(props)
+	require.NoError(t, err)
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(payload, &out))
+	return out
 }
 
 func TestNewBillingEmailSender_NilClient_ReturnsNil(t *testing.T) {
@@ -165,10 +175,11 @@ func TestBillingEmailSender_SendsExpectedTemplateIntents(t *testing.T) {
 			got := client.calls[0]
 			assert.Equal(t, "billing@example.com", got.From)
 			assert.Equal(t, []string{"admin@example.com"}, got.To)
-			assert.Equal(t, tc.wantTemplate, got.Template)
+			assert.Equal(t, tc.wantTemplate, string(got.Template))
 			assert.NotEmpty(t, got.IdempotencyKey)
+			props := transactionalPropsMap(t, got.Props)
 			for key, want := range tc.wantProps {
-				assert.Equal(t, want, got.Props[key])
+				assert.EqualValues(t, want, props[key])
 			}
 		})
 	}

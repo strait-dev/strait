@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -25,12 +26,12 @@ type Attachment struct {
 // Request is the contract Go uses to ask apps/app to render and send a
 // transactional email.
 type Request struct {
-	Template       string         `json:"template"`
-	To             []string       `json:"to"`
-	From           string         `json:"from,omitempty"`
-	IdempotencyKey string         `json:"idempotencyKey"`
-	Props          map[string]any `json:"props"`
-	Attachments    []Attachment   `json:"attachments,omitempty"`
+	Template       TemplateID   `json:"template"`
+	To             []string     `json:"to"`
+	From           string       `json:"from,omitempty"`
+	IdempotencyKey string       `json:"idempotencyKey"`
+	Props          any          `json:"props"`
+	Attachments    []Attachment `json:"attachments,omitempty"`
 }
 
 // Response is the successful response from the internal transactional email API.
@@ -89,28 +90,61 @@ func transactionalEmailEndpoint(appURL string) (string, error) {
 
 // Send posts req to apps/app. Non-2xx responses are returned as errors.
 func (c *Client) Send(ctx context.Context, req Request) error {
+	started := time.Now()
+	logger := slog.Default()
+	if c != nil && c.logger != nil {
+		logger = c.logger
+	}
+	record := func(outcome, statusCode string) {
+		recordTransactionalEmailRequest(ctx, req.Template, outcome, statusCode, started)
+	}
+	logFailure := func(statusCode string, err error) {
+		logger.Warn("transactional email request failed",
+			"template", string(req.Template),
+			"recipient_count", len(req.To),
+			"attachment_count", len(req.Attachments),
+			"status_code", statusCode,
+			"error", err)
+	}
+
 	if c == nil {
-		return fmt.Errorf("transactional email client is not configured")
+		err := fmt.Errorf("transactional email client is not configured")
+		record(transactionalEmailOutcomeError, transactionalEmailClientError)
+		logFailure(transactionalEmailClientError, err)
+		return err
 	}
 	if len(req.To) == 0 {
-		return fmt.Errorf("transactional email requires at least one recipient")
+		err := fmt.Errorf("transactional email requires at least one recipient")
+		record(transactionalEmailOutcomeError, transactionalEmailClientError)
+		logFailure(transactionalEmailClientError, err)
+		return err
 	}
-	if strings.TrimSpace(req.Template) == "" {
-		return fmt.Errorf("transactional email template is required")
+	if strings.TrimSpace(string(req.Template)) == "" {
+		err := fmt.Errorf("transactional email template is required")
+		record(transactionalEmailOutcomeError, transactionalEmailClientError)
+		logFailure(transactionalEmailClientError, err)
+		return err
 	}
 	if strings.TrimSpace(req.IdempotencyKey) == "" {
-		return fmt.Errorf("transactional email idempotency key is required")
+		err := fmt.Errorf("transactional email idempotency key is required")
+		record(transactionalEmailOutcomeError, transactionalEmailClientError)
+		logFailure(transactionalEmailClientError, err)
+		return err
 	}
 	if req.Props == nil {
-		req.Props = map[string]any{}
+		req.Props = struct{}{}
 	}
 
 	payload, err := json.Marshal(req)
 	if err != nil {
+		record(transactionalEmailOutcomeError, transactionalEmailClientError)
+		logFailure(transactionalEmailClientError, err)
 		return fmt.Errorf("marshal transactional email request: %w", err)
 	}
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint, bytes.NewReader(payload))
 	if err != nil {
+		record(transactionalEmailOutcomeError, transactionalEmailClientError)
+		logFailure(transactionalEmailClientError, err)
 		return fmt.Errorf("create transactional email request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
@@ -118,21 +152,37 @@ func (c *Client) Send(ctx context.Context, req Request) error {
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
+		record(transactionalEmailOutcomeError, transactionalEmailTransportError)
+		logFailure(transactionalEmailTransportError, err)
 		return fmt.Errorf("send transactional email request: %w", err)
 	}
 	defer resp.Body.Close()
+	statusCode := strconv.Itoa(resp.StatusCode)
 
 	body, readErr := io.ReadAll(io.LimitReader(resp.Body, 4096))
 	if readErr != nil {
+		record(transactionalEmailOutcomeError, statusCode)
+		logFailure(statusCode, readErr)
 		return fmt.Errorf("read transactional email response: %w", readErr)
 	}
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return fmt.Errorf("transactional email endpoint returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		err := fmt.Errorf("transactional email endpoint returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		record(transactionalEmailOutcomeError, statusCode)
+		logFailure(statusCode, err)
+		return err
 	}
 
 	var out Response
 	if err := json.Unmarshal(body, &out); err != nil {
+		record(transactionalEmailOutcomeError, statusCode)
+		logFailure(statusCode, err)
 		return fmt.Errorf("decode transactional email response: %w", err)
 	}
+	record(transactionalEmailOutcomeSuccess, statusCode)
+	logger.Info("transactional email request succeeded",
+		"template", string(req.Template),
+		"recipient_count", len(req.To),
+		"attachment_count", len(req.Attachments),
+		"status_code", statusCode)
 	return nil
 }

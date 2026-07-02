@@ -27,6 +27,15 @@ func (m *mockNotificationEmailClient) Send(ctx context.Context, req transactiona
 	return nil
 }
 
+func transactionalPropsMap(t *testing.T, props any) map[string]any {
+	t.Helper()
+	payload, err := json.Marshal(props)
+	require.NoError(t, err)
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(payload, &out))
+	return out
+}
+
 func TestEmailSender_SendSuccess(t *testing.T) {
 	t.Parallel()
 
@@ -53,7 +62,7 @@ func TestEmailSender_SendSuccess(t *testing.T) {
 	req := mock.calls[0]
 	assert.Equal(t, []string{"user@example.com"}, req.To)
 	assert.Equal(t, "alerts@strait.dev", req.From)
-	assert.Equal(t, "notification.budget_threshold", req.Template)
+	assert.Equal(t, "notification.budget_threshold", string(req.Template))
 	assert.Equal(t, "notification:d-1:budget.threshold_reached", req.IdempotencyKey)
 }
 
@@ -191,9 +200,10 @@ func TestEmailSender_MapsEventPayloadsToTemplates(t *testing.T) {
 			require.Len(t, mock.calls, 1)
 
 			req := mock.calls[0]
-			assert.Equal(t, tt.wantTemplate, req.Template)
+			assert.Equal(t, tt.wantTemplate, string(req.Template))
+			props := transactionalPropsMap(t, req.Props)
 			for key, want := range tt.wantProps {
-				assert.Equal(t, want, req.Props[key])
+				assert.EqualValues(t, want, props[key])
 			}
 		})
 	}
@@ -217,9 +227,10 @@ func TestEmailSender_UnknownEventFallsBackToGenericTemplate(t *testing.T) {
 	require.NoError(t, sender.Send(ctx, channel, delivery))
 	require.Len(t, mock.calls, 1)
 	assert.Equal(t, "noreply@strait.dev", mock.calls[0].From)
-	assert.Equal(t, "notification.generic", mock.calls[0].Template)
-	assert.Equal(t, "unknown.event", mock.calls[0].Props["eventType"])
-	assert.Equal(t, `{"field":"value"}`, mock.calls[0].Props["payload"])
+	assert.Equal(t, "notification.generic", string(mock.calls[0].Template))
+	props := transactionalPropsMap(t, mock.calls[0].Props)
+	assert.Equal(t, "unknown.event", props["eventType"])
+	assert.Equal(t, `{"field":"value"}`, props["payload"])
 }
 
 func TestEmailSender_EmptyRecipient_Fails(t *testing.T) {

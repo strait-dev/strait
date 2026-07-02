@@ -1,4 +1,5 @@
 import { createElement, type ReactElement } from "react";
+import { z } from "zod";
 import ContractExpired from "./billing/contract-expired";
 import DisputeAlert from "./billing/dispute-alert";
 import DowngradeHTTPJobsWarning from "./billing/downgrade-http-jobs-warning";
@@ -20,87 +21,73 @@ import NotificationSpendingLimitReached from "./notification/spending-limit-reac
 import NotificationSpendingLimitWarning from "./notification/spending-limit-warning";
 import UsageForecastWarning from "./notification/usage-forecast-warning";
 
-type TemplateProps = Record<string, unknown>;
-
-type TransactionalTemplate = {
-  render: (props: TemplateProps) => ReactElement;
-  subject: (props: TemplateProps) => string;
+export type TransactionalTemplate<TProps extends z.ZodType = z.ZodType> = {
+  schema: TProps;
+  render: (props: z.infer<TProps>) => ReactElement;
+  subject: (props: z.infer<TProps>) => string;
 };
 
-const stringProp = (
-  props: TemplateProps,
-  key: string,
-  fallback = ""
-): string => {
-  const value = props[key];
-  return typeof value === "string" ? value : fallback;
-};
+const defineTemplate = <TProps extends z.ZodType>(
+  template: TransactionalTemplate<TProps>
+): TransactionalTemplate<TProps> => template;
 
-const numberProp = (
-  props: TemplateProps,
-  key: string,
-  fallback = 0
-): number => {
-  const value = props[key];
-  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
-};
+const strictObject = <TShape extends z.ZodRawShape>(shape: TShape) =>
+  z.object(shape).strict();
 
-const displayProp = (
-  props: TemplateProps,
-  key: string,
-  fallback = ""
-): string => {
-  const value = props[key];
-  if (typeof value === "string") {
-    return value;
-  }
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return value.toLocaleString("en-US");
-  }
-  return fallback;
-};
+const requiredString = () => z.string().min(1);
+const finiteNumber = () => z.number().finite();
+const noPropsSchema = z.object({}).strict();
+const displayValueSchema = z.union([z.string().min(1), z.number().finite()]);
 
-const booleanProp = (
-  props: TemplateProps,
-  key: string,
-  fallback = false
-): boolean => {
-  const value = props[key];
-  return typeof value === "boolean" ? value : fallback;
-};
+const displayValue = (value: string | number): string =>
+  typeof value === "number" ? value.toLocaleString("en-US") : value;
 
 export const transactionalEmailTemplates = {
-  "billing.contract_expired": {
+  "billing.contract_expired": defineTemplate({
+    schema: strictObject({
+      contractEndDate: requiredString(),
+    }),
     render: (props) =>
       createElement(ContractExpired, {
-        contractEndDate: stringProp(props, "contractEndDate"),
+        contractEndDate: props.contractEndDate,
       }),
     subject: () => "Your enterprise contract has expired",
-  },
-  "billing.dispute_alert": {
+  }),
+  "billing.dispute_alert": defineTemplate({
+    schema: strictObject({
+      disputeAmount: requiredString(),
+    }),
     render: (props) =>
       createElement(DisputeAlert, {
-        disputeAmount: stringProp(props, "disputeAmount"),
+        disputeAmount: props.disputeAmount,
       }),
     subject: () => "Payment dispute received",
-  },
-  "billing.downgrade_http_jobs_warning": {
+  }),
+  "billing.downgrade_http_jobs_warning": defineTemplate({
+    schema: strictObject({
+      jobCount: finiteNumber(),
+      periodEnd: requiredString(),
+    }),
     render: (props) =>
       createElement(DowngradeHTTPJobsWarning, {
-        jobCount: numberProp(props, "jobCount"),
-        periodEnd: stringProp(props, "periodEnd"),
+        jobCount: props.jobCount,
+        periodEnd: props.periodEnd,
       }),
     subject: (props) =>
-      `Your ${numberProp(props, "jobCount")} HTTP-mode jobs will be paused on ${stringProp(props, "periodEnd")}`,
-  },
-  "billing.dunning_step": {
+      `Your ${props.jobCount} HTTP-mode jobs will be paused on ${props.periodEnd}`,
+  }),
+  "billing.dunning_step": defineTemplate({
+    schema: strictObject({
+      planName: requiredString(),
+      step: finiteNumber(),
+    }),
     render: (props) =>
       createElement(DunningStep, {
-        planName: stringProp(props, "planName"),
-        step: numberProp(props, "step"),
+        planName: props.planName,
+        step: props.step,
       }),
     subject: (props) => {
-      switch (numberProp(props, "step")) {
+      switch (props.step) {
         case 1:
           return "Payment failed - action required";
         case 2:
@@ -117,163 +104,246 @@ export const transactionalEmailTemplates = {
           return "Payment past due";
       }
     },
-  },
-  "billing.enterprise_contract_reminder": {
+  }),
+  "billing.enterprise_contract_reminder": defineTemplate({
+    schema: strictObject({
+      autoRenew: z.boolean(),
+      contractEndDate: requiredString(),
+      daysRemaining: finiteNumber(),
+    }),
     render: (props) =>
       createElement(EnterpriseContractReminder, {
-        autoRenew: booleanProp(props, "autoRenew"),
-        contractEndDate: stringProp(props, "contractEndDate"),
-        daysRemaining: numberProp(props, "daysRemaining"),
+        autoRenew: props.autoRenew,
+        contractEndDate: props.contractEndDate,
+        daysRemaining: props.daysRemaining,
       }),
     subject: (props) =>
-      booleanProp(props, "autoRenew")
-        ? `Enterprise contract renewing in ${numberProp(props, "daysRemaining")} days`
-        : `Enterprise contract expiring in ${numberProp(props, "daysRemaining")} days`,
-  },
-  "billing.enterprise_welcome": {
+      props.autoRenew
+        ? `Enterprise contract renewing in ${props.daysRemaining} days`
+        : `Enterprise contract expiring in ${props.daysRemaining} days`,
+  }),
+  "billing.enterprise_welcome": defineTemplate({
+    schema: noPropsSchema,
     render: () => createElement(EnterpriseWelcome),
     subject: () => "Welcome to Strait Enterprise!",
-  },
-  "billing.invoice_upcoming": {
+  }),
+  "billing.invoice_upcoming": defineTemplate({
+    schema: strictObject({
+      amountDue: requiredString(),
+      dueDate: requiredString(),
+    }),
     render: (props) =>
       createElement(InvoiceUpcoming, {
-        amountDue: stringProp(props, "amountDue"),
-        dueDate: stringProp(props, "dueDate"),
+        amountDue: props.amountDue,
+        dueDate: props.dueDate,
       }),
     subject: () => "Upcoming invoice",
-  },
-  "billing.overage_alert": {
+  }),
+  "billing.overage_alert": defineTemplate({
+    schema: strictObject({
+      includedAllowance: requiredString(),
+      name: z.string(),
+      overageAmount: requiredString(),
+      planName: requiredString(),
+    }),
     render: (props) =>
       createElement(OverageAlert, {
-        includedAllowance: stringProp(props, "includedAllowance"),
-        name: stringProp(props, "name"),
-        overageAmount: stringProp(props, "overageAmount"),
-        planName: stringProp(props, "planName"),
+        includedAllowance: props.includedAllowance,
+        name: props.name,
+        overageAmount: props.overageAmount,
+        planName: props.planName,
       }),
-    subject: (props) => `Overage alert - ${stringProp(props, "planName")} plan`,
-  },
-  "billing.paid_plan_welcome": {
+    subject: (props) => `Overage alert - ${props.planName} plan`,
+  }),
+  "billing.paid_plan_welcome": defineTemplate({
+    schema: strictObject({
+      monthlyRunAllowance: requiredString(),
+      name: z.string(),
+      planName: requiredString(),
+    }),
     render: (props) =>
       createElement(PaidPlanWelcome, {
-        monthlyRunAllowance: stringProp(props, "monthlyRunAllowance"),
-        name: stringProp(props, "name"),
-        planName: stringProp(props, "planName"),
+        monthlyRunAllowance: props.monthlyRunAllowance,
+        name: props.name,
+        planName: props.planName,
       }),
-    subject: (props) => `Welcome to Strait ${stringProp(props, "planName")}!`,
-  },
-  "billing.payment_failed": {
+    subject: (props) => `Welcome to Strait ${props.planName}!`,
+  }),
+  "billing.payment_failed": defineTemplate({
+    schema: strictObject({
+      gracePeriodEnd: requiredString(),
+      name: z.string(),
+      planName: requiredString(),
+    }),
     render: (props) =>
       createElement(PaymentFailed, {
-        gracePeriodEnd: stringProp(props, "gracePeriodEnd"),
-        name: stringProp(props, "name"),
-        planName: stringProp(props, "planName"),
+        gracePeriodEnd: props.gracePeriodEnd,
+        name: props.name,
+        planName: props.planName,
       }),
     subject: () => "Action required: payment failed",
-  },
-  "billing.plan_changed": {
+  }),
+  "billing.plan_changed": defineTemplate({
+    schema: strictObject({
+      effectiveDate: requiredString(),
+      name: z.string(),
+      newPlan: requiredString(),
+      previousPlan: requiredString(),
+    }),
     render: (props) =>
       createElement(PlanChanged, {
-        effectiveDate: stringProp(props, "effectiveDate"),
-        name: stringProp(props, "name"),
-        newPlan: stringProp(props, "newPlan"),
-        previousPlan: stringProp(props, "previousPlan"),
+        effectiveDate: props.effectiveDate,
+        name: props.name,
+        newPlan: props.newPlan,
+        previousPlan: props.previousPlan,
       }),
-    subject: (props) => `Plan changed to ${stringProp(props, "newPlan")}`,
-  },
-  "billing.spending_limit_warning": {
+    subject: (props) => `Plan changed to ${props.newPlan}`,
+  }),
+  "billing.spending_limit_warning": defineTemplate({
+    schema: strictObject({
+      currentSpend: requiredString(),
+      name: z.string(),
+      percentUsed: requiredString(),
+      planName: requiredString(),
+      spendingLimit: requiredString(),
+    }),
     render: (props) =>
       createElement(SpendingLimitWarning, {
-        currentSpend: stringProp(props, "currentSpend"),
-        name: stringProp(props, "name"),
-        percentUsed: stringProp(props, "percentUsed"),
-        planName: stringProp(props, "planName"),
-        spendingLimit: stringProp(props, "spendingLimit"),
+        currentSpend: props.currentSpend,
+        name: props.name,
+        percentUsed: props.percentUsed,
+        planName: props.planName,
+        spendingLimit: props.spendingLimit,
       }),
-    subject: (props) =>
-      `Spending limit warning - ${stringProp(props, "percentUsed")} used`,
-  },
-  "billing.trial_ending_soon": {
+    subject: (props) => `Spending limit warning - ${props.percentUsed} used`,
+  }),
+  "billing.trial_ending_soon": defineTemplate({
+    schema: strictObject({
+      daysRemaining: finiteNumber(),
+      trialEndDate: requiredString(),
+    }),
     render: (props) =>
       createElement(TrialEndingSoon, {
-        daysRemaining: numberProp(props, "daysRemaining"),
-        trialEndDate: stringProp(props, "trialEndDate"),
+        daysRemaining: props.daysRemaining,
+        trialEndDate: props.trialEndDate,
       }),
-    subject: (props) =>
-      `Temporary access ends in ${numberProp(props, "daysRemaining")} days`,
-  },
-  "billing.usage_report": {
+    subject: (props) => `Temporary access ends in ${props.daysRemaining} days`,
+  }),
+  "billing.usage_report": defineTemplate({
+    schema: strictObject({
+      addonCount: finiteNumber(),
+      orgId: requiredString(),
+      overageAmount: requiredString().optional(),
+      periodEnd: requiredString(),
+      periodStart: requiredString(),
+      planTier: requiredString(),
+    }),
     render: (props) =>
       createElement(UsageReport, {
-        addonCount: numberProp(props, "addonCount"),
-        orgId: stringProp(props, "orgId"),
-        overageAmount: stringProp(props, "overageAmount") || undefined,
-        periodEnd: stringProp(props, "periodEnd"),
-        periodStart: stringProp(props, "periodStart"),
-        planTier: stringProp(props, "planTier"),
+        addonCount: props.addonCount,
+        orgId: props.orgId,
+        overageAmount: props.overageAmount,
+        periodEnd: props.periodEnd,
+        periodStart: props.periodStart,
+        planTier: props.planTier,
       }),
     subject: (props) =>
-      `Your Strait usage report: ${stringProp(props, "periodStart")} to ${stringProp(props, "periodEnd")}`,
-  },
-  "notification.budget_threshold": {
+      `Your Strait usage report: ${props.periodStart} to ${props.periodEnd}`,
+  }),
+  "notification.budget_threshold": defineTemplate({
+    schema: strictObject({
+      budgetLimit: requiredString(),
+      dailyCost: requiredString(),
+      projectId: requiredString(),
+      thresholdPercent: requiredString(),
+    }),
     render: (props) =>
       createElement(BudgetThreshold, {
-        budgetLimit: stringProp(props, "budgetLimit"),
-        dailyCost: stringProp(props, "dailyCost"),
-        projectId: stringProp(props, "projectId"),
-        thresholdPercent: stringProp(props, "thresholdPercent"),
+        budgetLimit: props.budgetLimit,
+        dailyCost: props.dailyCost,
+        projectId: props.projectId,
+        thresholdPercent: props.thresholdPercent,
       }),
     subject: () => "Compute budget threshold reached",
-  },
-  "notification.cost_anomaly": {
+  }),
+  "notification.cost_anomaly": defineTemplate({
+    schema: strictObject({
+      orgId: requiredString(),
+      sevenDayAverage: requiredString(),
+      severity: requiredString(),
+      spikeRatio: requiredString(),
+      todaySpend: requiredString(),
+      topContributor: requiredString(),
+    }),
     render: (props) =>
       createElement(CostAnomaly, {
-        orgId: stringProp(props, "orgId"),
-        sevenDayAverage: stringProp(props, "sevenDayAverage"),
-        severity: stringProp(props, "severity"),
-        spikeRatio: stringProp(props, "spikeRatio"),
-        todaySpend: stringProp(props, "todaySpend"),
-        topContributor: stringProp(props, "topContributor"),
+        orgId: props.orgId,
+        sevenDayAverage: props.sevenDayAverage,
+        severity: props.severity,
+        spikeRatio: props.spikeRatio,
+        todaySpend: props.todaySpend,
+        topContributor: props.topContributor,
       }),
     subject: () => "Cost anomaly detected - unusual spending spike",
-  },
-  "notification.generic": {
+  }),
+  "notification.generic": defineTemplate({
+    schema: strictObject({
+      eventType: requiredString(),
+      payload: requiredString(),
+    }),
     render: (props) =>
       createElement(GenericNotification, {
-        eventType: stringProp(props, "eventType"),
-        payload: stringProp(props, "payload"),
+        eventType: props.eventType,
+        payload: props.payload,
       }),
-    subject: (props) =>
-      `Strait notification: ${stringProp(props, "eventType")}`,
-  },
-  "notification.spending_limit_reached": {
+    subject: (props) => `Strait notification: ${props.eventType}`,
+  }),
+  "notification.spending_limit_reached": defineTemplate({
+    schema: strictObject({
+      currentSpend: requiredString(),
+      orgId: requiredString(),
+      spendingLimit: requiredString(),
+    }),
     render: (props) =>
       createElement(NotificationSpendingLimitReached, {
-        currentSpend: stringProp(props, "currentSpend"),
-        orgId: stringProp(props, "orgId"),
-        spendingLimit: stringProp(props, "spendingLimit"),
+        currentSpend: props.currentSpend,
+        orgId: props.orgId,
+        spendingLimit: props.spendingLimit,
       }),
     subject: () => "Spending limit reached - 100%",
-  },
-  "notification.spending_limit_warning": {
+  }),
+  "notification.spending_limit_warning": defineTemplate({
+    schema: strictObject({
+      currentSpend: requiredString(),
+      orgId: requiredString(),
+      overagePercent: requiredString(),
+      spendingLimit: requiredString(),
+    }),
     render: (props) =>
       createElement(NotificationSpendingLimitWarning, {
-        currentSpend: stringProp(props, "currentSpend"),
-        orgId: stringProp(props, "orgId"),
-        overagePercent: stringProp(props, "overagePercent"),
-        spendingLimit: stringProp(props, "spendingLimit"),
+        currentSpend: props.currentSpend,
+        orgId: props.orgId,
+        overagePercent: props.overagePercent,
+        spendingLimit: props.spendingLimit,
       }),
     subject: () => "Spending limit warning - 80% reached",
-  },
-  "notification.usage_forecast_warning": {
+  }),
+  "notification.usage_forecast_warning": defineTemplate({
+    schema: strictObject({
+      daysUntilLimit: finiteNumber(),
+      orgId: requiredString(),
+      projectedRuns: displayValueSchema,
+      recommendedPlan: requiredString(),
+    }),
     render: (props) =>
       createElement(UsageForecastWarning, {
-        daysUntilLimit: numberProp(props, "daysUntilLimit"),
-        orgId: stringProp(props, "orgId"),
-        projectedRuns: displayProp(props, "projectedRuns"),
-        recommendedPlan: stringProp(props, "recommendedPlan"),
+        daysUntilLimit: props.daysUntilLimit,
+        orgId: props.orgId,
+        projectedRuns: displayValue(props.projectedRuns),
+        recommendedPlan: props.recommendedPlan,
       }),
     subject: () => "Usage forecast warning",
-  },
+  }),
 } satisfies Record<string, TransactionalTemplate>;
 
 export type TransactionalEmailTemplateId =

@@ -94,9 +94,9 @@ func FuzzEmailTemplateForEventType(f *testing.F) {
 	f.Add("\x00\x01\x02\x03")
 
 	f.Fuzz(func(t *testing.T, eventType string) {
-		template, props := emailTemplateForEvent(eventType, json.RawMessage(`{}`))
-		assert.NotEmpty(t, template)
-		assert.NotNil(t, props)
+		req := emailRequestForEvent([]string{"user@example.com"}, "alerts@strait.dev", "delivery-1", eventType, json.RawMessage(`{}`))
+		assert.NotEmpty(t, req.Template)
+		assert.NotNil(t, req.Props)
 	})
 }
 
@@ -117,9 +117,9 @@ func FuzzEmailTemplateForEventPayload(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, eventType string, payload []byte) {
 		// Must never panic regardless of input.
-		template, props := emailTemplateForEvent(eventType, json.RawMessage(payload))
-		assert.NotEmpty(t, template)
-		assert.NotNil(t, props)
+		req := emailRequestForEvent([]string{"user@example.com"}, "alerts@strait.dev", "delivery-1", eventType, json.RawMessage(payload))
+		assert.NotEmpty(t, req.Template)
+		assert.NotNil(t, req.Props)
 	})
 }
 

@@ -49,24 +49,26 @@ func NewTransactionalWelcomeEmailFunc(client TransactionalEmailClient, fromEmail
 			return fmt.Errorf("invalid email address: %q", customerEmail)
 		}
 
-		template := "billing.paid_plan_welcome"
-		props := map[string]any{
-			"name":                "",
-			"planName":            planDisplayName(tier),
-			"monthlyRunAllowance": runAllowanceDisplay(tier),
-		}
+		req := transactional.BillingPaidPlanWelcomeRequest(
+			[]string{customerEmail},
+			fromEmail,
+			orgID,
+			string(tier),
+			customerEmail,
+			planDisplayName(tier),
+			runAllowanceDisplay(tier),
+		)
 		if tier == domain.PlanEnterprise {
-			template = "billing.enterprise_welcome"
-			props = map[string]any{}
+			req = transactional.BillingEnterpriseWelcomeRequest(
+				[]string{customerEmail},
+				fromEmail,
+				orgID,
+				string(tier),
+				customerEmail,
+			)
 		}
 
-		err := client.Send(ctx, transactional.Request{
-			Template:       template,
-			To:             []string{customerEmail},
-			From:           fromEmail,
-			IdempotencyKey: fmt.Sprintf("billing:welcome:%s:%s:%s", orgID, tier, customerEmail),
-			Props:          props,
-		})
+		err := client.Send(ctx, req)
 		if err != nil {
 			return fmt.Errorf("send welcome email through transactional endpoint: %w", err)
 		}
