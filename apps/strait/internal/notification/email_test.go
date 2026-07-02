@@ -230,7 +230,9 @@ func TestEmailSender_UnknownEventFallsBackToGenericTemplate(t *testing.T) {
 	assert.Equal(t, "notification.generic", string(mock.calls[0].Template))
 	props := transactionalPropsMap(t, mock.calls[0].Props)
 	assert.Equal(t, "unknown.event", props["eventType"])
-	assert.Equal(t, `{"field":"value"}`, props["payload"])
+	payload, ok := props["payload"].(string)
+	require.True(t, ok)
+	assert.JSONEq(t, `{"field":"value"}`, payload)
 }
 
 func TestEmailSender_EmptyRecipient_Fails(t *testing.T) {

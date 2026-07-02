@@ -24,11 +24,12 @@ func TestClientSendPostsExpectedJSON(t *testing.T) {
 	t.Parallel()
 
 	var got map[string]any
+	var decodeErr error
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "/internal/transactional-email", r.URL.Path)
 		assert.Equal(t, "internal-secret", r.Header.Get("X-Internal-Secret"))
 		assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
-		require.NoError(t, json.NewDecoder(r.Body).Decode(&got))
+		decodeErr = json.NewDecoder(r.Body).Decode(&got)
 		_, _ = w.Write([]byte(`{"id":"email-123"}`))
 	}))
 	defer server.Close()
@@ -38,6 +39,7 @@ func TestClientSendPostsExpectedJSON(t *testing.T) {
 
 	req := BillingPaymentFailedRequest([]string{"admin@example.com"}, "billing@strait.dev", "Pro", time.Date(2026, 4, 15, 0, 0, 0, 0, time.UTC))
 	require.NoError(t, client.Send(context.Background(), req))
+	require.NoError(t, decodeErr)
 
 	assert.Equal(t, "billing.payment_failed", got["template"])
 	assert.Equal(t, "billing@strait.dev", got["from"])

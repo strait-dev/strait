@@ -207,7 +207,7 @@ func (re *UsageReportEmailer) sendReport(ctx context.Context, orgID string, sub 
 		emails,
 		re.fromEmail,
 		orgID,
-		string(sub.PlanTier),
+		sub.PlanTier,
 		periodStart,
 		periodEnd,
 		addonCount,
