@@ -42,6 +42,7 @@ const appSearchSchema = z.object({
 });
 
 export const Route = createFileRoute("/app")({
+  codeSplitGroupings: [],
   validateSearch: zodValidator(appSearchSchema),
   beforeLoad: async ({ context, location }) => {
     if (!context.isAuthenticated) {

@@ -1,10 +1,13 @@
 import { expect, test } from "../../fixtures";
+import { watchForRouteCrashes } from "../../support/route-crashes";
 
 test.describe("Authenticated app shell", () => {
   test("shows core dashboard navigation and preserves project context", async ({
     api,
     page,
   }) => {
+    const routeCrashes = watchForRouteCrashes(page);
+
     await page.goto("/app/dashboard", { waitUntil: "domcontentloaded" });
 
     await expect(page.getByText("Project", { exact: true })).toBeVisible();
@@ -28,6 +31,7 @@ test.describe("Authenticated app shell", () => {
     await expect(page).toHaveURL(/\/app\/jobs/);
     await expect(page.getByRole("region", { name: "Jobs" })).toBeVisible();
     expect(api.getProjectId()).toBeTruthy();
+    routeCrashes.assertNoCrashes();
   });
 
   test("keeps core dashboard navigation usable on mobile", async ({ page }) => {

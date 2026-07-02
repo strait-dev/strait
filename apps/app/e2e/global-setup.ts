@@ -32,7 +32,7 @@ export default async function globalSetup() {
   const email = process.env.E2E_USER_EMAIL;
   const password = process.env.E2E_USER_PASSWORD;
   const limitedEmail =
-    process.env.E2E_LIMITED_USER_EMAIL ?? "e2e-limited@strait.local";
+    process.env.E2E_LIMITED_USER_EMAIL ?? "e2e-limited@example.com";
   const limitedPassword =
     process.env.E2E_LIMITED_USER_PASSWORD ?? password ?? "password123456";
   const authDbUrl = process.env.AUTH_DATABASE_URL;

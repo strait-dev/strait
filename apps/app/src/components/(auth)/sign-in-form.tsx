@@ -143,6 +143,7 @@ const SignInForm = ({
     <form
       onSubmit={(e) => {
         e.preventDefault();
+        e.stopPropagation();
         form.handleSubmit();
       }}
     >
@@ -165,8 +166,9 @@ const SignInForm = ({
                 autoComplete="email"
                 disabled={disabled}
                 id={field.name}
+                name={field.name}
                 onBlur={field.handleBlur}
-                onChange={(e) => field.handleChange(e.target.value)}
+                onInput={(e) => field.handleChange(e.currentTarget.value)}
                 placeholder="you@example.com"
                 type="email"
                 value={field.state.value}
@@ -207,8 +209,9 @@ const SignInForm = ({
                 autoComplete="current-password"
                 disabled={disabled}
                 id={field.name}
+                name={field.name}
                 onBlur={field.handleBlur}
-                onChange={(e) => field.handleChange(e.target.value)}
+                onInput={(e) => field.handleChange(e.currentTarget.value)}
                 placeholder="Enter your password"
                 value={field.state.value}
               />
