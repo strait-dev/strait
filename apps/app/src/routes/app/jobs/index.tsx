@@ -34,7 +34,7 @@ import {
   getSortedRowModel,
 } from "@tanstack/react-table";
 import { zodValidator } from "@tanstack/zod-adapter";
-import { useCallback, useMemo, useState } from "react";
+import { useState } from "react";
 import { z } from "zod/v4";
 import { CursorPagination } from "@/components/common/cursor-pagination";
 import ErrorComponent from "@/components/common/error-component";
@@ -159,23 +159,16 @@ function JobsPage() {
       ? queryDraft.value
       : (search.query ?? "");
 
-  const openCreateDialog = useCallback(() => {
+  const openCreateDialog = () => {
     setEditingJob(null);
     setFormOpen(true);
-  }, []);
-
-  const clearCreateQuery = useCallback(() => {
-    navigate({
-      search: (prev) => ({ ...prev, create: undefined }),
-      replace: true,
-    });
-  }, [navigate]);
+  };
 
   usePermissionGatedCreateQuery({
     canCreate: actionPermissions.canCreate,
-    clearCreateQuery,
     create: search.create,
     isReady: permissionsHydrated,
+    navigate,
     openCreateDialog,
   });
 
@@ -192,7 +185,7 @@ function JobsPage() {
 
   const typed = data as PaginatedResponse<Job> | undefined;
 
-  const filteredData = useMemo(() => {
+  const filteredData = (() => {
     let jobs = hasProject ? (typed?.data ?? []) : [];
     const normalizedQuery = query.trim().toLowerCase();
     if (normalizedQuery) {
@@ -214,7 +207,7 @@ function JobsPage() {
       }
       return false;
     });
-  }, [typed, selectedStatuses, hasProject, query]);
+  })();
 
   const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({});
   const tableData = useHydratedTableData(filteredData);

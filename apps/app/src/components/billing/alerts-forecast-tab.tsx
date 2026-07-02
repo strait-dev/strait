@@ -173,7 +173,7 @@ const ThresholdConfigCard = ({
   <Card>
     <CardHeader>
       <CardTitle className="font-medium text-sm">
-        Anomaly Detection Thresholds
+        Anomaly detection thresholds
       </CardTitle>
     </CardHeader>
     <CardContent>
@@ -197,9 +197,37 @@ const ThresholdForm = ({
   warningThreshold: number;
   criticalThreshold: number;
 }) => {
-  const [warning, setWarning] = useState(warningThreshold);
-  const [critical, setCritical] = useState(criticalThreshold);
+  const sourceKey = `${warningThreshold}:${criticalThreshold}`;
+  const [draft, setDraft] = useState<{
+    sourceKey: string | null;
+    warning: number;
+    critical: number;
+  }>({
+    sourceKey: null,
+    warning: 0,
+    critical: 0,
+  });
   const mutation = useSetAnomalyConfig();
+  const warning =
+    draft.sourceKey === sourceKey ? draft.warning : warningThreshold;
+  const critical =
+    draft.sourceKey === sourceKey ? draft.critical : criticalThreshold;
+
+  const setWarning = (nextWarning: number) => {
+    setDraft({
+      sourceKey,
+      warning: nextWarning,
+      critical,
+    });
+  };
+
+  const setCritical = (nextCritical: number) => {
+    setDraft({
+      sourceKey,
+      warning,
+      critical: nextCritical,
+    });
+  };
 
   const handleSave = () => {
     if (warning <= 1 || critical <= warning) {

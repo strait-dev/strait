@@ -22,7 +22,7 @@ import {
   getSortedRowModel,
 } from "@tanstack/react-table";
 import { zodValidator } from "@tanstack/zod-adapter";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { z } from "zod/v4";
 import { CursorPagination } from "@/components/common/cursor-pagination";
 import ErrorComponent from "@/components/common/error-component";
@@ -103,31 +103,7 @@ function LogsPage() {
 
   const typed = data as PaginatedResponse<EventTrigger> | undefined;
 
-  const allLogs = useMemo(() => {
-    let items = hasProject ? (typed?.data ?? []) : [];
-    const query = search.query?.trim().toLowerCase();
-    if (query) {
-      items = items.filter((event) =>
-        [
-          event.id,
-          event.event_key,
-          event.job_run_id,
-          event.workflow_run_id,
-          event.source_type,
-          event.status,
-          event.trigger_type,
-        ]
-          .filter(Boolean)
-          .some((value) => value?.toLowerCase().includes(query))
-      );
-    }
-    if (selectedStatuses.length > 0) {
-      items = items.filter((e: EventTrigger) =>
-        selectedStatuses.includes(e.status)
-      );
-    }
-    return items;
-  }, [typed, selectedStatuses, hasProject, search.query]);
+  const allLogs = hasProject ? (typed?.data ?? []) : [];
   const tableData = useHydratedTableData(allLogs);
 
   const table = useAppReactTable({

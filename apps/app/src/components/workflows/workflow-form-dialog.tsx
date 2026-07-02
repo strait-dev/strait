@@ -23,7 +23,7 @@ import { Spinner } from "@strait/ui/components/spinner";
 import { Textarea } from "@strait/ui/components/textarea";
 import { toast } from "@strait/ui/components/toast";
 import { useQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import type { Job, PaginatedResponse, Workflow } from "@/hooks/api/types";
 import { jobsQueryOptions } from "@/hooks/api/use-jobs";
 import { useCreateWorkflow } from "@/hooks/api/use-workflows";
@@ -52,23 +52,17 @@ export default function WorkflowFormDialog({
     data: PaginatedResponse<Job> | undefined;
   };
   const defaultJobId = jobs?.data[0]?.id ?? "";
-  const initialForm = useMemo<WorkflowFormState>(
-    () => ({
-      description: "",
-      enabled: true,
-      jobId: defaultJobId,
-      name: "",
-    }),
-    [defaultJobId]
-  );
+  const initialForm = {
+    description: "",
+    enabled: true,
+    jobId: defaultJobId,
+    name: "",
+  };
   const [formUpdates, setFormUpdates] = useState<Partial<WorkflowFormState>>(
     {}
   );
   const [error, setError] = useState<string | null>(null);
-  const form = useMemo(
-    () => ({ ...initialForm, ...formUpdates }),
-    [formUpdates, initialForm]
-  );
+  const form = { ...initialForm, ...formUpdates };
 
   function update<K extends keyof WorkflowFormState>(
     key: K,

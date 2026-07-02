@@ -35,7 +35,7 @@ import {
   getSortedRowModel,
 } from "@tanstack/react-table";
 import { zodValidator } from "@tanstack/zod-adapter";
-import { useCallback, useMemo, useState } from "react";
+import { useState } from "react";
 import { z } from "zod/v4";
 import { CursorPagination } from "@/components/common/cursor-pagination";
 import ErrorComponent from "@/components/common/error-component";
@@ -146,23 +146,16 @@ function SchedulesPage() {
     useProjectPermissions(session.user.activeProjectId);
   const actionPermissions = scheduleResourcePermissions(permissions);
 
-  const openCreateDialog = useCallback(() => {
+  const openCreateDialog = () => {
     setEditingSchedule(null);
     setFormOpen(true);
-  }, []);
-
-  const clearCreateQuery = useCallback(() => {
-    navigate({
-      search: (prev) => ({ ...prev, create: undefined }),
-      replace: true,
-    });
-  }, [navigate]);
+  };
 
   usePermissionGatedCreateQuery({
     canCreate: actionPermissions.canCreate,
-    clearCreateQuery,
     create: search.create,
     isReady: permissionsHydrated,
+    navigate,
     openCreateDialog,
   });
 
@@ -179,7 +172,7 @@ function SchedulesPage() {
 
   const typed = data as PaginatedResponse<Job> | undefined;
 
-  const filteredData = useMemo(() => {
+  const filteredData = (() => {
     let jobs = hasProject ? (typed?.data ?? []) : [];
     const normalizedQuery = search.query?.trim().toLowerCase();
     if (normalizedQuery) {
@@ -201,7 +194,7 @@ function SchedulesPage() {
       }
       return false;
     });
-  }, [typed, selectedStatuses, hasProject, search.query]);
+  })();
 
   const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({});
   const tableData = useHydratedTableData(filteredData);
@@ -258,18 +251,11 @@ function SchedulesPage() {
     (id) => rowSelection[id]
   );
 
-  const summary = useMemo(() => {
-    let enabled = 0;
-    let paused = 0;
-    for (const job of filteredData) {
-      if (job.enabled) {
-        enabled++;
-      } else {
-        paused++;
-      }
-    }
-    return { enabled, paused };
-  }, [filteredData]);
+  const enabled = filteredData.filter((schedule) => schedule.enabled).length;
+  const paused = filteredData.filter(
+    (schedule) => schedule.paused || !schedule.enabled
+  ).length;
+  const summary = { enabled, paused };
 
   function handleStatusFiltersChange(statuses: string[]) {
     navigate({

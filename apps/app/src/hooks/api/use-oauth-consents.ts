@@ -22,7 +22,7 @@ export type OAuthConsentItem = {
   updatedAt: string;
 };
 
-export const fetchOAuthConsents = createServerFn({ method: "GET" })
+const fetchOAuthConsents = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async () => {
     const headers = getRequestHeaders();
@@ -60,7 +60,7 @@ export const fetchOAuthConsents = createServerFn({ method: "GET" })
     return items;
   });
 
-export const revokeOAuthConsentFn = createServerFn({ method: "POST" })
+const revokeOAuthConsentFn = createServerFn({ method: "POST" })
   .inputValidator(z.object({ consentId: z.string().min(1) }))
   .middleware([authMiddleware])
   .handler(async ({ data }) => {

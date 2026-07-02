@@ -18,7 +18,6 @@ import { useForm } from "@tanstack/react-form";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
 import { nanoid } from "nanoid";
-import { useMemo } from "react";
 import { z } from "zod/v4";
 import {
   useCreateOrganization,
@@ -52,13 +51,10 @@ const CreateOrganizationDialog = ({
   const queryClient = useQueryClient();
   const router = useRouter();
 
-  const defaultValues = useMemo(
-    () => ({
-      name: "",
-      description: "",
-    }),
-    []
-  );
+  const defaultValues = {
+    name: "",
+    description: "",
+  };
 
   const form = useForm({
     defaultValues,

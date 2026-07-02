@@ -26,7 +26,7 @@ export function shouldUseLocalEmailOutbox() {
   );
 }
 
-export function localEmailOutboxPath() {
+function localEmailOutboxPath() {
   return process.env.LOCAL_EMAIL_OUTBOX_PATH || DEFAULT_OUTBOX_PATH;
 }
 

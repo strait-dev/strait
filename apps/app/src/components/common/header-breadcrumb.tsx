@@ -7,7 +7,7 @@ import {
   BreadcrumbSeparator,
 } from "@strait/ui/components/breadcrumb";
 import { Link, useRouterState } from "@tanstack/react-router";
-import { Fragment, useMemo } from "react";
+import { Fragment } from "react";
 
 const ROUTE_LABELS: Record<string, string> = {
   app: "Home",
@@ -36,50 +36,45 @@ const HeaderBreadcrumb = () => {
     select: (s) => s.location.pathname,
   });
 
-  const crumbs = useMemo(() => {
-    const segments = pathname.split("/").filter(Boolean);
+  const segments = pathname.split("/").filter(Boolean);
 
-    // Remove "app" prefix — it's always there
-    if (segments[0] === "app") {
-      segments.shift();
+  // Remove "app" prefix — it's always there
+  if (segments[0] === "app") {
+    segments.shift();
+  }
+
+  const crumbs =
+    segments.length === 0
+      ? [{ label: "Overview", href: "/app", isPage: true }]
+      : [];
+
+  for (let i = 0; i < segments.length; i++) {
+    const segment = segments[i];
+    const href = `/app/${segments.slice(0, i + 1).join("/")}`;
+    const isPage = i === segments.length - 1;
+
+    // Skip "org" segment — use the next segment (org ID) contextually
+    if (segment === "org") {
+      continue;
     }
 
-    if (segments.length === 0) {
-      return [{ label: "Overview", href: "/app", isPage: true }];
+    // If previous segment was "org", this is the org ID — label it
+    if (i > 0 && segments[i - 1] === "org") {
+      crumbs.push({
+        label: "Organization settings",
+        href,
+        isPage,
+      });
+      continue;
     }
 
-    const result: { label: string; href: string; isPage: boolean }[] = [];
+    const label =
+      ROUTE_LABELS[segment] ??
+      // If it looks like an ID, show a truncated version
+      (segment.length > 12 ? `${segment.slice(0, 8)}...` : segment);
 
-    for (let i = 0; i < segments.length; i++) {
-      const segment = segments[i];
-      const href = `/app/${segments.slice(0, i + 1).join("/")}`;
-      const isPage = i === segments.length - 1;
-
-      // Skip "org" segment — use the next segment (org ID) contextually
-      if (segment === "org") {
-        continue;
-      }
-
-      // If previous segment was "org", this is the org ID — label it
-      if (i > 0 && segments[i - 1] === "org") {
-        result.push({
-          label: "Organization settings",
-          href,
-          isPage,
-        });
-        continue;
-      }
-
-      const label =
-        ROUTE_LABELS[segment] ??
-        // If it looks like an ID, show a truncated version
-        (segment.length > 12 ? `${segment.slice(0, 8)}...` : segment);
-
-      result.push({ label, href, isPage });
-    }
-
-    return result;
-  }, [pathname]);
+    crumbs.push({ label, href, isPage });
+  }
 
   return (
     <Breadcrumb className="min-w-0">

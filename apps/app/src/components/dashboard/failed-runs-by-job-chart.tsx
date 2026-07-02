@@ -25,21 +25,25 @@ const FailedRunsByJobChart = ({
     enabled: hasProject,
   });
 
-  const chartData = (analytics?.slowest_jobs ?? [])
-    .filter((j) => j.failed_runs > 0)
-    .map((j) => ({
-      job: j.job_slug || j.job_id.slice(0, 12),
-      failures: j.failed_runs,
-    }))
-    .slice(0, 6);
+  const chartData = (analytics?.slowest_jobs ?? []).flatMap((j) =>
+    j.failed_runs > 0
+      ? [
+          {
+            job: j.job_slug || j.job_id.slice(0, 12),
+            failures: j.failed_runs,
+          },
+        ]
+      : []
+  );
+  const topChartData = chartData.slice(0, 6);
 
-  const isEmpty = !hasProject || chartData.length === 0;
+  const isEmpty = !hasProject || topChartData.length === 0;
 
   return (
     <Card>
       <CardHeader className="pb-2">
         <CardTitle className="font-medium text-sm">
-          Failed runs by Job
+          Failed runs by job
         </CardTitle>
       </CardHeader>
       <CardContent>
@@ -57,7 +61,7 @@ const FailedRunsByJobChart = ({
             <BarChart
               config={CHART_CONFIG}
               containerHeight={240}
-              data={chartData}
+              data={topChartData}
               dataKey="job"
               legend={false}
             />

@@ -17,12 +17,13 @@ import {
   TableRow,
 } from "@strait/ui/components/table";
 import { toast } from "@strait/ui/components/toast";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   fetchUsageExportCsv,
   fetchUsageExportPdf,
 } from "@/hooks/billing/use-usage-export";
 import { usageHistoryQueryOptions } from "@/hooks/billing/use-usage-history";
+import { queryKeys } from "@/hooks/query-keys";
 import { getPostHog } from "@/lib/analytics";
 import { formatMicroUsd } from "@/lib/format";
 import { ActivityIcon } from "@/lib/icons";
@@ -34,6 +35,11 @@ function triggerDownload(blob: Blob, filename: string) {
   a.download = filename;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+function currentPeriod() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 }
 
 const COST_CHART_CONFIG: ChartConfig = {
@@ -51,14 +57,10 @@ const RUNS_CHART_CONFIG: ChartConfig = {
 };
 
 const UsageHistoryTab = () => {
+  const queryClient = useQueryClient();
   const { data: history } = useQuery(usageHistoryQueryOptions());
 
   const isEmpty = !history || history.length === 0;
-
-  const currentPeriod = () => {
-    const now = new Date();
-    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-  };
 
   const csvExport = useMutation({
     mutationFn: async () => {
@@ -69,7 +71,10 @@ const UsageHistoryTab = () => {
         `usage-${period}.csv`
       );
     },
-    onSuccess: () => {
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.billing.usageHistory.queryKey,
+      });
       toast.success("CSV exported successfully");
       getPostHog()?.capture("usage_export_csv");
     },
@@ -89,7 +94,10 @@ const UsageHistoryTab = () => {
         `usage-${period}.pdf`
       );
     },
-    onSuccess: () => {
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.billing.usageHistory.queryKey,
+      });
       toast.success("PDF exported successfully");
       getPostHog()?.capture("usage_export_pdf");
     },

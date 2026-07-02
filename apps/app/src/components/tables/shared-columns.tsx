@@ -70,66 +70,76 @@ export function createActionsColumn<T>(actions: ActionItem<T>[]): ColumnDef<T> {
         data-no-row-click
         onClick={(event) => event.stopPropagation()}
       >
-        {visibleActions
-          .filter((action) => !action.render)
-          .map((action) => (
-            <button
-              aria-label={action.label}
-              className={buttonVariants({
-                size: "icon-sm",
-                variant:
-                  action.variant === "destructive" ? "destructive" : "ghost",
-              })}
-              key={action.label}
-              onClick={(event) => {
-                event.stopPropagation();
-                if (action.variant !== "destructive" || event.detail === 0) {
-                  action.onClick?.(row);
-                }
-              }}
-              onClickCapture={(event) => {
-                event.stopPropagation();
-                if (action.variant !== "destructive" || event.detail === 0) {
-                  action.onClick?.(row);
-                }
-              }}
-              onMouseDown={(event) => {
-                event.stopPropagation();
-                if (action.variant === "destructive") {
-                  window.setTimeout(() => action.onClick?.(row), 50);
-                }
-              }}
-              onMouseUp={(event) => {
-                event.stopPropagation();
-                if (action.variant === "destructive") {
-                  window.setTimeout(() => action.onClick?.(row), 0);
-                }
-              }}
-              onPointerDownCapture={(event) => {
-                event.stopPropagation();
-                if (action.variant === "destructive") {
-                  window.setTimeout(() => action.onClick?.(row), 50);
-                }
-              }}
-              onPointerUp={(event) => {
-                event.stopPropagation();
-                if (action.variant === "destructive") {
-                  window.setTimeout(() => action.onClick?.(row), 0);
-                }
-              }}
-              type="button"
-            >
-              {action.icon ? (
-                <HugeiconsIcon
-                  aria-hidden="true"
-                  className="size-3.5"
-                  icon={action.icon}
-                />
-              ) : (
-                <span className="text-xs">{action.label.slice(0, 1)}</span>
-              )}
-            </button>
-          ))}
+        {visibleActions.flatMap((action) =>
+          action.render
+            ? []
+            : [
+                <button
+                  aria-label={action.label}
+                  className={buttonVariants({
+                    size: "icon-sm",
+                    variant:
+                      action.variant === "destructive"
+                        ? "destructive"
+                        : "ghost",
+                  })}
+                  key={action.label}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    if (
+                      action.variant !== "destructive" ||
+                      event.detail === 0
+                    ) {
+                      action.onClick?.(row);
+                    }
+                  }}
+                  onClickCapture={(event) => {
+                    event.stopPropagation();
+                    if (
+                      action.variant !== "destructive" ||
+                      event.detail === 0
+                    ) {
+                      action.onClick?.(row);
+                    }
+                  }}
+                  onMouseDown={(event) => {
+                    event.stopPropagation();
+                    if (action.variant === "destructive") {
+                      window.setTimeout(() => action.onClick?.(row), 50);
+                    }
+                  }}
+                  onMouseUp={(event) => {
+                    event.stopPropagation();
+                    if (action.variant === "destructive") {
+                      window.setTimeout(() => action.onClick?.(row), 0);
+                    }
+                  }}
+                  onPointerDownCapture={(event) => {
+                    event.stopPropagation();
+                    if (action.variant === "destructive") {
+                      window.setTimeout(() => action.onClick?.(row), 50);
+                    }
+                  }}
+                  onPointerUp={(event) => {
+                    event.stopPropagation();
+                    if (action.variant === "destructive") {
+                      window.setTimeout(() => action.onClick?.(row), 0);
+                    }
+                  }}
+                  type="button"
+                >
+                  {action.icon ? (
+                    <HugeiconsIcon
+                      aria-hidden="true"
+                      className="size-3.5"
+                      icon={action.icon}
+                    />
+                  ) : (
+                    <span className="text-xs">{action.label.slice(0, 1)}</span>
+                  )}
+                </button>,
+              ]
+        )}
         <DropdownMenu>
           <DropdownMenuTrigger render={<Button size="icon" variant="ghost" />}>
             <span className="sr-only">Row actions</span>

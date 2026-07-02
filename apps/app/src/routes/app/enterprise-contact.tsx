@@ -23,7 +23,6 @@ import { toast } from "@strait/ui/components/toast";
 import { useForm } from "@tanstack/react-form";
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
-import { useMemo } from "react";
 import ErrorComponent from "@/components/common/error-component";
 import {
   enterpriseContactSchema,
@@ -81,18 +80,15 @@ export const Route = createFileRoute("/app/enterprise-contact")({
 function EnterpriseContactPage() {
   const router = useRouter();
 
-  const defaultValues = useMemo(
-    () => ({
-      name: "",
-      email: "",
-      company: "",
-      teamSize: "",
-      useCase: "",
-      expectedSpend: "",
-      message: "",
-    }),
-    []
-  );
+  const defaultValues = {
+    name: "",
+    email: "",
+    company: "",
+    teamSize: "",
+    useCase: "",
+    expectedSpend: "",
+    message: "",
+  };
 
   const form = useForm({
     defaultValues,

@@ -35,7 +35,7 @@ import {
   getSortedRowModel,
 } from "@tanstack/react-table";
 import { zodValidator } from "@tanstack/zod-adapter";
-import { useCallback, useMemo, useState } from "react";
+import { useState } from "react";
 import { z } from "zod/v4";
 import { CursorPagination } from "@/components/common/cursor-pagination";
 import ErrorComponent from "@/components/common/error-component";
@@ -135,7 +135,7 @@ function DlqPage() {
   const apiData = hasProject ? (typed?.data ?? EMPTY_ARRAY) : EMPTY_ARRAY;
   const selectedErrorTypes = search.errorType ?? EMPTY_ARRAY;
 
-  const filteredData = useMemo(() => {
+  const filteredData = (() => {
     let runs = apiData;
     const query = search.query?.trim().toLowerCase();
     if (query) {
@@ -162,7 +162,7 @@ function DlqPage() {
           .some((value) => value?.toLowerCase().includes(errorType))
       )
     );
-  }, [apiData, search.query, selectedErrorTypes]);
+  })();
   const tableData = useHydratedTableData(filteredData);
 
   const table = useAppReactTable({
@@ -196,27 +196,27 @@ function DlqPage() {
   );
   const hasSelection = selectedIds.length > 0;
 
-  const handleBulkRetry = useCallback(() => {
+  const handleBulkRetry = () => {
     if (selectedIds.length === 0) {
       return;
     }
     bulkRetry.mutate({ ids: selectedIds });
-  }, [selectedIds, bulkRetry]);
+  };
 
-  const handleBulkDiscard = useCallback(() => {
+  const handleBulkDiscard = () => {
     if (selectedIds.length === 0) {
       return;
     }
     bulkDiscard.mutate({ ids: selectedIds });
-  }, [selectedIds, bulkDiscard]);
+  };
 
   const allDlqIds = filteredData.map((r) => r.id);
-  const handleRetryAll = useCallback(() => {
+  const handleRetryAll = () => {
     if (allDlqIds.length === 0) {
       return;
     }
     bulkRetry.mutate({ ids: allDlqIds });
-  }, [allDlqIds, bulkRetry]);
+  };
 
   function handleErrorTypeFiltersChange(errorTypes: string[]) {
     navigate({

@@ -15,7 +15,7 @@ import {
   useNodesState,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { useEffect, useMemo } from "react";
+import { useEffect } from "react";
 import type { StepRunStatus, WorkflowStepType } from "@/hooks/api/types";
 import { useCurrentPlan } from "@/hooks/billing/use-current-plan";
 import { WorkflowIcon } from "@/lib/icons";
@@ -227,10 +227,8 @@ function buildNodesAndEdges(steps: WorkflowDAGFlowProps["steps"]): {
 }
 
 const WorkflowDAGFlow = ({ steps }: WorkflowDAGFlowProps) => {
-  const { initialNodes, initialEdges } = useMemo(() => {
-    const { nodes, edges } = buildNodesAndEdges(steps);
-    return { initialNodes: nodes, initialEdges: edges };
-  }, [steps]);
+  const { nodes: initialNodes, edges: initialEdges } =
+    buildNodesAndEdges(steps);
 
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);

@@ -55,7 +55,7 @@ export type ProjectPermissionFlags = {
   canManageProjects: boolean;
 };
 
-export const emptyProjectPermissionFlags: ProjectPermissionFlags = {
+const emptyProjectPermissionFlags: ProjectPermissionFlags = {
   permissions: [],
   canWriteJobs: false,
   canTriggerJobs: false,
@@ -126,7 +126,7 @@ async function findProjectMembership(projectId: string, userId: string) {
   }
 }
 
-export const fetchProjectPermissionsFn = createServerFn({ method: "GET" })
+const fetchProjectPermissionsFn = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async ({ context }) => {
     const projectId = await requireActiveProjectAccess(context);
@@ -160,7 +160,7 @@ export const fetchProjectPermissionsFn = createServerFn({ method: "GET" })
     return flagsFromPermissions(permissions);
   });
 
-export const projectPermissionsQueryOptions = (projectId?: string | null) =>
+const projectPermissionsQueryOptions = (projectId?: string | null) =>
   queryOptions({
     queryKey: queryKeys.projectPermissions.detail(projectId ?? "none").queryKey,
     queryFn: () => fetchProjectPermissionsFn(),

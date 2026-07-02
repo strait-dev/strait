@@ -24,7 +24,7 @@ import {
   getSortedRowModel,
 } from "@tanstack/react-table";
 import { zodValidator } from "@tanstack/zod-adapter";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { z } from "zod/v4";
 import { CursorPagination } from "@/components/common/cursor-pagination";
 import ErrorComponent from "@/components/common/error-component";
@@ -97,6 +97,21 @@ export const Route = createFileRoute("/app/runs/")({
 
 const EMPTY_ARRAY: never[] = [];
 
+function getRunSummary(runs: JobRun[]) {
+  const totalRuns = runs.length;
+  const succeeded = runs.filter((run) => run.status === "completed").length;
+  const failed = runs.filter((run) =>
+    ["failed", "crashed", "timed_out", "system_failed"].includes(run.status)
+  ).length;
+  const running = runs.filter((run) =>
+    ["executing", "queued", "waiting"].includes(run.status)
+  ).length;
+  const successRate =
+    totalRuns > 0 ? Math.round((succeeded / totalRuns) * 100) : 0;
+
+  return { succeeded, failed, running, successRate };
+}
+
 function RunsPage() {
   const { hasProject, session } = Route.useLoaderData();
   const search = Route.useSearch();
@@ -128,7 +143,7 @@ function RunsPage() {
   const selectedStatuses = (search.status ?? EMPTY_ARRAY) as RunStatus[];
 
   const typed = data as PaginatedResponse<JobRun> | undefined;
-  const filteredData = useMemo(() => {
+  const filteredData = (() => {
     let runs = hasProject ? (typed?.data ?? []) : [];
     const query = search.query?.trim().toLowerCase();
     if (query) {
@@ -144,32 +159,10 @@ function RunsPage() {
     return runs.filter((run) =>
       selectedStatuses.includes(run.status as RunStatus)
     );
-  }, [typed, hasProject, search.query, selectedStatuses]);
+  })();
   const tableData = useHydratedTableData(filteredData);
 
-  const summary = useMemo(() => {
-    let succeeded = 0;
-    let failed = 0;
-    let running = 0;
-    for (const run of filteredData) {
-      if (run.status === "completed") {
-        succeeded++;
-      } else if (
-        run.status === "failed" ||
-        run.status === "timed_out" ||
-        run.status === "crashed" ||
-        run.status === "system_failed"
-      ) {
-        failed++;
-      } else if (run.status === "executing" || run.status === "dequeued") {
-        running++;
-      }
-    }
-    const completed = succeeded + failed;
-    const successRate =
-      completed > 0 ? Math.round((succeeded / completed) * 100) : null;
-    return { succeeded, failed, running, successRate };
-  }, [filteredData]);
+  const summary = getRunSummary(filteredData);
 
   const table = useAppReactTable({
     data: tableData.data,

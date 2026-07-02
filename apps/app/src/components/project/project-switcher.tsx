@@ -10,7 +10,7 @@ import {
 import { SidebarMenuButton } from "@strait/ui/components/sidebar";
 import { toast } from "@strait/ui/components/toast";
 import { useQuery } from "@tanstack/react-query";
-import { useCallback, useState } from "react";
+import { useState } from "react";
 import type { Project } from "@/hooks/api/types";
 import {
   projectsQueryOptions,
@@ -56,53 +56,42 @@ const ProjectSwitcher = ({ user }: Props) => {
 
   const activeProject = projects?.find((p) => p.id === activeProjectId);
 
-  const handleSwitch = useCallback(
-    async (projectId: string) => {
-      if (projectId === activeProjectId) {
-        setDropdownOpen(false);
-        return;
-      }
-      if (setActiveProject.isPending) {
-        return;
-      }
-
-      const previousLocalActiveProject = localActiveProject;
-      setLocalActiveProject({
-        baseProjectId: user.activeProjectId,
-        projectId,
-      });
+  const handleSwitch = async (projectId: string) => {
+    if (projectId === activeProjectId) {
       setDropdownOpen(false);
-      const switchPromise = setActiveProject.mutateAsync({ projectId });
+      return;
+    }
+    if (setActiveProject.isPending) {
+      return;
+    }
 
-      toast.promise(switchPromise, {
-        loading: "Switching project...",
-        success: "Project switched!",
-        error: "Failed to switch project",
-      });
+    const previousLocalActiveProject = localActiveProject;
+    setLocalActiveProject({
+      baseProjectId: user.activeProjectId,
+      projectId,
+    });
+    setDropdownOpen(false);
+    const switchPromise = setActiveProject.mutateAsync({ projectId });
 
-      try {
-        await switchPromise;
-      } catch {
-        setLocalActiveProject(previousLocalActiveProject);
-      }
-    },
-    [
-      activeProjectId,
-      localActiveProject,
-      setActiveProject,
-      user.activeProjectId,
-    ]
-  );
+    toast.promise(switchPromise, {
+      loading: "Switching project...",
+      success: "Project switched!",
+      error: "Failed to switch project",
+    });
 
-  const handleCreated = useCallback(
-    (project: Project) => {
-      setLocalActiveProject({
-        baseProjectId: user.activeProjectId,
-        projectId: project.id,
-      });
-    },
-    [user.activeProjectId]
-  );
+    try {
+      await switchPromise;
+    } catch {
+      setLocalActiveProject(previousLocalActiveProject);
+    }
+  };
+
+  const handleCreated = (project: Project) => {
+    setLocalActiveProject({
+      baseProjectId: user.activeProjectId,
+      projectId: project.id,
+    });
+  };
 
   if (!organizationId) {
     return null;

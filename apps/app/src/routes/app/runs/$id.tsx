@@ -49,7 +49,7 @@ import {
 } from "@strait/ui/components/toggle-group";
 import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import DetailPageSkeleton from "@/components/common/detail-page-skeleton";
 import EntityNotFound from "@/components/common/entity-not-found";
 import ErrorComponent from "@/components/common/error-component";
@@ -153,25 +153,21 @@ function RunDetailPage() {
   const cancelRun = useCancelRun();
   const { permissions } = useProjectPermissions(session.user.activeProjectId);
 
-  const filteredEvents = useMemo(() => {
+  const filteredEvents = (() => {
     if (levelFilter === "all") {
       return events;
     }
     return events.filter(
       (e) => (e.level ?? "info").toLowerCase() === levelFilter
     );
-  }, [events, levelFilter]);
+  })();
 
-  const logText = useMemo(
-    () =>
-      filteredEvents
-        .map(
-          (e) =>
-            `[${new Date(e.created_at).toISOString()}] [${(e.level ?? "info").toUpperCase()}] ${e.message}`
-        )
-        .join("\n"),
-    [filteredEvents]
-  );
+  const logText = filteredEvents
+    .map(
+      (e) =>
+        `[${new Date(e.created_at).toISOString()}] [${(e.level ?? "info").toUpperCase()}] ${e.message}`
+    )
+    .join("\n");
 
   if (!run) {
     return (

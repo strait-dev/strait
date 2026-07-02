@@ -13,7 +13,7 @@ import {
 } from "@strait/ui/components/description-list";
 import { Field, FieldLabel } from "@strait/ui/components/field";
 import { NumberInputWithChevrons } from "@strait/ui/components/number-input-with-chevrons";
-import { useCallback, useState } from "react";
+import { useState } from "react";
 import { formatCurrency } from "@/lib/format";
 
 type Provider = "trigger.dev" | "inngest" | "hatchet" | "temporal";
@@ -83,7 +83,7 @@ const MigrationCalculator = () => {
   const [currentCost, setCurrentCost] = useState(75);
   const [result, setResult] = useState<ComparisonResult | null>(null);
 
-  const handleCalculate = useCallback(() => {
+  const handleCalculate = () => {
     const estimation = estimateStraitCost(
       runsPerMonth,
       computeHours,
@@ -92,7 +92,7 @@ const MigrationCalculator = () => {
     estimation.currentCost = currentCost;
     estimation.savings = currentCost - estimation.straitCost;
     setResult(estimation);
-  }, [runsPerMonth, computeHours, teamMembers, currentCost]);
+  };
 
   return (
     <div className="space-y-6">

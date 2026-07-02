@@ -1,14 +1,8 @@
 {
   "$schema": "https://unpkg.com/knip@5/schema.json",
-  "entry": [
-    "src/server.ts!",
-    "src/router.tsx!",
-    "src/routes/**/*.{ts,tsx}!",
-    "server/routes/.well-known/*.ts!"
-  ],
+  "entry": ["src/server.ts!", "src/router.tsx!", "src/routes/**/*.{ts,tsx}!"],
   "project": [
     "src/**/*.{ts,tsx}!",
-    "server/routes/.well-known/*.ts!",
     "!src/routeTree.gen.ts",
     "!**/*.test.{ts,tsx}",
     "!**/*.spec.{ts,tsx}"

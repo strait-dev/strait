@@ -56,7 +56,7 @@ import { toast } from "@strait/ui/components/toast";
 import { useForm } from "@tanstack/react-form";
 import { useQuery } from "@tanstack/react-query";
 import { type ColumnDef, getCoreRowModel } from "@tanstack/react-table";
-import { useCallback, useMemo, useState } from "react";
+import { useState } from "react";
 import { z } from "zod/v4";
 import type { APIKey } from "@/hooks/api/types";
 import {
@@ -151,128 +151,121 @@ const ApiKeysManagement = ({ projectId }: ApiKeysManagementProps) => {
     },
   });
 
-  const handleRevoke = useCallback(
-    async (keyId: string, keyName: string) => {
-      try {
-        await revokeKey.mutateAsync(keyId);
-        toast.success(`API key "${keyName}" revoked.`);
-      } catch (error) {
-        toast.error(
-          error instanceof Error ? error.message : "Failed to revoke API key."
-        );
-      }
-    },
-    [revokeKey]
-  );
+  const handleRevoke = async (keyId: string, keyName: string) => {
+    try {
+      await revokeKey.mutateAsync(keyId);
+      toast.success(`API key "${keyName}" revoked.`);
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to revoke API key."
+      );
+    }
+  };
 
-  const columns: ColumnDef<APIKey>[] = useMemo(
-    () => [
-      {
-        accessorKey: "name",
-        header: "Name",
-        cell: ({ row }) => (
-          <span className="font-medium">{row.original.name}</span>
-        ),
-      },
-      {
-        accessorKey: "key_prefix",
-        header: "Key",
-        cell: ({ row }) => (
-          <Badge className="font-mono" variant="secondary">
-            {row.original.key_prefix}...
-          </Badge>
-        ),
-      },
-      {
-        accessorKey: "scopes",
-        header: "Scopes",
-        cell: ({ row }) => (
-          <div className="flex flex-wrap gap-1">
-            {(row.original.scopes ?? []).map((scope) => (
-              <Badge key={scope} variant="outline">
-                {scope}
-              </Badge>
-            ))}
-          </div>
-        ),
-      },
-      {
-        accessorKey: "created_at",
-        header: "Created",
-        cell: ({ row }) => (
-          <span className="text-muted-foreground">
-            {formatDate(row.original.created_at)}
-          </span>
-        ),
-      },
-      {
-        id: "last_used_at",
-        header: "Last used",
-        cell: ({ row }) => (
-          <span className="text-muted-foreground">
-            {formatDate(
-              (row.original as Record<string, unknown>).last_used_at as
-                | string
-                | null
-            )}
-          </span>
-        ),
-      },
-      ...(canManageApiKeys
-        ? [
-            {
-              id: "actions",
-              cell: ({ row }) => {
-                const isRevoking =
-                  revokeKey.isPending &&
-                  revokeKey.variables === row.original.id;
-                return (
-                  <div className="flex justify-end">
-                    <AlertDialog>
-                      <AlertDialogTrigger
-                        render={
-                          <Button disabled={isRevoking} variant="destructive" />
-                        }
-                      >
-                        {isRevoking ? (
-                          <Spinner size="xs" />
-                        ) : (
-                          <HugeiconsIcon className="size-3" icon={TrashIcon} />
-                        )}
-                        Revoke
-                      </AlertDialogTrigger>
-                      <AlertDialogContent>
-                        <AlertDialogHeader>
-                          <AlertDialogTitle>
-                            Revoke "{row.original.name}"?
-                          </AlertDialogTitle>
-                          <AlertDialogDescription>
-                            This will permanently revoke this API key.
-                            Applications using it will lose access immediately.
-                          </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                          <AlertDialogCancel>Cancel</AlertDialogCancel>
-                          <AlertDialogAction
-                            onClick={() =>
-                              handleRevoke(row.original.id, row.original.name)
-                            }
-                          >
-                            Revoke key
-                          </AlertDialogAction>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
-                  </div>
-                );
-              },
-              enableSorting: false,
-            } satisfies ColumnDef<APIKey>,
-          ]
-        : []),
-    ],
-    [canManageApiKeys, revokeKey.isPending, revokeKey.variables, handleRevoke]
-  );
+  const columns: ColumnDef<APIKey>[] = [
+    {
+      accessorKey: "name",
+      header: "Name",
+      cell: ({ row }) => (
+        <span className="font-medium">{row.original.name}</span>
+      ),
+    },
+    {
+      accessorKey: "key_prefix",
+      header: "Key",
+      cell: ({ row }) => (
+        <Badge className="font-mono" variant="secondary">
+          {row.original.key_prefix}...
+        </Badge>
+      ),
+    },
+    {
+      accessorKey: "scopes",
+      header: "Scopes",
+      cell: ({ row }) => (
+        <div className="flex flex-wrap gap-1">
+          {(row.original.scopes ?? []).map((scope) => (
+            <Badge key={scope} variant="outline">
+              {scope}
+            </Badge>
+          ))}
+        </div>
+      ),
+    },
+    {
+      accessorKey: "created_at",
+      header: "Created",
+      cell: ({ row }) => (
+        <span className="text-muted-foreground">
+          {formatDate(row.original.created_at)}
+        </span>
+      ),
+    },
+    {
+      id: "last_used_at",
+      header: "Last used",
+      cell: ({ row }) => (
+        <span className="text-muted-foreground">
+          {formatDate(
+            (row.original as Record<string, unknown>).last_used_at as
+              | string
+              | null
+          )}
+        </span>
+      ),
+    },
+    ...(canManageApiKeys
+      ? [
+          {
+            id: "actions",
+            cell: ({ row }) => {
+              const isRevoking =
+                revokeKey.isPending && revokeKey.variables === row.original.id;
+              return (
+                <div className="flex justify-end">
+                  <AlertDialog>
+                    <AlertDialogTrigger
+                      render={
+                        <Button disabled={isRevoking} variant="destructive" />
+                      }
+                    >
+                      {isRevoking ? (
+                        <Spinner size="xs" />
+                      ) : (
+                        <HugeiconsIcon className="size-3" icon={TrashIcon} />
+                      )}
+                      Revoke
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>
+                          Revoke "{row.original.name}"?
+                        </AlertDialogTitle>
+                        <AlertDialogDescription>
+                          This will permanently revoke this API key.
+                          Applications using it will lose access immediately.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                          onClick={() =>
+                            handleRevoke(row.original.id, row.original.name)
+                          }
+                        >
+                          Revoke key
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                </div>
+              );
+            },
+            enableSorting: false,
+          } satisfies ColumnDef<APIKey>,
+        ]
+      : []),
+  ];
 
   const table = useAppReactTable({
     data: tableData.data,

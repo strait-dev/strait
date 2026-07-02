@@ -11,7 +11,7 @@ import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
 import { requireActiveProjectAccess } from "@/middlewares/require-access";
 
-export const fetchEvents = createServerFn({ method: "GET" })
+const fetchEvents = createServerFn({ method: "GET" })
   .inputValidator(
     (
       data: ListParams & {

@@ -34,6 +34,34 @@ import {
 } from "@/hooks/auth/use-account";
 import { GlobeIcon, LogOutIcon } from "@/lib/icons";
 
+const parseUserAgent = (ua: string | null): string => {
+  if (!ua) {
+    return "Unknown device";
+  }
+  if (ua.includes("Chrome")) {
+    return "Chrome";
+  }
+  if (ua.includes("Firefox")) {
+    return "Firefox";
+  }
+  if (ua.includes("Safari")) {
+    return "Safari";
+  }
+  if (ua.includes("Edge")) {
+    return "Edge";
+  }
+  return "Unknown browser";
+};
+
+const formatDate = (date: string | Date) =>
+  new Date(date).toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
 const SessionManagement = () => {
   const navigate = useNavigate();
   const { data, isLoading } = useQuery(sessionsQueryOptions());
@@ -79,34 +107,6 @@ const SessionManagement = () => {
       );
     }
   };
-
-  const parseUserAgent = (ua: string | null): string => {
-    if (!ua) {
-      return "Unknown device";
-    }
-    if (ua.includes("Chrome")) {
-      return "Chrome";
-    }
-    if (ua.includes("Firefox")) {
-      return "Firefox";
-    }
-    if (ua.includes("Safari")) {
-      return "Safari";
-    }
-    if (ua.includes("Edge")) {
-      return "Edge";
-    }
-    return "Unknown browser";
-  };
-
-  const formatDate = (date: string | Date) =>
-    new Date(date).toLocaleDateString("en-US", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
 
   return (
     <Card>

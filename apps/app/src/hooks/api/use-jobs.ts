@@ -79,7 +79,7 @@ export const fetchJobs = createServerFn({ method: "GET" })
     }
   );
 
-export const fetchJob = createServerFn({ method: "GET" })
+const fetchJob = createServerFn({ method: "GET" })
   .inputValidator((data: { id: string }) => data)
   .middleware([authMiddleware])
   .handler(
@@ -110,7 +110,7 @@ export const triggerJobFn = createServerFn({ method: "POST" })
     }
   );
 
-export const createJobFn = createServerFn({ method: "POST" })
+const createJobFn = createServerFn({ method: "POST" })
   .inputValidator((data: CreateJobInput) => data)
   .middleware([authMiddleware])
   .handler(
@@ -141,7 +141,7 @@ export const createJobFn = createServerFn({ method: "POST" })
     }
   );
 
-export const updateJobFn = createServerFn({ method: "POST" })
+const updateJobFn = createServerFn({ method: "POST" })
   .inputValidator((data: UpdateJobInput) => data)
   .middleware([authMiddleware])
   .handler(
@@ -165,7 +165,7 @@ export const deleteJobFn = createServerFn({ method: "POST" })
     );
   });
 
-export const fetchJobHealth = createServerFn({ method: "GET" })
+const fetchJobHealth = createServerFn({ method: "GET" })
   .inputValidator((data: { id: string; window?: string }) => data)
   .middleware([authMiddleware])
   .handler(async ({ context, data }): Promise<JobHealthResponse> => {

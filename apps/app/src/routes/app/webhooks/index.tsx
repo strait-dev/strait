@@ -35,7 +35,7 @@ import {
   getSortedRowModel,
 } from "@tanstack/react-table";
 import { zodValidator } from "@tanstack/zod-adapter";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { z } from "zod/v4";
 import { CursorPagination } from "@/components/common/cursor-pagination";
 import ErrorComponent from "@/components/common/error-component";
@@ -126,7 +126,7 @@ function WebhooksPage() {
 
   const typed = data as PaginatedResponse<WebhookSubscription> | undefined;
 
-  const filteredData = useMemo(() => {
+  const filteredData = (() => {
     let webhooks = hasProject ? (typed?.data ?? []) : [];
     const query = search.query?.trim().toLowerCase();
     if (query) {
@@ -153,7 +153,7 @@ function WebhooksPage() {
       }
       return false;
     });
-  }, [typed, selectedStatuses, hasProject, search.query]);
+  })();
 
   const deleteWebhook = useDeleteWebhook();
   const [deleteTarget, setDeleteTarget] = useState<string[] | null>(null);
@@ -194,18 +194,9 @@ function WebhooksPage() {
     (id) => rowSelection[id]
   );
 
-  const summary = useMemo(() => {
-    let active = 0;
-    let inactive = 0;
-    for (const webhook of filteredData) {
-      if (webhook.active) {
-        active++;
-      } else {
-        inactive++;
-      }
-    }
-    return { active, inactive };
-  }, [filteredData]);
+  const active = filteredData.filter((webhook) => webhook.active).length;
+  const inactive = filteredData.length - active;
+  const summary = { active, inactive };
 
   function handleStatusFiltersChange(statuses: string[]) {
     navigate({

@@ -34,7 +34,7 @@ import {
   getSortedRowModel,
 } from "@tanstack/react-table";
 import { zodValidator } from "@tanstack/zod-adapter";
-import { useCallback, useMemo, useState } from "react";
+import { useState } from "react";
 import { z } from "zod/v4";
 import { CursorPagination } from "@/components/common/cursor-pagination";
 import ErrorComponent from "@/components/common/error-component";
@@ -154,22 +154,15 @@ function WorkflowsPage() {
     useProjectPermissions(session.user.activeProjectId);
   const actionPermissions = workflowResourcePermissions(permissions);
 
-  const openCreateDialog = useCallback(() => {
+  const openCreateDialog = () => {
     setFormOpen(true);
-  }, []);
-
-  const clearCreateQuery = useCallback(() => {
-    navigate({
-      search: (prev) => ({ ...prev, create: undefined }),
-      replace: true,
-    });
-  }, [navigate]);
+  };
 
   usePermissionGatedCreateQuery({
     canCreate: actionPermissions.canCreate,
-    clearCreateQuery,
     create: search.create,
     isReady: permissionsHydrated,
+    navigate,
     openCreateDialog,
   });
 
@@ -178,7 +171,7 @@ function WorkflowsPage() {
   const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({});
   const typed = data as PaginatedResponse<Workflow> | undefined;
 
-  const filteredData = useMemo(() => {
+  const filteredData = (() => {
     let workflows = hasProject ? (typed?.data ?? []) : [];
     const query = search.query?.trim().toLowerCase();
     if (query) {
@@ -200,7 +193,7 @@ function WorkflowsPage() {
       }
       return false;
     });
-  }, [typed, hasProject, selectedStatuses, search.query]);
+  })();
   const tableData = useHydratedTableData(filteredData);
 
   const table = useAppReactTable({

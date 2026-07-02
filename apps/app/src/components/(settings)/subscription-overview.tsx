@@ -18,7 +18,8 @@ import { Frame, FramePanel } from "@strait/ui/components/frame";
 import { toast } from "@strait/ui/components/toast";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { useCallback, useMemo, useState } from "react";
+import { useState } from "react";
+import type { SubscriptionStateData } from "@/hooks/subscription/subscription-state";
 import { subscriptionStateQueryOptions } from "@/hooks/subscription/use-subscription";
 import { getPostHog } from "@/lib/analytics";
 import {
@@ -112,14 +113,40 @@ function getSubscriptionStatusMessage({
   return isActive ? "Active subscription" : "No active subscription";
 }
 
+function getPlanInfo(data: SubscriptionStateData) {
+  const { subscription, isActive, needsAttention, isCanceled, plan } = data;
+  const statusInfo = getSubscriptionStatusInfo(subscription?.status);
+  const planName = PLAN_NAMES[plan as keyof typeof PLAN_NAMES] || "Unknown";
+  const intervalValue = subscription?.recurringInterval ?? "monthly";
+  const intervalName =
+    INTERVAL_NAMES[intervalValue as keyof typeof INTERVAL_NAMES] || "Monthly";
+
+  return {
+    planName,
+    intervalName,
+    statusInfo,
+    statusMessage: getSubscriptionStatusMessage({
+      currentPeriodEnd: subscription?.currentPeriodEnd,
+      isActive,
+      isCanceled,
+      needsAttention,
+    }),
+    isActive: isActive || subscription?.status === "active",
+    isCanceled: isCanceled || subscription?.status === "canceled",
+    needsAttention:
+      needsAttention ||
+      ATTENTION_STATUSES.has((subscription?.status as string) ?? ""),
+  };
+}
+
 const SubscriptionOverview = () => {
   const [isLoading, setIsLoading] = useState<string | null>(null);
 
   const { data } = useSuspenseQuery(subscriptionStateQueryOptions());
-  const { subscription, isActive, needsAttention, isCanceled, plan } = data;
+  const { subscription } = data;
 
   // Helper to open portal
-  const openPortal = useCallback(async (loadingKey: string) => {
+  const openPortal = async (loadingKey: string) => {
     getPostHog()?.capture("billing_portal_opened", { action: loadingKey });
     setIsLoading(loadingKey);
     try {
@@ -135,46 +162,22 @@ const SubscriptionOverview = () => {
       toast.error("Failed to open customer portal");
     }
     setIsLoading(null);
-  }, []);
+  };
 
   // Memoize handlers
-  const handleOpenPortal = useCallback(async () => {
+  const handleOpenPortal = async () => {
     await openPortal("portal");
-  }, [openPortal]);
+  };
 
-  const handleCancelSubscription = useCallback(async () => {
+  const handleCancelSubscription = async () => {
     await openPortal("cancel");
-  }, [openPortal]);
+  };
 
-  const handleReactivateSubscription = useCallback(async () => {
+  const handleReactivateSubscription = async () => {
     await openPortal("reactivate");
-  }, [openPortal]);
+  };
 
-  // Memoize status and plan calculations
-  const planInfo = useMemo(() => {
-    const statusInfo = getSubscriptionStatusInfo(subscription?.status);
-    const planName = PLAN_NAMES[plan as keyof typeof PLAN_NAMES] || "Unknown";
-    const intervalValue = subscription?.recurringInterval ?? "monthly";
-    const intervalName =
-      INTERVAL_NAMES[intervalValue as keyof typeof INTERVAL_NAMES] || "Monthly";
-
-    return {
-      planName,
-      intervalName,
-      statusInfo,
-      statusMessage: getSubscriptionStatusMessage({
-        currentPeriodEnd: subscription?.currentPeriodEnd,
-        isActive,
-        isCanceled,
-        needsAttention,
-      }),
-      isActive: isActive || subscription?.status === "active",
-      isCanceled: isCanceled || subscription?.status === "canceled",
-      needsAttention:
-        needsAttention ||
-        ATTENTION_STATUSES.has((subscription?.status as string) ?? ""),
-    };
-  }, [subscription, isActive, isCanceled, needsAttention, plan]);
+  const planInfo = getPlanInfo(data);
 
   // No subscription case
   if (!subscription) {

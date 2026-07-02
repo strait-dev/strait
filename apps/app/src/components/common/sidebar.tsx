@@ -36,7 +36,7 @@ import {
 } from "@strait/ui/components/sidebar";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useProjectPermissions } from "@/hooks/auth/use-project-permissions";
 import { subscriptionStateQueryOptions } from "@/hooks/subscription/use-subscription";
 import { isCommunityEdition } from "@/lib/edition";
@@ -92,14 +92,11 @@ const AppSidebar = ({ session }: Props) => {
     ? `/app/org/${session.user.defaultOrganizationId}`
     : "/app/settings";
 
-  const quickActions = useMemo(
-    () => buildQuickCreateCommands(permissions),
-    [permissions]
-  );
+  const quickActions = buildQuickCreateCommands(permissions);
 
-  const commandGroups = useMemo(
-    () => buildSidebarCommandGroups(permissions, orgSettingsRoute),
-    [orgSettingsRoute, permissions]
+  const commandGroups = buildSidebarCommandGroups(
+    permissions,
+    orgSettingsRoute
   );
 
   const runCommand = (item: SidebarCommandItem) => {

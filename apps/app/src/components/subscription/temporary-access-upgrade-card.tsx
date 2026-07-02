@@ -3,7 +3,6 @@ import { Button } from "@strait/ui/components/button";
 import { NoticeBanner } from "@strait/ui/components/notice-banner";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { useMemo } from "react";
 import { subscriptionStateQueryOptions } from "@/hooks/subscription/use-subscription";
 import { AlarmClockIcon, SparklesIcon } from "@/lib/icons";
 
@@ -14,7 +13,7 @@ const TemporaryAccessUpgradeCard = () => {
   const { data } = useSuspenseQuery(subscriptionStateQueryOptions());
   const { subscription, shouldShowUpgrade, isTrialing, trialDaysLeft } = data;
 
-  const temporaryAccessContent = useMemo(() => {
+  const temporaryAccessContent = (() => {
     if (trialDaysLeft === null || trialDaysLeft <= 0) {
       return {
         title: "Temporary access active",
@@ -51,9 +50,9 @@ const TemporaryAccessUpgradeCard = () => {
       message: accessMessage,
       color: "green" as const,
     };
-  }, [trialDaysLeft]);
+  })();
 
-  const subscriptionContent = useMemo(() => {
+  const subscriptionContent = (() => {
     if (!subscription) {
       return {
         title: "You don't have an active subscription",
@@ -93,40 +92,37 @@ const TemporaryAccessUpgradeCard = () => {
       default:
         return { title: "", message: "", color: "blue" as const };
     }
-  }, [subscription]);
+  })();
 
-  const cardContent = useMemo(() => {
+  const cardContent = (() => {
     if (isTrialing || subscription?.status === "trialing") {
       return temporaryAccessContent;
     }
     return subscriptionContent;
-  }, [subscription, isTrialing, temporaryAccessContent, subscriptionContent]);
+  })();
 
-  const bannerConfig = useMemo(
-    () => ({
-      blue: {
-        variant: "info" as const,
-        buttonVariant: "default" as const,
-        icon: SparklesIcon,
-      },
-      green: {
-        variant: "success" as const,
-        buttonVariant: "default" as const,
-        icon: SparklesIcon,
-      },
-      orange: {
-        variant: "warning" as const,
-        buttonVariant: "warning-solid" as const,
-        icon: AlarmClockIcon,
-      },
-      red: {
-        variant: "destructive" as const,
-        buttonVariant: "destructive-solid" as const,
-        icon: AlarmClockIcon,
-      },
-    }),
-    []
-  );
+  const bannerConfig = {
+    blue: {
+      variant: "info" as const,
+      buttonVariant: "default" as const,
+      icon: SparklesIcon,
+    },
+    green: {
+      variant: "success" as const,
+      buttonVariant: "default" as const,
+      icon: SparklesIcon,
+    },
+    orange: {
+      variant: "warning" as const,
+      buttonVariant: "warning-solid" as const,
+      icon: AlarmClockIcon,
+    },
+    red: {
+      variant: "destructive" as const,
+      buttonVariant: "destructive-solid" as const,
+      icon: AlarmClockIcon,
+    },
+  };
 
   const { title, message, color } = cardContent;
   const config = bannerConfig[color];

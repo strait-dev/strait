@@ -3,7 +3,7 @@
 import {
   createContext,
   type ReactNode,
-  useContext,
+  use,
   useEffect,
   useRef,
   useState,
@@ -67,5 +67,4 @@ export const PostHogProvider = ({ children }: PostHogProviderProps) => {
   );
 };
 
-export const usePostHog = (): PostHogInstance | null =>
-  useContext(PostHogContext);
+export const usePostHog = (): PostHogInstance | null => use(PostHogContext);

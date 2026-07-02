@@ -44,7 +44,7 @@ import {
   getPaginationRowModel,
   getSortedRowModel,
 } from "@tanstack/react-table";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import DetailPageSkeleton from "@/components/common/detail-page-skeleton";
 import EntityNotFound from "@/components/common/entity-not-found";
 import ErrorComponent from "@/components/common/error-component";
@@ -229,7 +229,7 @@ function JobDetailPage() {
 
   const selectedIds = Object.keys(rowSelection).filter((k) => rowSelection[k]);
 
-  const stats = useMemo(() => {
+  const stats = (() => {
     if (!health) {
       return {
         successRate: "0%",
@@ -244,9 +244,9 @@ function JobDetailPage() {
       avgDuration: `${health.avg_duration_secs.toFixed(1)}s`,
       failedRuns: health.failed_runs.toLocaleString(),
     };
-  }, [health]);
+  })();
 
-  const chartData = useMemo(() => {
+  const chartData = (() => {
     if (!health) {
       return [];
     }
@@ -268,7 +268,7 @@ function JobDetailPage() {
         value: health.canceled_runs,
       },
     ].filter((d) => d.value > 0);
-  }, [health]);
+  })();
 
   function handleRowClick(run: JobRun) {
     setSelectedRun(run);

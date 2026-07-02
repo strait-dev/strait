@@ -15,7 +15,6 @@ import { Spinner } from "@strait/ui/components/spinner";
 import { Textarea } from "@strait/ui/components/textarea";
 import { toast } from "@strait/ui/components/toast";
 import { useForm } from "@tanstack/react-form";
-import { useMemo } from "react";
 import { z } from "zod/v4";
 import type { Project } from "@/hooks/api/types";
 import { useCreateAndActivateProject } from "@/hooks/api/use-projects";
@@ -42,13 +41,10 @@ const CreateProjectDialog = ({
 }: Props) => {
   const createProject = useCreateAndActivateProject();
 
-  const defaultValues = useMemo(
-    () => ({
-      name: "",
-      description: "",
-    }),
-    []
-  );
+  const defaultValues = {
+    name: "",
+    description: "",
+  };
 
   const form = useForm({
     defaultValues,

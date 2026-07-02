@@ -4,7 +4,7 @@ import { NoticeBanner } from "@strait/ui/components/notice-banner";
 import { toast } from "@strait/ui/components/toast";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { useCallback, useState } from "react";
+import { useState } from "react";
 import { subscriptionStateQueryOptions } from "@/hooks/subscription/use-subscription";
 import { CreditCardIcon, LinkSquareIcon } from "@/lib/icons";
 import { getCustomerPortalUrlServerFn } from "@/lib/subscription";
@@ -14,7 +14,7 @@ const PaymentPendingCard = () => {
   const { data } = useSuspenseQuery(subscriptionStateQueryOptions());
   const { hasPendingPayment } = data;
 
-  const handleOpenPortal = useCallback(async () => {
+  const handleOpenPortal = async () => {
     setIsLoading(true);
 
     try {
@@ -33,7 +33,7 @@ const PaymentPendingCard = () => {
       toast.error("Failed to open customer portal");
     }
     setIsLoading(false);
-  }, []);
+  };
 
   // Don't render if there are no payment issues
   if (!hasPendingPayment) {

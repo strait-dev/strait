@@ -22,7 +22,6 @@ import {
   getSortedRowModel,
 } from "@tanstack/react-table";
 import { zodValidator } from "@tanstack/zod-adapter";
-import { useMemo } from "react";
 import { z } from "zod/v4";
 import { CursorPagination } from "@/components/common/cursor-pagination";
 import ErrorComponent from "@/components/common/error-component";
@@ -100,7 +99,7 @@ function EventsPage() {
 
   const typed = data as PaginatedResponse<EventTrigger> | undefined;
   const selectedStatuses = search.status ?? EMPTY_ARRAY;
-  const events = useMemo(() => {
+  const events = (() => {
     let items = hasProject ? (typed?.data ?? []) : [];
     const query = search.query?.trim().toLowerCase();
     if (query) {
@@ -122,7 +121,7 @@ function EventsPage() {
       return items;
     }
     return items.filter((event) => selectedStatuses.includes(event.status));
-  }, [typed, hasProject, search.query, selectedStatuses]);
+  })();
   const tableData = useHydratedTableData(events);
 
   const table = useAppReactTable({

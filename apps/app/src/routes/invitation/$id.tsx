@@ -6,7 +6,7 @@ import { Spinner } from "@strait/ui/components/spinner";
 import { toast } from "@strait/ui/components/toast";
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { zodValidator } from "@tanstack/zod-adapter";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import z from "zod/v4";
 import AuthLayout from "@/components/(auth)/auth-layout";
 import {
@@ -99,7 +99,7 @@ function RouteComponent() {
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [isGooglePending, setIsGooglePending] = useState(false);
 
-  const handleAcceptInvitation = useCallback(async () => {
+  const handleAcceptInvitation = async () => {
     if (!session?.user) {
       navigate({
         to: "/login",
@@ -147,9 +147,9 @@ function RouteComponent() {
       );
     }
     setIsAccepting(false);
-  }, [invitation.id, session?.user, navigate]);
+  };
 
-  const handleRejectInvitation = useCallback(async () => {
+  const handleRejectInvitation = async () => {
     try {
       await authClient.organization.rejectInvitation(
         {
@@ -170,7 +170,7 @@ function RouteComponent() {
       captureException(err);
       toast.error("Error rejecting invitation");
     }
-  }, [invitation.id, navigate]);
+  };
 
   const onGoogleSignIn = async () => {
     try {

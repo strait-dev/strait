@@ -23,7 +23,7 @@ import { Skeleton } from "@strait/ui/components/skeleton";
 import { toast } from "@strait/ui/components/toast";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { orgUsageQueryOptions } from "@/hooks/billing/use-org-usage";
 import { projectCostsQueryOptions } from "@/hooks/billing/use-project-costs";
 import { usageHistoryQueryOptions } from "@/hooks/billing/use-usage-history";
@@ -64,19 +64,13 @@ function getGaugeColor(percent: number): string {
   return CHART_COLORS["chart-3"];
 }
 
-function renderUsageGauge({
-  label,
-  used,
-  limit,
-  percent,
-  display,
-}: UsageGaugeData) {
+function UsageGauge({ label, used, limit, percent, display }: UsageGaugeData) {
   const isUnlimited = limit === -1;
   const displayValue = display || `${used.toLocaleString()}`;
   const limitDisplay = isUnlimited ? "Unlimited" : limit.toLocaleString();
 
   return (
-    <Card key={label}>
+    <Card>
       <CardContent className="p-4">
         <p className="text-muted-foreground text-xs">{label}</p>
         {isUnlimited ? (
@@ -99,6 +93,21 @@ function renderUsageGauge({
   );
 }
 
+const unsubscribeFromDateLabel = () => undefined;
+
+const subscribeToDateLabel = () => unsubscribeFromDateLabel;
+
+function getClientDateLabel() {
+  return new Date().toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+  });
+}
+
+function getServerDateLabel() {
+  return "";
+}
+
 const UsageDashboard = () => {
   const {
     data: usage,
@@ -109,7 +118,11 @@ const UsageDashboard = () => {
   const { data: projectCosts } = useQuery(projectCostsQueryOptions());
   const navigate = useNavigate();
   const [isRedirecting, setIsRedirecting] = useState(false);
-
+  const todayLabel = useSyncExternalStore(
+    subscribeToDateLabel,
+    getClientDateLabel,
+    getServerDateLabel
+  );
   const handleManageBilling = async () => {
     setIsRedirecting(true);
     try {
@@ -170,7 +183,7 @@ const UsageDashboard = () => {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-balance font-normal text-foreground text-lg tracking-tight">
-            Usage & Billing
+            Usage & billing
           </h2>
           <p className="text-muted-foreground text-sm">
             Current plan: <Badge variant="default">{planName}</Badge>
@@ -200,19 +213,19 @@ const UsageDashboard = () => {
 
       {/* Radial Gauges */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
-        {renderUsageGauge({
-          display: usage.usage.monthly_runs.display,
-          label: "Runs this month",
-          limit: usage.usage.monthly_runs.limit,
-          percent: usage.usage.monthly_runs.percent,
-          used: usage.usage.monthly_runs.used,
-        })}
-        {renderUsageGauge({
-          label: "Concurrent runs",
-          limit: usage.usage.concurrent_runs.limit,
-          percent: usage.usage.concurrent_runs.percent,
-          used: usage.usage.concurrent_runs.used,
-        })}
+        <UsageGauge
+          display={usage.usage.monthly_runs.display}
+          label="Runs this month"
+          limit={usage.usage.monthly_runs.limit}
+          percent={usage.usage.monthly_runs.percent}
+          used={usage.usage.monthly_runs.used}
+        />
+        <UsageGauge
+          label="Concurrent runs"
+          limit={usage.usage.concurrent_runs.limit}
+          percent={usage.usage.concurrent_runs.percent}
+          used={usage.usage.concurrent_runs.used}
+        />
         <Card>
           <CardContent className="flex h-full min-h-[152px] flex-col justify-center p-4">
             <p className="text-muted-foreground text-xs">Period spend</p>
@@ -244,18 +257,14 @@ const UsageDashboard = () => {
           <CardContent className="flex items-center justify-between p-4">
             <div>
               <p className="text-muted-foreground text-xs">
-                Estimated Bill This Month
+                Estimated bill this month
               </p>
               <p className="font-medium text-foreground text-lg tabular-nums">
                 {formatMicroUsd(totalCost)}
               </p>
             </div>
             <p className="text-muted-foreground text-xs">
-              Based on usage through{" "}
-              {new Date().toLocaleDateString("en-US", {
-                month: "short",
-                day: "numeric",
-              })}
+              Based on usage{todayLabel ? ` through ${todayLabel}` : ""}
             </p>
           </CardContent>
         </Card>
@@ -266,7 +275,7 @@ const UsageDashboard = () => {
         <Card>
           <CardHeader>
             <CardTitle className="font-medium text-sm">
-              Runs by Day (30 days)
+              Runs by day (30 days)
             </CardTitle>
           </CardHeader>
           <CardContent>

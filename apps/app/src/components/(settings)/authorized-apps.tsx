@@ -120,10 +120,10 @@ function ConsentRow({
   onRevoke: () => void;
   revoking: boolean;
 }) {
-  const scopes = consent.scopes
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
+  const scopes = consent.scopes.split(",").flatMap((s) => {
+    const scope = s.trim();
+    return scope ? [scope] : [];
+  });
 
   const grantedAt = new Date(consent.createdAt).toLocaleDateString(undefined, {
     year: "numeric",

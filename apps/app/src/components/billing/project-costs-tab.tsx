@@ -19,7 +19,7 @@ import {
   TableRow,
 } from "@strait/ui/components/table";
 import { useQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { projectCostsQueryOptions } from "@/hooks/billing/use-project-costs";
 import { formatMicroUsd } from "@/lib/format";
 import ProjectBudgetDialog from "./project-budget-dialog";
@@ -50,10 +50,8 @@ const ProjectCostsTab = () => {
     { runs: 0, spend: 0, total: 0 }
   );
 
-  const sortedCosts = useMemo(
-    () =>
-      [...(costs ?? [])].sort((a, b) => b.total_microusd - a.total_microusd),
-    [costs]
+  const sortedCosts = [...(costs ?? [])].sort(
+    (a, b) => b.total_microusd - a.total_microusd
   );
 
   if (isEmpty) {

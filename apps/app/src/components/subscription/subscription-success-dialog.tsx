@@ -10,7 +10,7 @@ import {
   CredenzaTitle,
 } from "@strait/ui/components/credenza";
 import { EmptyMedia } from "@strait/ui/components/empty";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { CheckCircle2Icon, CreditCardIcon, SparklesIcon } from "@/lib/icons";
 
 type SubscriptionSuccessDialogProps = {
@@ -34,35 +34,36 @@ const SubscriptionSuccessDialog = ({
   const [dismissedKeys, setDismissedKeys] = useState<ReadonlySet<string>>(
     () => new Set()
   );
-  const cleanedKeysRef = useRef(new Set<string>());
-  const successKey = useMemo(() => {
-    if (isNewSubscription) {
-      return `new:${timestamp ?? "current"}`;
-    }
-    if (isUpgrade && timestamp) {
-      return `upgrade:${timestamp}`;
-    }
-    return null;
-  }, [isNewSubscription, isUpgrade, timestamp]);
+  const cleanedKeysRef = useRef<Set<string> | null>(null);
+  let successKey: string | null = null;
+  if (isNewSubscription) {
+    successKey = `new:${timestamp ?? "current"}`;
+  } else if (isUpgrade && timestamp) {
+    successKey = `upgrade:${timestamp}`;
+  }
   const open = Boolean(successKey && !dismissedKeys.has(successKey));
+  const cleanupUrl = useEffectEvent(() => {
+    onUrlCleanup?.();
+  });
 
   useEffect(() => {
+    if (!cleanedKeysRef.current) {
+      cleanedKeysRef.current = new Set<string>();
+    }
+
     if (successKey && open && !cleanedKeysRef.current.has(successKey)) {
       cleanedKeysRef.current.add(successKey);
-      onUrlCleanup?.();
+      cleanupUrl();
     }
-  }, [onUrlCleanup, open, successKey]);
+  }, [open, successKey]);
 
-  const handleOpenChange = useCallback(
-    (nextOpen: boolean) => {
-      if (nextOpen || !successKey) {
-        return;
-      }
-      setDismissedKeys((current) => new Set(current).add(successKey));
-      onClose?.();
-    },
-    [onClose, successKey]
-  );
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (nextOpen || !successKey) {
+      return;
+    }
+    setDismissedKeys((current) => new Set(current).add(successKey));
+    onClose?.();
+  };
 
   return (
     <Credenza onOpenChange={handleOpenChange} open={open}>
