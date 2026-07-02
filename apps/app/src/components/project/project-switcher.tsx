@@ -16,6 +16,7 @@ import {
   projectsQueryOptions,
   useSetActiveProject,
 } from "@/hooks/api/use-projects";
+import { useProjectPermissions } from "@/hooks/auth/use-project-permissions";
 import { BriefcaseIcon, ChevronDownIcon, PlusIcon } from "@/lib/icons";
 import type { AuthUser } from "@/routes/__root";
 import CreateProjectDialog from "./create-project-dialog";
@@ -27,14 +28,26 @@ type Props = {
 const ProjectSwitcher = ({ user }: Props) => {
   const [createOpen, setCreateOpen] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [isHydrated, setIsHydrated] = useState(false);
   const setActiveProject = useSetActiveProject();
 
   const organizationId = user.defaultOrganizationId ?? "";
   const [activeProjectId, setActiveProjectId] = useState(user.activeProjectId);
+  const projectPermissions = useProjectPermissions(activeProjectId);
+  const { permissions } = projectPermissions;
+  const permissionsReady =
+    !activeProjectId ||
+    projectPermissions.isSuccess ||
+    projectPermissions.isError;
+  const canCreateProject = !activeProjectId || permissions.canManageProjects;
 
   useEffect(() => {
     setActiveProjectId(user.activeProjectId);
   }, [user.activeProjectId]);
+
+  useEffect(() => {
+    setIsHydrated(true);
+  }, []);
 
   const { data: projects } = useQuery({
     ...projectsQueryOptions(organizationId),
@@ -46,12 +59,16 @@ const ProjectSwitcher = ({ user }: Props) => {
   const handleSwitch = useCallback(
     async (projectId: string) => {
       if (projectId === activeProjectId) {
+        setDropdownOpen(false);
         return;
       }
       if (setActiveProject.isPending) {
         return;
       }
 
+      const previousProjectId = activeProjectId;
+      setActiveProjectId(projectId);
+      setDropdownOpen(false);
       const switchPromise = setActiveProject.mutateAsync({ projectId });
 
       toast.promise(switchPromise, {
@@ -62,10 +79,8 @@ const ProjectSwitcher = ({ user }: Props) => {
 
       try {
         await switchPromise;
-        setActiveProjectId(projectId);
-        setDropdownOpen(false);
       } catch {
-        // handled by toast
+        setActiveProjectId(previousProjectId);
       }
     },
     [activeProjectId, setActiveProject]
@@ -84,6 +99,7 @@ const ProjectSwitcher = ({ user }: Props) => {
       <>
         <SidebarMenuButton
           className="w-full"
+          disabled={!isHydrated}
           onClick={() => setCreateOpen(true)}
         >
           <HugeiconsIcon
@@ -108,7 +124,14 @@ const ProjectSwitcher = ({ user }: Props) => {
   return (
     <>
       <DropdownMenu onOpenChange={setDropdownOpen} open={dropdownOpen}>
-        <DropdownMenuTrigger render={<SidebarMenuButton className="w-full" />}>
+        <DropdownMenuTrigger
+          render={
+            <SidebarMenuButton
+              className="w-full"
+              disabled={!(isHydrated && permissionsReady)}
+            />
+          }
+        >
           <HugeiconsIcon
             className="text-muted-foreground"
             icon={BriefcaseIcon}
@@ -128,33 +151,39 @@ const ProjectSwitcher = ({ user }: Props) => {
               checked={project.id === activeProjectId}
               disabled={setActiveProject.isPending}
               key={project.id}
-              onSelect={(e) => {
-                e.preventDefault();
+              onClick={(event) => {
+                event.preventDefault();
                 handleSwitch(project.id);
               }}
             >
               {project.name}
             </DropdownMenuCheckboxItem>
           ))}
-          <DropdownMenuSeparator />
-          <DropdownMenuItem
-            onClick={() => {
-              setDropdownOpen(false);
-              setCreateOpen(true);
-            }}
-          >
-            <HugeiconsIcon className="size-4" icon={PlusIcon} />
-            New project
-          </DropdownMenuItem>
+          {canCreateProject && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={() => {
+                  setDropdownOpen(false);
+                  setCreateOpen(true);
+                }}
+              >
+                <HugeiconsIcon className="size-4" icon={PlusIcon} />
+                New project
+              </DropdownMenuItem>
+            </>
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <CreateProjectDialog
-        onCreated={handleCreated}
-        onOpenChange={setCreateOpen}
-        open={createOpen}
-        organizationId={organizationId}
-      />
+      {canCreateProject && (
+        <CreateProjectDialog
+          onCreated={handleCreated}
+          onOpenChange={setCreateOpen}
+          open={createOpen}
+          organizationId={organizationId}
+        />
+      )}
     </>
   );
 };

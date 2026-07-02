@@ -3,7 +3,7 @@ import { IdCell } from "@strait/ui/components/id-cell";
 import { StatusBadge } from "@strait/ui/components/status-badge";
 import { Link } from "@tanstack/react-router";
 import type { ColumnDef } from "@tanstack/react-table";
-import { formatDistanceToNow } from "date-fns";
+import { RelativeTime } from "@/components/common/relative-time";
 import type { DisplayStatus, JobRun } from "@/hooks/api/types";
 import { EyeIcon, RefreshIcon, XCircleIcon } from "@/lib/icons";
 import { createActionsColumn, createSelectColumn } from "./shared-columns";
@@ -88,10 +88,7 @@ export const createRunColumns = (
   {
     accessorKey: "created_at",
     header: "Started",
-    cell: ({ row }) =>
-      formatDistanceToNow(new Date(row.original.created_at), {
-        addSuffix: true,
-      }),
+    cell: ({ row }) => <RelativeTime value={row.original.created_at} />,
   },
   createActionsColumn<JobRun>([
     {
@@ -101,6 +98,7 @@ export const createRunColumns = (
     },
     {
       label: "Retry",
+      hidden: !actions.onRetry,
       icon: RefreshIcon,
       onClick: (row) => actions.onRetry?.(row.original),
     },

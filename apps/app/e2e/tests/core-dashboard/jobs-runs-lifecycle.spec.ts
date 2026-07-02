@@ -76,10 +76,10 @@ test.describe("Jobs and runs lifecycle", () => {
   test("lists seeded jobs and supports search", async ({ page }) => {
     await page.goto("/app/jobs", { waitUntil: "domcontentloaded" });
 
-    await page.getByPlaceholder("Search jobs...").fill(completedJobName);
+    await page.getByLabel("Search").fill(completedJobName);
     await expect(page.getByText(completedJobName)).toBeVisible();
 
-    await page.getByPlaceholder("Search jobs...").fill(failedJobName);
+    await page.getByLabel("Search").fill(failedJobName);
     await expect(page.getByText(failedJobName)).toBeVisible();
   });
 
@@ -88,7 +88,7 @@ test.describe("Jobs and runs lifecycle", () => {
   }) => {
     await page.goto("/app/runs", { waitUntil: "domcontentloaded" });
 
-    await expect(page.getByRole("table", { name: "Runs" })).toBeVisible();
+    await expect(page.getByRole("region", { name: "Runs" })).toBeVisible();
     await expect(
       page.getByRole("link", { name: completedRunId.slice(0, 8) }).first()
     ).toBeVisible();

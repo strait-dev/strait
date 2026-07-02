@@ -9,7 +9,6 @@ import (
 	"errors"
 	"io"
 	"sync"
-	"unsafe"
 )
 
 var (
@@ -111,7 +110,7 @@ func (k *KeyRotator) Decrypt(ciphertext []byte) ([]byte, error) {
 }
 
 func (k *KeyRotator) EncryptString(plaintext string) (string, error) {
-	ciphertext, err := k.Encrypt(readOnlyStringBytes(plaintext))
+	ciphertext, err := k.Encrypt([]byte(plaintext))
 	if err != nil {
 		return "", err
 	}
@@ -193,7 +192,7 @@ func (e *Encryptor) Decrypt(ciphertext []byte) ([]byte, error) {
 }
 
 func (e *Encryptor) EncryptString(plaintext string) (string, error) {
-	ciphertext, err := e.Encrypt(readOnlyStringBytes(plaintext))
+	ciphertext, err := e.Encrypt([]byte(plaintext))
 	if err != nil {
 		return "", err
 	}
@@ -213,12 +212,6 @@ func (e *Encryptor) DecryptString(ciphertext string) (string, error) {
 	}
 
 	return string(plaintext), nil
-}
-
-func readOnlyStringBytes(s string) []byte {
-	// AES-GCM consumes plaintext synchronously in Seal and never retains it, so
-	// EncryptString can avoid copying the immutable string into a temporary byte slice.
-	return unsafe.Slice(unsafe.StringData(s), len(s))
 }
 
 func parseKey(key string) ([]byte, error) {

@@ -6,6 +6,9 @@ description = "Allowlist for test fixtures, docs examples, build artifacts, and 
 
 paths = [
     '''^\.agents/''',
+    '''^apps/docs/.*\.mdx$''',
+    '''^apps/website/\.next/''',
+    '''^docs/.*\.mdx$''',
     '''_test\.go$''',
     '''_test\.ts$''',
     '''__tests__/''',
@@ -39,4 +42,5 @@ regexes = [
     '''loadtest-secret''',
     '''dump-openapi''',
     '''mwesulbn1k\.ufs\.sh''',
+    '''Authorization:\s*Bearer\s+(\$[A-Z0-9_]+|YOUR_[A-Z0-9_]+|<[^>]+>|strait_\.\.\.|strait_sk_\.\.\.|eyJ\.\.\.)''',
 ]

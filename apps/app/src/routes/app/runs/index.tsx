@@ -33,6 +33,10 @@ import { FacetedStatusFilter } from "@/components/common/faceted-status-filter";
 import NoProjectState from "@/components/common/no-project-state";
 import TablePageSkeleton from "@/components/common/table-page-skeleton";
 import RunDetailSheet from "@/components/dashboard/run-detail-sheet";
+import {
+  getResourceTableInitialState,
+  RESOURCE_TABLE_CLASS_NAMES,
+} from "@/components/tables/resource-table";
 import { createRunColumns } from "@/components/tables/runs-columns";
 import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import type { JobRun, PaginatedResponse, RunStatus } from "@/hooks/api/types";
@@ -41,7 +45,9 @@ import {
   useCancelRun,
   useRetryRun,
 } from "@/hooks/api/use-runs";
+import { useProjectPermissions } from "@/hooks/auth/use-project-permissions";
 import { useCursorPagination } from "@/hooks/use-cursor-pagination";
+import { useHydratedTableData } from "@/hooks/use-hydrated-table-data";
 import {
   ActivityIcon,
   EyeIcon,
@@ -49,6 +55,7 @@ import {
   SearchIcon,
   XCircleIcon,
 } from "@/lib/icons";
+import { runResourcePermissions } from "@/lib/resource-permissions";
 import { RUN_STATUS_OPTIONS } from "@/lib/status";
 import { stopInteractiveRowClick } from "@/lib/table-interactions";
 import type { AppRouteContext } from "@/routes/app/layout";
@@ -111,18 +118,37 @@ function RunsPage() {
   const [sheetOpen, setSheetOpen] = useState(false);
   const retryRun = useRetryRun();
   const cancelRun = useCancelRun();
+  const { permissions } = useProjectPermissions(session.user.activeProjectId);
+  const actionPermissions = runResourcePermissions(permissions);
 
   const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({});
   const selectedStatuses = (search.status ?? []) as RunStatus[];
 
   const typed = data as PaginatedResponse<JobRun> | undefined;
-  const tableData = hasProject ? (typed?.data ?? []) : [];
+  const filteredData = useMemo(() => {
+    let runs = hasProject ? (typed?.data ?? []) : [];
+    const query = search.query?.trim().toLowerCase();
+    if (query) {
+      runs = runs.filter((run) =>
+        [run.id, run.job_id, run.status, run.error, run.triggered_by]
+          .filter(Boolean)
+          .some((value) => value?.toLowerCase().includes(query))
+      );
+    }
+    if (selectedStatuses.length === 0) {
+      return runs;
+    }
+    return runs.filter((run) =>
+      selectedStatuses.includes(run.status as RunStatus)
+    );
+  }, [typed, hasProject, search.query, selectedStatuses]);
+  const tableData = useHydratedTableData(filteredData);
 
   const summary = useMemo(() => {
     let succeeded = 0;
     let failed = 0;
     let running = 0;
-    for (const run of tableData) {
+    for (const run of filteredData) {
       if (run.status === "completed") {
         succeeded++;
       } else if (
@@ -140,23 +166,28 @@ function RunsPage() {
     const successRate =
       completed > 0 ? Math.round((succeeded / completed) * 100) : null;
     return { succeeded, failed, running, successRate };
-  }, [tableData]);
+  }, [filteredData]);
 
   const table = useReactTable({
-    data: tableData,
+    data: tableData.data,
     columns: createRunColumns({
       onView: (run) => {
         setSelectedRun(run);
         setSheetOpen(true);
       },
-      onRetry: (run) => retryRun.mutate({ run_id: run.id }),
-      onCancel: (run) => cancelRun.mutate({ run_id: run.id }),
+      onRetry: actionPermissions.canRetry
+        ? (run) => retryRun.mutate({ run_id: run.id })
+        : undefined,
+      onCancel: actionPermissions.canCancel
+        ? (run) => cancelRun.mutate({ run_id: run.id })
+        : undefined,
     }),
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
     getSortedRowModel: getSortedRowModel(),
     manualPagination: true,
     enableRowSelection: true,
+    initialState: getResourceTableInitialState(),
     onRowSelectionChange: setRowSelection,
     state: { globalFilter: search.query ?? "", rowSelection },
     onGlobalFilterChange: (query) =>
@@ -211,10 +242,10 @@ function RunsPage() {
   return (
     <Shell>
       <h1 className="sr-only">Runs</h1>
-      {tableData.length > 0 && (
+      {filteredData.length > 0 && (
         <div className="flex flex-wrap items-center gap-4 pb-3 text-sm">
           <span className="text-muted-foreground">
-            {tableData.length} run{tableData.length === 1 ? "" : "s"}
+            {filteredData.length} run{filteredData.length === 1 ? "" : "s"}
           </span>
           <span className="flex items-center gap-1.5">
             <StatusBadge dotOnly size="xs" status="completed" />
@@ -270,13 +301,16 @@ function RunsPage() {
         />
       </div>
 
-      <div onClickCapture={stopInteractiveRowClick}>
+      <section aria-label="Runs" onClickCapture={stopInteractiveRowClick}>
         <DataGrid
           emptyMessage={emptyState}
+          loading={tableData.isLoading}
           onRowClick={handleRowClick}
-          recordCount={table.getRowModel().rows.length}
+          recordCount={
+            tableData.isHydrated ? table.getRowModel().rows.length : 0
+          }
           table={table}
-          tableClassNames={{ base: "min-w-[1200px]" }}
+          tableClassNames={RESOURCE_TABLE_CLASS_NAMES}
         >
           <DataGridContainer>
             <DataGridScrollArea>
@@ -316,29 +350,41 @@ function RunsPage() {
                     },
                   ]
                 : []),
-              {
-                label: "Retry",
-                icon: RefreshIcon,
-                onClick: () => {
-                  for (const id of selectedIds) {
-                    retryRun.mutate({ run_id: id });
-                  }
-                },
-              },
-              {
-                label: "Cancel",
-                icon: XCircleIcon,
-                onClick: () => {
-                  for (const id of selectedIds) {
-                    cancelRun.mutate({ run_id: id });
-                  }
-                },
-                variant: "destructive",
-              },
+              ...(actionPermissions.canRetry || actionPermissions.canCancel
+                ? [
+                    ...(actionPermissions.canRetry
+                      ? [
+                          {
+                            label: "Retry",
+                            icon: RefreshIcon,
+                            onClick: () => {
+                              for (const id of selectedIds) {
+                                retryRun.mutate({ run_id: id });
+                              }
+                            },
+                          },
+                        ]
+                      : []),
+                    ...(actionPermissions.canCancel
+                      ? [
+                          {
+                            label: "Cancel",
+                            icon: XCircleIcon,
+                            onClick: () => {
+                              for (const id of selectedIds) {
+                                cancelRun.mutate({ run_id: id });
+                              }
+                            },
+                            variant: "destructive" as const,
+                          },
+                        ]
+                      : []),
+                  ]
+                : []),
             ]}
           />
         </DataGrid>
-      </div>
+      </section>
 
       <RunDetailSheet
         onOpenChange={setSheetOpen}

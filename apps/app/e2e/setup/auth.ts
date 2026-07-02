@@ -3,7 +3,8 @@ import { chromium } from "@playwright/test";
 export async function signInAndSaveState(
   baseURL: string,
   email: string,
-  password: string
+  password: string,
+  storageStatePath = "playwright/.auth/user.json"
 ) {
   const signinRes = await fetch(`${baseURL}/api/auth/sign-in/email`, {
     method: "POST",
@@ -75,7 +76,7 @@ export async function signInAndSaveState(
       waitUntil: "domcontentloaded",
     });
     await page.waitForURL("**/app/**", { timeout: 15_000 });
-    await context.storageState({ path: "playwright/.auth/user.json" });
+    await context.storageState({ path: storageStatePath });
   } finally {
     await browser.close();
   }

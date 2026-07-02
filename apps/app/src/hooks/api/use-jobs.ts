@@ -1,3 +1,4 @@
+import { toast } from "@strait/ui/components/toast";
 import {
   keepPreviousData,
   queryOptions,
@@ -22,6 +23,39 @@ import {
   requireActiveProjectAccess,
   requireActiveProjectAdmin,
 } from "@/middlewares/require-access";
+
+export type JobMutationInput = {
+  name?: string;
+  slug?: string;
+  description?: string;
+  endpoint_url?: string;
+  cron?: string;
+  max_attempts?: number;
+  timeout_secs?: number;
+  retry_strategy?: "exponential" | "linear" | "fixed" | "custom";
+  execution_mode?: "http" | "worker";
+  queue_name?: string;
+  enabled?: boolean;
+};
+
+export type CreateJobInput = JobMutationInput & {
+  name: string;
+};
+
+export type UpdateJobInput = JobMutationInput & {
+  id: string;
+};
+
+function slugFromName(name: string) {
+  const base = name
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48);
+  const suffix = Math.random().toString(36).slice(2, 8);
+  return `${base || "job"}-${suffix}`;
+}
 
 export const fetchJobs = createServerFn({ method: "GET" })
   .inputValidator(
@@ -76,8 +110,39 @@ export const triggerJobFn = createServerFn({ method: "POST" })
     }
   );
 
+export const createJobFn = createServerFn({ method: "POST" })
+  .inputValidator((data: CreateJobInput) => data)
+  .middleware([authMiddleware])
+  .handler(
+    // @ts-expect-error tsgo cannot resolve createServerFn handler generics
+    async ({ context, data }): Promise<Job> => {
+      const projectId = await requireActiveProjectAdmin(context);
+      const executionMode = data.execution_mode ?? "http";
+      return await runWithSentryReport(
+        apiEffect<Job>("/v1/jobs", {
+          method: "POST",
+          body: {
+            project_id: projectId,
+            name: data.name,
+            slug: data.slug || slugFromName(data.name),
+            description: data.description,
+            endpoint_url:
+              executionMode === "worker" ? undefined : data.endpoint_url,
+            cron: data.cron,
+            max_attempts: data.max_attempts,
+            timeout_secs: data.timeout_secs,
+            retry_strategy: data.retry_strategy,
+            execution_mode: executionMode,
+            queue_name: data.queue_name,
+            enabled: data.enabled,
+          },
+        })
+      );
+    }
+  );
+
 export const updateJobFn = createServerFn({ method: "POST" })
-  .inputValidator((data: { id: string; enabled?: boolean }) => data)
+  .inputValidator((data: UpdateJobInput) => data)
   .middleware([authMiddleware])
   .handler(
     // @ts-expect-error tsgo cannot resolve createServerFn handler generics
@@ -89,6 +154,16 @@ export const updateJobFn = createServerFn({ method: "POST" })
       );
     }
   );
+
+export const deleteJobFn = createServerFn({ method: "POST" })
+  .inputValidator((data: { id: string }) => data)
+  .middleware([authMiddleware])
+  .handler(async ({ context, data }): Promise<void> => {
+    await requireActiveProjectAdmin(context);
+    return await runWithSentryReport(
+      apiEffect<void>(apiPath`/v1/jobs/${data.id}`, { method: "DELETE" })
+    );
+  });
 
 export const fetchJobHealth = createServerFn({ method: "GET" })
   .inputValidator((data: { id: string; window?: string }) => data)
@@ -168,6 +243,7 @@ export const useTriggerJob = () => {
       getPostHog()?.capture("job_triggered", { job_id: variables.id });
     },
     onError: (err, variables) => {
+      toast.error("Failed to trigger job.");
       getPostHog()?.capture("mutation_error", {
         action: "job_triggered",
         error_message: err instanceof Error ? err.message : "Unknown error",
@@ -177,6 +253,98 @@ export const useTriggerJob = () => {
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.jobs._def });
       queryClient.invalidateQueries({ queryKey: queryKeys.runs._def });
+    },
+  });
+};
+
+export const useCreateJob = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationKey: ["jobs", "create"],
+    mutationFn: async (data: CreateJobInput) =>
+      (await createJobFn({ data })) as Job,
+    onSuccess: (job) => {
+      getPostHog()?.capture("job_created", { job_id: job.id });
+    },
+    onError: (err) => {
+      getPostHog()?.capture("mutation_error", {
+        action: "job_created",
+        error_message: err instanceof Error ? err.message : "Unknown error",
+      });
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.jobs._def });
+      queryClient.invalidateQueries({ queryKey: queryKeys.schedules._def });
+    },
+  });
+};
+
+export const useUpdateJob = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationKey: ["jobs", "update"],
+    mutationFn: async (data: UpdateJobInput) =>
+      (await updateJobFn({ data })) as Job,
+    onSuccess: (job) => {
+      getPostHog()?.capture("job_updated", { job_id: job.id });
+    },
+    onError: (err, variables) => {
+      getPostHog()?.capture("mutation_error", {
+        action: "job_updated",
+        error_message: err instanceof Error ? err.message : "Unknown error",
+        job_id: variables.id,
+      });
+    },
+    onSettled: (_data, _err, variables) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.jobs._def });
+      queryClient.invalidateQueries({ queryKey: queryKeys.schedules._def });
+      if (variables?.id) {
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.jobs.detail(variables.id).queryKey,
+        });
+      }
+    },
+  });
+};
+
+export const useDeleteJob = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationKey: ["jobs", "delete"],
+    mutationFn: (id: string) => deleteJobFn({ data: { id } }),
+    onMutate: async (id) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.jobs._def });
+      const previousLists = queryClient.getQueriesData<PaginatedResponse<Job>>({
+        queryKey: queryKeys.jobs.list._def,
+      });
+
+      queryClient.setQueriesData<PaginatedResponse<Job>>(
+        { queryKey: queryKeys.jobs.list._def },
+        (old) =>
+          old ? { ...old, data: old.data.filter((job) => job.id !== id) } : old
+      );
+
+      return { previousLists };
+    },
+    onSuccess: (_data, id) => {
+      getPostHog()?.capture("job_deleted", { job_id: id });
+    },
+    onError: (err, variables, context) => {
+      toast.error("Failed to delete job.");
+      if (context?.previousLists) {
+        for (const [key, data] of context.previousLists) {
+          queryClient.setQueryData(key, data);
+        }
+      }
+      getPostHog()?.capture("mutation_error", {
+        action: "job_deleted",
+        error_message: err instanceof Error ? err.message : "Unknown error",
+        job_id: variables,
+      });
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.jobs._def });
+      queryClient.invalidateQueries({ queryKey: queryKeys.schedules._def });
     },
   });
 };
@@ -198,7 +366,7 @@ export const usePauseJob = () => {
 
       queryClient.setQueryData<Job>(
         queryKeys.jobs.detail(data.id).queryKey,
-        (old) => (old ? { ...old, enabled: false } : old)
+        (old) => (old ? { ...old, paused: true } : old)
       );
 
       queryClient.setQueriesData<PaginatedResponse<Job>>(
@@ -208,7 +376,7 @@ export const usePauseJob = () => {
             ? {
                 ...old,
                 data: old.data.map((job) =>
-                  job.id === data.id ? { ...job, enabled: false } : job
+                  job.id === data.id ? { ...job, paused: true } : job
                 ),
               }
             : old
@@ -217,6 +385,7 @@ export const usePauseJob = () => {
       return { previousDetail };
     },
     onError: (_err, data, context) => {
+      toast.error("Failed to pause job.");
       if (context?.previousDetail) {
         queryClient.setQueryData(
           queryKeys.jobs.detail(data.id).queryKey,
@@ -252,7 +421,7 @@ export const useResumeJob = () => {
 
       queryClient.setQueryData<Job>(
         queryKeys.jobs.detail(data.id).queryKey,
-        (old) => (old ? { ...old, enabled: true } : old)
+        (old) => (old ? { ...old, paused: false } : old)
       );
 
       queryClient.setQueriesData<PaginatedResponse<Job>>(
@@ -262,7 +431,7 @@ export const useResumeJob = () => {
             ? {
                 ...old,
                 data: old.data.map((job) =>
-                  job.id === data.id ? { ...job, enabled: true } : job
+                  job.id === data.id ? { ...job, paused: false } : job
                 ),
               }
             : old
@@ -271,6 +440,7 @@ export const useResumeJob = () => {
       return { previousDetail };
     },
     onError: (_err, data, context) => {
+      toast.error("Failed to resume job.");
       if (context?.previousDetail) {
         queryClient.setQueryData(
           queryKeys.jobs.detail(data.id).queryKey,

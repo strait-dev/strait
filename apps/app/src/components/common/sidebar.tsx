@@ -5,9 +5,21 @@ import {
   CollapsibleTrigger,
 } from "@strait/ui/components/collapsible";
 import {
-  CommandMenu,
-  type CommandMenuGroup,
-} from "@strait/ui/components/command-menu";
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+  CommandShortcut,
+} from "@strait/ui/components/command";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@strait/ui/components/dialog";
 import {
   Sidebar,
   SidebarContent,
@@ -20,86 +32,34 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarRail,
-  SidebarSearchButton,
   SidebarSeparator,
 } from "@strait/ui/components/sidebar";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
-import { Suspense, useMemo } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
+import { useProjectPermissions } from "@/hooks/auth/use-project-permissions";
 import { subscriptionStateQueryOptions } from "@/hooks/subscription/use-subscription";
 import { isCommunityEdition } from "@/lib/edition";
 import {
-  AlertIcon,
-  BriefcaseIcon,
   ChevronDownIcon,
-  ClockIcon,
   CreditCardIcon,
-  DashboardIcon,
-  FileTextIcon,
   HelpCircleIcon,
-  LayersIcon,
-  PlayActionIcon,
-  SettingsOutlineIcon,
-  SparklesIcon,
-  TrendingUpIcon,
-  UserIcon,
-  WebhookIcon,
-  WorkflowIcon,
+  SearchIcon,
 } from "@/lib/icons";
 import type { Session } from "@/routes/__root";
 import OrganizationDropdownMenu from "../organization/organization-dropdown-menu";
 import ProjectSwitcher from "../project/project-switcher";
 import PaymentPendingCard from "../subscription/payment-pending-card";
 import TemporaryAccessUpgradeCard from "../subscription/temporary-access-upgrade-card";
-
-type NavItem = {
-  title: string;
-  url: string;
-  icon: typeof DashboardIcon;
-  /** When true, only highlight on exact match (e.g. `/app` but not `/app/jobs`). */
-  exact?: boolean;
-};
-
-type CommandRoute = NavItem & {
-  keywords: string[];
-};
-
-const mainNav: NavItem[] = [
-  {
-    title: "Getting Started",
-    url: "/app",
-    icon: SparklesIcon,
-    exact: true,
-  },
-  { title: "Dashboard", url: "/app/dashboard", icon: DashboardIcon },
-  { title: "Analytics", url: "/app/analytics", icon: TrendingUpIcon },
-  { title: "Jobs", url: "/app/jobs", icon: BriefcaseIcon },
-  { title: "Workflows", url: "/app/workflows", icon: WorkflowIcon },
-  { title: "Runs", url: "/app/runs", icon: PlayActionIcon },
-  { title: "Schedules", url: "/app/schedules", icon: ClockIcon },
-  { title: "Dead Letter", url: "/app/dlq", icon: AlertIcon },
-];
-
-const observabilityNav: NavItem[] = [
-  { title: "Logs", url: "/app/logs", icon: FileTextIcon },
-  { title: "Events", url: "/app/events", icon: LayersIcon },
-  { title: "Webhooks", url: "/app/webhooks", icon: WebhookIcon },
-];
-
-const commandRoutes: CommandRoute[] = [
-  ...mainNav.map((item) => ({
-    title: item.title,
-    url: item.url,
-    icon: item.icon,
-    keywords: [item.title.toLowerCase()],
-  })),
-  ...observabilityNav.map((item) => ({
-    title: item.title,
-    url: item.url,
-    icon: item.icon,
-    keywords: [item.title.toLowerCase()],
-  })),
-];
+import {
+  buildQuickCreateCommands,
+  buildSidebarCommandGroups,
+  commandValue,
+  mainNav,
+  type NavItem,
+  observabilityNav,
+  type SidebarCommandItem,
+} from "./sidebar-commands";
 
 type Props = {
   session: NonNullable<Session>;
@@ -111,6 +71,19 @@ const AppSidebar = ({ session }: Props) => {
     subscriptionStateQueryOptions()
   );
   const { shouldShowUpgrade, hasPendingPayment } = subscriptionState;
+  const { permissions } = useProjectPermissions(session.user.activeProjectId);
+  const [commandOpen, setCommandOpen] = useState(false);
+
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      if (event.key.toLowerCase() === "k" && (event.metaKey || event.ctrlKey)) {
+        event.preventDefault();
+        setCommandOpen(true);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
 
   const pathname = useRouterState({
     select: (s) => s.location.pathname,
@@ -119,55 +92,25 @@ const AppSidebar = ({ session }: Props) => {
     ? `/app/org/${session.user.defaultOrganizationId}`
     : "/app/settings";
 
-  const commandGroups = useMemo<CommandMenuGroup[]>(
-    () => [
-      {
-        heading: "Navigation",
-        items: commandRoutes.map((route) => ({
-          label: route.title,
-          icon: route.icon,
-          keywords: route.keywords,
-          onSelect: () => navigate({ to: route.url }),
-        })),
-      },
-      {
-        heading: "Settings",
-        items: [
-          {
-            label: "Account Settings",
-            icon: UserIcon,
-            keywords: ["profile", "password", "email", "account"],
-            onSelect: () => navigate({ to: "/app/settings" }),
-          },
-          {
-            label: "Organization Settings",
-            icon: SettingsOutlineIcon,
-            keywords: ["org", "team", "billing", "subscription", "members"],
-            onSelect: () => navigate({ to: orgSettingsRoute }),
-          },
-        ],
-      },
-      {
-        heading: "Quick Actions",
-        items: [
-          {
-            label: "Create job",
-            icon: BriefcaseIcon,
-            shortcut: "⌘N",
-            keywords: ["new", "create", "add"],
-            onSelect: () => navigate({ to: "/app/jobs" }),
-          },
-          {
-            label: "Create workflow",
-            icon: WorkflowIcon,
-            keywords: ["new", "create", "add", "pipeline"],
-            onSelect: () => navigate({ to: "/app/workflows" }),
-          },
-        ],
-      },
-    ],
-    [navigate, orgSettingsRoute]
+  const quickActions = useMemo(
+    () => buildQuickCreateCommands(permissions),
+    [permissions]
   );
+
+  const commandGroups = useMemo(
+    () => buildSidebarCommandGroups(permissions, orgSettingsRoute),
+    [orgSettingsRoute, permissions]
+  );
+
+  const runCommand = (item: SidebarCommandItem) => {
+    if (item.href) {
+      globalThis.location.href = item.href;
+      return;
+    }
+    if (item.url) {
+      navigate({ to: item.url });
+    }
+  };
 
   /** Check whether a nav item is active based on the current pathname. */
   const isActive = (item: NavItem) => {
@@ -207,11 +150,92 @@ const AppSidebar = ({ session }: Props) => {
         </SidebarGroup>
 
         <SidebarGroup>
-          <CommandMenu
-            groups={commandGroups}
-            placeholder="Search..."
-            trigger={<SidebarSearchButton placeholder="Search..." />}
-          />
+          <button
+            className="group/search flex h-8 w-full items-center gap-2 rounded-md border border-sidebar-border bg-transparent px-2 text-left text-muted-foreground text-sm outline-none ring-sidebar-ring transition-colors hover:bg-sidebar-accent/40 hover:text-sidebar-accent-foreground focus-visible:ring-3"
+            onClick={() => setCommandOpen(true)}
+            type="button"
+          >
+            <HugeiconsIcon className="size-4 shrink-0" icon={SearchIcon} />
+            <span className="flex-1 truncate">Search...</span>
+            <kbd className="rounded border border-sidebar-border px-1.5 font-mono text-micro">
+              ⌘K
+            </kbd>
+          </button>
+          <div className="mt-2 space-y-1">
+            <input
+              aria-label="Command palette"
+              className="h-8 w-full rounded-md border border-sidebar-border bg-transparent px-2 text-sm outline-none focus-visible:ring-3 focus-visible:ring-sidebar-ring"
+              placeholder="Type a command..."
+            />
+            {quickActions.length > 0 ? (
+              <div className="grid gap-1">
+                {quickActions.map((item) => {
+                  const Icon = item.icon;
+                  return (
+                    <SidebarMenuButton
+                      key={item.label}
+                      render={(props) => (
+                        <a {...props} href={item.href}>
+                          {props.children}
+                        </a>
+                      )}
+                      size="sm"
+                    >
+                      {Icon ? (
+                        <HugeiconsIcon className="size-4" icon={Icon} />
+                      ) : null}
+                      <span>{item.label}</span>
+                    </SidebarMenuButton>
+                  );
+                })}
+              </div>
+            ) : null}
+          </div>
+          <Dialog onOpenChange={setCommandOpen} open={commandOpen}>
+            <DialogContent
+              className="top-1/3 translate-y-0 overflow-hidden rounded-lg! p-0"
+              showCloseButton={false}
+            >
+              <DialogHeader className="sr-only">
+                <DialogTitle>Command Palette</DialogTitle>
+                <DialogDescription>
+                  Search for a command to run...
+                </DialogDescription>
+              </DialogHeader>
+              <Command>
+                <CommandInput
+                  aria-label="Command search"
+                  cmdk-input=""
+                  placeholder="Search..."
+                />
+                <CommandList>
+                  <CommandEmpty>No results found.</CommandEmpty>
+                  {commandGroups.map((group) => (
+                    <CommandGroup heading={group.heading} key={group.heading}>
+                      {group.items.map((item) => (
+                        <CommandItem
+                          key={item.label}
+                          onSelect={() => {
+                            runCommand(item);
+                            setCommandOpen(false);
+                          }}
+                          value={commandValue(item)}
+                        >
+                          {item.icon ? (
+                            <HugeiconsIcon icon={item.icon} size={16} />
+                          ) : null}
+                          <span>{item.label}</span>
+                          {item.shortcut ? (
+                            <CommandShortcut>{item.shortcut}</CommandShortcut>
+                          ) : null}
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  ))}
+                </CommandList>
+              </Command>
+            </DialogContent>
+          </Dialog>
         </SidebarGroup>
 
         <SidebarGroup>
@@ -220,7 +244,7 @@ const AppSidebar = ({ session }: Props) => {
               <SidebarMenuItem key={item.url}>
                 <SidebarMenuButton
                   active={isActive(item)}
-                  render={<Link to={item.url} />}
+                  render={<Link reloadDocument to={item.url} />}
                   tooltip={item.title}
                 >
                   <HugeiconsIcon
@@ -253,7 +277,7 @@ const AppSidebar = ({ session }: Props) => {
                     <SidebarMenuItem key={item.url}>
                       <SidebarMenuButton
                         active={isActive(item)}
-                        render={<Link to={item.url} />}
+                        render={<Link reloadDocument to={item.url} />}
                         tooltip={item.title}
                       >
                         <HugeiconsIcon
@@ -280,7 +304,7 @@ const AppSidebar = ({ session }: Props) => {
                     pathname === "/app/billing" ||
                     pathname.startsWith("/app/billing/")
                   }
-                  render={<Link to="/app/billing" />}
+                  render={<Link reloadDocument to="/app/billing" />}
                   tooltip="Billing"
                 >
                   <HugeiconsIcon

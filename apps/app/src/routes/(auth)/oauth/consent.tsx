@@ -23,7 +23,7 @@ import {
 } from "@/lib/oauth-scopes";
 import { captureException } from "@/lib/sentry";
 import { authMiddleware } from "@/middlewares/auth";
-import { type ClientInfo, resolveRedirectHost } from "./consent-utils";
+import { type ClientInfo, resolveRedirectHost } from "./-consent-utils";
 
 type ScopeLevel = "read" | "write" | "admin";
 

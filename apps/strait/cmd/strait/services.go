@@ -547,7 +547,8 @@ func startAPIServer(deps apiServerDeps) {
 
 	billingStore := billing.NewPgStore(deps.dbPool)
 	stripeWebhook := buildStripeWebhook(g, cfg, queries, billingStore, billingEnforcer)
-	usageSvc := buildUsageService(billingStore, billingEnforcer)
+	usageEnforcer := buildUsageEnforcer(billingStore, billingEnforcer, deps.redisClient, deps.cacheBus, deps.cacheRegistry)
+	usageSvc := buildUsageService(billingStore, usageEnforcer)
 	siemDrain := buildAuditSIEMDrain(cfg)
 
 	srv := api.NewServer(api.ServerDeps{
@@ -674,11 +675,38 @@ func stripeWebhookOptions(cfg *config.Config, billingStore *billing.PgStore) []b
 	return opts
 }
 
-func buildUsageService(billingStore *billing.PgStore, billingEnforcer *billing.Enforcer) *billing.UsageService {
-	if billingEnforcer == nil {
+func buildUsageService(billingStore *billing.PgStore, billingEnforcer *billing.Enforcer) api.UsageService {
+	if billingStore == nil || billingEnforcer == nil {
 		return nil
 	}
-	return billing.NewUsageService(billingStore, billingEnforcer)
+
+	usageService := billing.NewUsageService(billingStore, billingEnforcer)
+	if usageService == nil {
+		return nil
+	}
+	return usageService
+}
+
+func buildUsageEnforcer(
+	billingStore *billing.PgStore,
+	billingEnforcer *billing.Enforcer,
+	rdb redis.Cmdable,
+	cacheBus *straitcache.Bus,
+	cacheRegistry *straitcache.Registry,
+) *billing.Enforcer {
+	if billingEnforcer != nil {
+		return billingEnforcer
+	}
+	if billingStore == nil {
+		return nil
+	}
+
+	return billing.NewEnforcer(
+		billingStore,
+		rdb,
+		slog.Default(),
+		billing.WithCacheBus(cacheBus, cacheRegistry),
+	)
 }
 
 func buildAuditSIEMDrain(cfg *config.Config) *logdrain.AuditSIEMDrain {

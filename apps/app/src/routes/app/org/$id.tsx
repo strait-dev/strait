@@ -8,7 +8,7 @@ import {
 } from "@strait/ui/components/tabs";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
-import { Suspense } from "react";
+import { Suspense, useEffect, useState } from "react";
 import ApiKeysManagement from "@/components/(settings)/api-keys-management";
 import DeleteOrganization from "@/components/(settings)/delete-organization";
 import OrganizationInfo from "@/components/(settings)/organization-info";
@@ -19,6 +19,7 @@ import DefaultCatchBoundary from "@/components/common/default-catch-boundary";
 import NotFound from "@/components/common/not-found";
 
 import { organizationQueryOptions } from "@/hooks/auth/use-organization";
+import { useOrganizationRole } from "@/hooks/auth/use-permissions";
 import { BuildingIcon, CreditCardIcon, KeyIcon, UsersIcon } from "@/lib/icons";
 import type { AppRouteContext } from "@/routes/app/layout";
 
@@ -40,9 +41,15 @@ function RouteComponent() {
   const { session } = Route.useLoaderData();
   const params = Route.useParams();
   const organizationId = params.id;
+  const [isHydrated, setIsHydrated] = useState(false);
   const { data: organization } = useQuery(
     organizationQueryOptions(organizationId)
   );
+  const { isAdmin } = useOrganizationRole(organizationId, session.user.id);
+
+  useEffect(() => {
+    setIsHydrated(true);
+  }, []);
 
   return (
     <Shell>
@@ -52,6 +59,7 @@ function RouteComponent() {
           <TabsList>
             <TabsTrigger
               className="flex items-center gap-2"
+              disabled={!isHydrated}
               value="organization"
             >
               <HugeiconsIcon className="size-4" icon={BuildingIcon} />
@@ -59,24 +67,36 @@ function RouteComponent() {
             </TabsTrigger>
             <TabsTrigger
               className="flex items-center gap-2"
+              disabled={!isHydrated}
               value="subscription"
             >
               <HugeiconsIcon className="size-4" icon={CreditCardIcon} />
               Subscription
             </TabsTrigger>
-            <TabsTrigger className="flex items-center gap-2" value="api-keys">
+            <TabsTrigger
+              className="flex items-center gap-2"
+              disabled={!isHydrated}
+              value="api-keys"
+            >
               <HugeiconsIcon className="size-4" icon={KeyIcon} />
               API keys
             </TabsTrigger>
-            <TabsTrigger className="flex items-center gap-2" value="team">
+            <TabsTrigger
+              className="flex items-center gap-2"
+              disabled={!isHydrated}
+              value="team"
+            >
               <HugeiconsIcon className="size-4" icon={UsersIcon} />
               Team
             </TabsTrigger>
           </TabsList>
 
           <TabsContent className="mt-6 space-y-6" value="organization">
-            <OrganizationInfo organizationId={organizationId} />
-            {organization && (
+            <OrganizationInfo
+              canEdit={isAdmin}
+              organizationId={organizationId}
+            />
+            {isAdmin && organization && (
               <DeleteOrganization
                 organizationId={organizationId}
                 organizationName={organization.name}
@@ -97,7 +117,7 @@ function RouteComponent() {
           </TabsContent>
 
           <TabsContent className="mt-6 space-y-6" value="api-keys">
-            <ApiKeysManagement />
+            <ApiKeysManagement projectId={session.user.activeProjectId} />
           </TabsContent>
 
           <TabsContent className="mt-6 space-y-6" value="team">

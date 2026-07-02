@@ -28,12 +28,16 @@ The app runs at `http://localhost:5173`.
 
 ## Deploy
 
-The dashboard has two supported production targets:
+The dashboard is deployable on multiple hosting platforms. Docker is the
+portable self-host path and works on any host that can run a container, including
+Render, Railway, Fly.io, Cloud Run, VPS hosts, and k8s. Cloudflare Workers and
+Vercel are explicit hosted targets because they need platform-specific output.
 
 | Target | Command | Output | Use case |
 |---|---|---|---|
-| Node / Docker | `bun run build:node` | `.output/server/index.mjs` | Self-hosting, VPS, Fly.io, Cloud Run, k8s |
+| Docker / Node | `bun run build:node` | `.output/server/index.mjs` | Self-hosting and Docker-capable platforms |
 | Vercel | `bun run build:vercel` | `.vercel/output` | Managed hosted dashboard |
+| Cloudflare Workers | `bun run build` | `dist/` | Worker-hosted dashboard with Hyperdrive |
 
 The canonical portable path is the Docker image:
 
@@ -53,6 +57,21 @@ docker run --rm -p 3000:3000 \
 ```
 
 For the full self-hosted stack, see [SELFHOST.md](../../SELFHOST.md).
+
+### Deploy with Docker
+
+Use the Dockerfile for Render, Railway, Fly.io, Cloud Run, a VPS, k8s, or any
+host that supports container deployment. The image builds the portable Node
+server internally:
+
+| Setting | Value |
+|---|---|
+| Dockerfile | `apps/app/Dockerfile` |
+| Server entrypoint | `.output/server/index.mjs` |
+| Container command | `.output/server/index.mjs` |
+
+Use `bun run build:node` and `bun start` on direct Node hosts that run the app
+without Docker.
 
 ### Deploy to Vercel
 
@@ -78,6 +97,30 @@ Required environment variables:
 | `OIDC_ISSUER` / `OIDC_AUDIENCE` / `OIDC_PRIVATE_KEY_PEM` | Required for dashboard-issued OIDC tokens. Must match the Go backend public key config. |
 
 Optional variables enable OAuth, billing, email, Sentry, and PostHog. OAuth callback URLs must use the deployed dashboard origin from `BETTER_AUTH_URL`.
+
+### Deploy to Cloudflare Workers
+
+Use the Cloudflare target for Workers Builds or direct Wrangler deploys. This
+target uses TanStack Start's Cloudflare Worker entrypoint and the Cloudflare Vite
+plugin, so it produces `dist/` instead of Nitro Node output.
+
+| Setting | Value |
+|---|---|
+| Root directory | `apps/app` |
+| Install command | `bun install --frozen-lockfile` |
+| Build command | `bun run build` |
+| Preview deploy command | `bunx wrangler versions upload` |
+| Production deploy command | `bunx wrangler deploy` |
+| Worker config | `apps/app/wrangler.jsonc` |
+| Worker entrypoint | `@tanstack/react-start/server-entry` |
+
+Cloudflare Workers Builds can use the default `bun run build` command. That
+command is intentionally Cloudflare-safe because Workers Builds commonly runs it
+before `wrangler versions upload`.
+
+Required Cloudflare secrets are set in the Workers dashboard under Variables and
+Secrets. Non-secret defaults live in `wrangler.jsonc` so Cloudflare's deploy flow
+can prompt users to override them.
 
 ## Tech Stack
 
@@ -147,9 +190,10 @@ src/
 | Command | Description |
 |---|---|
 | `bun dev` | Start dev server on port 5173 |
-| `bun build` | Production build for the portable Node target |
+| `bun run build` | Production build for Cloudflare Workers |
 | `bun run build:node` | Build Nitro `node-server` output |
 | `bun run build:vercel` | Build Vercel output |
+| `bun run build:cloudflare` | Build Cloudflare Worker output |
 | `bun start` | Start the built Node server |
 | `bun test` | Run Vitest tests |
 | `bun run test:watch` | Run tests in watch mode |

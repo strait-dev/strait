@@ -13,10 +13,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@strait/ui/components/card";
-import {
-  CardCheckboxGroup,
-  CardCheckboxItem,
-} from "@strait/ui/components/card-checkbox";
 import { Field, FieldError, FieldLabel } from "@strait/ui/components/field";
 import { Input } from "@strait/ui/components/input";
 import { SecretInput } from "@strait/ui/components/secret-input";
@@ -24,9 +20,8 @@ import { Separator } from "@strait/ui/components/separator";
 import { Shell } from "@strait/ui/components/shell";
 import { Spinner } from "@strait/ui/components/spinner";
 import { toast } from "@strait/ui/components/toast";
-import { useForm } from "@tanstack/react-form";
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { z } from "zod/v4";
 import ErrorComponent from "@/components/common/error-component";
 import {
@@ -34,7 +29,6 @@ import {
   useCreateWebhook,
 } from "@/hooks/api/use-webhooks";
 import { useCurrentPlan } from "@/hooks/billing/use-current-plan";
-import { formatFieldErrors } from "@/lib/form-errors";
 import { CheckIcon, ChevronLeftIcon, PlusIcon } from "@/lib/icons";
 import { tierAtLeast } from "@/lib/plan-tiers";
 
@@ -147,45 +141,49 @@ function CreateWebhookPage() {
   const router = useRouter();
   const [createdWebhook, setCreatedWebhook] =
     useState<CreateWebhookResult | null>(null);
+  const [webhookURL, setWebhookURL] = useState("");
+  const [eventTypes, setEventTypes] = useState<string[]>([]);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [isHydrated, setIsHydrated] = useState(false);
 
-  const defaultValues = useMemo(
-    () => ({
-      webhook_url: "",
-      event_types: [] as string[],
-    }),
-    []
-  );
+  useEffect(() => {
+    setIsHydrated(true);
+  }, []);
 
-  const form = useForm({
-    defaultValues,
-    validators: { onChange: createWebhookSchema },
-    onSubmit: ({ value }) => {
-      const parsed = createWebhookSchema.parse(value);
+  function handleSubmit() {
+    const parsed = createWebhookSchema.safeParse({
+      webhook_url: webhookURL,
+      event_types: eventTypes,
+    });
+    if (!parsed.success) {
+      setFormError(z.prettifyError(parsed.error));
+      return;
+    }
 
-      toast.promise(
-        (async () => {
-          const result = await createWebhook.mutateAsync(parsed);
-          setCreatedWebhook(result);
-          form.reset();
-        })(),
-        {
-          loading: "Creating webhook...",
-          success: "Webhook created. Copy the signing secret now.",
-          error: "Failed to create webhook. Please try again.",
-        }
-      );
-    },
-  });
+    setFormError(null);
+    toast.promise(
+      (async () => {
+        const result = await createWebhook.mutateAsync(parsed.data);
+        setCreatedWebhook(result);
+        setWebhookURL("");
+        setEventTypes([]);
+      })(),
+      {
+        loading: "Creating webhook...",
+        success: "Webhook created. Copy the signing secret now.",
+        error: "Failed to create webhook. Please try again.",
+      }
+    );
+  }
 
-  function toggleEventType(eventType: string) {
-    const current = form.getFieldValue("event_types");
-    if (current.includes(eventType)) {
-      form.setFieldValue(
-        "event_types",
-        current.filter((t: string) => t !== eventType)
-      );
-    } else {
-      form.setFieldValue("event_types", [...current, eventType]);
+  function setEventType(eventType: string, checked: boolean) {
+    const hasEventType = eventTypes.includes(eventType);
+    if (checked && !hasEventType) {
+      setEventTypes([...eventTypes, eventType]);
+      return;
+    }
+    if (!checked && hasEventType) {
+      setEventTypes(eventTypes.filter((t) => t !== eventType));
     }
   }
 
@@ -232,7 +230,7 @@ function CreateWebhookPage() {
         className="mx-auto max-w-2xl space-y-6"
         onSubmit={(e) => {
           e.preventDefault();
-          form.handleSubmit();
+          handleSubmit();
         }}
       >
         <Card>
@@ -244,36 +242,18 @@ function CreateWebhookPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <form.Field name="webhook_url">
-              {(field) => (
-                <Field>
-                  <FieldLabel htmlFor={field.name}>URL</FieldLabel>
-                  <Input
-                    aria-describedby={
-                      field.state.meta.isTouched &&
-                      field.state.meta.errors.length > 0
-                        ? `${field.name}-error`
-                        : undefined
-                    }
-                    aria-invalid={
-                      field.state.meta.isTouched &&
-                      field.state.meta.errors.length > 0
-                    }
-                    id={field.name}
-                    onBlur={field.handleBlur}
-                    onChange={(e) => field.handleChange(e.target.value)}
-                    placeholder="https://example.com/webhooks/strait"
-                    value={field.state.value}
-                  />
-                  {field.state.meta.isTouched &&
-                    field.state.meta.errors.length > 0 && (
-                      <FieldError id={`${field.name}-error`}>
-                        {formatFieldErrors(field.state.meta.errors)}
-                      </FieldError>
-                    )}
-                </Field>
-              )}
-            </form.Field>
+            <Field>
+              <FieldLabel htmlFor="webhook_url">URL</FieldLabel>
+              <Input
+                aria-describedby={formError ? "webhook-form-error" : undefined}
+                aria-invalid={!!formError}
+                disabled={!isHydrated}
+                id="webhook_url"
+                onChange={(e) => setWebhookURL(e.target.value)}
+                placeholder="https://example.com/webhooks/strait"
+                value={webhookURL}
+              />
+            </Field>
           </CardContent>
         </Card>
 
@@ -285,55 +265,81 @@ function CreateWebhookPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <form.Field name="event_types">
-              {(field) => (
-                <Field>
-                  <CardCheckboxGroup>
-                    {BASIC_EVENTS.map((event) => (
-                      <CardCheckboxItem
-                        checked={field.state.value.includes(event.value)}
-                        description={event.description}
+            <Field>
+              <div className="grid gap-2">
+                {BASIC_EVENTS.map((event) => {
+                  const checked = eventTypes.includes(event.value);
+                  return (
+                    <label
+                      className="relative flex w-full cursor-pointer items-start gap-2 rounded-md border border-input p-4 shadow-black/5 shadow-sm has-[:checked]:border-ring"
+                      htmlFor={`event-type-${event.value}`}
+                      key={event.value}
+                    >
+                      <input
+                        checked={checked}
+                        className="mt-0.5 size-4 shrink-0 accent-primary"
+                        disabled={!isHydrated}
                         id={`event-type-${event.value}`}
-                        key={event.value}
-                        label={event.label}
-                        layout="start"
-                        onCheckedChange={() => toggleEventType(event.value)}
-                      />
-                    ))}
-
-                    <Separator className="my-1" />
-
-                    {PRO_EVENTS.map((event) => (
-                      <CardCheckboxItem
-                        checked={field.state.value.includes(event.value)}
-                        description={event.description}
-                        disabled={!hasProEvents}
-                        id={`event-type-${event.value}`}
-                        key={event.value}
-                        label={
-                          <>
-                            {event.label}
-                            {!hasProEvents && (
-                              <Badge className="ml-1.5" variant="outline">
-                                Pro
-                              </Badge>
-                            )}
-                          </>
+                        onChange={(changeEvent) =>
+                          setEventType(event.value, changeEvent.target.checked)
                         }
-                        layout="start"
-                        onCheckedChange={() => toggleEventType(event.value)}
+                        type="checkbox"
                       />
-                    ))}
-                  </CardCheckboxGroup>
-                  {field.state.meta.isTouched &&
-                    field.state.meta.errors.length > 0 && (
-                      <FieldError className="mt-2" id={`${field.name}-error`}>
-                        {formatFieldErrors(field.state.meta.errors)}
-                      </FieldError>
-                    )}
-                </Field>
+                      <span className="grid grow gap-2">
+                        <span className="font-medium text-sm leading-none">
+                          {event.label}
+                        </span>
+                        <span className="text-muted-foreground text-sm">
+                          {event.description}
+                        </span>
+                      </span>
+                    </label>
+                  );
+                })}
+
+                <Separator className="my-1" />
+
+                {PRO_EVENTS.map((event) => {
+                  const checked = eventTypes.includes(event.value);
+                  return (
+                    <label
+                      className="relative flex w-full cursor-pointer items-start gap-2 rounded-md border border-input p-4 shadow-black/5 shadow-sm has-[:disabled]:cursor-not-allowed has-[:checked]:border-ring has-[:disabled]:opacity-60"
+                      htmlFor={`event-type-${event.value}`}
+                      key={event.value}
+                    >
+                      <input
+                        checked={checked}
+                        className="mt-0.5 size-4 shrink-0 accent-primary"
+                        disabled={!(isHydrated && hasProEvents)}
+                        id={`event-type-${event.value}`}
+                        onChange={(changeEvent) =>
+                          setEventType(event.value, changeEvent.target.checked)
+                        }
+                        type="checkbox"
+                      />
+                      <span className="grid grow gap-2">
+                        <span className="font-medium text-sm leading-none">
+                          {event.label}
+                          {!hasProEvents && (
+                            <Badge className="ml-1.5" variant="outline">
+                              Pro
+                            </Badge>
+                          )}
+                        </span>
+                        <span className="text-muted-foreground text-sm">
+                          {event.description}
+                        </span>
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+              {formError && (
+                <FieldError className="mt-2" id="webhook-form-error">
+                  {formError}
+                </FieldError>
               )}
-            </form.Field>
+            </Field>
           </CardContent>
         </Card>
 
@@ -341,26 +347,18 @@ function CreateWebhookPage() {
           <Button render={<Link to="/app/webhooks" />} variant="secondary">
             Cancel
           </Button>
-          <form.Subscribe
-            selector={(state) => ({
-              canSubmit: state.canSubmit,
-              isSubmitting: state.isSubmitting,
-            })}
+          <Button
+            disabled={!isHydrated || createWebhook.isPending}
+            onClick={() => handleSubmit()}
+            type="button"
           >
-            {({ canSubmit, isSubmitting }) => (
-              <Button
-                disabled={!canSubmit || isSubmitting || createWebhook.isPending}
-                type="submit"
-              >
-                {isSubmitting || createWebhook.isPending ? (
-                  <Spinner />
-                ) : (
-                  <HugeiconsIcon className="size-4" icon={PlusIcon} />
-                )}
-                Create webhook
-              </Button>
+            {createWebhook.isPending ? (
+              <Spinner />
+            ) : (
+              <HugeiconsIcon className="size-4" icon={PlusIcon} />
             )}
-          </form.Subscribe>
+            Create webhook
+          </Button>
         </div>
       </form>
     </Shell>

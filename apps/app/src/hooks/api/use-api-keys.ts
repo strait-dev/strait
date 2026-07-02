@@ -12,7 +12,10 @@ import { getPostHog } from "@/lib/analytics";
 import { apiPath } from "@/lib/api-client.server";
 import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
-import { requireActiveProjectAdmin } from "@/middlewares/require-access";
+import {
+  requireActiveProjectAccess,
+  requireActiveProjectAdmin,
+} from "@/middlewares/require-access";
 
 const allowedApiKeyScopes = new Set([
   "jobs:read",
@@ -41,7 +44,7 @@ export const fetchApiKeys = createServerFn({ method: "GET" })
   .inputValidator((data: ListParams) => data)
   .middleware([authMiddleware])
   .handler(async ({ context, data }) => {
-    await requireActiveProjectAdmin(context);
+    await requireActiveProjectAccess(context);
     return await runWithSentryReport(
       apiEffect<PaginatedResponse<APIKey>>("/v1/api-keys", {
         params: { limit: data.limit, cursor: data.cursor },

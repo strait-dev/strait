@@ -43,6 +43,10 @@ import ErrorComponent from "@/components/common/error-component";
 import { FacetedStatusFilter } from "@/components/common/faceted-status-filter";
 import NoProjectState from "@/components/common/no-project-state";
 import TablePageSkeleton from "@/components/common/table-page-skeleton";
+import {
+  getResourceTableInitialState,
+  RESOURCE_TABLE_CLASS_NAMES,
+} from "@/components/tables/resource-table";
 import { createWebhookColumns } from "@/components/tables/webhooks-columns";
 import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import type { PaginatedResponse, WebhookSubscription } from "@/hooks/api/types";
@@ -50,7 +54,9 @@ import {
   useDeleteWebhook,
   webhooksQueryOptions,
 } from "@/hooks/api/use-webhooks";
+import { useProjectPermissions } from "@/hooks/auth/use-project-permissions";
 import { useCursorPagination } from "@/hooks/use-cursor-pagination";
+import { useHydratedTableData } from "@/hooks/use-hydrated-table-data";
 import {
   EyeIcon,
   PlusIcon,
@@ -58,8 +64,8 @@ import {
   TrashIcon,
   WebhookIcon,
 } from "@/lib/icons";
+import { webhookResourcePermissions } from "@/lib/resource-permissions";
 import { WEBHOOK_STATUS_OPTIONS } from "@/lib/status";
-import { stopInteractiveRowClick } from "@/lib/table-interactions";
 import type { AppRouteContext } from "@/routes/app/layout";
 
 const searchArraySchema = z.preprocess(
@@ -118,7 +124,20 @@ function WebhooksPage() {
   const typed = data as PaginatedResponse<WebhookSubscription> | undefined;
 
   const filteredData = useMemo(() => {
-    const webhooks = hasProject ? (typed?.data ?? []) : [];
+    let webhooks = hasProject ? (typed?.data ?? []) : [];
+    const query = search.query?.trim().toLowerCase();
+    if (query) {
+      webhooks = webhooks.filter((webhook) =>
+        [
+          webhook.id,
+          webhook.webhook_url,
+          webhook.event_types?.join(" "),
+          webhook.created_at,
+        ]
+          .filter(Boolean)
+          .some((value) => value?.toLowerCase().includes(query))
+      );
+    }
     if (selectedStatuses.length === 0) {
       return webhooks;
     }
@@ -131,22 +150,30 @@ function WebhooksPage() {
       }
       return false;
     });
-  }, [typed, selectedStatuses, hasProject]);
+  }, [typed, selectedStatuses, hasProject, search.query]);
 
   const deleteWebhook = useDeleteWebhook();
   const [deleteTarget, setDeleteTarget] = useState<string[] | null>(null);
+  const { permissions } = useProjectPermissions(session.user.activeProjectId);
+  const actionPermissions = webhookResourcePermissions(permissions);
 
   const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({});
+  const tableData = useHydratedTableData(filteredData);
   const table = useReactTable({
-    data: filteredData,
+    data: tableData.data,
     columns: createWebhookColumns({
-      onDelete: (wh) => setDeleteTarget([wh.id]),
+      onView: handleRowClick,
+      onDelete: actionPermissions.canDelete
+        ? (wh) => setDeleteTarget([wh.id])
+        : undefined,
+      disabled: !tableData.isHydrated,
     }),
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
     getSortedRowModel: getSortedRowModel(),
     manualPagination: true,
     enableRowSelection: true,
+    initialState: getResourceTableInitialState(),
     onRowSelectionChange: setRowSelection,
     state: { globalFilter: search.query ?? "", rowSelection },
     onGlobalFilterChange: (query) =>
@@ -260,23 +287,28 @@ function WebhooksPage() {
           values={selectedStatuses}
         />
 
-        <Button
-          className="ml-auto"
-          disabled={!hasProject}
-          render={<Link to="/app/webhooks/new" />}
-        >
-          <HugeiconsIcon className="mr-1.5" icon={PlusIcon} size={14} />
-          Create webhook
-        </Button>
+        {actionPermissions.canCreate && (
+          <Button
+            className="ml-auto"
+            disabled={!hasProject}
+            render={<Link to="/app/webhooks/new" />}
+          >
+            <HugeiconsIcon className="mr-1.5" icon={PlusIcon} size={14} />
+            Create webhook
+          </Button>
+        )}
       </div>
 
-      <div onClickCapture={stopInteractiveRowClick}>
+      <div>
         <DataGrid
           emptyMessage={emptyState}
+          loading={tableData.isLoading}
           onRowClick={handleRowClick}
-          recordCount={table.getRowModel().rows.length}
+          recordCount={
+            tableData.isHydrated ? table.getRowModel().rows.length : 0
+          }
           table={table}
-          tableClassNames={{ base: "min-w-[1200px]" }}
+          tableClassNames={RESOURCE_TABLE_CLASS_NAMES}
         >
           <DataGridContainer>
             <DataGridScrollArea>
@@ -316,12 +348,16 @@ function WebhooksPage() {
                     },
                   ]
                 : []),
-              {
-                label: "Delete",
-                icon: TrashIcon,
-                onClick: () => setDeleteTarget(selectedIds),
-                variant: "destructive",
-              },
+              ...(actionPermissions.canDelete
+                ? [
+                    {
+                      label: "Delete",
+                      icon: TrashIcon,
+                      onClick: () => setDeleteTarget(selectedIds),
+                      variant: "destructive" as const,
+                    },
+                  ]
+                : []),
             ]}
           />
         </DataGrid>

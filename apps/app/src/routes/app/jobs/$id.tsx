@@ -45,7 +45,7 @@ import {
   getSortedRowModel,
   useReactTable,
 } from "@tanstack/react-table";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import DetailPageSkeleton from "@/components/common/detail-page-skeleton";
 import EntityNotFound from "@/components/common/entity-not-found";
 import ErrorComponent from "@/components/common/error-component";
@@ -66,6 +66,11 @@ import {
   useRetryRun,
 } from "@/hooks/api/use-runs";
 import {
+  type ProjectPermissionFlags,
+  useProjectPermissions,
+} from "@/hooks/auth/use-project-permissions";
+import { useHydratedTableData } from "@/hooks/use-hydrated-table-data";
+import {
   ActivityIcon,
   ClockIcon,
   EyeIcon,
@@ -77,10 +82,12 @@ import {
   XCircleIcon,
 } from "@/lib/icons";
 import { stopInteractiveRowClick } from "@/lib/table-interactions";
+import type { AppRouteContext } from "@/routes/app/layout";
 
 export const Route = createFileRoute("/app/jobs/$id")({
   head: () => ({ meta: [{ title: "Job · Strait" }] }),
   loader: async ({ context, params }) => {
+    const { session } = context as AppRouteContext;
     await Promise.all([
       context.queryClient.ensureQueryData(jobQueryOptions(params.id)),
       context.queryClient.ensureQueryData(
@@ -90,6 +97,7 @@ export const Route = createFileRoute("/app/jobs/$id")({
         jobHealthQueryOptions(params.id, "7d")
       ),
     ]);
+    return { session };
   },
   pendingComponent: DetailPageSkeleton,
   errorComponent: ErrorComponent,
@@ -112,8 +120,61 @@ const STATUS_DISTRIBUTION_CONFIG = {
   Canceled: { label: "Canceled", color: "chart-5" },
 } satisfies ChartConfig;
 
+type JobHeaderActionsProps = {
+  isHydrated: boolean;
+  isPaused: boolean;
+  job: Job;
+  permissions: ProjectPermissionFlags;
+  pauseJob: ReturnType<typeof usePauseJob>;
+  resumeJob: ReturnType<typeof useResumeJob>;
+  triggerJob: ReturnType<typeof useTriggerJob>;
+};
+
+function JobHeaderActions({
+  isHydrated,
+  isPaused,
+  job,
+  permissions,
+  pauseJob,
+  resumeJob,
+  triggerJob,
+}: JobHeaderActionsProps) {
+  return (
+    <div className="flex gap-2">
+      {permissions.canTriggerJobs && (
+        <Button
+          disabled={!isHydrated || triggerJob.isPending}
+          onClick={() => triggerJob.mutate({ id: job.id })}
+        >
+          <HugeiconsIcon className="mr-1.5" icon={PlayActionIcon} size={14} />
+          {triggerJob.isPending ? "Triggering..." : "Trigger"}
+        </Button>
+      )}
+      {permissions.canWriteJobs && (
+        <Button
+          disabled={!isHydrated || pauseJob.isPending || resumeJob.isPending}
+          onClick={() =>
+            isPaused
+              ? resumeJob.mutate({ id: job.id })
+              : pauseJob.mutate({ id: job.id })
+          }
+          variant="outline"
+        >
+          <HugeiconsIcon
+            className="mr-1.5"
+            icon={isPaused ? PlayActionIcon : PauseActionIcon}
+            size={14}
+          />
+          {isPaused ? "Resume" : "Pause"}
+        </Button>
+      )}
+    </div>
+  );
+}
+
 function JobDetailPage() {
   const { id } = Route.useParams();
+  const { session } = Route.useLoaderData();
   usePageEvent("job_detail_viewed", { job_id: id });
   const { data: job } = useSuspenseQuery(jobQueryOptions(id)) as {
     data: Job | undefined;
@@ -129,6 +190,7 @@ function JobDetailPage() {
   const [selectedRun, setSelectedRun] = useState<JobRun | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({});
+  const [isHydrated, setIsHydrated] = useState(false);
 
   const { data: health } = useQuery(jobHealthQueryOptions(id, healthWindow));
 
@@ -137,15 +199,25 @@ function JobDetailPage() {
   const resumeJob = useResumeJob();
   const retryRun = useRetryRun();
   const cancelRun = useCancelRun();
+  const { permissions } = useProjectPermissions(session.user.activeProjectId);
 
   const jobRuns = runsData?.data ?? [];
+  const tableData = useHydratedTableData(jobRuns);
+
+  useEffect(() => {
+    setIsHydrated(true);
+  }, []);
 
   const table = useReactTable({
-    data: jobRuns,
+    data: tableData.data,
     columns: createRunColumns({
       onView: (run) => handleRowClick(run),
-      onRetry: (run) => retryRun.mutate({ run_id: run.id }),
-      onCancel: (run) => cancelRun.mutate({ run_id: run.id }),
+      onRetry: permissions.canWriteRuns
+        ? (run) => retryRun.mutate({ run_id: run.id })
+        : undefined,
+      onCancel: permissions.canWriteRuns
+        ? (run) => cancelRun.mutate({ run_id: run.id })
+        : undefined,
     }),
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
@@ -213,6 +285,8 @@ function JobDetailPage() {
     );
   }
 
+  const isPaused = job.paused || !job.enabled;
+
   return (
     <Shell>
       {/* Header */}
@@ -222,10 +296,7 @@ function JobDetailPage() {
             <h1 className="text-balance font-normal text-xl tracking-tight">
               {job.name}
             </h1>
-            <StatusBadge
-              showDot
-              status={job.enabled ? "completed" : "paused"}
-            />
+            <StatusBadge showDot status={isPaused ? "paused" : "completed"} />
           </div>
           {job.description && (
             <p className="text-pretty text-muted-foreground text-sm">
@@ -233,31 +304,15 @@ function JobDetailPage() {
             </p>
           )}
         </div>
-        <div className="flex gap-2">
-          <Button
-            disabled={triggerJob.isPending}
-            onClick={() => triggerJob.mutate({ id: job.id })}
-          >
-            <HugeiconsIcon className="mr-1.5" icon={PlayActionIcon} size={14} />
-            {triggerJob.isPending ? "Triggering..." : "Trigger"}
-          </Button>
-          <Button
-            disabled={pauseJob.isPending || resumeJob.isPending}
-            onClick={() =>
-              job.enabled
-                ? pauseJob.mutate({ id: job.id })
-                : resumeJob.mutate({ id: job.id })
-            }
-            variant="outline"
-          >
-            <HugeiconsIcon
-              className="mr-1.5"
-              icon={job.enabled ? PauseActionIcon : PlayActionIcon}
-              size={14}
-            />
-            {job.enabled ? "Pause" : "Resume"}
-          </Button>
-        </div>
+        <JobHeaderActions
+          isHydrated={isHydrated}
+          isPaused={isPaused}
+          job={job}
+          pauseJob={pauseJob}
+          permissions={permissions}
+          resumeJob={resumeJob}
+          triggerJob={triggerJob}
+        />
       </div>
 
       {/* Tabs */}
@@ -406,8 +461,9 @@ function JobDetailPage() {
                   </EmptyHeader>
                 </Empty>
               }
+              loading={tableData.isLoading}
               onRowClick={handleRowClick}
-              recordCount={jobRuns.length}
+              recordCount={tableData.isHydrated ? jobRuns.length : 0}
               table={table}
               tableClassNames={{ base: "min-w-[1200px]" }}
             >
@@ -437,25 +493,29 @@ function JobDetailPage() {
                         },
                       ]
                     : []),
-                  {
-                    label: "Retry",
-                    icon: RefreshIcon,
-                    onClick: () => {
-                      for (const id of selectedIds) {
-                        retryRun.mutate({ run_id: id });
-                      }
-                    },
-                  },
-                  {
-                    label: "Cancel",
-                    icon: XCircleIcon,
-                    onClick: () => {
-                      for (const id of selectedIds) {
-                        cancelRun.mutate({ run_id: id });
-                      }
-                    },
-                    variant: "destructive",
-                  },
+                  ...(permissions.canWriteRuns
+                    ? [
+                        {
+                          label: "Retry",
+                          icon: RefreshIcon,
+                          onClick: () => {
+                            for (const id of selectedIds) {
+                              retryRun.mutate({ run_id: id });
+                            }
+                          },
+                        },
+                        {
+                          label: "Cancel",
+                          icon: XCircleIcon,
+                          onClick: () => {
+                            for (const id of selectedIds) {
+                              cancelRun.mutate({ run_id: id });
+                            }
+                          },
+                          variant: "destructive" as const,
+                        },
+                      ]
+                    : []),
                 ]}
               />
             </DataGrid>

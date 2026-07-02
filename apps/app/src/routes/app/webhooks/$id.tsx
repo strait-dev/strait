@@ -50,7 +50,7 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 import { formatDistanceToNow } from "date-fns";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import DetailPageSkeleton from "@/components/common/detail-page-skeleton";
 import EntityNotFound from "@/components/common/entity-not-found";
 import ErrorComponent from "@/components/common/error-component";
@@ -62,6 +62,8 @@ import {
   webhookDeliveriesQueryOptions,
   webhookQueryOptions,
 } from "@/hooks/api/use-webhooks";
+import { useProjectPermissions } from "@/hooks/auth/use-project-permissions";
+import { useHydratedTableData } from "@/hooks/use-hydrated-table-data";
 import {
   ChevronLeftIcon,
   ClockIcon,
@@ -70,11 +72,14 @@ import {
   TrashIcon,
   WebhookIcon,
 } from "@/lib/icons";
+import type { AppRouteContext } from "@/routes/app/layout";
 
 export const Route = createFileRoute("/app/webhooks/$id")({
   head: () => ({ meta: [{ title: "Webhook · Strait" }] }),
   loader: async ({ context, params }) => {
+    const { session } = context as AppRouteContext;
     await context.queryClient.ensureQueryData(webhookQueryOptions(params.id));
+    return { session };
   },
   pendingComponent: DetailPageSkeleton,
   errorComponent: ErrorComponent,
@@ -137,11 +142,13 @@ const deliveryColumns = [
 
 function WebhookDetailPage() {
   const { id } = Route.useParams();
+  const { session } = Route.useLoaderData();
   const navigate = useNavigate();
   usePageEvent("webhook_detail_viewed", { webhook_id: id });
 
   const { data: webhook } = useSuspenseQuery(webhookQueryOptions(id));
   const [activeTab, setActiveTab] = useState("settings");
+  const [isHydrated, setIsHydrated] = useState(false);
   const {
     data: deliveriesData,
     isError: deliveriesError,
@@ -154,13 +161,19 @@ function WebhookDetailPage() {
 
   const deleteWebhook = useDeleteWebhook();
   const testWebhook = useTestWebhook();
+  const { permissions } = useProjectPermissions(session.user.activeProjectId);
+
+  useEffect(() => {
+    setIsHydrated(true);
+  }, []);
 
   const deliveries = (deliveriesData?.data ?? []).filter(
     (delivery) => delivery.subscription_id === id
   );
+  const tableData = useHydratedTableData(deliveries);
 
   const table = useReactTable({
-    data: deliveries,
+    data: tableData.data,
     columns: deliveryColumns,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
@@ -192,44 +205,64 @@ function WebhookDetailPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button
-            onClick={() => testWebhook.mutate(webhook.webhook_url)}
-            variant="outline"
-          >
-            <HugeiconsIcon className="mr-1.5" icon={PlayActionIcon} size={14} />
-            Send test
-          </Button>
-          <AlertDialog>
-            <AlertDialogTrigger render={<Button variant="destructive" />}>
-              <HugeiconsIcon className="mr-1.5" icon={TrashIcon} size={14} />
-              Delete
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Delete webhook?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  This will permanently delete this webhook subscription.
-                  Deliveries in progress will not be affected.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction
-                  disabled={deleteWebhook.isPending}
-                  onClick={() => {
-                    deleteWebhook.mutate(webhook.id, {
-                      onSuccess: () => {
-                        navigate({ to: "/app/webhooks" });
-                      },
-                    });
-                  }}
-                  variant="destructive"
+          {permissions.canWriteWebhooks && (
+            <>
+              <Button
+                disabled={!isHydrated || testWebhook.isPending}
+                onClick={() => testWebhook.mutate(webhook.webhook_url)}
+                variant="outline"
+              >
+                <HugeiconsIcon
+                  className="mr-1.5"
+                  icon={PlayActionIcon}
+                  size={14}
+                />
+                Send test
+              </Button>
+              <AlertDialog>
+                <AlertDialogTrigger
+                  render={
+                    <Button
+                      disabled={!isHydrated || deleteWebhook.isPending}
+                      variant="destructive"
+                    />
+                  }
                 >
+                  <HugeiconsIcon
+                    className="mr-1.5"
+                    icon={TrashIcon}
+                    size={14}
+                  />
                   Delete
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Delete webhook?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This will permanently delete this webhook subscription.
+                      Deliveries in progress will not be affected.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                      disabled={deleteWebhook.isPending}
+                      onClick={() => {
+                        deleteWebhook.mutate(webhook.id, {
+                          onSuccess: () => {
+                            navigate({ to: "/app/webhooks" });
+                          },
+                        });
+                      }}
+                      variant="destructive"
+                    >
+                      Delete
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </>
+          )}
         </div>
       </div>
 
@@ -281,7 +314,8 @@ function WebhookDetailPage() {
                   </EmptyHeader>
                 </Empty>
               }
-              recordCount={deliveries.length}
+              loading={deliveriesLoading || tableData.isLoading}
+              recordCount={tableData.isHydrated ? deliveries.length : 0}
               table={table}
               tableClassNames={{ base: "min-w-[1200px]" }}
             >

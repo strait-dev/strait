@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveRedirectHost } from "../consent-utils";
+import { resolveRedirectHost } from "../-consent-utils";
 
 // extractHost is an internal helper — tested indirectly through resolveRedirectHost
 // to cover its own edge cases without exporting it.

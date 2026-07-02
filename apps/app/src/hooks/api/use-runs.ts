@@ -1,3 +1,4 @@
+import { toast } from "@strait/ui/components/toast";
 import {
   keepPreviousData,
   queryOptions,
@@ -193,6 +194,7 @@ export const useRetryRun = () => {
       getPostHog()?.capture("run_retried", { run_id: variables.run_id });
     },
     onError: (err, variables, context) => {
+      toast.error("Failed to retry run.");
       if (context?.previousDetail) {
         queryClient.setQueryData(
           queryKeys.runs.detail(variables.run_id).queryKey,
@@ -255,6 +257,7 @@ export const useCancelRun = () => {
       return { previousDetail };
     },
     onError: (_err, data, context) => {
+      toast.error("Failed to cancel run.");
       if (context?.previousDetail) {
         queryClient.setQueryData(
           queryKeys.runs.detail(data.run_id).queryKey,

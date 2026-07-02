@@ -84,6 +84,10 @@ export const queryKeys = createQueryKeyStore({
     detail: (id: string) => [id],
   },
 
+  projectPermissions: {
+    detail: (projectId: string) => [projectId],
+  },
+
   onboarding: {
     complete: null,
   },

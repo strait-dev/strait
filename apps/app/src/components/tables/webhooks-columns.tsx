@@ -1,7 +1,8 @@
 import { Badge } from "@strait/ui/components/badge";
 import { StatusBadge } from "@strait/ui/components/status-badge";
+import { Link } from "@tanstack/react-router";
 import type { ColumnDef } from "@tanstack/react-table";
-import { formatDistanceToNow } from "date-fns";
+import { RelativeTime } from "@/components/common/relative-time";
 import type { WebhookSubscription } from "@/hooks/api/types";
 import { EyeIcon, TrashIcon } from "@/lib/icons";
 import { createActionsColumn, createSelectColumn } from "./shared-columns";
@@ -9,6 +10,7 @@ import { createActionsColumn, createSelectColumn } from "./shared-columns";
 type WebhookColumnActions = {
   onView?: (webhook: WebhookSubscription) => void;
   onDelete?: (webhook: WebhookSubscription) => void;
+  disabled?: boolean;
 };
 
 export const createWebhookColumns = (
@@ -19,9 +21,14 @@ export const createWebhookColumns = (
     accessorKey: "webhook_url",
     header: "Endpoint",
     cell: ({ row }) => (
-      <span className="max-w-[300px] truncate font-mono text-xs">
+      <Link
+        aria-label={`View webhook ${row.original.webhook_url}`}
+        className="block max-w-[300px] truncate font-mono text-xs hover:underline"
+        params={{ id: row.original.id }}
+        to="/app/webhooks/$id"
+      >
         {row.original.webhook_url}
-      </span>
+      </Link>
     ),
   },
   {
@@ -47,10 +54,7 @@ export const createWebhookColumns = (
   {
     accessorKey: "created_at",
     header: "Created",
-    cell: ({ row }) =>
-      formatDistanceToNow(new Date(row.original.created_at), {
-        addSuffix: true,
-      }),
+    cell: ({ row }) => <RelativeTime value={row.original.created_at} />,
   },
   createActionsColumn<WebhookSubscription>([
     {
@@ -60,6 +64,7 @@ export const createWebhookColumns = (
     },
     {
       label: "Delete",
+      hidden: !actions.onDelete,
       icon: TrashIcon,
       onClick: (row) => actions.onDelete?.(row.original),
       variant: "destructive",

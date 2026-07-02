@@ -36,6 +36,7 @@ import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import type { EventTrigger, PaginatedResponse } from "@/hooks/api/types";
 import { eventsQueryOptions } from "@/hooks/api/use-events";
 import { useCursorPagination } from "@/hooks/use-cursor-pagination";
+import { useHydratedTableData } from "@/hooks/use-hydrated-table-data";
 import { FileTextIcon, SearchIcon } from "@/lib/icons";
 import { EVENT_STATUSES } from "@/lib/status";
 import { stopInteractiveRowClick } from "@/lib/table-interactions";
@@ -101,16 +102,33 @@ function LogsPage() {
 
   const allLogs = useMemo(() => {
     let items = hasProject ? (typed?.data ?? []) : [];
+    const query = search.query?.trim().toLowerCase();
+    if (query) {
+      items = items.filter((event) =>
+        [
+          event.id,
+          event.event_key,
+          event.job_run_id,
+          event.workflow_run_id,
+          event.source_type,
+          event.status,
+          event.trigger_type,
+        ]
+          .filter(Boolean)
+          .some((value) => value?.toLowerCase().includes(query))
+      );
+    }
     if (selectedStatuses.length > 0) {
       items = items.filter((e: EventTrigger) =>
         selectedStatuses.includes(e.status)
       );
     }
     return items;
-  }, [typed, selectedStatuses, hasProject]);
+  }, [typed, selectedStatuses, hasProject, search.query]);
+  const tableData = useHydratedTableData(allLogs);
 
   const table = useReactTable({
-    data: allLogs,
+    data: tableData.data,
     columns: logColumns,
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
@@ -192,11 +210,14 @@ function LogsPage() {
         />
       </div>
 
-      <div onClickCapture={stopInteractiveRowClick}>
+      <section aria-label="Logs" onClickCapture={stopInteractiveRowClick}>
         <DataGrid
           emptyMessage={emptyState}
+          loading={tableData.isLoading}
           onRowClick={handleRowClick}
-          recordCount={table.getRowModel().rows.length}
+          recordCount={
+            tableData.isHydrated ? table.getRowModel().rows.length : 0
+          }
           table={table}
           tableClassNames={{ base: "min-w-[1200px]" }}
         >
@@ -221,7 +242,7 @@ function LogsPage() {
             table={table}
           />
         </DataGrid>
-      </div>
+      </section>
 
       {/* Expanded detail */}
       {expandedLogId && (

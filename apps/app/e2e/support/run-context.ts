@@ -8,6 +8,8 @@ export type E2ERunContext = {
   projectId?: string;
   orgId?: string;
   userId?: string;
+  limitedUserId?: string;
+  limitedUserEmail?: string;
   fakeEndpointUrl?: string;
   fakeEndpointPid?: number;
   managedFakeEndpoint?: boolean;

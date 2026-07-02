@@ -1,0 +1,89 @@
+// Strait App - Cloudflare Workers configuration.
+//
+// Lives alongside the app source (not at the repo root) because
+// Cloudflare's wrangler CLI walks up from cwd to auto-discover a
+// config, and CF Workers Builds expects the config next to the
+// project it deploys.
+//
+// For the Deploy to Cloudflare button flow, the visitor will be
+// prompted to set the root directory to `apps/app` during the
+// one-click import. See apps/app/README.md for the walkthrough.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "strait-app",
+  "compatibility_date": "2026-03-29",
+  "compatibility_flags": ["nodejs_compat"],
+  "main": "@tanstack/react-start/server-entry",
+  "observability": {
+    "enabled": true
+  },
+  "placement": {
+    "mode": "smart"
+  },
+
+  // Postgres connection via Hyperdrive. For Deploy to Cloudflare
+  // visitors, the deploy flow prompts them to create a new Hyperdrive
+  // config pointing at their own Postgres (Neon, Supabase, Fly PG,
+  // self-hosted, etc.). The committed id/localConnectionString apply
+  // to strait.dev's production deploy and local `wrangler dev`.
+  "hyperdrive": [
+    {
+      "binding": "HYPERDRIVE",
+      "id": "7ad425b88d1240f584ce89c67d2fa5a7",
+      "localConnectionString": "postgres://strait:strait@localhost:15432/strait?sslmode=disable"
+    }
+  ],
+
+  // Non-secret variables. Every entry here is shown in the Cloudflare
+  // deploy flow so the visitor can override it. `keep_vars: true`
+  // preserves the values set during deploy across subsequent pushes,
+  // so users do not have to re-enter them on every redeploy.
+  //
+  // SECRETS are NOT declared here - they are set post-deploy in the
+  // Cloudflare dashboard under Workers -> strait-app -> Settings ->
+  // Variables and Secrets. See apps/app/README.md for the full list
+  // and SELFHOST.md for the walkthrough.
+  "keep_vars": true,
+  "vars": {
+    // Required: the deployed Worker's public URL. Update this after
+    // the first deploy to match your *.workers.dev hostname (or your
+    // custom domain) - it is used by Better Auth for cookie scoping
+    // and OAuth callbacks.
+    "BETTER_AUTH_URL": "https://strait-app.workers.dev",
+
+    // Required: the Strait API base URL the Worker should call for
+    // data. Point this at your self-hosted API (via cloudflared
+    // tunnel or a public host) or at https://api.strait.dev.
+    "STRAIT_API_URL": "https://api.strait.dev",
+
+    // Required for MCP token issuance. Must match the Go backend's
+    // OIDC_ISSUER and OIDC_AUDIENCE values.
+    "OIDC_ISSUER": "https://api.strait.dev",
+    "OIDC_AUDIENCE": "strait-app",
+
+    // Optional - leave blank to disable the corresponding OAuth
+    // provider. Public client IDs only; their paired secrets are set
+    // via the dashboard.
+    "GOOGLE_CLIENT_ID": "",
+    "VITE_GOOGLE_CLIENT_ID": "",
+    "GITHUB_CLIENT_ID": "",
+
+    // Optional - only required when billing is enabled. These are
+    // public Stripe price IDs, not secrets.
+    "STRIPE_STARTER_MONTHLY_PRICE_ID": "",
+    "STRIPE_STARTER_YEARLY_PRICE_ID": "",
+    "STRIPE_PRO_MONTHLY_PRICE_ID": "",
+    "STRIPE_PRO_YEARLY_PRICE_ID": "",
+    "STRIPE_SCALE_MONTHLY_PRICE_ID": "",
+    "STRIPE_SCALE_YEARLY_PRICE_ID": "",
+    "STRIPE_BUSINESS_MONTHLY_PRICE_ID": "",
+    "STRIPE_BUSINESS_YEARLY_PRICE_ID": "",
+
+    // Transactional email sender address.
+    "RESEND_SUPPORT_EMAIL": "noreply@example.com",
+
+    // Optional observability.
+    "VITE_SENTRY_ENVIRONMENT": "production",
+    "VITE_POSTHOG_HOST": ""
+  }
+}

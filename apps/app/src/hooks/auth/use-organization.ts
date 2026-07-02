@@ -116,7 +116,13 @@ const listOrganizationsServerFn = createServerFn({ method: "GET" }).handler(
     const organizations = await (await getAuth()).api.listOrganizations({
       headers,
     });
-    return (organizations ?? []).map(mapOrganization);
+    return [
+      ...new Map(
+        (organizations ?? [])
+          .map(mapOrganization)
+          .map((organization) => [organization.id, organization])
+      ).values(),
+    ];
   }
 );
 

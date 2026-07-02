@@ -60,10 +60,14 @@ function parseMetadata(metadata: unknown): OrgMetadata {
 }
 
 interface OrganizationInfoProps {
+  canEdit?: boolean;
   organizationId: string;
 }
 
-const OrganizationInfo = ({ organizationId }: OrganizationInfoProps) => {
+const OrganizationInfo = ({
+  canEdit = true,
+  organizationId,
+}: OrganizationInfoProps) => {
   const [isSubmitting, startTransition] = useTransition();
   const queryClient = useQueryClient();
   const { data: organization, isLoading } = useQuery(
@@ -202,6 +206,7 @@ const OrganizationInfo = ({ organizationId }: OrganizationInfoProps) => {
                         field.state.meta.isTouched &&
                         field.state.meta.errors.length > 0
                       }
+                      disabled={!canEdit}
                       id={field.name}
                       onBlur={field.handleBlur}
                       onChange={(e) => field.handleChange(e.target.value)}
@@ -234,6 +239,7 @@ const OrganizationInfo = ({ organizationId }: OrganizationInfoProps) => {
                         field.state.meta.isTouched &&
                         field.state.meta.errors.length > 0
                       }
+                      disabled={!canEdit}
                       id={field.name}
                       onBlur={field.handleBlur}
                       onChange={(e) => field.handleChange(e.target.value)}
@@ -269,6 +275,7 @@ const OrganizationInfo = ({ organizationId }: OrganizationInfoProps) => {
                         field.state.meta.isTouched &&
                         field.state.meta.errors.length > 0
                       }
+                      disabled={!canEdit}
                       id={field.name}
                       onBlur={field.handleBlur}
                       onChange={(e) => field.handleChange(e.target.value)}
@@ -301,6 +308,7 @@ const OrganizationInfo = ({ organizationId }: OrganizationInfoProps) => {
                         field.state.meta.isTouched &&
                         field.state.meta.errors.length > 0
                       }
+                      disabled={!canEdit}
                       id={field.name}
                       onBlur={field.handleBlur}
                       onChange={(e) => field.handleChange(e.target.value)}
@@ -335,6 +343,7 @@ const OrganizationInfo = ({ organizationId }: OrganizationInfoProps) => {
                       field.state.meta.isTouched &&
                       field.state.meta.errors.length > 0
                     }
+                    disabled={!canEdit}
                     id={field.name}
                     onBlur={field.handleBlur}
                     onChange={(e) => field.handleChange(e.target.value)}
@@ -353,48 +362,50 @@ const OrganizationInfo = ({ organizationId }: OrganizationInfoProps) => {
           </div>
         </CardContent>
 
-        <CardFooter className="flex justify-end gap-3 border-t px-6 py-4">
-          <form.Subscribe
-            selector={(state) => ({
-              canSubmit: state.canSubmit,
-              isDirty: state.isDirty,
-              isSubmitting: state.isSubmitting,
-            })}
-          >
-            {({ canSubmit, isDirty, isSubmitting }) => (
-              <>
-                <Button
-                  className="w-fit"
-                  disabled={!isDirty || isProcessing}
-                  onClick={() => {
-                    if (!isProcessing) {
-                      form.reset();
-                    }
-                  }}
-                  type="button"
-                  variant="secondary"
-                >
-                  Cancel
-                </Button>
+        {canEdit && (
+          <CardFooter className="flex justify-end gap-3 border-t px-6 py-4">
+            <form.Subscribe
+              selector={(state) => ({
+                canSubmit: state.canSubmit,
+                isDirty: state.isDirty,
+                isSubmitting: state.isSubmitting,
+              })}
+            >
+              {({ canSubmit, isDirty, isSubmitting }) => (
+                <>
+                  <Button
+                    className="w-fit"
+                    disabled={!isDirty || isProcessing}
+                    onClick={() => {
+                      if (!isProcessing) {
+                        form.reset();
+                      }
+                    }}
+                    type="button"
+                    variant="secondary"
+                  >
+                    Cancel
+                  </Button>
 
-                <Button
-                  className="w-fit"
-                  disabled={
-                    !isDirty || isSubmitting || !canSubmit || isProcessing
-                  }
-                  type="submit"
-                >
-                  {isProcessing ? (
-                    <Spinner />
-                  ) : (
-                    <HugeiconsIcon className="size-4" icon={PencilEditIcon} />
-                  )}
-                  Save changes
-                </Button>
-              </>
-            )}
-          </form.Subscribe>
-        </CardFooter>
+                  <Button
+                    className="w-fit"
+                    disabled={
+                      !isDirty || isSubmitting || !canSubmit || isProcessing
+                    }
+                    type="submit"
+                  >
+                    {isProcessing ? (
+                      <Spinner />
+                    ) : (
+                      <HugeiconsIcon className="size-4" icon={PencilEditIcon} />
+                    )}
+                    Save changes
+                  </Button>
+                </>
+              )}
+            </form.Subscribe>
+          </CardFooter>
+        )}
       </form>
     </Card>
   );

@@ -1,3 +1,5 @@
+import { fileURLToPath } from "node:url";
+import { cloudflare } from "@cloudflare/vite-plugin";
 import { sentryTanstackStart } from "@sentry/tanstackstart-react/vite";
 import tailwindcss from "@tailwindcss/vite";
 import { devtools } from "@tanstack/devtools-vite";
@@ -13,16 +15,28 @@ const enableNgrok =
   process.env.ENABLE_NGROK === "1" && !process.env.DISABLE_NGROK;
 
 /**
- * Build target selector. Defaults to portable Node output. Vercel is an
- * explicit secondary target for the hosted dashboard and one-click deploys.
+ * Build target selector. Defaults to portable Node output. Cloudflare and
+ * Vercel are explicit secondary targets for hosted deployments.
  */
-const deployTarget: "node" | "vercel" =
-  process.env.STRAIT_APP_TARGET === "vercel" ||
-  process.env.BUILD_TARGET === "vercel"
-    ? "vercel"
-    : "node";
+type DeployTarget = "cloudflare" | "node" | "vercel";
 
+function resolveDeployTarget(env: NodeJS.ProcessEnv): DeployTarget {
+  if (
+    env.STRAIT_APP_TARGET === "cloudflare" ||
+    env.BUILD_TARGET === "cloudflare"
+  ) {
+    return "cloudflare";
+  }
+  if (env.STRAIT_APP_TARGET === "vercel" || env.BUILD_TARGET === "vercel") {
+    return "vercel";
+  }
+  return "node";
+}
+
+const deployTarget = resolveDeployTarget(process.env);
+const isCloudflareBuild = deployTarget === "cloudflare";
 const nitroPreset = deployTarget === "vercel" ? "vercel" : "node-server";
+
 const emitSourcemapsForSentry = process.env.SENTRY_UPLOAD_SOURCEMAPS === "true";
 
 const sentryRelease = maybeResolveSentryRelease(process.env);
@@ -91,9 +105,77 @@ function wellKnownOAuthPlugin(): Plugin {
 
 export default defineConfig(({ command }) => ({
   resolve: {
+    alias: {
+      "decimal.js-light": fileURLToPath(
+        new URL(
+          "../../node_modules/.bun/decimal.js-light@2.5.1/node_modules/decimal.js-light/decimal.mjs",
+          import.meta.url
+        )
+      ),
+      eventemitter3: fileURLToPath(
+        new URL(
+          "../../node_modules/.bun/eventemitter3@5.0.4/node_modules/eventemitter3/index.mjs",
+          import.meta.url
+        )
+      ),
+      "react-is": fileURLToPath(
+        new URL("./src/lib/react-is.ts", import.meta.url)
+      ),
+      "es-toolkit/compat/get": fileURLToPath(
+        new URL("./src/lib/es-toolkit-compat-get.ts", import.meta.url)
+      ),
+      "es-toolkit/compat/isPlainObject": fileURLToPath(
+        new URL(
+          "./src/lib/es-toolkit-compat-is-plain-object.ts",
+          import.meta.url
+        )
+      ),
+      "es-toolkit/compat/last": fileURLToPath(
+        new URL("./src/lib/es-toolkit-compat-last.ts", import.meta.url)
+      ),
+      "es-toolkit/compat/maxBy": fileURLToPath(
+        new URL("./src/lib/es-toolkit-compat-max-by.ts", import.meta.url)
+      ),
+      "es-toolkit/compat/minBy": fileURLToPath(
+        new URL("./src/lib/es-toolkit-compat-min-by.ts", import.meta.url)
+      ),
+      "es-toolkit/compat/omit": fileURLToPath(
+        new URL("./src/lib/es-toolkit-compat-omit.ts", import.meta.url)
+      ),
+      "es-toolkit/compat/range": fileURLToPath(
+        new URL("./src/lib/es-toolkit-compat-range.ts", import.meta.url)
+      ),
+      "es-toolkit/compat/sortBy": fileURLToPath(
+        new URL("./src/lib/es-toolkit-compat-sort-by.ts", import.meta.url)
+      ),
+      "es-toolkit/compat/sumBy": fileURLToPath(
+        new URL("./src/lib/es-toolkit-compat-sum-by.ts", import.meta.url)
+      ),
+      "es-toolkit/compat/throttle": fileURLToPath(
+        new URL("./src/lib/es-toolkit-compat-throttle.ts", import.meta.url)
+      ),
+      "es-toolkit/compat/uniqBy": fileURLToPath(
+        new URL("./src/lib/es-toolkit-compat-uniq-by.ts", import.meta.url)
+      ),
+      "use-sync-external-store/with-selector": fileURLToPath(
+        new URL(
+          "./src/lib/use-sync-external-store-with-selector.ts",
+          import.meta.url
+        )
+      ),
+      "use-sync-external-store/with-selector.js": fileURLToPath(
+        new URL(
+          "./src/lib/use-sync-external-store-with-selector.ts",
+          import.meta.url
+        )
+      ),
+    },
     tsconfigPaths: true,
   },
   plugins: [
+    ...(isCloudflareBuild
+      ? [cloudflare({ viteEnvironment: { name: "ssr" } })]
+      : []),
     wellKnownOAuthPlugin(),
     ...(command === "serve" ? [devtools()] : []),
     tailwindcss(),
@@ -103,7 +185,7 @@ export default defineConfig(({ command }) => ({
       },
       srcDirectory: "src",
     }),
-    nitro({ preset: nitroPreset }),
+    ...(isCloudflareBuild ? [] : [nitro({ preset: nitroPreset })]),
     viteReact(),
     sentryTanstackStart({
       org: process.env.SENTRY_ORG,
