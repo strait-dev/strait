@@ -236,7 +236,10 @@ Strait uses a vendored and modified SQL snapshot of [PgQue](https://github.com/N
 | Variable | Default | Description |
 |---|---|---|
 | `RESEND_API_KEY` | - | Required for email notifications. |
-| `RESEND_FROM_EMAIL` | `noreply@strait.dev` | From address for email notifications. |
+| `RESEND_FROM_EMAIL` | `noreply@strait.dev` | From address for Go-triggered billing and notification emails. Set this on the Go service and dashboard so sender behavior is consistent. |
+| `RESEND_SUPPORT_EMAIL` | `noreply@strait.dev` | Fallback sender for dashboard-owned auth, support, and transactional emails. |
+| `APP_INTERNAL_URL` | - | Dashboard base URL used by the Go service to call `POST /internal/transactional-email` for Go-triggered emails. Required in hosted cloud environments where billing, notification, or usage-report emails are enabled. |
+| `TRANSACTIONAL_EMAIL_TIMEOUT` | `5s` | Go HTTP client timeout for calls to the dashboard transactional email endpoint. |
 | `WEBHOOK_REQUIRE_TLS` | `false` | Require HTTPS webhook URLs. |
 | `ENDPOINT_REQUIRE_TLS` | `false` | Require HTTPS for job endpoint and fallback endpoint URLs. Job dispatch injects decrypted secrets and the run-token JWT, so enable this to reject plaintext HTTP endpoints. |
 | `ALLOW_PRIVATE_ENDPOINTS` | `false` | Allow private endpoint URLs. Not recommended unless the network is trusted. |
@@ -250,6 +253,13 @@ Strait uses a vendored and modified SQL snapshot of [PgQue](https://github.com/N
 | `WEBHOOK_MAX_BATCH_SIZE` | `50` | Max webhook events in one batch. |
 | `WEBHOOK_MAX_IDLE_CONNS` | `100` | Max idle webhook HTTP connections. |
 | `WEBHOOK_MAX_IDLE_CONNS_PER_HOST` | `50` | Max idle webhook HTTP connections per host. |
+
+For Go-triggered emails, `INTERNAL_SECRET` must match between the Go service and
+dashboard. The dashboard validates `X-Internal-Secret` before rendering templates
+or calling Resend. Keep `APP_INTERNAL_URL`, `INTERNAL_SECRET`,
+`TRANSACTIONAL_EMAIL_TIMEOUT`, `RESEND_API_KEY`, `RESEND_FROM_EMAIL`, and
+`RESEND_SUPPORT_EMAIL` present in each Infisical environment used for hosted
+deployments.
 
 ## Billing
 

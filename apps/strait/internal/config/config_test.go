@@ -130,6 +130,7 @@ func TestLoad_Defaults(t *testing.T) {
 		{"ClickHouseDatabase", cfg.ClickHouseDatabase, "strait"},
 		{"ClickHouseBatchSize", cfg.ClickHouseBatchSize, 1000},
 		{"ClickHouseFlushInterval", cfg.ClickHouseFlushInterval, 5 * time.Second},
+		{"TransactionalEmailTimeout", cfg.TransactionalEmailTimeout, 5 * time.Second},
 		{"ResendFromEmail", cfg.ResendFromEmail, "noreply@strait.dev"},
 		{"SentryEnvironment", cfg.SentryEnvironment, "development"},
 		{"Edition", cfg.Edition, "community"},
@@ -981,6 +982,8 @@ func TestLoad_StringOverrides(t *testing.T) {
 	t.Setenv("SENTRY_SCHEDULER_CHECKIN_PREFIX", "custom-scheduler")
 	t.Setenv("RESEND_API_KEY", "re_123")
 	t.Setenv("RESEND_FROM_EMAIL", "support@strait.dev")
+	t.Setenv("APP_INTERNAL_URL", "https://app.internal")
+	t.Setenv("TRANSACTIONAL_EMAIL_TIMEOUT", "9s")
 	t.Setenv("GRPC_BIND_ADDR", "0.0.0.0")
 	skipIfCommunity(t)
 	t.Setenv("STRAIT_EDITION", "cloud")
@@ -1017,6 +1020,8 @@ func TestLoad_StringOverrides(t *testing.T) {
 
 		cfg.ResendFromEmail,
 	)
+	require.Equal(t, "https://app.internal", cfg.AppInternalURL)
+	require.Equal(t, 9*time.Second, cfg.TransactionalEmailTimeout)
 	require.Equal(t, "0.0.0.0",
 		cfg.GRPCBindAddr,
 	)

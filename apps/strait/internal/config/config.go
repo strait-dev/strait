@@ -335,9 +335,11 @@ type Config struct {
 	PrometheusQueryURL    string `env:"PROMETHEUS_QUERY_URL"`
 	PrometheusUptimeQuery string `env:"PROMETHEUS_UPTIME_QUERY" default:"avg_over_time(up{job=\"strait\"}[30d]) * 100"`
 
-	// Resend email integration
-	ResendAPIKey    string `env:"RESEND_API_KEY"`
-	ResendFromEmail string `env:"RESEND_FROM_EMAIL" default:"noreply@strait.dev"`
+	// Transactional email integration
+	AppInternalURL            string        `env:"APP_INTERNAL_URL"`
+	TransactionalEmailTimeout time.Duration `env:"TRANSACTIONAL_EMAIL_TIMEOUT" default:"5s"`
+	ResendAPIKey              string        `env:"RESEND_API_KEY"`
+	ResendFromEmail           string        `env:"RESEND_FROM_EMAIL" default:"noreply@strait.dev"`
 
 	// PostHog product analytics (server-side revenue events)
 	PostHogAPIKey string `env:"POSTHOG_API_KEY"`

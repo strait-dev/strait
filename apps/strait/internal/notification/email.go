@@ -4,42 +4,36 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"html"
 
 	"strait/internal/domain"
-
-	"github.com/resend/resend-go/v2"
+	"strait/internal/transactional"
 )
 
-// ResendEmailAPI is the subset of the Resend client used by EmailSender.
-type ResendEmailAPI interface {
-	SendWithContext(ctx context.Context, params *resend.SendEmailRequest) (*resend.SendEmailResponse, error)
+const notificationEventUsageForecastWarning = "usage.forecast_warning"
+
+// TransactionalEmailClient is the narrow app-email surface used by notifications.
+type TransactionalEmailClient interface {
+	Send(ctx context.Context, req transactional.Request) error
 }
 
-// EmailSender sends notifications via Resend email.
+// EmailSender sends notification email intents through apps/app.
 type EmailSender struct {
-	client    ResendEmailAPI
+	client    TransactionalEmailClient
 	fromEmail string
 }
 
-// NewEmailSender creates a new EmailSender. Returns an error if apiKey is empty.
-func NewEmailSender(apiKey, fromEmail string) (*EmailSender, error) {
-	if apiKey == "" {
-		return nil, fmt.Errorf("resend API key is required")
+// NewEmailSender creates a new EmailSender. Returns an error if the
+// transactional client is not configured.
+func NewEmailSender(client TransactionalEmailClient, fromEmail string) (*EmailSender, error) {
+	if client == nil {
+		return nil, fmt.Errorf("transactional email client is required")
 	}
-	if fromEmail == "" {
-		fromEmail = "noreply@strait.dev"
-	}
-	client := resend.NewClient(apiKey)
-	return &EmailSender{
-		client:    client.Emails,
-		fromEmail: fromEmail,
-	}, nil
+	return NewEmailSenderWithClient(client, fromEmail), nil
 }
 
-// NewEmailSenderWithClient creates an EmailSender with a custom ResendEmailAPI.
-// Useful for testing.
-func NewEmailSenderWithClient(client ResendEmailAPI, fromEmail string) *EmailSender {
+// NewEmailSenderWithClient creates an EmailSender with a custom transactional
+// email client. Useful for testing.
+func NewEmailSenderWithClient(client TransactionalEmailClient, fromEmail string) *EmailSender {
 	if fromEmail == "" {
 		fromEmail = "noreply@strait.dev"
 	}
@@ -54,6 +48,9 @@ type emailConfig struct {
 }
 
 func (e *EmailSender) Send(ctx context.Context, channel *domain.NotificationChannel, delivery *domain.NotificationDelivery) error {
+	if e == nil || e.client == nil {
+		return fmt.Errorf("email sender is not configured")
+	}
 	var cfg emailConfig
 	if err := json.Unmarshal(channel.Config, &cfg); err != nil {
 		return fmt.Errorf("parse email config: %w", err)
@@ -62,136 +59,93 @@ func (e *EmailSender) Send(ctx context.Context, channel *domain.NotificationChan
 		return fmt.Errorf("email recipient address is empty")
 	}
 
-	subject := subjectForEvent(delivery.EventType, delivery.Payload)
-	body := htmlBodyForEvent(delivery.EventType, delivery.Payload)
-
-	req := &resend.SendEmailRequest{
-		From:    e.fromEmail,
-		To:      []string{cfg.To},
-		Subject: subject,
-		Html:    body,
-	}
-
-	_, err := e.client.SendWithContext(ctx, req)
+	req := emailRequestForEvent([]string{cfg.To}, e.fromEmail, delivery.ID, delivery.EventType, delivery.Payload)
+	err := e.client.Send(ctx, req)
 	if err != nil {
-		return fmt.Errorf("send email via resend: %w", err)
+		return fmt.Errorf("send notification email through transactional endpoint: %w", err)
 	}
 
 	return nil
 }
 
-// subjectForEvent returns a human-readable email subject for the event type.
-func subjectForEvent(eventType string, _ json.RawMessage) string {
+func emailRequestForEvent(to []string, from, deliveryID, eventType string, payload json.RawMessage) transactional.Request {
+	data, ok := payloadMap(payload)
+	if !ok {
+		return genericEmailTemplate(to, from, deliveryID, eventType, payload)
+	}
+
 	switch eventType {
 	case domain.NotificationEventSpendingLimitWarning:
-		return "Spending limit warning - 80% reached"
+		return transactional.NotificationSpendingLimitWarningRequest(
+			to,
+			from,
+			deliveryID,
+			eventType,
+			safeStr(data, "org_id"),
+			fmt.Sprintf("%.0f%%", safeFloat(data, "overage_pct")),
+			fmt.Sprintf("$%.2f", safeFloat(data, "spending_limit_usd")),
+			fmt.Sprintf("$%.2f", safeFloat(data, "current_spend_usd")),
+		)
 	case domain.NotificationEventSpendingLimitReached:
-		return "Spending limit reached - 100%"
+		return transactional.NotificationSpendingLimitReachedRequest(
+			to,
+			from,
+			deliveryID,
+			eventType,
+			safeStr(data, "org_id"),
+			fmt.Sprintf("$%.2f", safeFloat(data, "spending_limit_usd")),
+			fmt.Sprintf("$%.2f", safeFloat(data, "current_spend_usd")),
+		)
 	case domain.NotificationEventCostAnomaly:
-		return "Cost anomaly detected - unusual spending spike"
+		return transactional.NotificationCostAnomalyRequest(
+			to,
+			from,
+			deliveryID,
+			eventType,
+			safeStr(data, "org_id"),
+			safeStr(data, "severity"),
+			fmt.Sprintf("%.1fx", safeFloat(data, "spike_ratio")),
+			fmt.Sprintf("%d micro-USD", int64(safeFloat(data, "today_spend"))),
+			fmt.Sprintf("%d micro-USD", int64(safeFloat(data, "avg_7d_spend"))),
+			safeStr(data, "top_contributor"),
+		)
 	case domain.NotificationEventBudgetThreshold:
-		return "Compute budget threshold reached"
+		return transactional.NotificationBudgetThresholdRequest(
+			to,
+			from,
+			deliveryID,
+			eventType,
+			safeStr(data, "project_id"),
+			fmt.Sprintf("%.0f%%", safeFloat(data, "threshold_pct")),
+			fmt.Sprintf("%d micro-USD", int64(safeFloat(data, "daily_cost_microusd"))),
+			fmt.Sprintf("%d micro-USD", int64(safeFloat(data, "limit_microusd"))),
+		)
+	case notificationEventUsageForecastWarning:
+		return transactional.NotificationUsageForecastWarningRequest(
+			to,
+			from,
+			deliveryID,
+			eventType,
+			safeStr(data, "org_id"),
+			int64(safeFloat(data, "days_until_limit")),
+			safeStr(data, "recommended_plan"),
+			int64(safeFloat(data, "projected_runs")),
+		)
 	default:
-		return fmt.Sprintf("Strait notification: %s", eventType)
+		return genericEmailTemplate(to, from, deliveryID, eventType, payload)
 	}
 }
 
-// htmlBodyForEvent generates an HTML email body for a billing alert.
-func htmlBodyForEvent(eventType string, payload json.RawMessage) string {
+func genericEmailTemplate(to []string, from, deliveryID, eventType string, payload json.RawMessage) transactional.Request {
+	return transactional.NotificationGenericRequest(to, from, deliveryID, eventType, string(payload))
+}
+
+func payloadMap(payload json.RawMessage) (map[string]any, bool) {
 	var data map[string]any
 	if err := json.Unmarshal(payload, &data); err != nil {
-		return fmt.Sprintf("<p>Event: %s</p><pre>%s</pre>", html.EscapeString(eventType), html.EscapeString(string(payload)))
+		return nil, false
 	}
-
-	switch eventType {
-	case domain.NotificationEventSpendingLimitWarning:
-		return buildSpendingWarningHTML(data)
-	case domain.NotificationEventSpendingLimitReached:
-		return buildSpendingReachedHTML(data)
-	case domain.NotificationEventCostAnomaly:
-		return buildAnomalyHTML(data)
-	case domain.NotificationEventBudgetThreshold:
-		return buildBudgetThresholdHTML(data)
-	default:
-		return fmt.Sprintf("<p>Event: %s</p><pre>%s</pre>", html.EscapeString(eventType), html.EscapeString(string(payload)))
-	}
-}
-
-func buildSpendingWarningHTML(data map[string]any) string {
-	orgID := safeStr(data, "org_id")
-	pct := safeFloat(data, "overage_pct")
-	limitUsd := safeFloat(data, "spending_limit_usd")
-	currentUsd := safeFloat(data, "current_spend_usd")
-
-	return fmt.Sprintf(`<div style="font-family:sans-serif;max-width:600px;margin:0 auto">
-<h2>Spending Limit Warning</h2>
-<p>Your organization <strong>%s</strong> has reached <strong>%.0f%%</strong> of its monthly spending limit.</p>
-<table style="border-collapse:collapse;width:100%%">
-<tr><td style="padding:8px;border:1px solid #ddd">Current spend</td><td style="padding:8px;border:1px solid #ddd">$%.2f</td></tr>
-<tr><td style="padding:8px;border:1px solid #ddd">Spending limit</td><td style="padding:8px;border:1px solid #ddd">$%.2f</td></tr>
-</table>
-<p>Consider adjusting your spending limit or reviewing resource usage.</p>
-</div>`,
-		html.EscapeString(orgID), pct, currentUsd, limitUsd)
-}
-
-func buildSpendingReachedHTML(data map[string]any) string {
-	orgID := safeStr(data, "org_id")
-	limitUsd := safeFloat(data, "spending_limit_usd")
-	currentUsd := safeFloat(data, "current_spend_usd")
-
-	return fmt.Sprintf(`<div style="font-family:sans-serif;max-width:600px;margin:0 auto">
-<h2>Spending Limit Reached</h2>
-<p>Your organization <strong>%s</strong> has reached its monthly spending limit of <strong>$%.2f</strong>.</p>
-<table style="border-collapse:collapse;width:100%%">
-<tr><td style="padding:8px;border:1px solid #ddd">Current spend</td><td style="padding:8px;border:1px solid #ddd">$%.2f</td></tr>
-<tr><td style="padding:8px;border:1px solid #ddd">Spending limit</td><td style="padding:8px;border:1px solid #ddd">$%.2f</td></tr>
-</table>
-<p>New runs may be rejected until the next billing period. Increase your spending limit to continue.</p>
-</div>`,
-		html.EscapeString(orgID), limitUsd, currentUsd, limitUsd)
-}
-
-func buildAnomalyHTML(data map[string]any) string {
-	orgID := safeStr(data, "org_id")
-	severity := safeStr(data, "severity")
-	spikeRatio := safeFloat(data, "spike_ratio")
-	todaySpend := safeFloat(data, "today_spend")
-	avg7d := safeFloat(data, "avg_7d_spend")
-	topContrib := safeStr(data, "top_contributor")
-
-	return fmt.Sprintf(`<div style="font-family:sans-serif;max-width:600px;margin:0 auto">
-<h2>Cost Anomaly Detected</h2>
-<p>A <strong>%s</strong>-severity spending spike of <strong>%.1fx</strong> was detected for organization <strong>%s</strong>.</p>
-<table style="border-collapse:collapse;width:100%%">
-<tr><td style="padding:8px;border:1px solid #ddd">Today's spend</td><td style="padding:8px;border:1px solid #ddd">%d micro-USD</td></tr>
-<tr><td style="padding:8px;border:1px solid #ddd">7-day average</td><td style="padding:8px;border:1px solid #ddd">%d micro-USD</td></tr>
-<tr><td style="padding:8px;border:1px solid #ddd">Spike ratio</td><td style="padding:8px;border:1px solid #ddd">%.1fx</td></tr>
-<tr><td style="padding:8px;border:1px solid #ddd">Top contributor</td><td style="padding:8px;border:1px solid #ddd">%s</td></tr>
-</table>
-<p>Review your usage to ensure this activity is expected.</p>
-</div>`,
-		html.EscapeString(severity), spikeRatio,
-		html.EscapeString(orgID),
-		int64(todaySpend), int64(avg7d), spikeRatio,
-		html.EscapeString(topContrib))
-}
-
-func buildBudgetThresholdHTML(data map[string]any) string {
-	projectID := safeStr(data, "project_id")
-	dailyCost := safeFloat(data, "daily_cost_microusd")
-	limit := safeFloat(data, "limit_microusd")
-	thresholdPct := safeFloat(data, "threshold_pct")
-
-	return fmt.Sprintf(`<div style="font-family:sans-serif;max-width:600px;margin:0 auto">
-<h2>Compute Budget Threshold Reached</h2>
-<p>Project <strong>%s</strong> has exceeded <strong>%.0f%%</strong> of its daily compute budget.</p>
-<table style="border-collapse:collapse;width:100%%">
-<tr><td style="padding:8px;border:1px solid #ddd">Daily cost</td><td style="padding:8px;border:1px solid #ddd">%d micro-USD</td></tr>
-<tr><td style="padding:8px;border:1px solid #ddd">Budget limit</td><td style="padding:8px;border:1px solid #ddd">%d micro-USD</td></tr>
-</table>
-</div>`,
-		html.EscapeString(projectID), thresholdPct, int64(dailyCost), int64(limit))
+	return data, true
 }
 
 func safeStr(data map[string]any, key string) string {
@@ -211,9 +165,19 @@ func safeFloat(data map[string]any, key string) float64 {
 	if !ok {
 		return 0
 	}
-	f, ok := v.(float64)
-	if !ok {
+	switch n := v.(type) {
+	case float64:
+		return n
+	case float32:
+		return float64(n)
+	case int:
+		return float64(n)
+	case int64:
+		return float64(n)
+	case json.Number:
+		f, _ := n.Float64()
+		return f
+	default:
 		return 0
 	}
-	return f
 }

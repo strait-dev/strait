@@ -32,7 +32,6 @@ require (
 	github.com/prometheus/client_golang v1.23.2
 	github.com/prometheus/common v0.69.0
 	github.com/redis/go-redis/v9 v9.21.0
-	github.com/resend/resend-go/v2 v2.28.0
 	github.com/riandyrn/otelchi v0.12.3
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/samber/lo v1.53.0

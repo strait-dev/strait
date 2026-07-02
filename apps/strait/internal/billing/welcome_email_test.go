@@ -6,128 +6,16 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+	"strait/internal/transactional"
 
-	"github.com/resend/resend-go/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestWelcomeEmailHTML_EscapesHTMLInPlanName(t *testing.T) {
-	t.Parallel()
-	output := welcomeEmailHTML("<script>alert(1)</script>", "$49.99")
-	require.NotContains(t,
-		output, "<script>")
-	require.Contains(t, output, "&lt;script&gt;")
-}
-
-func TestWelcomeEmailHTML_EscapesHTMLInCredit(t *testing.T) {
-	t.Parallel()
-	injection := "<img src=x onerror=alert(1)>"
-	output := welcomeEmailHTML("Pro", injection)
-	require.NotContains(t,
-		output, injection)
-	require.Contains(t, output, "&lt;img src=x onerror=alert(1)&gt;")
-
-	// The raw injection string should not appear unescaped.
-	// html.EscapeString turns "<" and ">" into "&lt;" and "&gt;".
-}
-
-func TestWelcomeEmailHTML_NormalValues(t *testing.T) {
-	t.Parallel()
-	output := welcomeEmailHTML("Pro", "1000000")
-	require.Contains(t, output, "Welcome to Strait Pro!")
-	require.Contains(t, output, "1000000")
-}
-
-func TestWelcomeEmailHTML_ContainsStructure(t *testing.T) {
-	t.Parallel()
-	output := welcomeEmailHTML("Starter", "$19.99")
-	require.Contains(t, output, "Set spending limit")
-	require.Contains(t, output, "support@strait.dev")
-	require.Contains(t, output, "billing")
-}
-
-func FuzzWelcomeEmailHTML(f *testing.F) {
-	f.Add("Pro", "$49.99")
-	f.Add("<script>", "<img>")
-	f.Add("", "")
-	f.Add("Plan&Name", "$0.00")
-
-	f.Fuzz(func(t *testing.T, planName, credit string) {
-		result := welcomeEmailHTML(planName, credit)
-		assert.NotContains(t, result, "<script>")
-	})
-}
-
-func TestEnterpriseWelcomeEmailHTML_ContainsCSM(t *testing.T) {
-	t.Parallel()
-	output := enterpriseWelcomeEmailHTML()
-	require.Contains(t, output, "Customer Success Manager")
-}
-
-func TestEnterpriseWelcomeEmailHTML_ContainsOnboarding(t *testing.T) {
-	t.Parallel()
-	output := enterpriseWelcomeEmailHTML()
-	require.Contains(t, output, "onboarding")
-}
-
-func TestEnterpriseWelcomeEmailHTML_MarksSSOAsRoadmap(t *testing.T) {
-	t.Parallel()
-	output := enterpriseWelcomeEmailHTML()
-	require.Contains(t, output, "Roadmap and contact-sales items such as SSO/SAML")
-	require.NotContains(t,
-		output, "SSO/SAML + SCIM")
-}
-
-func TestEnterpriseWelcomeEmailHTML_DoesNotPromiseNetworkControls(t *testing.T) {
-	t.Parallel()
-	output := enterpriseWelcomeEmailHTML()
-	require.NotContains(t,
-		output, "Static IPs, VPC peering, data residency")
-}
-
-func TestEnterpriseWelcomeEmailHTML_ContainsSLA(t *testing.T) {
-	t.Parallel()
-	output := enterpriseWelcomeEmailHTML()
-	require.Contains(t, output, "SLA")
-}
-
-func TestEnterpriseWelcomeEmailHTML_DoesNotPromiseDedicatedCompute(t *testing.T) {
-	t.Parallel()
-	output := enterpriseWelcomeEmailHTML()
-	require.NotContains(t,
-		output, "Dedicated compute")
-}
-
 func TestRunAllowanceDisplay_Enterprise(t *testing.T) {
 	t.Parallel()
 	got := runAllowanceDisplay("enterprise")
-	assert.Equal(t, "Custom (per contract)",
-
-		got)
-}
-
-func TestRunAllowanceDisplay_Starter(t *testing.T) {
-	t.Parallel()
-	got := runAllowanceDisplay("starter")
-	assert.Equal(t, "50000",
-		got,
-	)
-}
-
-func TestContractRenewalHTML_ContainsDate(t *testing.T) {
-	t.Parallel()
-	output := contractRenewalHTML("April 1, 2027", 30)
-	require.Contains(t, output, "April 1, 2027")
-	require.Contains(t, output, "auto-renew")
-}
-
-func TestContractExpiryHTML_ContainsDate(t *testing.T) {
-	t.Parallel()
-	output := contractExpiryHTML("April 1, 2027", 7)
-	require.Contains(t, output, "April 1, 2027")
-	require.Contains(t, output, "expires")
-	require.Contains(t, output, "Scale")
+	assert.Equal(t, "Custom (per contract)", got)
 }
 
 func TestRunAllowanceDisplay_AllTiers(t *testing.T) {
@@ -148,9 +36,7 @@ func TestRunAllowanceDisplay_AllTiers(t *testing.T) {
 		t.Run(tt.tier, func(t *testing.T) {
 			t.Parallel()
 			got := runAllowanceDisplay(domain.PlanTier(tt.tier))
-			assert.Equal(t, tt.
-				want, got,
-			)
+			assert.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -172,28 +58,24 @@ func TestPlanDisplayName_AllTiers(t *testing.T) {
 		t.Run(tt.tier, func(t *testing.T) {
 			t.Parallel()
 			got := planDisplayName(domain.PlanTier(tt.tier))
-			assert.Equal(t, tt.
-				want, got,
-			)
+			assert.Equal(t, tt.want, got)
 		})
 	}
 }
 
-func TestNewResendWelcomeEmailFunc_InvalidEmail(t *testing.T) {
+func TestNewTransactionalWelcomeEmailFunc_NilClient(t *testing.T) {
 	t.Parallel()
-	fn := NewResendWelcomeEmailFunc("re_test_key", "")
+	require.Nil(t, NewTransactionalWelcomeEmailFunc(nil, ""))
+}
+
+func TestNewTransactionalWelcomeEmailFunc_InvalidEmail(t *testing.T) {
+	t.Parallel()
+	fn := NewTransactionalWelcomeEmailFunc(&mockBillingTransactionalClient{}, "")
 	err := fn(context.Background(), "org-1", domain.PlanStarter, "not-an-email")
-	require.Error(t,
-		err)
+	require.Error(t, err)
 }
 
-func TestNewResendWelcomeEmailFunc_DefaultFromEmail(t *testing.T) {
-	t.Parallel()
-	_ = NewResendWelcomeEmailFunc("re_test_key", "")
-	// Just verifying no panic with empty fromEmail (defaults to "noreply@strait.dev").
-}
-
-func TestNewWelcomeEmailFunc_SendsExpectedEmail(t *testing.T) {
+func TestNewTransactionalWelcomeEmailFunc_SendsExpectedTemplateIntents(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -201,64 +83,62 @@ func TestNewWelcomeEmailFunc_SendsExpectedEmail(t *testing.T) {
 		fromEmail    string
 		tier         domain.PlanTier
 		wantFrom     string
-		wantSubject  string
-		wantContains []string
+		wantTemplate string
+		wantProps    map[string]any
 	}{
 		{
-			name:        "starter uses default sender",
-			tier:        domain.PlanStarter,
-			wantFrom:    "noreply@strait.dev",
-			wantSubject: "Welcome to Strait Starter!",
-			wantContains: []string{
-				"Thank you for upgrading to the Starter plan.",
-				"50000",
+			name:         "starter uses default sender",
+			tier:         domain.PlanStarter,
+			wantFrom:     "noreply@strait.dev",
+			wantTemplate: "billing.paid_plan_welcome",
+			wantProps: map[string]any{
+				"planName":            "Starter",
+				"monthlyRunAllowance": "50000",
 			},
 		},
 		{
-			name:        "enterprise uses custom sender and enterprise copy",
-			fromEmail:   "welcome@example.com",
-			tier:        domain.PlanEnterprise,
-			wantFrom:    "welcome@example.com",
-			wantSubject: "Welcome to Strait Enterprise!",
-			wantContains: []string{
-				"Customer Success Manager",
-				"Custom orchestration run allowance",
-			},
+			name:         "enterprise uses custom sender",
+			fromEmail:    "welcome@example.com",
+			tier:         domain.PlanEnterprise,
+			wantFrom:     "welcome@example.com",
+			wantTemplate: "billing.enterprise_welcome",
+			wantProps:    map[string]any{},
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-
-			var got *resend.SendEmailRequest
-			fn := newWelcomeEmailFunc(tc.fromEmail, func(_ context.Context, req *resend.SendEmailRequest) error {
-				got = req
-				return nil
-			})
+			client := &mockBillingTransactionalClient{}
+			fn := NewTransactionalWelcomeEmailFunc(client, tc.fromEmail)
 
 			err := fn(context.Background(), "org-1", tc.tier, "customer@example.com")
 			require.NoError(t, err)
-			require.NotNil(t, got)
+			require.Len(t, client.calls, 1)
+			got := client.calls[0]
 			assert.Equal(t, tc.wantFrom, got.From)
 			assert.Equal(t, []string{"customer@example.com"}, got.To)
-			assert.Equal(t, tc.wantSubject, got.Subject)
-			for _, want := range tc.wantContains {
-				assert.Contains(t, got.Html, want)
+			assert.Equal(t, tc.wantTemplate, string(got.Template))
+			assert.Contains(t, got.IdempotencyKey, "billing:welcome:org-1:")
+			props := transactionalPropsMap(t, got.Props)
+			for key, want := range tc.wantProps {
+				assert.EqualValues(t, want, props[key])
 			}
 		})
 	}
 }
 
-func TestNewWelcomeEmailFunc_ReturnsSendError(t *testing.T) {
+func TestNewTransactionalWelcomeEmailFunc_ReturnsSendError(t *testing.T) {
 	t.Parallel()
 
-	sendErr := errors.New("resend unavailable")
-	fn := newWelcomeEmailFunc("", func(context.Context, *resend.SendEmailRequest) error {
-		return sendErr
-	})
+	sendErr := errors.New("app unavailable")
+	fn := NewTransactionalWelcomeEmailFunc(&mockBillingTransactionalClient{
+		sendFn: func(context.Context, transactional.Request) error {
+			return sendErr
+		},
+	}, "")
 
 	err := fn(context.Background(), "org-1", domain.PlanPro, "customer@example.com")
 	require.ErrorIs(t, err, sendErr)
-	require.ErrorContains(t, err, "send welcome email via resend")
+	require.ErrorContains(t, err, "send welcome email through transactional endpoint")
 }

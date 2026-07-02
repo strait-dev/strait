@@ -10,6 +10,7 @@
  *
  * @see https://docs.stripe.com/api/subscriptions — Stripe Subscriptions API
  */
+import { PLAN_LOOKUP_KEYS } from "@strait/billing";
 import { queryOptions } from "@tanstack/react-query";
 import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
@@ -30,11 +31,23 @@ import {
   type SubscriptionStateData,
 } from "./subscription-state";
 
+/** Maps stable Stripe lookup keys to plan slugs from the shared billing catalog. */
+function getLookupKeyToPlan(): Map<string, PlanSlug> {
+  return new Map(
+    Object.entries(PLAN_LOOKUP_KEYS)
+      .flatMap(([plan, keys]) => [
+        [keys.monthly, plan],
+        [keys.annual, plan],
+      ])
+      .filter((entry): entry is [string, PlanSlug] => Boolean(entry[0]))
+  );
+}
+
 /**
- * Maps Stripe Price IDs to plan slugs.
+ * Maps legacy Stripe Price IDs to plan slugs.
  *
- * Each plan tier has two prices (monthly + yearly) that both resolve
- * to the same slug. Populated from runtime environment variables.
+ * Kept as a fallback for older subscriptions whose expanded Stripe Price
+ * objects do not include a lookup_key.
  */
 function getPriceToPlan(): Map<string, PlanSlug> {
   return new Map(
@@ -181,6 +194,7 @@ const getSubscriptionServerFn = createServerFn({ method: "GET" }).handler(
       status: subscription.status,
       productId: subscription.productId,
       priceId: subscription.priceId,
+      lookupKey: subscription.lookupKey,
       currentPeriodEnd: subscription.currentPeriodEnd,
       cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
     };
@@ -232,11 +246,13 @@ const getSubscriptionStateServerFn = createServerFn({ method: "GET" }).handler(
     );
     const backendPlan = await getBackendPlanTier(billingSession.session);
 
-    const planFromProduct = normalizePlanSlug(
-      subscription?.productId
-        ? (getPriceToPlan().get(subscription.productId) ?? null)
-        : null
-    );
+    let stripePlan: PlanSlug | null = null;
+    if (subscription?.lookupKey) {
+      stripePlan = getLookupKeyToPlan().get(subscription.lookupKey) ?? null;
+    } else if (subscription?.priceId) {
+      stripePlan = getPriceToPlan().get(subscription.priceId) ?? null;
+    }
+    const planFromProduct = normalizePlanSlug(stripePlan);
 
     return deriveSubscriptionState({
       subscription,

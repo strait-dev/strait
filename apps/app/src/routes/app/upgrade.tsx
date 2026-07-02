@@ -1,4 +1,5 @@
 import { HugeiconsIcon } from "@hugeicons/react";
+import { PLAN_LOOKUP_KEYS } from "@strait/billing";
 import { Alert, AlertDescription } from "@strait/ui/components/alert";
 import { Button } from "@strait/ui/components/button";
 import {
@@ -45,17 +46,6 @@ import { authMiddleware } from "@/middlewares/auth";
 import { requireActiveOrgAdmin } from "@/middlewares/require-access";
 import type { AppRouteContext } from "@/routes/app/layout";
 
-const getPlanPriceMap = (): Record<string, string | undefined> => ({
-  "starter-monthly": process.env.STRIPE_STARTER_MONTHLY_PRICE_ID,
-  "starter-yearly": process.env.STRIPE_STARTER_YEARLY_PRICE_ID,
-  "pro-monthly": process.env.STRIPE_PRO_MONTHLY_PRICE_ID,
-  "pro-yearly": process.env.STRIPE_PRO_YEARLY_PRICE_ID,
-  "scale-monthly": process.env.STRIPE_SCALE_MONTHLY_PRICE_ID,
-  "scale-yearly": process.env.STRIPE_SCALE_YEARLY_PRICE_ID,
-  "business-monthly": process.env.STRIPE_BUSINESS_MONTHLY_PRICE_ID,
-  "business-yearly": process.env.STRIPE_BUSINESS_YEARLY_PRICE_ID,
-});
-
 type StartCheckoutInput = {
   planSlug: "starter" | "pro" | "scale" | "business" | "enterprise";
   billingInterval: "monthly" | "yearly";
@@ -84,10 +74,25 @@ const startCheckoutServerFn = createServerFn({ method: "POST" })
     const orgId = await requireActiveOrgAdmin(context);
 
     const slug = `${data.planSlug}-${data.billingInterval}`;
-    const priceId = getPlanPriceMap()[slug];
+    const lookupKey =
+      data.planSlug === "enterprise"
+        ? ""
+        : PLAN_LOOKUP_KEYS[data.planSlug][
+            data.billingInterval === "yearly" ? "annual" : "monthly"
+          ];
 
-    if (!priceId) {
+    if (!lookupKey) {
       throw new Error(`Invalid plan: ${slug}`);
+    }
+
+    const prices = await stripe.prices.list({
+      active: true,
+      limit: 1,
+      lookup_keys: [lookupKey],
+    });
+    const priceId = prices.data[0]?.id;
+    if (!priceId) {
+      throw new Error(`Missing Stripe price for plan: ${slug}`);
     }
 
     const baseUrl =

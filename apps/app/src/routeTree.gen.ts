@@ -13,6 +13,7 @@ import { Route as AppLayoutRouteImport } from './routes/app/layout'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AppIndexRouteImport } from './routes/app/index'
 import { Route as InvitationIdRouteImport } from './routes/invitation/$id'
+import { Route as InternalTransactionalEmailRouteImport } from './routes/internal/transactional-email'
 import { Route as AppUpgradeRouteImport } from './routes/app/upgrade'
 import { Route as AppEnterpriseContactRouteImport } from './routes/app/enterprise-contact'
 import { Route as AppDashboardRouteImport } from './routes/app/dashboard'
@@ -69,6 +70,12 @@ const InvitationIdRoute = InvitationIdRouteImport.update({
   path: '/invitation/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
+const InternalTransactionalEmailRoute =
+  InternalTransactionalEmailRouteImport.update({
+    id: '/internal/transactional-email',
+    path: '/internal/transactional-email',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const AppUpgradeRoute = AppUpgradeRouteImport.update({
   id: '/upgrade',
   path: '/upgrade',
@@ -262,6 +269,7 @@ export interface FileRoutesByFullPath {
   '/app/dashboard': typeof AppDashboardRoute
   '/app/enterprise-contact': typeof AppEnterpriseContactRoute
   '/app/upgrade': typeof AppUpgradeRoute
+  '/internal/transactional-email': typeof InternalTransactionalEmailRoute
   '/invitation/$id': typeof InvitationIdRoute
   '/app/': typeof AppIndexRoute
   '/oauth/consent': typeof authOauthConsentRoute
@@ -302,6 +310,7 @@ export interface FileRoutesByTo {
   '/app/dashboard': typeof AppDashboardRoute
   '/app/enterprise-contact': typeof AppEnterpriseContactRoute
   '/app/upgrade': typeof AppUpgradeRoute
+  '/internal/transactional-email': typeof InternalTransactionalEmailRoute
   '/invitation/$id': typeof InvitationIdRoute
   '/app': typeof AppIndexRoute
   '/oauth/consent': typeof authOauthConsentRoute
@@ -344,6 +353,7 @@ export interface FileRoutesById {
   '/app/dashboard': typeof AppDashboardRoute
   '/app/enterprise-contact': typeof AppEnterpriseContactRoute
   '/app/upgrade': typeof AppUpgradeRoute
+  '/internal/transactional-email': typeof InternalTransactionalEmailRoute
   '/invitation/$id': typeof InvitationIdRoute
   '/app/': typeof AppIndexRoute
   '/(auth)/oauth/consent': typeof authOauthConsentRoute
@@ -387,6 +397,7 @@ export interface FileRouteTypes {
     | '/app/dashboard'
     | '/app/enterprise-contact'
     | '/app/upgrade'
+    | '/internal/transactional-email'
     | '/invitation/$id'
     | '/app/'
     | '/oauth/consent'
@@ -427,6 +438,7 @@ export interface FileRouteTypes {
     | '/app/dashboard'
     | '/app/enterprise-contact'
     | '/app/upgrade'
+    | '/internal/transactional-email'
     | '/invitation/$id'
     | '/app'
     | '/oauth/consent'
@@ -468,6 +480,7 @@ export interface FileRouteTypes {
     | '/app/dashboard'
     | '/app/enterprise-contact'
     | '/app/upgrade'
+    | '/internal/transactional-email'
     | '/invitation/$id'
     | '/app/'
     | '/(auth)/oauth/consent'
@@ -507,6 +520,7 @@ export interface RootRouteChildren {
   authTwoFactorRoute: typeof authTwoFactorRoute
   authVerifyEmailRoute: typeof authVerifyEmailRoute
   InvitationIdRoute: typeof InvitationIdRoute
+  InternalTransactionalEmailRoute: typeof InternalTransactionalEmailRoute
   authOauthConsentRoute: typeof authOauthConsentRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   ApiAuthJwksRoute: typeof ApiAuthJwksRoute
@@ -540,6 +554,13 @@ declare module '@tanstack/react-router' {
       path: '/invitation/$id'
       fullPath: '/invitation/$id'
       preLoaderRoute: typeof InvitationIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/internal/transactional-email': {
+      id: '/internal/transactional-email'
+      path: '/internal/transactional-email'
+      fullPath: '/internal/transactional-email'
+      preLoaderRoute: typeof InternalTransactionalEmailRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/app/upgrade': {
@@ -861,6 +882,7 @@ const rootRouteChildren: RootRouteChildren = {
   authTwoFactorRoute: authTwoFactorRoute,
   authVerifyEmailRoute: authVerifyEmailRoute,
   InvitationIdRoute: InvitationIdRoute,
+  InternalTransactionalEmailRoute: InternalTransactionalEmailRoute,
   authOauthConsentRoute: authOauthConsentRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   ApiAuthJwksRoute: ApiAuthJwksRoute,

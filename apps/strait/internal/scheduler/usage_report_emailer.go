@@ -7,8 +7,7 @@ import (
 	"time"
 
 	"strait/internal/billing"
-
-	"github.com/resend/resend-go/v2"
+	"strait/internal/transactional"
 )
 
 // UsageReportEmailerStore defines the store operations needed by UsageReportEmailer.
@@ -23,9 +22,9 @@ type usageReportClaimStore interface {
 	ReleaseUsageReportSendClaim(ctx context.Context, orgID string, periodEnd time.Time) error
 }
 
-// ResendEmailSender is the subset of the Resend client used for sending emails.
-type ResendEmailSender interface {
-	SendWithContext(ctx context.Context, params *resend.SendEmailRequest) (*resend.SendEmailResponse, error)
+// TransactionalEmailSender is the subset of the app email client used for sending emails.
+type TransactionalEmailSender interface {
+	Send(ctx context.Context, req transactional.Request) error
 }
 
 // UsageReportEmailer sends monthly PDF usage reports to org admins after their
@@ -33,7 +32,7 @@ type ResendEmailSender interface {
 // been claimed yet.
 type UsageReportEmailer struct {
 	store     UsageReportEmailerStore
-	emailAPI  ResendEmailSender
+	emailAPI  TransactionalEmailSender
 	fromEmail string
 	interval  time.Duration
 	logger    *slog.Logger
@@ -42,7 +41,7 @@ type UsageReportEmailer struct {
 }
 
 // NewUsageReportEmailer creates a new monthly usage report emailer.
-func NewUsageReportEmailer(store UsageReportEmailerStore, emailAPI ResendEmailSender, fromEmail string, interval time.Duration) *UsageReportEmailer {
+func NewUsageReportEmailer(store UsageReportEmailerStore, emailAPI TransactionalEmailSender, fromEmail string, interval time.Duration) *UsageReportEmailer {
 	if interval <= 0 {
 		interval = time.Hour
 	}
@@ -183,14 +182,11 @@ func (re *UsageReportEmailer) sendReport(ctx context.Context, orgID string, sub 
 			"org_id", orgID)
 		return true
 	}
-
-	filename := fmt.Sprintf("strait-usage-%s-to-%s.pdf",
-		periodStart.Format("2006-01-02"),
-		periodEnd.Format("2006-01-02"))
-
-	subject := fmt.Sprintf("Your Strait usage report: %s to %s",
-		periodStart.Format("Jan 2"),
-		periodEnd.Format("Jan 2, 2006"))
+	if re.emailAPI == nil {
+		re.logger.Warn("usage report emailer: transactional email client is not configured",
+			"org_id", orgID)
+		return false
+	}
 
 	// Get plan details and addon info for the report.
 	var addonCount int
@@ -202,23 +198,24 @@ func (re *UsageReportEmailer) sendReport(ctx context.Context, orgID string, sub 
 		periodSpend = sumUsageRecordSpend(usage)
 	}
 	overage := max(periodSpend, 0)
-
-	htmlBody := buildUsageReportHTML(orgID, sub.PlanTier, periodStart, periodEnd, 0, addonCount, overage)
-
-	req := &resend.SendEmailRequest{
-		From:    re.fromEmail,
-		To:      emails,
-		Subject: subject,
-		Html:    htmlBody,
-		Attachments: []*resend.Attachment{
-			{
-				Filename: filename,
-				Content:  pdfBytes,
-			},
-		},
+	overageAmount := ""
+	if overage > 0 {
+		overageAmount = fmt.Sprintf("$%.2f", float64(overage)/1_000_000)
 	}
 
-	if _, err := re.emailAPI.SendWithContext(ctx, req); err != nil {
+	req := transactional.BillingUsageReportRequest(
+		emails,
+		re.fromEmail,
+		orgID,
+		sub.PlanTier,
+		periodStart,
+		periodEnd,
+		addonCount,
+		overageAmount,
+		pdfBytes,
+	)
+
+	if err := re.emailAPI.Send(ctx, req); err != nil {
 		re.logger.Warn("usage report emailer: failed to send email",
 			"org_id", orgID, "error", err)
 		return false
@@ -251,31 +248,4 @@ func sumUsageRecordSpend(records []billing.UsageRecord) int64 {
 		total += record.ComputeCostMicro + record.UsageCostMicro
 	}
 	return total
-}
-
-func buildUsageReportHTML(orgID, planTier string, periodStart, periodEnd time.Time, creditMicro int64, addonCount int, overageMicro int64) string {
-	_ = creditMicro
-	overageUsd := fmt.Sprintf("$%.2f", float64(overageMicro)/1_000_000)
-
-	addonLine := ""
-	if addonCount > 0 {
-		addonLine = fmt.Sprintf(`<p><strong>Active add-ons:</strong> %d pack(s)</p>`, addonCount)
-	}
-
-	overageLine := ""
-	if overageMicro > 0 {
-		overageLine = fmt.Sprintf(`<p><strong>Overage:</strong> %s beyond the included run allowance</p>`, overageUsd)
-	}
-
-	return fmt.Sprintf(`<div style="font-family:sans-serif;max-width:600px;margin:0 auto">
-<h2>Monthly Usage Report</h2>
-<p>Here is your usage summary for <strong>%s</strong> (%s plan).</p>
-<p>Period: %s to %s</p>
-<p><strong>Included allowance:</strong> metered orchestration runs for this billing period</p>
-%s%s<p>Your detailed usage report is attached as a PDF.</p>
-<p>To manage your billing and spending limits, visit your <a href="https://app.strait.dev/app/billing">billing settings</a>.</p>
-<hr style="border:none;border-top:1px solid #e0e0e0;margin:20px 0">
-<p style="font-size:12px;color:#666">This is an automated email from Strait. You can disable monthly reports in your organization settings.</p>
-</div>`, orgID, planTier, periodStart.Format("Jan 2"), periodEnd.Format("Jan 2, 2006"),
-		addonLine, overageLine)
 }

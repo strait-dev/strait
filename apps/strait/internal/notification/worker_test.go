@@ -78,16 +78,16 @@ func TestWorker_StopIsIdempotent(t *testing.T) {
 func TestNewWorkerWithEmail_RegistersEmailSenderWhenConfigured(t *testing.T) {
 	t.Parallel()
 
-	w := NewWorkerWithEmail(&stubNotificationStore{}, &http.Client{}, "re_test_key", "alerts@example.com")
+	w := NewWorkerWithEmail(&stubNotificationStore{}, &http.Client{}, &mockNotificationEmailClient{}, "alerts@example.com")
 	require.True(t, w.HasSender(domain.
 		ChannelTypeEmail,
 	))
 }
 
-func TestNewWorkerWithEmail_SkipsEmailSenderWithoutAPIKey(t *testing.T) {
+func TestNewWorkerWithEmail_SkipsEmailSenderWithoutClient(t *testing.T) {
 	t.Parallel()
 
-	w := NewWorkerWithEmail(&stubNotificationStore{}, &http.Client{}, "", "alerts@example.com")
+	w := NewWorkerWithEmail(&stubNotificationStore{}, &http.Client{}, nil, "alerts@example.com")
 	require.False(t, w.HasSender(domain.
 		ChannelTypeEmail,
 	),
