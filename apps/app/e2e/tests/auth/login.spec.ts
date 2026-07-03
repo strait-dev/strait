@@ -15,14 +15,9 @@ test.describe("Login", () => {
 
     const routeCrashes = watchForRouteCrashes(page);
 
-    await page.goto("/login?redirect=/app");
+    await page.goto("/login");
     await waitForClientRouter(page);
-    await fillControlledInput(page.locator("#email"), email);
-    await fillControlledInput(page.locator("#password"), password);
-    await expect(page.locator("#email")).toHaveValue(email);
-    await expect(page.locator("#password")).toHaveValue(password);
-
-    await page.getByRole("button", { name: "Sign in", exact: true }).click();
+    await fillAndSubmitSignInForm(page, email, password);
     await expect(page).toHaveURL(/\/app/, { timeout: 30_000 });
     await expect(page.getByText("Project", { exact: true })).toBeVisible({
       timeout: 30_000,
@@ -103,8 +98,43 @@ test.describe("Login", () => {
   });
 });
 
+async function fillAndSubmitSignInForm(
+  page: Page,
+  email: string,
+  password: string
+) {
+  const emailInput = page.locator("#email");
+  const passwordInput = page.locator("#password");
+  const signInButton = page.getByRole("button", {
+    name: "Sign in",
+    exact: true,
+  });
+
+  await expect(
+    page.getByRole("button", { name: "Sign in with magic link" })
+  ).toBeVisible();
+
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      await fillControlledInput(emailInput, email);
+      await fillControlledInput(passwordInput, password);
+      await expect(emailInput).toHaveValue(email, { timeout: 1000 });
+      await expect(passwordInput).toHaveValue(password, { timeout: 1000 });
+      await expect(signInButton).toBeEnabled({ timeout: 1000 });
+      await signInButton.click({ timeout: 1000 });
+      return;
+    } catch {
+      // The login route can finish a client remount after hydration in dev.
+      // Re-fill the current fields and try the current submit button again.
+    }
+  }
+
+  await signInButton.click();
+}
+
 async function fillControlledInput(locator: Locator, value: string) {
   await locator.click();
+  await locator.press(process.platform === "darwin" ? "Meta+A" : "Control+A");
   await locator.pressSequentially(value);
 }
 

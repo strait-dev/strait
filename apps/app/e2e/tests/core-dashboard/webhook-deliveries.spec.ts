@@ -79,7 +79,7 @@ test.describe("Webhook delivery dashboard", () => {
     );
     await selectTab(page, "Deliveries");
     await expect(
-      page.getByRole("table", { name: "Webhook deliveries" })
+      page.getByRole("tabpanel", { name: "Deliveries" }).getByRole("table")
     ).toBeVisible();
 
     await expect(page.getByText(webhookUrl).first()).toBeVisible();
@@ -91,7 +91,7 @@ test.describe("Webhook delivery dashboard", () => {
   }) => {
     const webhookUrl =
       process.env.E2E_WEBHOOK_FAILURE_URL ??
-      "https://httpbin.org/status/400?name=webhook-real-dispatch";
+      api.fakeEndpoint("/status/400?name=webhook-real-dispatch");
     const redactedWebhookUrl = new URL(webhookUrl).origin;
     const webhook = await api.createWebhook({
       webhook_url: webhookUrl,
@@ -129,7 +129,7 @@ test.describe("Webhook delivery dashboard", () => {
     );
     await selectTab(page, "Deliveries");
     await expect(
-      page.getByRole("table", { name: "Webhook deliveries" })
+      page.getByRole("tabpanel", { name: "Deliveries" }).getByRole("table")
     ).toBeVisible();
     await expect(page.getByText(webhookUrl).first()).toBeVisible();
     await expect(page.getByRole("row", { name: /Failed\s+400/ })).toBeVisible();

@@ -8,7 +8,6 @@ Playwright tests for the Strait dashboard. Run these to verify end-to-end user f
 |---|---|
 | Playwright config | `playwright.config.ts` |
 | Authenticated fixtures | `fixtures/` |
-| Local backend runner | `../scripts/e2e-core-local.mjs` |
 | Test data helpers | `fixtures/api.ts` |
 
 ## Prerequisites
@@ -28,14 +27,11 @@ bun run e2e
 # Run the backend-backed core dashboard suite
 bun run e2e:core
 
-# Rebuild and start the local Go backend, then run backend-backed tests
-bun run e2e:core:local
-
-# Focused local suites with the managed Go backend
-bun run e2e:local:smoke
-bun run e2e:local:regression
-bun run e2e:local:settings
-bun run e2e:local:visual
+# Focused suites
+bun run e2e:smoke
+bun run e2e:regression
+bun run e2e:settings
+bun run e2e:visual
 
 # Run with browser visible
 bun run e2e:headed
@@ -50,30 +46,48 @@ bun run e2e -- tests/auth/login.spec.ts
 bun run e2e -- --grep "dashboard"
 ```
 
-For local backend-backed dashboard work, prefer the managed local runner. It
-starts a clean Postgres container and Redis when needed, loads local dotenv
-files, rebuilds the Go binary, starts Strait with local e2e-safe webhook
-settings, runs Playwright, and stops the processes it started:
+For backend-backed dashboard work, start the Go backend explicitly before
+running Playwright. Keep the app and backend pointed at the same Postgres,
+Redis, and `INTERNAL_SECRET` values:
 
 ```bash
-cd apps/app
-bun run e2e:core:local
-
-# Run a subset through the same managed backend
-bun run e2e:core:local -- tests/core-dashboard/webhook-deliveries.spec.ts
+# Terminal 1: dependencies and Go API
+cd apps/strait
+docker compose up -d
+export DATABASE_URL=postgres://strait:strait@localhost:15432/strait?sslmode=disable
+export REDIS_URL=redis://localhost:16379
+export INTERNAL_SECRET=<32-plus-char-local-secret>
+export JWT_SIGNING_KEY=<32-plus-char-local-jwt-key>
+export ENCRYPTION_KEY=<32-byte-local-encryption-key>
+export ALLOW_PRIVATE_ENDPOINTS=true
+export WEBHOOK_REQUIRE_TLS=false
+go run ./cmd/strait --mode all
 ```
 
-The focused local suites split coverage by stability and blast radius:
+```bash
+# Terminal 2: app e2e
+cd apps/app
+export AUTH_DATABASE_URL=postgres://strait:strait@localhost:15432/strait?sslmode=disable
+export DATABASE_URL=postgres://strait:strait@localhost:15432/strait?sslmode=disable
+export REDIS_URL=redis://localhost:16379
+export STRAIT_API_URL=http://localhost:8080
+export INTERNAL_SECRET=<same-local-secret-as-go-api>
+export BETTER_AUTH_URL=http://localhost:5173
+export BETTER_AUTH_SECRET=<32-plus-char-local-auth-secret>
+export E2E_USER_EMAIL=e2e-owner@example.com
+export E2E_USER_PASSWORD=dogfood-local-password
+bun run e2e:core
 
-- `e2e:local:smoke`: harness, dashboard smoke, and navigation checks.
-- `e2e:local:regression`: real-backend jobs, runs, workflows, webhooks, DLQ, schedules, events, and logs.
-- `e2e:local:settings`: destructive or settings-heavy account, org, project, and security flows.
-- `e2e:local:visual`: chart rendering, responsive layout, and theme checks.
+# Run a focused subset
+bun run e2e -- tests/core-dashboard/webhook-deliveries.spec.ts
+```
 
-The managed runner recreates the `strait-app-e2e-postgres` container by default
-so failed runs cannot leak schedules or queued jobs into the next attempt. Set
-`E2E_REUSE_POSTGRES=1` only when you intentionally want to debug against an
-existing database on port `15432`.
+The focused suites split coverage by stability and blast radius:
+
+- `e2e:smoke`: harness, dashboard smoke, and navigation checks.
+- `e2e:regression`: real-backend jobs, runs, workflows, webhooks, DLQ, schedules, events, and logs.
+- `e2e:settings`: destructive or settings-heavy account, org, project, and security flows.
+- `e2e:visual`: chart rendering, responsive layout, and theme checks.
 
 ## Environment variables
 
@@ -140,8 +154,8 @@ e2e/
 ## CI
 
 The backend-backed dashboard suite is currently intended for local validation.
-CI can enable it later by running `bun run e2e:core:local` in an environment
-with Docker and Playwright browsers available.
+CI can enable it later by provisioning Postgres, Redis, the Go API, and
+Playwright browsers, then running `bun run e2e:core`.
 
 ## Validation
 
@@ -149,8 +163,8 @@ Run one focused local suite while iterating, then the core suite before merging 
 
 ```bash
 cd apps/app
-bun run e2e:local:smoke
-bun run e2e:core:local
+bun run e2e:smoke
+bun run e2e:core
 ```
 
 ## Debugging

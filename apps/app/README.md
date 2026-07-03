@@ -199,7 +199,7 @@ src/
 | `bun run test:watch` | Run tests in watch mode |
 | `bun run typecheck` | TypeScript check (tsgo) |
 | `bun run biome:lint` | Lint with Biome |
-| `bun run e2e:core:local` | Run backend-backed dashboard E2E tests with a managed local backend |
+| `bun run e2e:core` | Run backend-backed dashboard E2E tests against a running Go API |
 | `bun run run-all` | Biome fix + format + lint + typecheck |
 | `bun run knip` | Detect unused code and dependencies |
 
@@ -270,4 +270,5 @@ bun run typecheck
 bun test
 ```
 
-Run `bun run e2e:core:local` when touching flows that depend on the Go API.
+Start the Go API locally, then run `bun run e2e:core` when touching flows that
+depend on the backend.
