@@ -48,7 +48,7 @@ function normalizeWebhookSubscriptions(
   };
 }
 
-export const fetchWebhookSubscriptions = createServerFn({ method: "GET" })
+const fetchWebhookSubscriptions = createServerFn({ method: "GET" })
   .inputValidator((data: ListParams) => data)
   .middleware([authMiddleware])
   .handler(
@@ -66,7 +66,7 @@ export const fetchWebhookSubscriptions = createServerFn({ method: "GET" })
     }
   );
 
-export const fetchWebhookDeliveries = createServerFn({ method: "GET" })
+const fetchWebhookDeliveries = createServerFn({ method: "GET" })
   .inputValidator((data: ListParams & { webhookId?: string }) => data)
   .middleware([authMiddleware])
   .handler(
@@ -87,7 +87,7 @@ export const fetchWebhookDeliveries = createServerFn({ method: "GET" })
     }
   );
 
-export const createWebhookFn = createServerFn({ method: "POST" })
+const createWebhookFn = createServerFn({ method: "POST" })
   .inputValidator(
     (data: { webhook_url: string; event_types: string[] }) => data
   )
@@ -106,7 +106,7 @@ export const createWebhookFn = createServerFn({ method: "POST" })
     );
   });
 
-export const deleteWebhookFn = createServerFn({ method: "POST" })
+const deleteWebhookFn = createServerFn({ method: "POST" })
   .inputValidator((data: { id: string }) => data)
   .middleware([authMiddleware])
   .handler(async ({ context, data }): Promise<void> => {
@@ -118,7 +118,7 @@ export const deleteWebhookFn = createServerFn({ method: "POST" })
     );
   });
 
-export const testWebhookFn = createServerFn({ method: "POST" })
+const testWebhookFn = createServerFn({ method: "POST" })
   .inputValidator((data: { url: string; secret?: string }) => data)
   .middleware([authMiddleware])
   .handler(async ({ context, data }): Promise<WebhookDelivery> => {

@@ -36,7 +36,7 @@ import {
 } from "@strait/ui/components/sidebar";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useProjectPermissions } from "@/hooks/auth/use-project-permissions";
 import { subscriptionStateQueryOptions } from "@/hooks/subscription/use-subscription";
 import { isCommunityEdition } from "@/lib/edition";
@@ -92,19 +92,16 @@ const AppSidebar = ({ session }: Props) => {
     ? `/app/org/${session.user.defaultOrganizationId}`
     : "/app/settings";
 
-  const quickActions = useMemo(
-    () => buildQuickCreateCommands(permissions),
-    [permissions]
-  );
+  const quickActions = buildQuickCreateCommands(permissions);
 
-  const commandGroups = useMemo(
-    () => buildSidebarCommandGroups(permissions, orgSettingsRoute),
-    [orgSettingsRoute, permissions]
+  const commandGroups = buildSidebarCommandGroups(
+    permissions,
+    orgSettingsRoute
   );
 
   const runCommand = (item: SidebarCommandItem) => {
     if (item.href) {
-      globalThis.location.href = item.href;
+      globalThis.location.assign(item.href);
       return;
     }
     if (item.url) {
@@ -131,7 +128,7 @@ const AppSidebar = ({ session }: Props) => {
               alt="Strait logo"
               className="h-8 w-auto"
               height={20}
-              src="/strait.svg"
+              src="/strait-logo-black.svg"
               width={20}
             />
           </Link>
@@ -197,7 +194,7 @@ const AppSidebar = ({ session }: Props) => {
               showCloseButton={false}
             >
               <DialogHeader className="sr-only">
-                <DialogTitle>Command Palette</DialogTitle>
+                <DialogTitle>Command palette</DialogTitle>
                 <DialogDescription>
                   Search for a command to run...
                 </DialogDescription>

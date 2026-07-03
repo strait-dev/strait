@@ -10,7 +10,7 @@ import {
   CredenzaTitle,
 } from "@strait/ui/components/credenza";
 import { EmptyMedia } from "@strait/ui/components/empty";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { CheckCircle2Icon, CreditCardIcon, SparklesIcon } from "@/lib/icons";
 
 type SubscriptionSuccessDialogProps = {
@@ -31,33 +31,28 @@ const SubscriptionSuccessDialog = ({
   isNewSubscription = false,
   isUpgrade = false,
 }: SubscriptionSuccessDialogProps) => {
-  const [open, setOpen] = useState(false);
-  const shownTimestampsRef = useRef(new Set<string>());
-  const onUrlCleanupRef = useRef(onUrlCleanup);
-  onUrlCleanupRef.current = onUrlCleanup;
+  const [dismissedKeys, setDismissedKeys] = useState<ReadonlySet<string>>(
+    () => new Set()
+  );
+  let successKey: string | null = null;
+  if (isNewSubscription) {
+    successKey = `new:${timestamp ?? "current"}`;
+  } else if (isUpgrade && timestamp) {
+    successKey = `upgrade:${timestamp}`;
+  }
+  const open = Boolean(successKey && !dismissedKeys.has(successKey));
 
-  useEffect(() => {
-    if (isNewSubscription) {
-      setOpen(true);
-      onUrlCleanupRef.current?.();
-    } else if (
-      isUpgrade &&
-      timestamp &&
-      !shownTimestampsRef.current.has(timestamp)
-    ) {
-      shownTimestampsRef.current.add(timestamp);
-      setOpen(true);
-      onUrlCleanupRef.current?.();
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (nextOpen || !successKey) {
+      return;
     }
-  }, [isNewSubscription, isUpgrade, timestamp]);
-
-  const handleClose = useCallback(() => {
-    setOpen(false);
+    setDismissedKeys((current) => new Set(current).add(successKey));
+    onUrlCleanup?.();
     onClose?.();
-  }, [onClose]);
+  };
 
   return (
-    <Credenza onOpenChange={setOpen} open={open}>
+    <Credenza onOpenChange={handleOpenChange} open={open}>
       <CredenzaContent className="sm:max-w-[500px]">
         <CredenzaHeader className="text-center">
           <div className="mb-6 flex justify-center">
@@ -67,7 +62,7 @@ const SubscriptionSuccessDialog = ({
           </div>
           <CredenzaTitle className="text-balance text-2xl">
             {isNewSubscription ? "Welcome to Strait!" : null}
-            {isUpgrade ? "Subscription Updated!" : null}
+            {isUpgrade ? "Subscription updated!" : null}
           </CredenzaTitle>
           <CredenzaDescription className="mt-3 text-base text-muted-foreground">
             {isNewSubscription
@@ -83,16 +78,18 @@ const SubscriptionSuccessDialog = ({
         <div className="px-6 pb-2">
           <div className="flex justify-center gap-3">
             <Badge iconLeft={SparklesIcon} size="lg" variant="success">
-              Plan Limits Active
+              Plan limits active
             </Badge>
             <Badge iconLeft={CreditCardIcon} size="lg" variant="info-light">
-              Manage Billing
+              Manage billing
             </Badge>
           </div>
         </div>
 
         <CredenzaFooter className="flex justify-center pt-4">
-          <Button onClick={handleClose}>Start exploring</Button>
+          <Button onClick={() => handleOpenChange(false)}>
+            Start exploring
+          </Button>
         </CredenzaFooter>
       </CredenzaContent>
     </Credenza>

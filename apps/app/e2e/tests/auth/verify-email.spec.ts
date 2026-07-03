@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test.describe("Verify Email", () => {
+test.describe("Verify email", () => {
   test.use({ storageState: { cookies: [], origins: [] } });
 
   test("page has correct heading", async ({ page }) => {

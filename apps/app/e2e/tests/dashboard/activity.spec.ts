@@ -6,12 +6,12 @@ test.describe("Dashboard Activity", () => {
   });
 
   test("recent runs table section renders", async ({ page }) => {
-    await expect(page.getByText("Recent Runs", { exact: true })).toBeVisible();
+    await expect(page.getByText("Recent runs", { exact: true })).toBeVisible();
   });
 
   test("live activity feed section renders", async ({ page }) => {
     await expect(
-      page.getByText("Live Activity", { exact: true })
+      page.getByText("Live activity", { exact: true })
     ).toBeVisible();
   });
 

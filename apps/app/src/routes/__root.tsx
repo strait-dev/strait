@@ -138,10 +138,6 @@ function RootDocument({ children }: { children: React.ReactNode }) {
     >
       <head>
         <HeadContent />
-        <meta
-          content="width=device-width, height=device-height, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no"
-          name="viewport"
-        />
       </head>
       <body
         className="h-full bg-background text-foreground selection:bg-foreground selection:text-background"

@@ -3,7 +3,7 @@
 import {
   createContext,
   type ReactNode,
-  useContext,
+  use,
   useEffect,
   useRef,
   useState,
@@ -13,6 +13,8 @@ import { setPostHog } from "@/lib/analytics";
 type PostHogInstance = typeof import("posthog-js").default;
 
 const PostHogContext = createContext<PostHogInstance | null>(null);
+
+const loadPostHog = () => import("posthog-js");
 
 type PostHogProviderProps = {
   children: ReactNode;
@@ -36,7 +38,7 @@ export const PostHogProvider = ({ children }: PostHogProviderProps) => {
     const host = import.meta.env.VITE_POSTHOG_HOST;
     const isDevelopment = import.meta.env.DEV;
 
-    import("posthog-js")
+    loadPostHog()
       .then(({ default: posthog }) => {
         if (!posthog.__loaded) {
           posthog.init(key, {
@@ -65,5 +67,4 @@ export const PostHogProvider = ({ children }: PostHogProviderProps) => {
   );
 };
 
-export const usePostHog = (): PostHogInstance | null =>
-  useContext(PostHogContext);
+export const usePostHog = (): PostHogInstance | null => use(PostHogContext);

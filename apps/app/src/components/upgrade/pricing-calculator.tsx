@@ -90,7 +90,7 @@ const PricingCalculator = () => {
     <Card>
       <CardHeader>
         <CardTitle className="font-medium text-sm">
-          Estimate Your Monthly Cost
+          Estimate your monthly cost
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-6">

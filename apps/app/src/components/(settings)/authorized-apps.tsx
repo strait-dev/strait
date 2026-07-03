@@ -60,7 +60,7 @@ export function AuthorizedApps() {
     return (
       <Card>
         <CardHeader>
-          <CardTitle>Authorized Apps</CardTitle>
+          <CardTitle>Authorized apps</CardTitle>
           <CardDescription>
             Applications that have access to your account via OAuth.
           </CardDescription>
@@ -78,7 +78,7 @@ export function AuthorizedApps() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Authorized Apps</CardTitle>
+        <CardTitle>Authorized apps</CardTitle>
         <CardDescription>
           Applications that have access to your account via OAuth. Revoking
           access will immediately invalidate all tokens for that application.
@@ -120,10 +120,10 @@ function ConsentRow({
   onRevoke: () => void;
   revoking: boolean;
 }) {
-  const scopes = consent.scopes
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
+  const scopes = consent.scopes.split(",").flatMap((s) => {
+    const scope = s.trim();
+    return scope ? [scope] : [];
+  });
 
   const grantedAt = new Date(consent.createdAt).toLocaleDateString(undefined, {
     year: "numeric",

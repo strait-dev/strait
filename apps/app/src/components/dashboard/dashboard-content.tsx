@@ -70,19 +70,19 @@ const DashboardContent = ({
         <MetricCard
           color={CHART_COLORS["chart-3"]}
           icon={ActivityIcon}
-          title="Total Runs (24h)"
+          title="Total runs (24h)"
           value={totalRuns.toLocaleString()}
         />
         <MetricCard
           color={CHART_COLORS["chart-1"]}
           icon={CheckCircleIcon}
-          title="Success Rate"
+          title="Success rate"
           value={`${successRate.toFixed(1)}%`}
         />
         <MetricCard
           color={CHART_COLORS["chart-2"]}
           icon={AlertIcon}
-          title="Failed Runs"
+          title="Failed runs"
           value={failedRuns.toLocaleString()}
         />
         <MetricCard
@@ -93,7 +93,7 @@ const DashboardContent = ({
         />
       </div>
 
-      {/* Row 2: Run Activity + Status Distribution */}
+      {/* Row 2: Run activity + Status distribution */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <div className="lg:col-span-2">
           <RunsChart hasProject={hasProject} />
@@ -115,20 +115,20 @@ const DashboardContent = ({
         </QueryErrorBoundary>
       )}
 
-      {/* Row 3: Failed Runs by Job + Duration Trends */}
+      {/* Row 3: Failed runs by Job + Duration Trends */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <FailedRunsByJobChart hasProject={hasProject} />
         <RunDurationTrendsChart hasProject={hasProject} />
       </div>
 
-      {/* Row 4: Top Jobs + Throughput + Queue Health */}
+      {/* Row 4: Top Jobs + Throughput + Queue health */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <TopJobsChart hasProject={hasProject} />
         <ThroughputChart hasProject={hasProject} />
         <QueueHealthChart hasProject={hasProject} />
       </div>
 
-      {/* Row 5: Recent Runs + Activity Feed */}
+      {/* Row 5: Recent runs + Activity Feed */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <div className="lg:col-span-2">
           <RecentRunsTable hasProject={hasProject} />

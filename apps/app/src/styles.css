@@ -2,3 +2,15 @@
 
 @source "./**/*.{ts,tsx}";
 @source "../node_modules/@strait/ui/dist/**/*.{js,ts,tsx}";
+
+:root {
+  --sidebar-accent: oklch(0.95 0.035 37.42);
+  --sidebar-accent-foreground: var(--sidebar-foreground);
+  --sidebar-active: oklch(0.92 0.055 37.42);
+}
+
+.dark {
+  --sidebar-accent: oklch(0.28 0.055 37.42);
+  --sidebar-accent-foreground: var(--sidebar-foreground);
+  --sidebar-active: oklch(0.33 0.075 37.42);
+}

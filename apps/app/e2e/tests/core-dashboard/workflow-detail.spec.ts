@@ -50,7 +50,7 @@ test.describe("Workflow detail dashboard", () => {
       page.getByRole("heading", { name: workflow.name })
     );
 
-    await expect(page.getByText("Total Runs")).toBeVisible();
+    await expect(page.getByText("Total runs")).toBeVisible();
     await expect(
       page.getByText(observedRun.id.slice(0, 8), { exact: true })
     ).toBeVisible();
@@ -58,7 +58,7 @@ test.describe("Workflow detail dashboard", () => {
       page.getByText(/running|completed|failed/i).first()
     ).toBeVisible();
 
-    await selectTab(page, "Recent Runs");
+    await selectTab(page, "Recent runs");
     await expect(
       page.getByRole("table", { name: "Workflow runs" })
     ).toBeVisible();
@@ -76,7 +76,7 @@ test.describe("Workflow detail dashboard", () => {
     await expect(page.getByText("Job").first()).toBeVisible();
 
     await selectTab(page, "Settings");
-    await expect(page.getByText("Version Policy")).toBeVisible();
+    await expect(page.getByText("Version policy")).toBeVisible();
     await expect(page.getByText("Manual")).toBeVisible();
 
     await page.getByRole("button", { name: "Pause" }).click();
@@ -130,7 +130,7 @@ test.describe("Workflow detail dashboard", () => {
     await expect(
       page.getByText(failedRun.id.slice(0, 8), { exact: true })
     ).toBeVisible();
-    await selectTab(page, "Recent Runs");
+    await selectTab(page, "Recent runs");
     await expect(
       page.getByRole("row", {
         name: new RegExp(`${failedRun.id.slice(0, 8)}\\s+failed`, "i"),

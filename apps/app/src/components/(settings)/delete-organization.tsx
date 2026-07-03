@@ -25,7 +25,7 @@ import { Spinner } from "@strait/ui/components/spinner";
 import { toast } from "@strait/ui/components/toast";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useRouter } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useReducer } from "react";
 import type { OrganizationData } from "@/hooks/auth/use-organization";
 import {
   useDeleteLastOrganizationWithToken,
@@ -44,12 +44,65 @@ type Props = {
 
 type Step = "confirm" | "verify" | "deleting";
 
+type DeleteDialogState = {
+  isOpen: boolean;
+  step: Step;
+  confirmName: string;
+  verificationCode: string;
+  resendCooldown: number;
+};
+
+type DeleteDialogAction =
+  | { type: "open" }
+  | { type: "close" }
+  | { type: "set-confirm-name"; value: string }
+  | { type: "set-verification-code"; value: string }
+  | { type: "set-step"; step: Step }
+  | { type: "set-resend-cooldown"; value: number }
+  | { type: "tick-resend-cooldown" };
+
+const initialDeleteDialogState: DeleteDialogState = {
+  isOpen: false,
+  step: "confirm",
+  confirmName: "",
+  verificationCode: "",
+  resendCooldown: 0,
+};
+
+function deleteDialogReducer(
+  state: DeleteDialogState,
+  action: DeleteDialogAction
+): DeleteDialogState {
+  switch (action.type) {
+    case "open":
+      return { ...initialDeleteDialogState, isOpen: true };
+    case "close":
+      return initialDeleteDialogState;
+    case "set-confirm-name":
+      return { ...state, confirmName: action.value };
+    case "set-verification-code":
+      return { ...state, verificationCode: action.value };
+    case "set-step":
+      return { ...state, step: action.step };
+    case "set-resend-cooldown":
+      return { ...state, resendCooldown: action.value };
+    case "tick-resend-cooldown":
+      return {
+        ...state,
+        resendCooldown: Math.max(0, state.resendCooldown - 1),
+      };
+    default:
+      return state;
+  }
+}
+
 const DeleteOrganization = ({ organizationId, organizationName }: Props) => {
-  const [isOpen, setIsOpen] = useState(false);
-  const [step, setStep] = useState<Step>("confirm");
-  const [confirmName, setConfirmName] = useState("");
-  const [verificationCode, setVerificationCode] = useState("");
-  const [resendCooldown, setResendCooldown] = useState(0);
+  const [dialogState, dispatchDialog] = useReducer(
+    deleteDialogReducer,
+    initialDeleteDialogState
+  );
+  const { isOpen, step, confirmName, verificationCode, resendCooldown } =
+    dialogState;
 
   const navigate = useNavigate();
   const router = useRouter();
@@ -71,24 +124,19 @@ const DeleteOrganization = ({ organizationId, organizationName }: Props) => {
     if (resendCooldown <= 0) {
       return;
     }
-    const timer = setTimeout(() => setResendCooldown((c) => c - 1), 1000);
+    const timer = setTimeout(
+      () => dispatchDialog({ type: "tick-resend-cooldown" }),
+      1000
+    );
     return () => clearTimeout(timer);
   }, [resendCooldown]);
 
   const handleOpen = () => {
-    setStep("confirm");
-    setConfirmName("");
-    setVerificationCode("");
-    setResendCooldown(0);
-    setIsOpen(true);
+    dispatchDialog({ type: "open" });
   };
 
   const handleClose = () => {
-    setIsOpen(false);
-    setStep("confirm");
-    setConfirmName("");
-    setVerificationCode("");
-    setResendCooldown(0);
+    dispatchDialog({ type: "close" });
   };
 
   const handleRequestDeletion = async () => {
@@ -100,8 +148,11 @@ const DeleteOrganization = ({ organizationId, organizationName }: Props) => {
     try {
       const result = await requestDeletion.mutateAsync({ organizationId });
       toast.success("Verification code sent to your email.");
-      setResendCooldown(result.cooldownRemaining ?? 60);
-      setStep("verify");
+      dispatchDialog({
+        type: "set-resend-cooldown",
+        value: result.cooldownRemaining ?? 60,
+      });
+      dispatchDialog({ type: "set-step", step: "verify" });
     } catch (error) {
       toast.error(
         error instanceof Error
@@ -119,7 +170,10 @@ const DeleteOrganization = ({ organizationId, organizationName }: Props) => {
     try {
       const result = await resendCode.mutateAsync({ organizationId });
       toast.success("Verification code resent.");
-      setResendCooldown(result.cooldownRemaining ?? 60);
+      dispatchDialog({
+        type: "set-resend-cooldown",
+        value: result.cooldownRemaining ?? 60,
+      });
     } catch (error) {
       toast.error(
         error instanceof Error
@@ -136,7 +190,7 @@ const DeleteOrganization = ({ organizationId, organizationName }: Props) => {
     }
 
     try {
-      setStep("deleting");
+      dispatchDialog({ type: "set-step", step: "deleting" });
       const result = await verifyDeletion.mutateAsync({
         organizationId,
         operation: "delete",
@@ -145,7 +199,7 @@ const DeleteOrganization = ({ organizationId, organizationName }: Props) => {
 
       if (!result.verificationToken) {
         toast.error("Failed to verify code. Please try again.");
-        setStep("verify");
+        dispatchDialog({ type: "set-step", step: "verify" });
         return;
       }
 
@@ -177,7 +231,7 @@ const DeleteOrganization = ({ organizationId, organizationName }: Props) => {
           ? error.message
           : "Failed to delete organization. Please try again."
       );
-      setStep("verify");
+      dispatchDialog({ type: "set-step", step: "verify" });
     }
   };
 
@@ -230,7 +284,12 @@ const DeleteOrganization = ({ organizationId, organizationName }: Props) => {
                       Type "{organizationName}" to confirm
                     </FieldLabel>
                     <Input
-                      onChange={(e) => setConfirmName(e.target.value)}
+                      onChange={(e) =>
+                        dispatchDialog({
+                          type: "set-confirm-name",
+                          value: e.target.value,
+                        })
+                      }
                       placeholder={organizationName}
                       value={confirmName}
                     />
@@ -278,7 +337,12 @@ const DeleteOrganization = ({ organizationId, organizationName }: Props) => {
                     <FieldLabel>Verification code</FieldLabel>
                     <Input
                       maxLength={6}
-                      onChange={(e) => setVerificationCode(e.target.value)}
+                      onChange={(e) =>
+                        dispatchDialog({
+                          type: "set-verification-code",
+                          value: e.target.value,
+                        })
+                      }
                       placeholder="Enter 6-digit code"
                       value={verificationCode}
                     />

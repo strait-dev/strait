@@ -18,7 +18,8 @@ import { Frame, FramePanel } from "@strait/ui/components/frame";
 import { toast } from "@strait/ui/components/toast";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { useCallback, useMemo, useState } from "react";
+import { useState } from "react";
+import type { SubscriptionStateData } from "@/hooks/subscription/subscription-state";
 import { subscriptionStateQueryOptions } from "@/hooks/subscription/use-subscription";
 import { getPostHog } from "@/lib/analytics";
 import {
@@ -48,126 +49,135 @@ const INTERVAL_NAMES = {
   year: "Annual",
 } as const;
 
+function getSubscriptionStatusInfo(status?: string) {
+  switch (status) {
+    case "active":
+      return {
+        message: "Active",
+        icon: CheckCircleIcon,
+        variant: "success" as const,
+      };
+    case "canceled":
+      return {
+        message: "Canceled",
+        icon: AlertCircleIcon,
+        variant: "destructive" as const,
+      };
+    case "incomplete":
+    case "past_due":
+    case "unpaid":
+      return {
+        message: "Needs attention",
+        icon: AlarmClockIcon,
+        variant: "destructive" as const,
+      };
+    default:
+      return {
+        message: "Inactive",
+        icon: null,
+        variant: "secondary" as const,
+      };
+  }
+}
+
+function getSubscriptionStatusMessage({
+  currentPeriodEnd,
+  isActive,
+  isCanceled,
+  needsAttention,
+}: {
+  currentPeriodEnd?: Date | string | null;
+  isActive: boolean;
+  isCanceled: boolean;
+  needsAttention: boolean;
+}) {
+  if (isActive && currentPeriodEnd) {
+    const nextBillingDate = new Date(currentPeriodEnd).toLocaleDateString(
+      "en-US",
+      {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+      }
+    );
+    return isCanceled
+      ? `Cancels on ${nextBillingDate}`
+      : `Next billing on ${nextBillingDate}`;
+  }
+  if (isCanceled) {
+    return "Your plan has been canceled. Choose a new plan to continue using Strait.";
+  }
+  if (needsAttention) {
+    return "Your subscription needs attention. Please update your payment method.";
+  }
+  return isActive ? "Active subscription" : "No active subscription";
+}
+
+function getPlanInfo(data: SubscriptionStateData) {
+  const { subscription, isActive, needsAttention, isCanceled, plan } = data;
+  const statusInfo = getSubscriptionStatusInfo(subscription?.status);
+  const planName = PLAN_NAMES[plan as keyof typeof PLAN_NAMES] || "Unknown";
+  const intervalValue = subscription?.recurringInterval ?? "monthly";
+  const intervalName =
+    INTERVAL_NAMES[intervalValue as keyof typeof INTERVAL_NAMES] || "Monthly";
+
+  return {
+    planName,
+    intervalName,
+    statusInfo,
+    statusMessage: getSubscriptionStatusMessage({
+      currentPeriodEnd: subscription?.currentPeriodEnd,
+      isActive,
+      isCanceled,
+      needsAttention,
+    }),
+    isActive: isActive || subscription?.status === "active",
+    isCanceled: isCanceled || subscription?.status === "canceled",
+    needsAttention:
+      needsAttention ||
+      ATTENTION_STATUSES.has((subscription?.status as string) ?? ""),
+  };
+}
+
 const SubscriptionOverview = () => {
   const [isLoading, setIsLoading] = useState<string | null>(null);
 
   const { data } = useSuspenseQuery(subscriptionStateQueryOptions());
-  const { subscription, isActive, needsAttention, isCanceled, plan } = data;
+  const { subscription } = data;
 
   // Helper to open portal
-  const openPortal = useCallback(async (loadingKey: string) => {
+  const openPortal = async (loadingKey: string) => {
     getPostHog()?.capture("billing_portal_opened", { action: loadingKey });
     setIsLoading(loadingKey);
     try {
       const result = await getCustomerPortalUrlServerFn();
       if (result.error || !result.url) {
         toast.error(result.error || "Failed to open customer portal");
+        setIsLoading(null);
         return;
       }
-      window.location.href = result.url;
+      window.location.assign(result.url);
     } catch (error) {
       captureException(error);
       toast.error("Failed to open customer portal");
-    } finally {
-      setIsLoading(null);
     }
-  }, []);
+    setIsLoading(null);
+  };
 
   // Memoize handlers
-  const handleOpenPortal = useCallback(async () => {
+  const handleOpenPortal = async () => {
     await openPortal("portal");
-  }, [openPortal]);
+  };
 
-  const handleCancelSubscription = useCallback(async () => {
+  const handleCancelSubscription = async () => {
     await openPortal("cancel");
-  }, [openPortal]);
+  };
 
-  const handleReactivateSubscription = useCallback(async () => {
+  const handleReactivateSubscription = async () => {
     await openPortal("reactivate");
-  }, [openPortal]);
+  };
 
-  // Helper functions to reduce complexity
-  const getStatusInfo = useCallback(() => {
-    switch (subscription?.status) {
-      case "active":
-        return {
-          message: "Active",
-          icon: CheckCircleIcon,
-          variant: "success" as const,
-        };
-      case "canceled":
-        return {
-          message: "Canceled",
-          icon: AlertCircleIcon,
-          variant: "destructive" as const,
-        };
-      case "incomplete":
-      case "past_due":
-      case "unpaid":
-        return {
-          message: "Needs Attention",
-          icon: AlarmClockIcon,
-          variant: "destructive" as const,
-        };
-      default:
-        return {
-          message: "Inactive",
-          icon: null,
-          variant: "secondary" as const,
-        };
-    }
-  }, [subscription?.status]);
-
-  const getStatusMessage = useCallback(() => {
-    if (isActive && subscription?.currentPeriodEnd) {
-      const nextBillingDate = new Date(
-        subscription.currentPeriodEnd
-      ).toLocaleDateString("en-US", {
-        day: "numeric",
-        month: "short",
-        year: "numeric",
-      });
-      return isCanceled
-        ? `Cancels on ${nextBillingDate}`
-        : `Next billing on ${nextBillingDate}`;
-    }
-    if (isCanceled) {
-      return "Your plan has been canceled. Choose a new plan to continue using Strait.";
-    }
-    if (needsAttention) {
-      return "Your subscription needs attention. Please update your payment method.";
-    }
-    return isActive ? "Active subscription" : "No active subscription";
-  }, [isActive, subscription?.currentPeriodEnd, isCanceled, needsAttention]);
-
-  // Memoize status and plan calculations
-  const planInfo = useMemo(() => {
-    const statusInfo = getStatusInfo();
-    const planName = PLAN_NAMES[plan as keyof typeof PLAN_NAMES] || "Unknown";
-    const intervalValue = subscription?.recurringInterval ?? "monthly";
-    const intervalName =
-      INTERVAL_NAMES[intervalValue as keyof typeof INTERVAL_NAMES] || "Monthly";
-
-    return {
-      planName,
-      intervalName,
-      statusInfo,
-      statusMessage: getStatusMessage(),
-      isActive: isActive || subscription?.status === "active",
-      isCanceled: isCanceled || subscription?.status === "canceled",
-      needsAttention:
-        needsAttention ||
-        ATTENTION_STATUSES.has((subscription?.status as string) ?? ""),
-    };
-  }, [
-    subscription,
-    isActive,
-    isCanceled,
-    needsAttention,
-    getStatusInfo,
-    getStatusMessage,
-    plan,
-  ]);
+  const planInfo = getPlanInfo(data);
 
   // No subscription case
   if (!subscription) {
@@ -225,7 +235,7 @@ const SubscriptionOverview = () => {
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <div className="space-y-1">
                   <div className="font-medium text-muted-foreground text-sm">
-                    Billing Cycle
+                    Billing cycle
                   </div>
                   <p className="font-normal">{planInfo.intervalName}</p>
                 </div>
@@ -233,7 +243,7 @@ const SubscriptionOverview = () => {
                 {subscription?.currentPeriodEnd ? (
                   <div className="space-y-1">
                     <div className="font-medium text-muted-foreground text-sm">
-                      {planInfo.isCanceled ? "Cancels On" : "Next Billing"}
+                      {planInfo.isCanceled ? "Cancels on" : "Next billing"}
                     </div>
                     <p className="font-normal">
                       {new Date(
@@ -255,7 +265,7 @@ const SubscriptionOverview = () => {
       {/* Subscription Management Actions */}
       <Card>
         <CardHeader>
-          <CardTitle>Manage Your Subscription</CardTitle>
+          <CardTitle>Manage your subscription</CardTitle>
           <CardDescription>
             Access the customer portal to manage your subscription, payment
             methods, and view invoices.
@@ -304,7 +314,7 @@ const SubscriptionOverview = () => {
 
           <Alert>
             <HugeiconsIcon className="size-4" icon={AlertCircleIcon} />
-            <AlertTitle>Customer Portal</AlertTitle>
+            <AlertTitle>Customer portal</AlertTitle>
             <AlertDescription>
               Update payment methods, download invoices, view payment history,
               and manage your subscription details.

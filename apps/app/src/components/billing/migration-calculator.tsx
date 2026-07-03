@@ -13,7 +13,7 @@ import {
 } from "@strait/ui/components/description-list";
 import { Field, FieldLabel } from "@strait/ui/components/field";
 import { NumberInputWithChevrons } from "@strait/ui/components/number-input-with-chevrons";
-import { useCallback, useState } from "react";
+import { useState } from "react";
 import { formatCurrency } from "@/lib/format";
 
 type Provider = "trigger.dev" | "inngest" | "hatchet" | "temporal";
@@ -83,7 +83,7 @@ const MigrationCalculator = () => {
   const [currentCost, setCurrentCost] = useState(75);
   const [result, setResult] = useState<ComparisonResult | null>(null);
 
-  const handleCalculate = useCallback(() => {
+  const handleCalculate = () => {
     const estimation = estimateStraitCost(
       runsPerMonth,
       computeHours,
@@ -92,13 +92,13 @@ const MigrationCalculator = () => {
     estimation.currentCost = currentCost;
     estimation.savings = currentCost - estimation.straitCost;
     setResult(estimation);
-  }, [runsPerMonth, computeHours, teamMembers, currentCost]);
+  };
 
   return (
     <div className="space-y-6">
       <div className="text-center">
         <h2 className="text-balance font-normal text-foreground text-lg tracking-tight">
-          Compare & Save
+          Compare & save
         </h2>
         <p className="text-muted-foreground text-sm">
           See how much you could save by switching to Strait
@@ -121,7 +121,7 @@ const MigrationCalculator = () => {
       {/* Usage Inputs */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-sm">Your Current Usage</CardTitle>
+          <CardTitle className="text-sm">Your current usage</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <Field>
@@ -169,7 +169,7 @@ const MigrationCalculator = () => {
           </Field>
 
           <Button className="w-full" onClick={handleCalculate}>
-            Calculate Savings
+            Calculate savings
           </Button>
         </CardContent>
       </Card>
@@ -223,7 +223,7 @@ const MigrationCalculator = () => {
             </div>
 
             <Button className="w-full" variant="default">
-              Get Started Free
+              Get started free
             </Button>
           </CardContent>
         </Card>

@@ -27,15 +27,14 @@ import {
 import { InputWithStartIcon } from "@strait/ui/components/input-with-start-icon";
 import { Shell } from "@strait/ui/components/shell";
 import { useQuery } from "@tanstack/react-query";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import {
   getCoreRowModel,
   getFilteredRowModel,
   getSortedRowModel,
-  useReactTable,
 } from "@tanstack/react-table";
 import { zodValidator } from "@tanstack/zod-adapter";
-import { useCallback, useMemo, useState } from "react";
+import { useState } from "react";
 import { z } from "zod/v4";
 import { CursorPagination } from "@/components/common/cursor-pagination";
 import ErrorComponent from "@/components/common/error-component";
@@ -46,6 +45,7 @@ import WorkflowDetailSheet from "@/components/dashboard/workflow-detail-sheet";
 import {
   getResourceTableInitialState,
   RESOURCE_TABLE_CLASS_NAMES,
+  RESOURCE_TABLE_EMPTY_CLASS_NAME,
 } from "@/components/tables/resource-table";
 import { createWorkflowColumns } from "@/components/tables/workflows-columns";
 import WorkflowFormDialog from "@/components/workflows/workflow-form-dialog";
@@ -59,6 +59,7 @@ import {
   workflowsQueryOptions,
 } from "@/hooks/api/use-workflows";
 import { useProjectPermissions } from "@/hooks/auth/use-project-permissions";
+import { useAppReactTable } from "@/hooks/use-app-react-table";
 import { useCursorPagination } from "@/hooks/use-cursor-pagination";
 import { useHydratedTableData } from "@/hooks/use-hydrated-table-data";
 import { usePermissionGatedCreateQuery } from "@/hooks/use-permission-gated-create-query";
@@ -93,8 +94,9 @@ export const searchSchema = z.object({
   create: createSearchSchema,
 });
 
+const EMPTY_ARRAY: never[] = [];
+
 export const Route = createFileRoute("/app/workflows/")({
-  head: () => ({ meta: [{ title: "Workflows · Strait" }] }),
   validateSearch: zodValidator(searchSchema),
   loaderDeps: ({ search }) => ({
     limit: search.perPage ?? 20,
@@ -115,6 +117,7 @@ export const Route = createFileRoute("/app/workflows/")({
     }
     return { hasProject, session };
   },
+  head: () => ({ meta: [{ title: "Workflows · Strait" }] }),
   pendingComponent: TablePageSkeleton,
   errorComponent: ErrorComponent,
   component: WorkflowsPage,
@@ -151,31 +154,24 @@ function WorkflowsPage() {
     useProjectPermissions(session.user.activeProjectId);
   const actionPermissions = workflowResourcePermissions(permissions);
 
-  const openCreateDialog = useCallback(() => {
+  const openCreateDialog = () => {
     setFormOpen(true);
-  }, []);
-
-  const clearCreateQuery = useCallback(() => {
-    navigate({
-      search: (prev) => ({ ...prev, create: undefined }),
-      replace: true,
-    });
-  }, [navigate]);
+  };
 
   usePermissionGatedCreateQuery({
     canCreate: actionPermissions.canCreate,
-    clearCreateQuery,
     create: search.create,
     isReady: permissionsHydrated,
+    navigate,
     openCreateDialog,
   });
 
-  const selectedStatuses = search.status ?? [];
+  const selectedStatuses = search.status ?? EMPTY_ARRAY;
 
   const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({});
   const typed = data as PaginatedResponse<Workflow> | undefined;
 
-  const filteredData = useMemo(() => {
+  const filteredData = (() => {
     let workflows = hasProject ? (typed?.data ?? []) : [];
     const query = search.query?.trim().toLowerCase();
     if (query) {
@@ -197,10 +193,10 @@ function WorkflowsPage() {
       }
       return false;
     });
-  }, [typed, hasProject, selectedStatuses, search.query]);
+  })();
   const tableData = useHydratedTableData(filteredData);
 
-  const table = useReactTable({
+  const table = useAppReactTable({
     data: tableData.data,
     columns: createWorkflowColumns({
       onView: (workflow) => {
@@ -262,7 +258,7 @@ function WorkflowsPage() {
   }
 
   const emptyState = hasProject ? (
-    <Empty className="h-[300px]">
+    <Empty className={RESOURCE_TABLE_EMPTY_CLASS_NAME}>
       <EmptyHeader>
         <EmptyMedia media="icon" size="lg">
           <HugeiconsIcon
@@ -313,11 +309,7 @@ function WorkflowsPage() {
         {actionPermissions.canCreate && (
           <Button
             className="shrink-0"
-            render={(props) => (
-              <a {...props} href="/app/workflows?create=1">
-                {props.children}
-              </a>
-            )}
+            render={<Link search={{ create: "1" }} to="/app/workflows" />}
           >
             <HugeiconsIcon className="size-4" icon={PlusIcon} />
             Create workflow

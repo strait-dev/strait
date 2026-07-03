@@ -38,7 +38,7 @@ test.describe("UI-driven critical dashboard journey", () => {
     const after = await waitForAdditionalRun(before.data.length, 30_000);
     expect(after.data.length).toBeGreaterThan(before.data.length);
 
-    await page.getByRole("tab", { name: "Recent Runs" }).click();
+    await page.getByRole("tab", { name: "Recent runs" }).click();
     await expect(
       page.getByRole("link", { name: run.id.slice(0, 8) }).first()
     ).toBeVisible({

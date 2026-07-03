@@ -1,6 +1,6 @@
 import { expect, test } from "../../fixtures";
 
-test.describe("Project Settings", () => {
+test.describe("Project settings", () => {
   test("project settings page loads", async ({ page }) => {
     // Find project ID from the sidebar or session
     await page.goto("/app/dashboard");

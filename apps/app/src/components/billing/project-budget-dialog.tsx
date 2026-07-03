@@ -53,7 +53,7 @@ const ProjectBudgetDialog = ({
     <Dialog onOpenChange={onOpenChange} open={open}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Set Budget for {projectName}</DialogTitle>
+          <DialogTitle>Set budget for {projectName}</DialogTitle>
           <DialogDescription>
             Set a monthly spending budget for this project. You can choose to
             reject new runs or just receive a notification when the budget is
@@ -120,7 +120,7 @@ const BudgetForm = ({
     <>
       <div className="space-y-4 py-4">
         <div className="space-y-2">
-          <Label htmlFor="budget">Monthly Budget (USD)</Label>
+          <Label htmlFor="budget">Monthly budget (USD)</Label>
           <Input
             id="budget"
             min="0"
@@ -163,7 +163,7 @@ const BudgetForm = ({
             onClick={handleRemove}
             variant="ghost"
           >
-            Remove Budget
+            Remove budget
           </Button>
         )}
         <DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>

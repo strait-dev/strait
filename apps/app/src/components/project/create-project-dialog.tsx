@@ -15,7 +15,6 @@ import { Spinner } from "@strait/ui/components/spinner";
 import { Textarea } from "@strait/ui/components/textarea";
 import { toast } from "@strait/ui/components/toast";
 import { useForm } from "@tanstack/react-form";
-import { useMemo } from "react";
 import { z } from "zod/v4";
 import type { Project } from "@/hooks/api/types";
 import { useCreateAndActivateProject } from "@/hooks/api/use-projects";
@@ -42,13 +41,10 @@ const CreateProjectDialog = ({
 }: Props) => {
   const createProject = useCreateAndActivateProject();
 
-  const defaultValues = useMemo(
-    () => ({
-      name: "",
-      description: "",
-    }),
-    []
-  );
+  const defaultValues = {
+    name: "",
+    description: "",
+  };
 
   const form = useForm({
     defaultValues,
@@ -87,6 +83,7 @@ const CreateProjectDialog = ({
         <form
           onSubmit={(e) => {
             e.preventDefault();
+            e.stopPropagation();
             form.handleSubmit();
           }}
         >
@@ -117,8 +114,8 @@ const CreateProjectDialog = ({
                     autoFocus
                     id={field.name}
                     onBlur={field.handleBlur}
-                    onChange={(e) => field.handleChange(e.target.value)}
-                    placeholder="My Project"
+                    onInput={(e) => field.handleChange(e.currentTarget.value)}
+                    placeholder="My project"
                     value={field.state.value}
                   />
                   {field.state.meta.isTouched &&
@@ -150,7 +147,7 @@ const CreateProjectDialog = ({
                     }
                     id={field.name}
                     onBlur={field.handleBlur}
-                    onChange={(e) => field.handleChange(e.target.value)}
+                    onInput={(e) => field.handleChange(e.currentTarget.value)}
                     placeholder="What is this project for?"
                     rows={3}
                     value={field.state.value}

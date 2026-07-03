@@ -380,12 +380,12 @@ function writeLocalDogfoodEnv() {
     BETTER_AUTH_URL: appUrl,
     DATABASE_URL: databaseUrl,
     E2E_LIMITED_USER_EMAIL:
-      process.env.E2E_LIMITED_USER_EMAIL || "e2e-limited@strait.local",
+      process.env.E2E_LIMITED_USER_EMAIL || "e2e-limited@example.com",
     E2E_LIMITED_USER_PASSWORD:
       process.env.E2E_LIMITED_USER_PASSWORD ||
       process.env.E2E_USER_PASSWORD ||
       "dogfood-local-password",
-    E2E_USER_EMAIL: process.env.E2E_USER_EMAIL || "e2e-owner@strait.local",
+    E2E_USER_EMAIL: process.env.E2E_USER_EMAIL || "e2e-owner@example.com",
     E2E_USER_PASSWORD:
       process.env.E2E_USER_PASSWORD || "dogfood-local-password",
     ENCRYPTION_KEY: localEncryptionKey,

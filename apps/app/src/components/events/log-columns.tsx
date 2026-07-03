@@ -17,7 +17,7 @@ export const logColumns: ColumnDef<EventTrigger>[] = [
   },
   {
     accessorKey: "event_key",
-    header: "Event Key",
+    header: "Event key",
     cell: ({ row }) => (
       <span className="line-clamp-1 max-w-[400px] font-mono text-sm">
         {row.original.event_key}

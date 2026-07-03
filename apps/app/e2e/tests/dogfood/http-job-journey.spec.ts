@@ -26,7 +26,7 @@ test.describe("Dogfood HTTP job journey", () => {
 
       await api.waitForRunStatus(runId, ["completed"], 60_000);
 
-      await page.getByRole("tab", { name: "Recent Runs" }).click();
+      await page.getByRole("tab", { name: "Recent runs" }).click();
       await expect(
         page.getByRole("link", { name: runId.slice(0, 8) }).first()
       ).toBeVisible({ timeout: 15_000 });

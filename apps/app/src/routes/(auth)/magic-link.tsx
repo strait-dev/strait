@@ -12,6 +12,7 @@ export const Route = createFileRoute("/(auth)/magic-link")({
       throw redirect({ to: search.redirect ?? "/app" });
     }
   },
+  head: () => ({ meta: [{ title: "Magic link sign in · Strait" }] }),
   errorComponent: ErrorComponent,
   notFoundComponent: NotFound,
   component: MagicLinkPage,

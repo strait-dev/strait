@@ -66,7 +66,7 @@ export const createWorkflowColumns = (
   },
   {
     accessorKey: "updated_at",
-    header: "Last Updated",
+    header: "Last updated",
     cell: ({ row }) => <RelativeTime value={row.original.updated_at} />,
   },
   createActionsColumn<Workflow>([

@@ -43,13 +43,13 @@ import {
   getFilteredRowModel,
   getPaginationRowModel,
   getSortedRowModel,
-  useReactTable,
 } from "@tanstack/react-table";
-import { useEffect, useMemo, useState } from "react";
+import { useState } from "react";
 import DetailPageSkeleton from "@/components/common/detail-page-skeleton";
 import EntityNotFound from "@/components/common/entity-not-found";
 import ErrorComponent from "@/components/common/error-component";
 import RunDetailSheet from "@/components/dashboard/run-detail-sheet";
+import { RESOURCE_TABLE_EMPTY_CLASS_NAME } from "@/components/tables/resource-table";
 import { createRunColumns } from "@/components/tables/runs-columns";
 import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import type { Job, JobRun, PaginatedResponse } from "@/hooks/api/types";
@@ -69,7 +69,9 @@ import {
   type ProjectPermissionFlags,
   useProjectPermissions,
 } from "@/hooks/auth/use-project-permissions";
+import { useAppReactTable } from "@/hooks/use-app-react-table";
 import { useHydratedTableData } from "@/hooks/use-hydrated-table-data";
+import { useIsHydrated } from "@/hooks/use-is-hydrated";
 import {
   ActivityIcon,
   ClockIcon,
@@ -85,7 +87,6 @@ import { stopInteractiveRowClick } from "@/lib/table-interactions";
 import type { AppRouteContext } from "@/routes/app/layout";
 
 export const Route = createFileRoute("/app/jobs/$id")({
-  head: () => ({ meta: [{ title: "Job · Strait" }] }),
   loader: async ({ context, params }) => {
     const { session } = context as AppRouteContext;
     await Promise.all([
@@ -99,6 +100,7 @@ export const Route = createFileRoute("/app/jobs/$id")({
     ]);
     return { session };
   },
+  head: () => ({ meta: [{ title: "Job · Strait" }] }),
   pendingComponent: DetailPageSkeleton,
   errorComponent: ErrorComponent,
   component: JobDetailPage,
@@ -116,7 +118,7 @@ const HEALTH_WINDOWS: { value: HealthWindow; label: string }[] = [
 const STATUS_DISTRIBUTION_CONFIG = {
   Completed: { label: "Completed", color: "chart-1" },
   Failed: { label: "Failed", color: "chart-2" },
-  "Timed Out": { label: "Timed Out", color: "chart-5" },
+  "Timed out": { label: "Timed out", color: "chart-5" },
   Canceled: { label: "Canceled", color: "chart-5" },
 } satisfies ChartConfig;
 
@@ -190,7 +192,7 @@ function JobDetailPage() {
   const [selectedRun, setSelectedRun] = useState<JobRun | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({});
-  const [isHydrated, setIsHydrated] = useState(false);
+  const isHydrated = useIsHydrated();
 
   const { data: health } = useQuery(jobHealthQueryOptions(id, healthWindow));
 
@@ -204,11 +206,7 @@ function JobDetailPage() {
   const jobRuns = runsData?.data ?? [];
   const tableData = useHydratedTableData(jobRuns);
 
-  useEffect(() => {
-    setIsHydrated(true);
-  }, []);
-
-  const table = useReactTable({
+  const table = useAppReactTable({
     data: tableData.data,
     columns: createRunColumns({
       onView: (run) => handleRowClick(run),
@@ -231,7 +229,7 @@ function JobDetailPage() {
 
   const selectedIds = Object.keys(rowSelection).filter((k) => rowSelection[k]);
 
-  const stats = useMemo(() => {
+  const stats = (() => {
     if (!health) {
       return {
         successRate: "0%",
@@ -246,9 +244,9 @@ function JobDetailPage() {
       avgDuration: `${health.avg_duration_secs.toFixed(1)}s`,
       failedRuns: health.failed_runs.toLocaleString(),
     };
-  }, [health]);
+  })();
 
-  const chartData = useMemo(() => {
+  const chartData = (() => {
     if (!health) {
       return [];
     }
@@ -262,7 +260,7 @@ function JobDetailPage() {
         value: health.failed_runs,
       },
       {
-        name: "Timed Out",
+        name: "Timed out",
         value: health.timed_out_runs,
       },
       {
@@ -270,7 +268,7 @@ function JobDetailPage() {
         value: health.canceled_runs,
       },
     ].filter((d) => d.value > 0);
-  }, [health]);
+  })();
 
   function handleRowClick(run: JobRun) {
     setSelectedRun(run);
@@ -319,7 +317,7 @@ function JobDetailPage() {
       <Tabs className="w-full" onValueChange={setActiveTab} value={activeTab}>
         <TabsList>
           <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="runs">Recent Runs</TabsTrigger>
+          <TabsTrigger value="runs">Recent runs</TabsTrigger>
         </TabsList>
 
         <TabsContent className="mt-6 space-y-6" value="overview">
@@ -340,27 +338,27 @@ function JobDetailPage() {
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <MetricCard
               size="sm"
-              title="Success Rate"
+              title="Success rate"
               value={stats.successRate}
             />
-            <MetricCard size="sm" title="Total Runs" value={stats.totalRuns} />
+            <MetricCard size="sm" title="Total runs" value={stats.totalRuns} />
             <MetricCard
               size="sm"
-              title="Avg Duration"
+              title="Avg duration"
               value={stats.avgDuration}
             />
             <MetricCard
               size="sm"
-              title="Failed Runs"
+              title="Failed runs"
               value={stats.failedRuns}
             />
           </div>
 
-          {/* Run Status Distribution */}
+          {/* Run status distribution */}
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="font-medium text-sm">
-                Run Status Distribution
+                Run status distribution
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -446,7 +444,7 @@ function JobDetailPage() {
           <div onClickCapture={stopInteractiveRowClick}>
             <DataGrid
               emptyMessage={
-                <Empty className="h-[300px]">
+                <Empty className={RESOURCE_TABLE_EMPTY_CLASS_NAME}>
                   <EmptyHeader>
                     <EmptyMedia media="icon" size="lg">
                       <HugeiconsIcon

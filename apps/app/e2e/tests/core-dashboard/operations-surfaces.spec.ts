@@ -38,8 +38,9 @@ test.describe("Operational dashboard surfaces", () => {
   test("renders schedules backed by cron jobs", async ({ page }) => {
     await page.goto("/app/schedules", { waitUntil: "domcontentloaded" });
 
-    await expect(page.getByRole("region", { name: "Schedules" })).toBeVisible();
-    await page.getByPlaceholder("Search schedules...").fill(scheduleName);
+    const schedulesRegion = page.getByRole("region", { name: "Schedules" });
+    await expect(schedulesRegion).toBeVisible();
+    await page.getByRole("textbox", { name: "Search" }).fill(scheduleName);
     await expect(page.getByText(scheduleName)).toBeVisible();
     await expect(page.getByText("*/15 * * * *")).toBeVisible();
   });
@@ -47,8 +48,9 @@ test.describe("Operational dashboard surfaces", () => {
   test("renders workflows created through the Go API", async ({ page }) => {
     await page.goto("/app/workflows", { waitUntil: "domcontentloaded" });
 
-    await expect(page.getByRole("region", { name: "Workflows" })).toBeVisible();
-    await page.getByPlaceholder("Search workflows...").fill(workflowName);
+    const workflowsRegion = page.getByRole("region", { name: "Workflows" });
+    await expect(workflowsRegion).toBeVisible();
+    await page.getByRole("textbox", { name: "Search" }).fill(workflowName);
     await expect(page.getByText(workflowName)).toBeVisible();
   });
 
@@ -56,20 +58,19 @@ test.describe("Operational dashboard surfaces", () => {
     page,
   }) => {
     await page.goto("/app/webhooks", { waitUntil: "domcontentloaded" });
-    await expect(page.getByRole("table", { name: "Webhooks" })).toBeVisible();
-    await expect(
-      page
-        .getByRole("link", { name: "Create webhook" })
-        .or(page.getByRole("button", { name: "Create webhook" }))
-    ).toBeVisible();
+    await expect(page.getByRole("main").getByRole("table")).toBeVisible();
+    await expect(page.getByRole("textbox", { name: "Search" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Filter" })).toBeVisible();
 
     await page.goto("/app/events", { waitUntil: "domcontentloaded" });
-    await expect(page.getByRole("button", { name: "All" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Waiting" })).toBeVisible();
+    await expect(
+      page.getByRole("region", { name: "Events" }).getByRole("table")
+    ).toBeVisible();
+    await expect(page.getByRole("button", { name: "Filter" })).toBeVisible();
 
     await page.goto("/app/dlq", { waitUntil: "domcontentloaded" });
     await expect(
-      page.getByRole("table", { name: "Dead letter queue" })
+      page.getByRole("region", { name: "Dead letter queue" }).getByRole("table")
     ).toBeVisible();
   });
 });

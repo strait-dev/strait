@@ -26,7 +26,7 @@ those services to already be listening. If the default ports are not listening,
 the harness starts or reuses Docker containers named
 `strait-app-e2e-postgres` and `strait-app-e2e-redis`.
 
-The limited member defaults to `e2e-limited@strait.local` and the same password
+The limited member defaults to `e2e-limited@example.com` and the same password
 as `E2E_USER_PASSWORD`. Override with `E2E_LIMITED_USER_EMAIL` and
 `E2E_LIMITED_USER_PASSWORD` when needed.
 

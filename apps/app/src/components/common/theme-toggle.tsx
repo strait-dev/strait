@@ -1,16 +1,12 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@strait/ui/components/button";
 import { useTheme } from "next-themes";
-import { useEffect, useState } from "react";
+import { useIsHydrated } from "@/hooks/use-is-hydrated";
 import { MoonIcon, SunIcon } from "@/lib/icons";
 
 const ThemeToggle = () => {
   const { theme, setTheme } = useTheme();
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  const isHydrated = useIsHydrated();
 
   const toggleTheme = () => {
     setTheme(theme === "dark" ? "light" : "dark");
@@ -24,16 +20,16 @@ const ThemeToggle = () => {
       size="icon"
       variant="outline"
     >
-      {mounted && theme === "dark" ? (
+      {isHydrated && theme === "dark" ? (
         <HugeiconsIcon
           aria-hidden="true"
-          className="size-4 transition-all"
+          className="size-4 transition-transform"
           icon={SunIcon}
         />
       ) : (
         <HugeiconsIcon
           aria-hidden="true"
-          className="size-4 transition-all"
+          className="size-4 transition-transform"
           icon={MoonIcon}
         />
       )}

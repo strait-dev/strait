@@ -37,15 +37,15 @@ const ProjectCostCard = ({ activeProjectId }: { activeProjectId: string }) => {
     <Card>
       <CardHeader className="flex flex-row items-center justify-between pb-2">
         <CardTitle className="font-medium text-sm">
-          This Project's Cost
+          This project's cost
         </CardTitle>
         <Button render={<Link to="/app/billing" />} variant="link">
-          View Billing
+          View billing
         </Button>
       </CardHeader>
       <CardContent>
         <DescriptionList divided orientation="horizontal" size="sm">
-          <DescriptionTerm>Run Spend</DescriptionTerm>
+          <DescriptionTerm>Run spend</DescriptionTerm>
           <DescriptionDetails className="text-right tabular-nums">
             {formatMicroUsd(project.spend_microusd)}
           </DescriptionDetails>

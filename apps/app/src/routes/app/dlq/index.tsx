@@ -33,10 +33,9 @@ import {
   getCoreRowModel,
   getFilteredRowModel,
   getSortedRowModel,
-  useReactTable,
 } from "@tanstack/react-table";
 import { zodValidator } from "@tanstack/zod-adapter";
-import { useCallback, useMemo, useState } from "react";
+import { useState } from "react";
 import { z } from "zod/v4";
 import { CursorPagination } from "@/components/common/cursor-pagination";
 import ErrorComponent from "@/components/common/error-component";
@@ -48,6 +47,7 @@ import { createDlqColumns } from "@/components/tables/dlq-columns";
 import {
   getResourceTableInitialState,
   RESOURCE_TABLE_CLASS_NAMES,
+  RESOURCE_TABLE_EMPTY_CLASS_NAME,
 } from "@/components/tables/resource-table";
 import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import type { JobRun, PaginatedResponse } from "@/hooks/api/types";
@@ -59,6 +59,7 @@ import {
   useRetryDlqItem,
 } from "@/hooks/api/use-dlq";
 import { useProjectPermissions } from "@/hooks/auth/use-project-permissions";
+import { useAppReactTable } from "@/hooks/use-app-react-table";
 import { useCursorPagination } from "@/hooks/use-cursor-pagination";
 import { useHydratedTableData } from "@/hooks/use-hydrated-table-data";
 import { AlertIcon, RefreshIcon, SearchIcon, TrashIcon } from "@/lib/icons";
@@ -78,8 +79,9 @@ export const searchSchema = z.object({
   perPage: z.coerce.number().optional(),
 });
 
+const EMPTY_ARRAY: never[] = [];
+
 export const Route = createFileRoute("/app/dlq/")({
-  head: () => ({ meta: [{ title: "Dead letter queue · Strait" }] }),
   validateSearch: zodValidator(searchSchema),
   loaderDeps: ({ search }) => ({
     limit: search.perPage ?? 20,
@@ -95,6 +97,7 @@ export const Route = createFileRoute("/app/dlq/")({
     }
     return { hasProject, session };
   },
+  head: () => ({ meta: [{ title: "Dead letter queue · Strait" }] }),
   pendingComponent: TablePageSkeleton,
   errorComponent: ErrorComponent,
   component: DlqPage,
@@ -129,10 +132,10 @@ function DlqPage() {
   const actionPermissions = dlqResourcePermissions(permissions);
 
   const typed = data as PaginatedResponse<JobRun> | undefined;
-  const apiData = hasProject ? (typed?.data ?? []) : [];
-  const selectedErrorTypes = search.errorType ?? [];
+  const apiData = hasProject ? (typed?.data ?? EMPTY_ARRAY) : EMPTY_ARRAY;
+  const selectedErrorTypes = search.errorType ?? EMPTY_ARRAY;
 
-  const filteredData = useMemo(() => {
+  const filteredData = (() => {
     let runs = apiData;
     const query = search.query?.trim().toLowerCase();
     if (query) {
@@ -159,10 +162,10 @@ function DlqPage() {
           .some((value) => value?.toLowerCase().includes(errorType))
       )
     );
-  }, [apiData, search.query, selectedErrorTypes]);
+  })();
   const tableData = useHydratedTableData(filteredData);
 
-  const table = useReactTable({
+  const table = useAppReactTable({
     data: tableData.data,
     columns: createDlqColumns({
       onView: (run) => {
@@ -193,27 +196,27 @@ function DlqPage() {
   );
   const hasSelection = selectedIds.length > 0;
 
-  const handleBulkRetry = useCallback(() => {
+  const handleBulkRetry = () => {
     if (selectedIds.length === 0) {
       return;
     }
     bulkRetry.mutate({ ids: selectedIds });
-  }, [selectedIds, bulkRetry]);
+  };
 
-  const handleBulkDiscard = useCallback(() => {
+  const handleBulkDiscard = () => {
     if (selectedIds.length === 0) {
       return;
     }
     bulkDiscard.mutate({ ids: selectedIds });
-  }, [selectedIds, bulkDiscard]);
+  };
 
   const allDlqIds = filteredData.map((r) => r.id);
-  const handleRetryAll = useCallback(() => {
+  const handleRetryAll = () => {
     if (allDlqIds.length === 0) {
       return;
     }
     bulkRetry.mutate({ ids: allDlqIds });
-  }, [allDlqIds, bulkRetry]);
+  };
 
   function handleErrorTypeFiltersChange(errorTypes: string[]) {
     navigate({
@@ -228,7 +231,7 @@ function DlqPage() {
   const totalCount = filteredData.length;
 
   const emptyState = hasProject ? (
-    <Empty className="h-[300px]">
+    <Empty className={RESOURCE_TABLE_EMPTY_CLASS_NAME}>
       <EmptyHeader>
         <EmptyMedia media="icon" size="lg">
           <HugeiconsIcon className="size-6 text-foreground" icon={AlertIcon} />

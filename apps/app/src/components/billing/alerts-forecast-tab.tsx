@@ -41,10 +41,10 @@ const AlertsForecastTab = () => {
 
   return (
     <div className="space-y-6">
-      {/* Anomaly Alerts */}
+      {/* Anomaly alerts */}
       <Card>
         <CardHeader>
-          <CardTitle className="font-medium text-sm">Anomaly Alerts</CardTitle>
+          <CardTitle className="font-medium text-sm">Anomaly alerts</CardTitle>
         </CardHeader>
         <CardContent>
           {!alerts || alerts.length === 0 ? (
@@ -103,7 +103,7 @@ const AlertsForecastTab = () => {
       {/* Forecast */}
       <Card>
         <CardHeader>
-          <CardTitle className="font-medium text-sm">Usage Forecast</CardTitle>
+          <CardTitle className="font-medium text-sm">Usage forecast</CardTitle>
         </CardHeader>
         <CardContent>
           {forecast ? (
@@ -111,19 +111,19 @@ const AlertsForecastTab = () => {
               <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
                 <MetricCard
                   size="sm"
-                  title="Projected Runs"
+                  title="Projected runs"
                   value={(
                     forecast.projected_monthly_runs ?? 0
                   ).toLocaleString()}
                 />
                 <MetricCard
                   size="sm"
-                  title="Projected Spend"
+                  title="Projected spend"
                   value={`$${(forecast.projected_monthly_spend_usd ?? 0).toFixed(2)}`}
                 />
                 <MetricCard
                   size="sm"
-                  title="Days Until Limit"
+                  title="Days until limit"
                   value={
                     forecast.days_until_limit === -1
                       ? "N/A"
@@ -173,7 +173,7 @@ const ThresholdConfigCard = ({
   <Card>
     <CardHeader>
       <CardTitle className="font-medium text-sm">
-        Anomaly Detection Thresholds
+        Anomaly detection thresholds
       </CardTitle>
     </CardHeader>
     <CardContent>
@@ -197,9 +197,37 @@ const ThresholdForm = ({
   warningThreshold: number;
   criticalThreshold: number;
 }) => {
-  const [warning, setWarning] = useState(warningThreshold);
-  const [critical, setCritical] = useState(criticalThreshold);
+  const sourceKey = `${warningThreshold}:${criticalThreshold}`;
+  const [draft, setDraft] = useState<{
+    sourceKey: string | null;
+    warning: number;
+    critical: number;
+  }>({
+    sourceKey: null,
+    warning: 0,
+    critical: 0,
+  });
   const mutation = useSetAnomalyConfig();
+  const warning =
+    draft.sourceKey === sourceKey ? draft.warning : warningThreshold;
+  const critical =
+    draft.sourceKey === sourceKey ? draft.critical : criticalThreshold;
+
+  const setWarning = (nextWarning: number) => {
+    setDraft({
+      sourceKey,
+      warning: nextWarning,
+      critical,
+    });
+  };
+
+  const setCritical = (nextCritical: number) => {
+    setDraft({
+      sourceKey,
+      warning,
+      critical: nextCritical,
+    });
+  };
 
   const handleSave = () => {
     if (warning <= 1 || critical <= warning) {
@@ -215,7 +243,7 @@ const ThresholdForm = ({
     <>
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
-          <Label htmlFor="warning-threshold">Warning Threshold (x)</Label>
+          <Label htmlFor="warning-threshold">Warning threshold (x)</Label>
           <NumberInputWithChevrons
             id="warning-threshold"
             min={1.1}
@@ -229,7 +257,7 @@ const ThresholdForm = ({
           </p>
         </div>
         <div className="space-y-2">
-          <Label htmlFor="critical-threshold">Critical Threshold (x)</Label>
+          <Label htmlFor="critical-threshold">Critical threshold (x)</Label>
           <NumberInputWithChevrons
             id="critical-threshold"
             min={2}

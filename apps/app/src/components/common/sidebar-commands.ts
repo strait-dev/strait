@@ -42,7 +42,7 @@ export type SidebarCommandGroup = {
 
 export const mainNav: NavItem[] = [
   {
-    title: "Getting Started",
+    title: "Getting started",
     url: "/app",
     icon: SparklesIcon,
     exact: true,
@@ -53,7 +53,7 @@ export const mainNav: NavItem[] = [
   { title: "Workflows", url: "/app/workflows", icon: WorkflowIcon },
   { title: "Runs", url: "/app/runs", icon: PlayActionIcon },
   { title: "Schedules", url: "/app/schedules", icon: ClockIcon },
-  { title: "Dead Letter", url: "/app/dlq", icon: AlertIcon },
+  { title: "Dead letter", url: "/app/dlq", icon: AlertIcon },
 ];
 
 export const observabilityNav: NavItem[] = [
@@ -117,13 +117,13 @@ export function buildSidebarCommandGroups(
       heading: "Settings",
       items: [
         {
-          label: "Account Settings",
+          label: "Account settings",
           url: "/app/settings",
           icon: UserIcon,
           keywords: ["profile", "password", "email", "account"],
         },
         {
-          label: "Organization Settings",
+          label: "Organization settings",
           url: orgSettingsRoute,
           icon: SettingsOutlineIcon,
           keywords: ["org", "team", "billing", "subscription", "members"],
@@ -135,7 +135,7 @@ export function buildSidebarCommandGroups(
 
   if (quickActions.length > 0) {
     groups.push({
-      heading: "Quick Actions",
+      heading: "Quick actions",
       items: quickActions,
     });
   }

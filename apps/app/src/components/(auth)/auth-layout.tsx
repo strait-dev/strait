@@ -14,11 +14,11 @@ const AuthLayout = ({ children, title, description }: AuthLayoutProps) => (
         <div className="flex flex-col items-center gap-2">
           <div className="mb-1">
             <img
-              alt="Strait Logo"
+              alt="Strait logo"
               className="h-8 w-auto"
               height={32}
               loading="eager"
-              src="/strait.svg"
+              src="/strait-logo-black.svg"
               width={32}
             />
           </div>

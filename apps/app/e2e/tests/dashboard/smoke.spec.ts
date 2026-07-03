@@ -11,32 +11,32 @@ test.describe("Dashboard Smoke", () => {
   test("metrics cards are visible", async ({ page }) => {
     await page.goto("/app/dashboard");
 
-    await expect(page.getByText("Total Runs (24h)")).toBeVisible();
-    await expect(page.getByText("Success Rate")).toBeVisible();
-    await expect(page.getByText("Failed Runs", { exact: true })).toBeVisible();
+    await expect(page.getByText("Total runs (24h)")).toBeVisible();
+    await expect(page.getByText("Success rate")).toBeVisible();
+    await expect(page.getByText("Failed runs", { exact: true })).toBeVisible();
     await expect(page.getByText("Queued")).toBeVisible();
   });
 
   test("run activity chart section renders", async ({ page }) => {
     await page.goto("/app/dashboard");
 
-    await expect(page.getByText("Run Activity", { exact: true })).toBeVisible();
+    await expect(page.getByText("Run activity", { exact: true })).toBeVisible();
   });
 
   test("status distribution chart section renders", async ({ page }) => {
     await page.goto("/app/dashboard");
 
     await expect(
-      page.getByText("Status Distribution", { exact: true })
+      page.getByText("Status distribution", { exact: true })
     ).toBeVisible();
   });
 
   test("recent runs table and live activity feed render", async ({ page }) => {
     await page.goto("/app/dashboard");
 
-    await expect(page.getByText("Recent Runs", { exact: true })).toBeVisible();
+    await expect(page.getByText("Recent runs", { exact: true })).toBeVisible();
     await expect(
-      page.getByText("Live Activity", { exact: true })
+      page.getByText("Live activity", { exact: true })
     ).toBeVisible();
   });
 });

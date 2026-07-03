@@ -7,7 +7,7 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import type { ReactNode } from "react";
-import { useCallback, useState } from "react";
+import { useState } from "react";
 import {
   orgUsageQueryOptions,
   useApproachingLimits,
@@ -47,9 +47,9 @@ const UpgradeNudgeBanner = () => {
     return localStorage.getItem(storageKey) === "true";
   });
 
-  const handleUpgrade = useCallback(() => {
+  const handleUpgrade = () => {
     navigate({ to: "/app/upgrade" });
-  }, [navigate]);
+  };
 
   const handleDismiss = () => {
     setDismissed(true);

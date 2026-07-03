@@ -14,7 +14,7 @@ import { ActivityIcon } from "@/lib/icons";
 const CHART_CONFIG = {
   completed: { label: "Completed", color: "chart-1" },
   failed: { label: "Failed", color: "chart-2" },
-  timed_out: { label: "Timed Out", color: "chart-4" },
+  timed_out: { label: "Timed out", color: "chart-4" },
   canceled: { label: "Canceled", color: "chart-5" },
 } satisfies ChartConfig;
 
@@ -42,7 +42,7 @@ const RunsChart = ({ hasProject = true }: { hasProject?: boolean }) => {
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="font-medium text-sm">Run Activity</CardTitle>
+        <CardTitle className="font-medium text-sm">Run activity</CardTitle>
       </CardHeader>
       <CardContent>
         <div className="h-[240px]">

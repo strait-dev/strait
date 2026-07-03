@@ -65,7 +65,7 @@ function dataFromPaginatedOrArray<T>(response: PaginatedResponse<T> | T[]) {
   return Array.isArray(response) ? response : response.data;
 }
 
-export const fetchWorkflows = createServerFn({ method: "GET" })
+const fetchWorkflows = createServerFn({ method: "GET" })
   .inputValidator(
     (data: { limit?: number; cursor?: string; search?: string }) => data
   )
@@ -83,7 +83,7 @@ export const fetchWorkflows = createServerFn({ method: "GET" })
     );
   });
 
-export const fetchWorkflow = createServerFn({ method: "GET" })
+const fetchWorkflow = createServerFn({ method: "GET" })
   .inputValidator((data: { id: string }) => data)
   .middleware([authMiddleware])
   .handler(async ({ context, data }): Promise<Workflow> => {
@@ -93,7 +93,7 @@ export const fetchWorkflow = createServerFn({ method: "GET" })
     );
   });
 
-export const fetchWorkflowSteps = createServerFn({ method: "GET" })
+const fetchWorkflowSteps = createServerFn({ method: "GET" })
   .inputValidator((data: { workflowId: string }) => data)
   .middleware([authMiddleware])
   .handler(
@@ -125,7 +125,7 @@ export const fetchWorkflowSteps = createServerFn({ method: "GET" })
     }
   );
 
-export const fetchWorkflowRuns = createServerFn({ method: "GET" })
+const fetchWorkflowRuns = createServerFn({ method: "GET" })
   .inputValidator(
     (data: { workflowId: string; limit?: number; cursor?: string }) => data
   )
@@ -143,7 +143,7 @@ export const fetchWorkflowRuns = createServerFn({ method: "GET" })
     }
   );
 
-export const triggerWorkflowFn = createServerFn({ method: "POST" })
+const triggerWorkflowFn = createServerFn({ method: "POST" })
   .inputValidator(
     (data: {
       workflowId: string;
@@ -168,7 +168,7 @@ export const triggerWorkflowFn = createServerFn({ method: "POST" })
     }
   );
 
-export const createWorkflowFn = createServerFn({ method: "POST" })
+const createWorkflowFn = createServerFn({ method: "POST" })
   .inputValidator((data: CreateWorkflowInput) => data)
   .middleware([authMiddleware])
   .handler(async ({ context, data }): Promise<Workflow> => {
@@ -195,7 +195,7 @@ export const createWorkflowFn = createServerFn({ method: "POST" })
     return response;
   });
 
-export const updateWorkflowFn = createServerFn({ method: "POST" })
+const updateWorkflowFn = createServerFn({ method: "POST" })
   .inputValidator((data: { id: string; enabled?: boolean }) => data)
   .middleware([authMiddleware])
   .handler(async ({ context, data }): Promise<Workflow> => {
@@ -209,7 +209,7 @@ export const updateWorkflowFn = createServerFn({ method: "POST" })
     );
   });
 
-export const deleteWorkflowFn = createServerFn({ method: "POST" })
+const deleteWorkflowFn = createServerFn({ method: "POST" })
   .inputValidator((data: { id: string }) => data)
   .middleware([authMiddleware])
   .handler(async ({ context, data }): Promise<void> => {

@@ -29,9 +29,10 @@ import { Textarea } from "@strait/ui/components/textarea";
 import { toast } from "@strait/ui/components/toast";
 import { createServerFn } from "@tanstack/react-start";
 import { format } from "date-fns";
-import { useEffect, useId, useState, useTransition } from "react";
+import { useId, useState, useTransition } from "react";
 import { Controller, useForm } from "react-hook-form";
 import type z from "zod/v4";
+import { startCooldown, useCooldownTime } from "@/hooks/use-cooldown-time";
 import { getPostHog } from "@/lib/analytics";
 import { ChatIcon } from "@/lib/icons";
 import { enforceRateLimit } from "@/lib/rate-limit.server";
@@ -39,13 +40,12 @@ import { getResend } from "@/lib/resend.server";
 import { FeedbackFormSchema } from "@/lib/schema";
 import { authMiddleware } from "@/middlewares/auth";
 import type { AuthUser } from "@/routes/__root";
-import { MILLISECONDS_PER_SECOND, TIMER_INTERVAL_MS } from "@/utils/constants";
 
 const FEEDBACK_COOLDOWN_SECONDS = 60;
 
 const feedbackAction = createServerFn({ method: "POST" })
-  .inputValidator(FeedbackFormSchema)
   .middleware([authMiddleware])
+  .inputValidator(FeedbackFormSchema)
   .handler(async ({ data, context }) => {
     await enforceRateLimit({
       key: `feedback:${context.user.id}`,
@@ -91,40 +91,7 @@ const FeedbackDialog = ({ user }: Props) => {
 
   const [open, setOpen] = useState<boolean>(false);
   const [isPending, startTransition] = useTransition();
-  const [cooldownTime, setCooldownTime] = useState(0);
-
-  useEffect(() => {
-    const storedCooldownEnd = localStorage.getItem(STORAGE_KEY);
-    if (storedCooldownEnd) {
-      const remainingTime = Math.ceil(
-        (Number.parseInt(storedCooldownEnd, 10) - Date.now()) /
-          MILLISECONDS_PER_SECOND
-      );
-      if (remainingTime > 0) {
-        setCooldownTime(remainingTime);
-      } else {
-        localStorage.removeItem(STORAGE_KEY);
-      }
-    }
-  }, []);
-
-  const isCoolingDown = cooldownTime > 0;
-  useEffect(() => {
-    if (!isCoolingDown) {
-      return;
-    }
-
-    const timer = setInterval(() => {
-      setCooldownTime((time) => {
-        if (time <= 1) {
-          localStorage.removeItem(STORAGE_KEY);
-          return 0;
-        }
-        return time - 1;
-      });
-    }, TIMER_INTERVAL_MS);
-    return () => clearInterval(timer);
-  }, [isCoolingDown]);
+  const cooldownTime = useCooldownTime(STORAGE_KEY);
 
   const form = useForm<
     z.input<typeof FeedbackFormSchema>,
@@ -146,10 +113,7 @@ const FeedbackDialog = ({ user }: Props) => {
 
     startTransition(() => {
       const promise = feedbackAction({ data: values }).then((result) => {
-        const cooldownEnd =
-          Date.now() + FEEDBACK_COOLDOWN_SECONDS * MILLISECONDS_PER_SECOND;
-        localStorage.setItem(STORAGE_KEY, String(cooldownEnd));
-        setCooldownTime(FEEDBACK_COOLDOWN_SECONDS);
+        startCooldown(STORAGE_KEY, FEEDBACK_COOLDOWN_SECONDS);
         getPostHog()?.capture("feedback_submitted");
         return result;
       });
@@ -172,12 +136,16 @@ const FeedbackDialog = ({ user }: Props) => {
             size="icon"
             type="button"
             variant="outline"
-          />
+          >
+            <HugeiconsIcon
+              aria-hidden="true"
+              className="size-4"
+              icon={ChatIcon}
+            />
+            <span className="sr-only">Send feedback</span>
+          </Button>
         }
-      >
-        <HugeiconsIcon aria-hidden="true" className="size-4" icon={ChatIcon} />
-        <span className="sr-only">Send feedback</span>
-      </CredenzaTrigger>
+      />
 
       <CredenzaContent>
         <CredenzaHeader>

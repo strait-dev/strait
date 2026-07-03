@@ -18,7 +18,7 @@ const ActiveAddonTypeSchema = Schema.Literal(...ACTIVE_ADDON_KEYS);
  *
  * @see {@link import("./org-usage").UsageDimension}
  */
-export const UsageDimensionSchema = Schema.Struct({
+const UsageDimensionSchema = Schema.Struct({
   used: Schema.Number,
   limit: Schema.Number,
   percent: Schema.Number,
@@ -30,7 +30,7 @@ export const UsageDimensionSchema = Schema.Struct({
  *
  * @see {@link import("./org-usage").UsageAlert}
  */
-export const UsageAlertSchema = Schema.Struct({
+const UsageAlertSchema = Schema.Struct({
   type: Schema.String,
   dimension: Schema.String,
   threshold: Schema.Number,
@@ -42,13 +42,13 @@ export const UsageAlertSchema = Schema.Struct({
  *
  * @see {@link import("./org-usage").AddonSummary}
  */
-export const AddonSummarySchema = Schema.Struct({
+const AddonSummarySchema = Schema.Struct({
   type: ActiveAddonTypeSchema,
   quantity: Schema.Number,
 });
 
 /** Schema for the raw usage dimensions from the API. */
-export const RawOrgUsageDimensionsSchema = Schema.Struct({
+const RawOrgUsageDimensionsSchema = Schema.Struct({
   monthly_runs: Schema.optional(UsageDimensionSchema),
   runs_today: UsageDimensionSchema,
   concurrent_runs: UsageDimensionSchema,
@@ -120,83 +120,4 @@ export const UsageForecastSchema = Schema.Struct({
   projected_overage_microusd: Schema.Number,
   addon_spend_microusd: Schema.Number,
   scale_breakeven: Schema.Boolean,
-});
-
-/**
- * Schema for a single usage history entry.
- *
- * @see {@link import("./use-usage-history").UsageHistoryEntry}
- */
-export const UsageHistoryEntrySchema = Schema.Struct({
-  date: Schema.String,
-  runs_count: Schema.Number,
-  spend_microusd: Schema.Number,
-});
-
-/**
- * Schema for a project cost entry.
- *
- * @see {@link import("./use-project-costs").ProjectCostEntry}
- */
-export const ProjectCostEntrySchema = Schema.Struct({
-  project_id: Schema.String,
-  name: Schema.String,
-  runs: Schema.Number,
-  spend_microusd: Schema.Number,
-  total_microusd: Schema.Number,
-  monthly_budget_microusd: Schema.optional(Schema.Number),
-  budget_action: Schema.optional(Schema.String),
-});
-
-/**
- * Schema for an anomaly alert.
- *
- * @see {@link import("./use-anomaly-alerts").AnomalyAlert}
- */
-export const AnomalyAlertSchema = Schema.Struct({
-  org_id: Schema.String,
-  today_spend: Schema.Number,
-  avg_7d_spend: Schema.Number,
-  spike_ratio: Schema.Number,
-  top_contributor: Schema.String,
-  severity: Schema.String,
-});
-
-/**
- * Schema for the downgrade preview response.
- *
- * @see {@link import("./use-downgrade-preview").DowngradePreview}
- */
-export const DowngradePreviewSchema = Schema.Struct({
-  current_plan: Schema.String,
-  target_plan: Schema.String,
-  impacts: Schema.Array(
-    Schema.Struct({
-      resource: Schema.String,
-      current: Schema.Number,
-      limit: Schema.Number,
-      action: Schema.String,
-    })
-  ),
-  effective_date: Schema.optional(Schema.String),
-  manual_actions: Schema.optional(
-    Schema.Array(
-      Schema.Struct({
-        resource: Schema.String,
-        current: Schema.Number,
-        limit: Schema.Number,
-        action: Schema.String,
-      })
-    )
-  ),
-  auto_disabled: Schema.optional(
-    Schema.Array(
-      Schema.Struct({
-        resource: Schema.String,
-        current: Schema.Number,
-        limit: Schema.Number,
-        action: Schema.String,
-      })
-    )
-  ),
 });

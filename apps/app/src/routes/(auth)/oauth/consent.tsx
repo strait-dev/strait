@@ -86,8 +86,8 @@ const consentSearchSchema = z
   .catchall(optionalSearchParam);
 
 const fetchClientInfo = createServerFn({ method: "GET" })
-  .inputValidator(z.object({ clientId: z.string().min(1) }))
   .middleware([authMiddleware])
+  .inputValidator(z.object({ clientId: z.string().min(1) }))
   .handler(async ({ data }) => {
     try {
       const client = await ((await getAuth()).api as any).getOAuthClientPublic({
@@ -98,7 +98,7 @@ const fetchClientInfo = createServerFn({ method: "GET" })
         return null;
       }
       return {
-        name: (client as any).client_name ?? "Unknown Application",
+        name: (client as any).client_name ?? "Unknown application",
         clientId: (client as any).client_id ?? data.clientId,
         redirectUrls: (client as any).redirect_uris ?? [],
       } satisfies ClientInfo;
@@ -120,6 +120,7 @@ function clientInfoQueryOptions(clientId: string) {
 }
 
 const submitConsent = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
   .inputValidator(
     z.object({
       accept: z.boolean(),
@@ -127,7 +128,6 @@ const submitConsent = createServerFn({ method: "POST" })
       oauthQuery: z.string().optional(),
     })
   )
-  .middleware([authMiddleware])
   .handler(async ({ data }) => {
     const result = await (await getAuth()).api.oauth2Consent({
       body: {
@@ -142,6 +142,7 @@ const submitConsent = createServerFn({ method: "POST" })
 
 export const Route = createFileRoute("/(auth)/oauth/consent")({
   validateSearch: consentSearchSchema,
+  loaderDeps: ({ search }) => ({ clientId: search.client_id }),
   beforeLoad: ({ context, location }) => {
     if (!context.isAuthenticated) {
       throw redirect({
@@ -152,7 +153,6 @@ export const Route = createFileRoute("/(auth)/oauth/consent")({
       });
     }
   },
-  loaderDeps: ({ search }) => ({ clientId: search.client_id }),
   loader: ({ context, deps }) => {
     if (deps.clientId) {
       return context.queryClient.ensureQueryData(
@@ -266,13 +266,13 @@ function OAuthConsentPage() {
 
   // -- Render -----------------------------------------------------------------
 
-  const clientName = clientInfo?.name ?? "Unknown Application";
+  const clientName = clientInfo?.name ?? "Unknown application";
   const redirectHost = resolveRedirectHost(clientInfo, search.redirect_uri);
 
   return (
     <AuthLayout
       description={`"${clientName}" wants access to your Strait account`}
-      title="Authorize Application"
+      title="Authorize application"
     >
       <div className="flex flex-col gap-4">
         {/* Client warning for unrecognized clients */}
@@ -415,7 +415,7 @@ function ConsentMissingParams() {
   return (
     <AuthLayout
       description="The authorization request is missing required parameters."
-      title="Invalid Request"
+      title="Invalid request"
     >
       <p className="text-center text-muted-foreground text-sm">
         This page should be accessed through an OAuth authorization flow. Please
@@ -429,7 +429,7 @@ function ConsentLoading() {
   return (
     <AuthLayout
       description="Loading application details..."
-      title="Authorize Application"
+      title="Authorize application"
     >
       <div className="flex items-center justify-center py-8">
         <Spinner className="text-primary" size="lg" />

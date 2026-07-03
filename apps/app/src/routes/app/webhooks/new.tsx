@@ -21,7 +21,7 @@ import { Shell } from "@strait/ui/components/shell";
 import { Spinner } from "@strait/ui/components/spinner";
 import { toast } from "@strait/ui/components/toast";
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { z } from "zod/v4";
 import ErrorComponent from "@/components/common/error-component";
 import {
@@ -29,6 +29,7 @@ import {
   useCreateWebhook,
 } from "@/hooks/api/use-webhooks";
 import { useCurrentPlan } from "@/hooks/billing/use-current-plan";
+import { useIsHydrated } from "@/hooks/use-is-hydrated";
 import { CheckIcon, ChevronLeftIcon, PlusIcon } from "@/lib/icons";
 import { tierAtLeast } from "@/lib/plan-tiers";
 
@@ -144,11 +145,7 @@ function CreateWebhookPage() {
   const [webhookURL, setWebhookURL] = useState("");
   const [eventTypes, setEventTypes] = useState<string[]>([]);
   const [formError, setFormError] = useState<string | null>(null);
-  const [isHydrated, setIsHydrated] = useState(false);
-
-  useEffect(() => {
-    setIsHydrated(true);
-  }, []);
+  const isHydrated = useIsHydrated();
 
   function handleSubmit() {
     const parsed = createWebhookSchema.safeParse({

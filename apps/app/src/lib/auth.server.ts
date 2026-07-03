@@ -142,7 +142,7 @@ const createDefaultProject = async (
     `INSERT INTO project (id, organization_id, name, slug, created_by)
      VALUES ($1, $2, $3, $4, $5)
      ON CONFLICT DO NOTHING`,
-    [projectId, orgId, "Default Project", projectSlug, user.id]
+    [projectId, orgId, "Default project", projectSlug, user.id]
   );
 
   const apiUrl = process.env.STRAIT_API_URL || "http://localhost:8080";
@@ -163,7 +163,7 @@ const createDefaultProject = async (
       body: JSON.stringify({
         id: projectId,
         org_id: orgId,
-        name: "Default Project",
+        name: "Default project",
       }),
       signal: controller.signal,
     });
@@ -384,7 +384,7 @@ const createAuth = () => {
             try {
               const workspaceName = user.name
                 ? `${user.name}'s Workspace`
-                : "My Workspace";
+                : "My workspace";
               const slug = `ws-${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
 
               // Server-side call: pass userId directly (no session headers needed).

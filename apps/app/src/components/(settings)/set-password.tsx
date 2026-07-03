@@ -69,9 +69,8 @@ const SetPassword = ({ email }: Props) => {
     } catch (error) {
       captureException(error);
       toast.error("Something went wrong. Please try again.");
-    } finally {
-      setIsLoading(false);
     }
+    setIsLoading(false);
   };
 
   if (sent) {

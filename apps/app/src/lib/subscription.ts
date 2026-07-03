@@ -11,7 +11,7 @@ type CustomerPortalResponse = {
 };
 
 /**
- * Server function to get the Stripe Customer Portal URL.
+ * Server function to get the Stripe Customer portal URL.
  * Looks up the customer by email and creates a portal session.
  *
  * Community edition returns an error payload — the customer portal

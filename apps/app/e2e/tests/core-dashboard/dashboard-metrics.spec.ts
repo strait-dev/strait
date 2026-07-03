@@ -48,11 +48,11 @@ test.describe("Dashboard metrics and activity", () => {
 
     await page.goto("/app/dashboard", { waitUntil: "domcontentloaded" });
 
-    await expect(page.getByText("Total Runs (24h)")).toBeVisible();
-    await expect(page.getByText("Success Rate")).toBeVisible();
-    await expect(page.getByText("Failed Runs", { exact: true })).toBeVisible();
+    await expect(page.getByText("Total runs (24h)")).toBeVisible();
+    await expect(page.getByText("Success rate")).toBeVisible();
+    await expect(page.getByText("Failed runs", { exact: true })).toBeVisible();
     await expect(page.getByText("Queued")).toBeVisible();
-    await expect(page.getByText("Recent Runs", { exact: true })).toBeVisible();
+    await expect(page.getByText("Recent runs", { exact: true })).toBeVisible();
     await expect(page.getByText(runId.slice(0, 8))).toBeVisible({
       timeout: 15_000,
     });

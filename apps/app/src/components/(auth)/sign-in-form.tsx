@@ -8,7 +8,7 @@ import { Spinner } from "@strait/ui/components/spinner";
 import { toast } from "@strait/ui/components/toast";
 import { useForm } from "@tanstack/react-form";
 import { Link } from "@tanstack/react-router";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { z } from "zod";
 import { getPostHog } from "@/lib/analytics";
 import { authClient } from "@/lib/auth-client";
@@ -27,18 +27,72 @@ type SignInFormProps = {
   onTwoFactorRequired?: () => void;
 };
 
+type SignInAuthError = {
+  code?: string;
+  message?: string;
+  status?: number;
+};
+
+type SignInErrorHandlers = {
+  onEmailNotVerified: () => void;
+  onTwoFactorRequired?: () => void;
+};
+
+function handleSignInError(
+  error: SignInAuthError,
+  email: string,
+  { onEmailNotVerified, onTwoFactorRequired }: SignInErrorHandlers
+): never {
+  if (error.status === 403 && onTwoFactorRequired) {
+    onTwoFactorRequired();
+    throw new Error(error.message ?? "Two-factor required");
+  }
+
+  const message = error.message ?? "";
+
+  // Handle unverified email
+  if (
+    message.toLowerCase().includes("email is not verified") ||
+    error.code === "EMAIL_NOT_VERIFIED"
+  ) {
+    onEmailNotVerified();
+    throw new Error(message || "Email is not verified");
+  }
+
+  // Handle wrong provider (user signed up with OAuth, trying email/password)
+  if (
+    message.toLowerCase().includes("no credential account") ||
+    message.toLowerCase().includes("invalid credentials") ||
+    error.code === "INVALID_PASSWORD"
+  ) {
+    // Check if user exists with social account
+    toast.error(
+      "Invalid email or password. If you signed up with Google or GitHub, use that method instead."
+    );
+    throw new Error(message || "Invalid email or password");
+  }
+
+  captureSentryAuthError(error, {
+    operation: "email-signin",
+    email,
+    provider: "email",
+  });
+  toast.error(message || "Failed to sign in. Please try again.");
+  throw new Error(message || "Failed to sign in");
+}
+
 const SignInForm = ({
   redirectTo,
   disabled,
   onTwoFactorRequired,
 }: SignInFormProps) => {
   const [emailNotVerified, setEmailNotVerified] = useState(false);
-  const [unverifiedEmail, setUnverifiedEmail] = useState("");
+  const unverifiedEmailRef = useRef("");
   const [isResending, setIsResending] = useState(false);
 
   const form = useForm({
     defaultValues: { email: "", password: "" },
-    validators: { onChange: signInSchema },
+    validators: { onMount: signInSchema, onChange: signInSchema },
     onSubmit: async ({ value }) => {
       const { email, password } = signInSchema.parse(value);
       setEmailNotVerified(false);
@@ -54,42 +108,13 @@ const SignInForm = ({
       }
 
       if (result.error) {
-        if (result.error.status === 403 && onTwoFactorRequired) {
-          onTwoFactorRequired();
-          return;
-        }
-
-        const message = result.error.message ?? "";
-
-        // Handle unverified email
-        if (
-          message.toLowerCase().includes("email is not verified") ||
-          result.error.code === "EMAIL_NOT_VERIFIED"
-        ) {
-          setEmailNotVerified(true);
-          setUnverifiedEmail(email);
-          return;
-        }
-
-        // Handle wrong provider (user signed up with OAuth, trying email/password)
-        if (
-          message.toLowerCase().includes("no credential account") ||
-          message.toLowerCase().includes("invalid credentials") ||
-          result.error.code === "INVALID_PASSWORD"
-        ) {
-          // Check if user exists with social account
-          toast.error(
-            "Invalid email or password. If you signed up with Google or GitHub, use that method instead."
-          );
-          return;
-        }
-
-        captureSentryAuthError(result.error, {
-          operation: "email-signin",
-          email,
-          provider: "email",
+        handleSignInError(result.error, email, {
+          onTwoFactorRequired,
+          onEmailNotVerified: () => {
+            setEmailNotVerified(true);
+            unverifiedEmailRef.current = email;
+          },
         });
-        toast.error(message || "Failed to sign in. Please try again.");
       }
     },
   });
@@ -98,15 +123,14 @@ const SignInForm = ({
     setIsResending(true);
     try {
       await authClient.sendVerificationEmail({
-        email: unverifiedEmail,
+        email: unverifiedEmailRef.current,
         callbackURL: "/verify-email",
       });
       toast.success("Verification email sent. Check your inbox.");
     } catch {
       toast.error("Failed to resend verification email.");
-    } finally {
-      setIsResending(false);
     }
+    setIsResending(false);
   };
 
   if (emailNotVerified) {
@@ -143,7 +167,8 @@ const SignInForm = ({
     <form
       onSubmit={(e) => {
         e.preventDefault();
-        form.handleSubmit();
+        e.stopPropagation();
+        form.handleSubmit().catch(() => undefined);
       }}
     >
       <div className="flex flex-col gap-4">
@@ -165,8 +190,9 @@ const SignInForm = ({
                 autoComplete="email"
                 disabled={disabled}
                 id={field.name}
+                name={field.name}
                 onBlur={field.handleBlur}
-                onChange={(e) => field.handleChange(e.target.value)}
+                onInput={(e) => field.handleChange(e.currentTarget.value)}
                 placeholder="you@example.com"
                 type="email"
                 value={field.state.value}
@@ -207,8 +233,9 @@ const SignInForm = ({
                 autoComplete="current-password"
                 disabled={disabled}
                 id={field.name}
+                name={field.name}
                 onBlur={field.handleBlur}
-                onChange={(e) => field.handleChange(e.target.value)}
+                onInput={(e) => field.handleChange(e.currentTarget.value)}
                 placeholder="Enter your password"
                 value={field.state.value}
               />
@@ -222,15 +249,24 @@ const SignInForm = ({
           )}
         </form.Field>
 
-        <Button
-          className="w-full"
-          disabled={disabled || form.state.isSubmitting}
-          type="submit"
-          variant="brand-solid"
+        <form.Subscribe
+          selector={(state) => ({
+            canSubmit: state.canSubmit,
+            isSubmitting: state.isSubmitting,
+          })}
         >
-          {form.state.isSubmitting ? <Spinner /> : null}
-          Sign in
-        </Button>
+          {({ canSubmit, isSubmitting }) => (
+            <Button
+              className="w-full"
+              disabled={disabled || !canSubmit || isSubmitting}
+              type="submit"
+              variant="brand-solid"
+            >
+              {isSubmitting ? <Spinner /> : null}
+              Sign in
+            </Button>
+          )}
+        </form.Subscribe>
       </div>
     </form>
   );

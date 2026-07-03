@@ -68,12 +68,13 @@ const InviteMemberDialog = ({ organizationId }: InviteMemberDialogProps) => {
     <Dialog onOpenChange={setOpen} open={open}>
       <DialogTrigger render={<Button />}>
         <HugeiconsIcon className="size-4" icon={PlusIcon} />
-        Invite Member
+        Invite member
       </DialogTrigger>
       <DialogContent>
         <form
           onSubmit={(e) => {
             e.preventDefault();
+            e.stopPropagation();
             form.handleSubmit();
           }}
         >
@@ -103,7 +104,7 @@ const InviteMemberDialog = ({ organizationId }: InviteMemberDialogProps) => {
                     autoFocus
                     id={field.name}
                     onBlur={field.handleBlur}
-                    onChange={(e) => field.handleChange(e.target.value)}
+                    onInput={(e) => field.handleChange(e.currentTarget.value)}
                     placeholder="colleague@example.com"
                     type="email"
                     value={field.state.value}
@@ -185,7 +186,7 @@ const InviteMemberDialog = ({ organizationId }: InviteMemberDialogProps) => {
                   ) : (
                     <HugeiconsIcon className="size-4" icon={PlusIcon} />
                   )}
-                  Send Invitation
+                  Send invitation
                 </Button>
               )}
             </form.Subscribe>

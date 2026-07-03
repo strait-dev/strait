@@ -29,9 +29,10 @@ import { Textarea } from "@strait/ui/components/textarea";
 import { toast } from "@strait/ui/components/toast";
 import { createServerFn } from "@tanstack/react-start";
 import { format } from "date-fns";
-import { useEffect, useId, useState, useTransition } from "react";
+import { useId, useState, useTransition } from "react";
 import { Controller, useForm } from "react-hook-form";
 import type z from "zod/v4";
+import { startCooldown, useCooldownTime } from "@/hooks/use-cooldown-time";
 import { getPostHog } from "@/lib/analytics";
 import { HelpCircleIcon } from "@/lib/icons";
 import { enforceRateLimit } from "@/lib/rate-limit.server";
@@ -39,13 +40,12 @@ import { getResend } from "@/lib/resend.server";
 import { SupportFormSchema } from "@/lib/schema";
 import { authMiddleware } from "@/middlewares/auth";
 import type { AuthUser } from "@/routes/__root";
-import { MILLISECONDS_PER_SECOND, TIMER_INTERVAL_MS } from "@/utils/constants";
 
 const SUPPORT_COOLDOWN_SECONDS = 60;
 
 const supportAction = createServerFn({ method: "POST" })
-  .inputValidator(SupportFormSchema)
   .middleware([authMiddleware])
+  .inputValidator(SupportFormSchema)
   .handler(async ({ data, context }) => {
     await enforceRateLimit({
       key: `support:${context.user.id}`,
@@ -92,38 +92,7 @@ const SupportDialog = ({ user }: Props) => {
 
   const [open, setOpen] = useState<boolean>(false);
   const [isPending, startTransition] = useTransition();
-  const [cooldownTime, setCooldownTime] = useState(0);
-
-  useEffect(() => {
-    const storedCooldownEnd = localStorage.getItem(STORAGE_KEY);
-    let initialTime = 0;
-    if (storedCooldownEnd) {
-      const remainingTime = Math.ceil(
-        (Number.parseInt(storedCooldownEnd, 10) - Date.now()) /
-          MILLISECONDS_PER_SECOND
-      );
-      if (remainingTime > 0) {
-        initialTime = remainingTime;
-      } else {
-        localStorage.removeItem(STORAGE_KEY);
-      }
-    }
-
-    if (initialTime > 0) {
-      setCooldownTime(initialTime);
-      const timer = setInterval(() => {
-        setCooldownTime((time) => {
-          if (time <= 1) {
-            localStorage.removeItem(STORAGE_KEY);
-            clearInterval(timer);
-            return 0;
-          }
-          return time - 1;
-        });
-      }, TIMER_INTERVAL_MS);
-      return () => clearInterval(timer);
-    }
-  }, []);
+  const cooldownTime = useCooldownTime(STORAGE_KEY);
 
   const form = useForm<
     z.input<typeof SupportFormSchema>,
@@ -150,10 +119,7 @@ const SupportDialog = ({ user }: Props) => {
 
     startTransition(() => {
       const promise = supportAction({ data: values }).then((result) => {
-        const cooldownEnd =
-          Date.now() + SUPPORT_COOLDOWN_SECONDS * MILLISECONDS_PER_SECOND;
-        localStorage.setItem(STORAGE_KEY, String(cooldownEnd));
-        setCooldownTime(SUPPORT_COOLDOWN_SECONDS);
+        startCooldown(STORAGE_KEY, SUPPORT_COOLDOWN_SECONDS);
         getPostHog()?.capture("support_submitted");
         return result;
       });
@@ -184,16 +150,16 @@ const SupportDialog = ({ user }: Props) => {
             size="icon"
             type="button"
             variant="outline"
-          />
+          >
+            <HugeiconsIcon
+              aria-hidden="true"
+              className="size-4"
+              icon={HelpCircleIcon}
+            />
+            <span className="sr-only">Get help</span>
+          </Button>
         }
-      >
-        <HugeiconsIcon
-          aria-hidden="true"
-          className="size-4"
-          icon={HelpCircleIcon}
-        />
-        <span className="sr-only">Get help</span>
-      </CredenzaTrigger>
+      />
 
       <CredenzaContent className="flex max-h-[90vh] max-w-3xl flex-col md:max-w-[600px]">
         <CredenzaHeader className="flex-none">
@@ -245,7 +211,7 @@ const SupportDialog = ({ user }: Props) => {
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="technical">
-                            Technical Issue
+                            Technical issue
                           </SelectItem>
                           <SelectItem value="billing">Billing</SelectItem>
                           <SelectItem value="account">Account</SelectItem>
@@ -326,7 +292,7 @@ const SupportDialog = ({ user }: Props) => {
                   name="message"
                   render={({ field, fieldState }) => (
                     <Field data-invalid={fieldState.invalid}>
-                      <FieldLabel>Problem Description</FieldLabel>
+                      <FieldLabel>Problem description</FieldLabel>
                       <Textarea
                         className="min-h-[100px] resize-none"
                         placeholder="Describe the problem in detail..."
@@ -367,7 +333,7 @@ const SupportDialog = ({ user }: Props) => {
                 name="expected_result"
                 render={({ field, fieldState }) => (
                   <Field data-invalid={fieldState.invalid}>
-                    <FieldLabel>Expected Result</FieldLabel>
+                    <FieldLabel>Expected result</FieldLabel>
                     <Textarea
                       className="min-h-[100px] resize-none"
                       placeholder="What should happen?"
@@ -383,7 +349,7 @@ const SupportDialog = ({ user }: Props) => {
                 name="actual_result"
                 render={({ field, fieldState }) => (
                   <Field data-invalid={fieldState.invalid}>
-                    <FieldLabel>Actual Result</FieldLabel>
+                    <FieldLabel>Actual result</FieldLabel>
                     <Textarea
                       className="min-h-[100px] resize-none"
                       placeholder="What is happening?"
@@ -404,7 +370,7 @@ const SupportDialog = ({ user }: Props) => {
             type="submit"
           >
             {form.formState.isSubmitting || isPending ? <Spinner /> : null}
-            Send Request {cooldownTime > 0 ? `(${cooldownTime}s)` : ""}
+            Send request {cooldownTime > 0 ? `(${cooldownTime}s)` : ""}
           </Button>
         </form>
       </CredenzaContent>

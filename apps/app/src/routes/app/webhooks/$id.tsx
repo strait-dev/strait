@@ -47,13 +47,13 @@ import {
   getCoreRowModel,
   getPaginationRowModel,
   getSortedRowModel,
-  useReactTable,
 } from "@tanstack/react-table";
 import { formatDistanceToNow } from "date-fns";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import DetailPageSkeleton from "@/components/common/detail-page-skeleton";
 import EntityNotFound from "@/components/common/entity-not-found";
 import ErrorComponent from "@/components/common/error-component";
+import { RESOURCE_TABLE_EMPTY_CLASS_NAME } from "@/components/tables/resource-table";
 import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import type { WebhookDelivery } from "@/hooks/api/types";
 import {
@@ -63,7 +63,9 @@ import {
   webhookQueryOptions,
 } from "@/hooks/api/use-webhooks";
 import { useProjectPermissions } from "@/hooks/auth/use-project-permissions";
+import { useAppReactTable } from "@/hooks/use-app-react-table";
 import { useHydratedTableData } from "@/hooks/use-hydrated-table-data";
+import { useIsHydrated } from "@/hooks/use-is-hydrated";
 import {
   ChevronLeftIcon,
   ClockIcon,
@@ -75,12 +77,12 @@ import {
 import type { AppRouteContext } from "@/routes/app/layout";
 
 export const Route = createFileRoute("/app/webhooks/$id")({
-  head: () => ({ meta: [{ title: "Webhook · Strait" }] }),
   loader: async ({ context, params }) => {
     const { session } = context as AppRouteContext;
     await context.queryClient.ensureQueryData(webhookQueryOptions(params.id));
     return { session };
   },
+  head: () => ({ meta: [{ title: "Webhook · Strait" }] }),
   pendingComponent: DetailPageSkeleton,
   errorComponent: ErrorComponent,
   component: WebhookDetailPage,
@@ -105,7 +107,7 @@ const deliveryColumns = [
   },
   {
     accessorKey: "last_status_code",
-    header: "HTTP Status",
+    header: "HTTP status",
     cell: ({ row }: { row: { original: WebhookDelivery } }) => (
       <Badge mono size="xs" variant="secondary-light">
         {row.original.last_status_code ?? "-"}
@@ -148,7 +150,7 @@ function WebhookDetailPage() {
 
   const { data: webhook } = useSuspenseQuery(webhookQueryOptions(id));
   const [activeTab, setActiveTab] = useState("settings");
-  const [isHydrated, setIsHydrated] = useState(false);
+  const isHydrated = useIsHydrated();
   const {
     data: deliveriesData,
     isError: deliveriesError,
@@ -163,16 +165,12 @@ function WebhookDetailPage() {
   const testWebhook = useTestWebhook();
   const { permissions } = useProjectPermissions(session.user.activeProjectId);
 
-  useEffect(() => {
-    setIsHydrated(true);
-  }, []);
-
   const deliveries = (deliveriesData?.data ?? []).filter(
     (delivery) => delivery.subscription_id === id
   );
   const tableData = useHydratedTableData(deliveries);
 
-  const table = useReactTable({
+  const table = useAppReactTable({
     data: tableData.data,
     columns: deliveryColumns,
     getCoreRowModel: getCoreRowModel(),
@@ -274,7 +272,7 @@ function WebhookDetailPage() {
 
         <TabsContent value="deliveries">
           {deliveriesError ? (
-            <Empty className="h-[300px]">
+            <Empty className={RESOURCE_TABLE_EMPTY_CLASS_NAME}>
               <EmptyHeader>
                 <EmptyMedia media="icon" size="lg">
                   <HugeiconsIcon
@@ -292,7 +290,7 @@ function WebhookDetailPage() {
           ) : (
             <DataGrid
               emptyMessage={
-                <Empty className="h-[300px]">
+                <Empty className={RESOURCE_TABLE_EMPTY_CLASS_NAME}>
                   <EmptyHeader>
                     <EmptyMedia media="icon" size="lg">
                       <HugeiconsIcon

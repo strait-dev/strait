@@ -1,6 +1,6 @@
 import { expect, test } from "../../fixtures";
 
-test.describe("OAuth Consent", () => {
+test.describe("OAuth consent", () => {
   test("page loads with params", async ({ page }) => {
     await page.goto("/oauth/consent?client_id=test&scope=read");
     await expect(page.locator("body")).toBeVisible({

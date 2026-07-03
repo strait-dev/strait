@@ -1,18 +1,23 @@
 import { useEffect } from "react";
 
+type NavigateForCreateQuery = (options: {
+  replace: true;
+  search: (previous: Record<string, unknown>) => Record<string, unknown>;
+}) => void;
+
 type PermissionGatedCreateQueryOptions = {
   canCreate: boolean;
-  clearCreateQuery: () => void;
   create: string | undefined;
   isReady: boolean;
+  navigate: NavigateForCreateQuery;
   openCreateDialog: () => void;
 };
 
 export function usePermissionGatedCreateQuery({
   canCreate,
-  clearCreateQuery,
   create,
   isReady,
+  navigate,
   openCreateDialog,
 }: PermissionGatedCreateQueryOptions) {
   useEffect(() => {
@@ -23,6 +28,9 @@ export function usePermissionGatedCreateQuery({
     if (canCreate) {
       openCreateDialog();
     }
-    clearCreateQuery();
-  }, [canCreate, clearCreateQuery, create, isReady, openCreateDialog]);
+    navigate({
+      search: (prev) => ({ ...prev, create: undefined }),
+      replace: true,
+    });
+  }, [canCreate, create, isReady, navigate, openCreateDialog]);
 }

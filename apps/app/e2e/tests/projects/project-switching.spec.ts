@@ -1,10 +1,10 @@
 import { expect, test } from "../../fixtures";
 
-test.describe("Project Switching", () => {
+test.describe("Project switching", () => {
   test("project dropdown visible in sidebar", async ({ page }) => {
     await page.goto("/app/dashboard");
     const projectDropdown = page
-      .getByText("Default Project")
+      .getByText("Default project")
       .or(
         page
           .locator("[class*='project-switcher'], [data-slot='select']")
@@ -25,7 +25,7 @@ test.describe("Project Switching", () => {
 
   test("clicking project dropdown shows options", async ({ page }) => {
     await page.goto("/app/dashboard");
-    const dropdown = page.getByText("Default Project").first();
+    const dropdown = page.getByText("Default project").first();
     if (await dropdown.isVisible({ timeout: 5000 }).catch(() => false)) {
       await dropdown.click();
       await page.waitForTimeout(500);

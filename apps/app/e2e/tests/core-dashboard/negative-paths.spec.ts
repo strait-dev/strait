@@ -32,9 +32,9 @@ test.describe("Core dashboard negative paths", () => {
 
       await expect(page.locator("body")).toBeVisible();
       await expect(page.getByText("Overview", { exact: true })).toBeVisible();
-      await expect(page.getByText("Total Runs (24h)")).toBeVisible();
+      await expect(page.getByText("Total runs (24h)")).toBeVisible();
       await expect(
-        page.getByText("Run Activity", { exact: true })
+        page.getByText("Run activity", { exact: true })
       ).toBeVisible();
     } finally {
       await setE2EUserActiveProjectId(originalProjectId);
@@ -117,6 +117,6 @@ test.describe("Core dashboard negative paths", () => {
     await page.goto("/app/dashboard", { waitUntil: "domcontentloaded" });
     await expect(page.locator("body")).toBeVisible();
     await expect(page.getByText("Overview", { exact: true })).toBeVisible();
-    await expect(page.getByText("Run Activity", { exact: true })).toBeVisible();
+    await expect(page.getByText("Run activity", { exact: true })).toBeVisible();
   });
 });

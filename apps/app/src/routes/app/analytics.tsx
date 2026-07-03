@@ -11,7 +11,8 @@ import { AreaChart, BarChart, LineChart } from "@strait/ui/components/charts";
 import { Shell } from "@strait/ui/components/shell";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { zodValidator } from "@tanstack/zod-adapter";
+import { z } from "zod";
 import ErrorComponent from "@/components/common/error-component";
 import {
   costTrendsQueryOptions,
@@ -40,25 +41,42 @@ const RUN_VOLUME_CONFIG = {
 } satisfies ChartConfig;
 
 const SUCCESS_RATE_CONFIG = {
-  success_rate: { label: "Success Rate", color: "chart-1" },
+  success_rate: { label: "Success rate", color: "chart-1" },
 } satisfies ChartConfig;
 
 const formatDollars = (value: number) => `$${(value / 100).toFixed(2)}`;
 const formatDollarsAxis = (value: number) => `$${(value / 100).toFixed(0)}`;
 const formatPercent = (value: number) => `${value.toFixed(1)}%`;
 
+const analyticsSearchSchema = z.object({
+  window: z.enum(["7d", "30d", "90d"]).optional().catch(undefined),
+});
+
 export const Route = createFileRoute("/app/analytics")({
+  validateSearch: zodValidator(analyticsSearchSchema),
+  loaderDeps: ({ search }) => ({ window: search.window ?? "30d" }),
+  loader: async ({ context, deps }) => {
+    await Promise.allSettled([
+      context.queryClient.ensureQueryData(costTrendsQueryOptions(deps.window)),
+      context.queryClient.ensureQueryData(topCostsQueryOptions(deps.window)),
+      context.queryClient.ensureQueryData(performanceQueryOptions(deps.window)),
+    ]);
+  },
   head: () => ({ meta: [{ title: "Analytics · Strait" }] }),
   errorComponent: ErrorComponent,
   component: AnalyticsPage,
 });
 
 function AnalyticsPage() {
-  const [window, setWindow] = useState<AnalyticsWindow>("30d");
+  const navigate = Route.useNavigate();
+  const search = Route.useSearch();
+  const selectedWindow = search.window ?? "30d";
 
-  const { data: costTrends } = useQuery(costTrendsQueryOptions(window));
-  const { data: topCosts } = useQuery(topCostsQueryOptions(window));
-  const { data: performance } = useQuery(performanceQueryOptions(window));
+  const { data: costTrends } = useQuery(costTrendsQueryOptions(selectedWindow));
+  const { data: topCosts } = useQuery(topCostsQueryOptions(selectedWindow));
+  const { data: performance } = useQuery(
+    performanceQueryOptions(selectedWindow)
+  );
 
   const costData = costTrends ?? [];
   const topCostData = topCosts ?? [];
@@ -79,8 +97,15 @@ function AnalyticsPage() {
           {WINDOWS.map((w) => (
             <Button
               key={w.value}
-              onClick={() => setWindow(w.value)}
-              variant={window === w.value ? "default" : "outline"}
+              onClick={() =>
+                navigate({
+                  search: (prev) => ({
+                    ...prev,
+                    window: w.value === "30d" ? undefined : w.value,
+                  }),
+                })
+              }
+              variant={selectedWindow === w.value ? "default" : "outline"}
             >
               {w.label}
             </Button>
@@ -89,10 +114,10 @@ function AnalyticsPage() {
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        {/* Cost Trends */}
+        {/* Cost trends */}
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="font-medium text-sm">Cost Trends</CardTitle>
+            <CardTitle className="font-medium text-sm">Cost trends</CardTitle>
           </CardHeader>
           <CardContent>
             {costData.length > 0 ? (
@@ -113,11 +138,11 @@ function AnalyticsPage() {
           </CardContent>
         </Card>
 
-        {/* Top Cost Contributors */}
+        {/* Top cost contributors */}
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="font-medium text-sm">
-              Top Cost Contributors
+              Top cost contributors
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -141,10 +166,10 @@ function AnalyticsPage() {
           </CardContent>
         </Card>
 
-        {/* Run Volume */}
+        {/* Run volume */}
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="font-medium text-sm">Run Volume</CardTitle>
+            <CardTitle className="font-medium text-sm">Run volume</CardTitle>
           </CardHeader>
           <CardContent>
             {costData.length > 0 ? (
@@ -166,7 +191,7 @@ function AnalyticsPage() {
         {/* Performance */}
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="font-medium text-sm">Success Rate</CardTitle>
+            <CardTitle className="font-medium text-sm">Success rate</CardTitle>
           </CardHeader>
           <CardContent>
             {perfData.length > 0 ? (

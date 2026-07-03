@@ -19,7 +19,7 @@ import { Spinner } from "@strait/ui/components/spinner";
 import { toast } from "@strait/ui/components/toast";
 import { useQueryClient } from "@tanstack/react-query";
 import QRCode from "qrcode";
-import { useCallback, useState } from "react";
+import { useState } from "react";
 import { queryKeys } from "@/hooks/query-keys";
 import { authClient } from "@/lib/auth-client";
 import { captureException } from "@/lib/sentry";
@@ -40,7 +40,7 @@ const TwoFactorSetup = ({ enabled }: Props) => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const handleEnable = useCallback(async () => {
+  const handleEnable = async () => {
     if (!password) {
       setError("Password is required");
       return;
@@ -74,12 +74,11 @@ const TwoFactorSetup = ({ enabled }: Props) => {
     } catch (err) {
       captureException(err);
       setError("Something went wrong.");
-    } finally {
-      setIsLoading(false);
     }
-  }, [password]);
+    setIsLoading(false);
+  };
 
-  const handleVerify = useCallback(async () => {
+  const handleVerify = async () => {
     if (verifyCode.length !== 6) {
       return;
     }
@@ -102,12 +101,11 @@ const TwoFactorSetup = ({ enabled }: Props) => {
     } catch (err) {
       captureException(err);
       toast.error("Verification failed.");
-    } finally {
-      setIsLoading(false);
     }
-  }, [verifyCode, queryClient]);
+    setIsLoading(false);
+  };
 
-  const handleDisable = useCallback(async () => {
+  const handleDisable = async () => {
     if (!password) {
       setError("Password is required");
       return;
@@ -134,10 +132,9 @@ const TwoFactorSetup = ({ enabled }: Props) => {
     } catch (err) {
       captureException(err);
       setError("Something went wrong.");
-    } finally {
-      setIsLoading(false);
     }
-  }, [password, queryClient]);
+    setIsLoading(false);
+  };
 
   if (step === "qr") {
     return (

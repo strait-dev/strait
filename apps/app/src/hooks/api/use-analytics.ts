@@ -76,7 +76,7 @@ function microUsdToCents(value: number) {
   return value / MICRO_USD_PER_CENT;
 }
 
-export const fetchCostTrends = createServerFn({ method: "GET" })
+const fetchCostTrends = createServerFn({ method: "GET" })
   .inputValidator((data: AnalyticsWindow) => data)
   .middleware([authMiddleware])
   .handler(async ({ context, data }): Promise<CostTrendPoint[]> => {
@@ -93,7 +93,7 @@ export const fetchCostTrends = createServerFn({ method: "GET" })
     }));
   });
 
-export const fetchTopCosts = createServerFn({ method: "GET" })
+const fetchTopCosts = createServerFn({ method: "GET" })
   .inputValidator((data: AnalyticsWindow) => data)
   .middleware([authMiddleware])
   .handler(async ({ context, data }): Promise<TopCostEntry[]> => {
@@ -109,7 +109,7 @@ export const fetchTopCosts = createServerFn({ method: "GET" })
     }));
   });
 
-export const fetchPerformance = createServerFn({ method: "GET" })
+const fetchPerformance = createServerFn({ method: "GET" })
   .inputValidator((data: AnalyticsWindow) => data)
   .middleware([authMiddleware])
   .handler(async ({ context, data }): Promise<PerformancePoint[]> => {

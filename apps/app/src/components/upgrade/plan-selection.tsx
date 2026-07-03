@@ -19,7 +19,6 @@ import {
   TableRow,
 } from "@strait/ui/components/table";
 import { Tabs, TabsList, TabsTrigger } from "@strait/ui/components/tabs";
-import { useCallback } from "react";
 import PricingCalculator from "@/components/upgrade/pricing-calculator";
 import { useAnalytics } from "@/hooks/analytics/use-analytics";
 import { formatCurrency } from "@/lib/format";
@@ -103,65 +102,69 @@ const PricingCardBadges = ({
   billingInterval: "monthly" | "yearly";
   plan: PricingPlan;
   isCurrentPlan?: boolean;
-}) => {
-  const renderLeftBadge = () => {
-    if (isCurrentPlan) {
-      return (
-        <Badge
-          className="absolute -top-2 left-2"
-          iconLeft={CheckIcon}
-          variant="success-light"
-        >
-          Current plan
-        </Badge>
-      );
-    }
-    if (plan.badge) {
-      return (
-        <Badge
-          className="absolute -top-2 left-2"
-          variant={plan.badgeVariant ?? "info-light"}
-        >
-          {plan.badge}
-        </Badge>
-      );
-    }
-    if (plan.highlight) {
-      return (
-        <Badge
-          className="absolute -top-2 left-2"
-          iconLeft={StarIcon}
-          variant="info-light"
-        >
-          Most Popular
-        </Badge>
-      );
-    }
-    return null;
-  };
+}) => (
+  <>
+    {billingInterval === "yearly" &&
+    plan.prices.monthly > 0 &&
+    plan.prices.yearly > 0 ? (
+      <Badge
+        className="absolute -top-2 right-2"
+        iconLeft={CheckIcon}
+        variant="success-light"
+      >
+        Save{" "}
+        {Math.round(
+          ((plan.prices.monthly * MONTHS_IN_A_YEAR - plan.prices.yearly) /
+            (plan.prices.monthly * MONTHS_IN_A_YEAR)) *
+            PERCENTAGE_MULTIPLIER
+        )}
+        %
+      </Badge>
+    ) : null}
+    <PricingCardLeftBadge isCurrentPlan={isCurrentPlan} plan={plan} />
+  </>
+);
 
-  return (
-    <>
-      {billingInterval === "yearly" &&
-      plan.prices.monthly > 0 &&
-      plan.prices.yearly > 0 ? (
-        <Badge
-          className="absolute -top-2 right-2"
-          iconLeft={CheckIcon}
-          variant="success-light"
-        >
-          Save{" "}
-          {Math.round(
-            ((plan.prices.monthly * MONTHS_IN_A_YEAR - plan.prices.yearly) /
-              (plan.prices.monthly * MONTHS_IN_A_YEAR)) *
-              PERCENTAGE_MULTIPLIER
-          )}
-          %
-        </Badge>
-      ) : null}
-      {renderLeftBadge()}
-    </>
-  );
+const PricingCardLeftBadge = ({
+  isCurrentPlan,
+  plan,
+}: {
+  isCurrentPlan?: boolean;
+  plan: PricingPlan;
+}) => {
+  if (isCurrentPlan) {
+    return (
+      <Badge
+        className="absolute -top-2 left-2"
+        iconLeft={CheckIcon}
+        variant="success-light"
+      >
+        Current plan
+      </Badge>
+    );
+  }
+  if (plan.badge) {
+    return (
+      <Badge
+        className="absolute -top-2 left-2"
+        variant={plan.badgeVariant ?? "info-light"}
+      >
+        {plan.badge}
+      </Badge>
+    );
+  }
+  if (plan.highlight) {
+    return (
+      <Badge
+        className="absolute -top-2 left-2"
+        iconLeft={StarIcon}
+        variant="info-light"
+      >
+        Most popular
+      </Badge>
+    );
+  }
+  return null;
 };
 
 const PricingCardFeatures = ({ plan }: { plan: PricingPlan }) => (
@@ -209,7 +212,7 @@ const PricingCard = ({
 
   const getCardButtonText = () => {
     if (isFreePlan) {
-      return "Get Started Free";
+      return "Get started free";
     }
     if (isEnterprise) {
       return "Contact sales";
@@ -238,28 +241,22 @@ const PricingCard = ({
           ? Math.floor(plan.prices.yearly / MONTHS_IN_A_YEAR)
           : 0);
 
-  const handleCardClick = useCallback(
-    (e: React.MouseEvent) => {
-      e.preventDefault();
-      if (!(isLoading || isCurrentPlan)) {
-        onSelect(plan.slug);
-      }
-    },
-    [isLoading, isCurrentPlan, onSelect, plan.slug]
-  );
+  const handleCardClick = (e: React.MouseEvent) => {
+    e.preventDefault();
+    if (!(isLoading || isCurrentPlan)) {
+      onSelect(plan.slug);
+    }
+  };
 
-  const handleCardKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (e.key !== "Enter" && e.key !== " ") {
-        return;
-      }
-      e.preventDefault();
-      if (!(isLoading || isCurrentPlan)) {
-        onSelect(plan.slug);
-      }
-    },
-    [isLoading, isCurrentPlan, onSelect, plan.slug]
-  );
+  const handleCardKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key !== "Enter" && e.key !== " ") {
+      return;
+    }
+    e.preventDefault();
+    if (!(isLoading || isCurrentPlan)) {
+      onSelect(plan.slug);
+    }
+  };
 
   return (
     <Card
@@ -374,22 +371,16 @@ export const PlanSelection = ({
 
   const messaging = MESSAGING[mode];
 
-  const handleBillingIntervalChange = useCallback(
-    (interval: BillingInterval) => {
-      onBillingIntervalChange(interval);
-      trackSubscription("BILLING_INTERVAL_CHANGED", { interval });
-    },
-    [onBillingIntervalChange, trackSubscription]
-  );
+  const handleBillingIntervalChange = (interval: BillingInterval) => {
+    onBillingIntervalChange(interval);
+    trackSubscription("BILLING_INTERVAL_CHANGED", { interval });
+  };
 
-  const handlePlanSelect = useCallback(
-    (planSlug: PlanType) => {
-      if (!isLoading) {
-        onPlanChange(planSlug);
-      }
-    },
-    [isLoading, onPlanChange]
-  );
+  const handlePlanSelect = (planSlug: PlanType) => {
+    if (!isLoading) {
+      onPlanChange(planSlug);
+    }
+  };
 
   return (
     <div className="space-y-6">

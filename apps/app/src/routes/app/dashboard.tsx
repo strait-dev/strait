@@ -15,7 +15,6 @@ const statsQueryOptions = statsQueryOptionsFn();
 const analyticsQueryOptions = analyticsQueryOptionsFn(24);
 
 export const Route = createFileRoute("/app/dashboard")({
-  head: () => ({ meta: [{ title: "Dashboard · Strait" }] }),
   loader: async ({ context }) => {
     const { session } = context as AppRouteContext;
     const hasProject = !!session.user.activeProjectId;
@@ -30,6 +29,7 @@ export const Route = createFileRoute("/app/dashboard")({
     }
     return { hasProject, activeProjectId };
   },
+  head: () => ({ meta: [{ title: "Dashboard · Strait" }] }),
   errorComponent: ErrorComponent,
   component: RouteComponent,
 });

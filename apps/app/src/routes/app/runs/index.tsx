@@ -22,10 +22,9 @@ import {
   getCoreRowModel,
   getFilteredRowModel,
   getSortedRowModel,
-  useReactTable,
 } from "@tanstack/react-table";
 import { zodValidator } from "@tanstack/zod-adapter";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { z } from "zod/v4";
 import { CursorPagination } from "@/components/common/cursor-pagination";
 import ErrorComponent from "@/components/common/error-component";
@@ -36,6 +35,7 @@ import RunDetailSheet from "@/components/dashboard/run-detail-sheet";
 import {
   getResourceTableInitialState,
   RESOURCE_TABLE_CLASS_NAMES,
+  RESOURCE_TABLE_EMPTY_CLASS_NAME,
 } from "@/components/tables/resource-table";
 import { createRunColumns } from "@/components/tables/runs-columns";
 import { usePageEvent } from "@/hooks/analytics/use-page-event";
@@ -46,6 +46,7 @@ import {
   useRetryRun,
 } from "@/hooks/api/use-runs";
 import { useProjectPermissions } from "@/hooks/auth/use-project-permissions";
+import { useAppReactTable } from "@/hooks/use-app-react-table";
 import { useCursorPagination } from "@/hooks/use-cursor-pagination";
 import { useHydratedTableData } from "@/hooks/use-hydrated-table-data";
 import {
@@ -73,7 +74,6 @@ export const searchSchema = z.object({
 });
 
 export const Route = createFileRoute("/app/runs/")({
-  head: () => ({ meta: [{ title: "Runs · Strait" }] }),
   validateSearch: zodValidator(searchSchema),
   loaderDeps: ({ search }) => ({
     limit: search.perPage ?? 20,
@@ -89,10 +89,28 @@ export const Route = createFileRoute("/app/runs/")({
     }
     return { hasProject, session };
   },
+  head: () => ({ meta: [{ title: "Runs · Strait" }] }),
   pendingComponent: TablePageSkeleton,
   errorComponent: ErrorComponent,
   component: RunsPage,
 });
+
+const EMPTY_ARRAY: never[] = [];
+
+function getRunSummary(runs: JobRun[]) {
+  const totalRuns = runs.length;
+  const succeeded = runs.filter((run) => run.status === "completed").length;
+  const failed = runs.filter((run) =>
+    ["failed", "crashed", "timed_out", "system_failed"].includes(run.status)
+  ).length;
+  const running = runs.filter((run) =>
+    ["executing", "queued", "waiting"].includes(run.status)
+  ).length;
+  const successRate =
+    totalRuns > 0 ? Math.round((succeeded / totalRuns) * 100) : 0;
+
+  return { succeeded, failed, running, successRate };
+}
 
 function RunsPage() {
   const { hasProject, session } = Route.useLoaderData();
@@ -122,10 +140,10 @@ function RunsPage() {
   const actionPermissions = runResourcePermissions(permissions);
 
   const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({});
-  const selectedStatuses = (search.status ?? []) as RunStatus[];
+  const selectedStatuses = (search.status ?? EMPTY_ARRAY) as RunStatus[];
 
   const typed = data as PaginatedResponse<JobRun> | undefined;
-  const filteredData = useMemo(() => {
+  const filteredData = (() => {
     let runs = hasProject ? (typed?.data ?? []) : [];
     const query = search.query?.trim().toLowerCase();
     if (query) {
@@ -141,34 +159,12 @@ function RunsPage() {
     return runs.filter((run) =>
       selectedStatuses.includes(run.status as RunStatus)
     );
-  }, [typed, hasProject, search.query, selectedStatuses]);
+  })();
   const tableData = useHydratedTableData(filteredData);
 
-  const summary = useMemo(() => {
-    let succeeded = 0;
-    let failed = 0;
-    let running = 0;
-    for (const run of filteredData) {
-      if (run.status === "completed") {
-        succeeded++;
-      } else if (
-        run.status === "failed" ||
-        run.status === "timed_out" ||
-        run.status === "crashed" ||
-        run.status === "system_failed"
-      ) {
-        failed++;
-      } else if (run.status === "executing" || run.status === "dequeued") {
-        running++;
-      }
-    }
-    const completed = succeeded + failed;
-    const successRate =
-      completed > 0 ? Math.round((succeeded / completed) * 100) : null;
-    return { succeeded, failed, running, successRate };
-  }, [filteredData]);
+  const summary = getRunSummary(filteredData);
 
-  const table = useReactTable({
+  const table = useAppReactTable({
     data: tableData.data,
     columns: createRunColumns({
       onView: (run) => {
@@ -221,7 +217,7 @@ function RunsPage() {
   }
 
   const emptyState = hasProject ? (
-    <Empty className="h-[300px]">
+    <Empty className={RESOURCE_TABLE_EMPTY_CLASS_NAME}>
       <EmptyHeader>
         <EmptyMedia media="icon" size="lg">
           <HugeiconsIcon

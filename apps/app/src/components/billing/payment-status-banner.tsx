@@ -7,6 +7,13 @@ import { useQuery } from "@tanstack/react-query";
 import { orgUsageQueryOptions } from "@/hooks/billing/use-org-usage";
 import { getCustomerPortalUrlServerFn } from "@/lib/subscription";
 
+const handleUpdatePayment = async () => {
+  const result = await getCustomerPortalUrlServerFn();
+  if (result.url) {
+    window.location.href = result.url;
+  }
+};
+
 const PaymentStatusBanner = () => {
   const { data } = useQuery(orgUsageQueryOptions());
 
@@ -20,13 +27,6 @@ const PaymentStatusBanner = () => {
   if (!(isRestricted || isGrace)) {
     return null;
   }
-
-  const handleUpdatePayment = async () => {
-    const result = await getCustomerPortalUrlServerFn();
-    if (result.url) {
-      window.location.href = result.url;
-    }
-  };
 
   const graceEnd = data.grace_period_end
     ? new Date(data.grace_period_end).toLocaleDateString()

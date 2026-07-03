@@ -59,7 +59,17 @@ test.describe("Events and logs dashboard", () => {
       page.getByRole("button", { name: "Waiting" })
     );
     await expect(page.getByText(eventKey)).toBeVisible();
-    await expect(page.getByText("event | workflow_step")).toBeVisible();
+    await expect(
+      page.getByRole("row", {
+        name: new RegExp(`Waiting ${escapeRegExp(eventKey)}`),
+      })
+    ).toBeVisible();
+    await expect(
+      page.getByRole("cell", { name: "workflow_step" })
+    ).toBeVisible();
+    await expect(
+      page.getByRole("cell", { name: "event", exact: true })
+    ).toBeVisible();
 
     await api.sendEvent(eventKey, { approved: true });
     await api.waitForEventTrigger(
@@ -93,19 +103,26 @@ test.describe("Events and logs dashboard", () => {
     await gotoAndExpect(
       page,
       "/app/logs",
-      page.getByRole("table", { name: "Logs" })
+      page.getByRole("region", { name: "Logs" })
     );
 
+    const logsRegion = page.getByRole("region", { name: "Logs" });
     await page.getByLabel("Search").fill(eventKey);
-    await expect(page.getByText(eventKey)).toBeVisible();
+    await expect(logsRegion.getByText(eventKey)).toBeVisible();
     await expect(
-      page.getByRole("row", { name: new RegExp(`received ${eventKey}`) })
+      logsRegion.getByRole("row", {
+        name: new RegExp(`Received ${escapeRegExp(eventKey)}`),
+      })
     ).toBeVisible();
     await expect(
-      page.getByRole("cell", { name: "workflow_step" })
+      logsRegion.getByRole("cell", { name: "workflow_step" })
     ).toBeVisible();
     await expect(
-      page.getByRole("cell", { name: "event", exact: true })
+      logsRegion.getByRole("cell", { name: "event", exact: true })
     ).toBeVisible();
   });
 });
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}

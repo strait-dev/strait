@@ -31,6 +31,6 @@ test.describe("Backend-backed e2e harness", () => {
 
     await page.goto("/app/dashboard", { waitUntil: "domcontentloaded" });
     await expect(page).toHaveURL(/\/app\/dashboard/);
-    await expect(page.getByText("Total Runs (24h)")).toBeVisible();
+    await expect(page.getByText("Total runs (24h)")).toBeVisible();
   });
 });

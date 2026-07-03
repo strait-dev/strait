@@ -8,13 +8,13 @@ import { authSearchSchema } from "@/lib/auth-search-schema";
 import { storeUtmParams } from "@/lib/utm";
 
 export const Route = createFileRoute("/(auth)/signup")({
-  head: () => ({ meta: [{ title: "Sign up · Strait" }] }),
   validateSearch: authSearchSchema,
   beforeLoad: ({ context, search }) => {
     if (context.isAuthenticated) {
       throw redirect({ to: search.redirect ?? "/app" });
     }
   },
+  head: () => ({ meta: [{ title: "Sign up · Strait" }] }),
   errorComponent: ErrorComponent,
   notFoundComponent: NotFound,
   component: SignUpPage,

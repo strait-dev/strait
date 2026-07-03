@@ -30,13 +30,13 @@ import { CreditCardIcon, LinkSquareIcon, UserIcon } from "@/lib/icons";
 import type { AppRouteContext } from "@/routes/app/layout";
 
 export const Route = createFileRoute("/app/settings/")({
-  head: () => ({ meta: [{ title: "Settings · Strait" }] }),
   loader: ({ context }) => {
     const { session } = context as AppRouteContext;
     return {
       session,
     };
   },
+  head: () => ({ meta: [{ title: "Settings · Strait" }] }),
   errorComponent: DefaultCatchBoundary,
   notFoundComponent: () => <NotFound />,
   component: RouteComponent,
@@ -97,7 +97,7 @@ function RouteComponent() {
             </TabsTrigger>
             <TabsTrigger className="flex items-center gap-2" value="apps">
               <HugeiconsIcon className="size-4" icon={LinkSquareIcon} />
-              Authorized Apps
+              Authorized apps
             </TabsTrigger>
           </TabsList>
 

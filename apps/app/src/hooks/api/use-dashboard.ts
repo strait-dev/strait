@@ -8,7 +8,7 @@ import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
 import { requireActiveProjectAccess } from "@/middlewares/require-access";
 
-export const fetchStats = createServerFn({ method: "GET" })
+const fetchStats = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async ({ context }) => {
     await requireActiveProjectAccess(context);
@@ -17,7 +17,7 @@ export const fetchStats = createServerFn({ method: "GET" })
     );
   });
 
-export const fetchAnalytics = createServerFn({ method: "GET" })
+const fetchAnalytics = createServerFn({ method: "GET" })
   .inputValidator((data: { periodHours?: number }) => data)
   .middleware([authMiddleware])
   .handler(async ({ context, data }) => {

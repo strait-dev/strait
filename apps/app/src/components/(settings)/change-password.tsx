@@ -69,6 +69,7 @@ const ChangePassword = () => {
       <form
         onSubmit={(e) => {
           e.preventDefault();
+          e.stopPropagation();
           form.handleSubmit();
         }}
       >
@@ -92,7 +93,7 @@ const ChangePassword = () => {
                     autoComplete="current-password"
                     id={field.name}
                     onBlur={field.handleBlur}
-                    onChange={(e) => field.handleChange(e.target.value)}
+                    onInput={(e) => field.handleChange(e.currentTarget.value)}
                     placeholder="Enter current password"
                     value={field.state.value}
                   />
@@ -124,7 +125,7 @@ const ChangePassword = () => {
                     autoComplete="new-password"
                     id={field.name}
                     onBlur={field.handleBlur}
-                    onChange={(e) => field.handleChange(e.target.value)}
+                    onInput={(e) => field.handleChange(e.currentTarget.value)}
                     placeholder="At least 8 characters"
                     value={field.state.value}
                   />
@@ -156,7 +157,7 @@ const ChangePassword = () => {
                     autoComplete="new-password"
                     id={field.name}
                     onBlur={field.handleBlur}
-                    onChange={(e) => field.handleChange(e.target.value)}
+                    onInput={(e) => field.handleChange(e.currentTarget.value)}
                     placeholder="Re-enter new password"
                     value={field.state.value}
                   />

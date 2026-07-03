@@ -20,10 +20,9 @@ import {
   getCoreRowModel,
   getFilteredRowModel,
   getSortedRowModel,
-  useReactTable,
 } from "@tanstack/react-table";
 import { zodValidator } from "@tanstack/zod-adapter";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { z } from "zod/v4";
 import { CursorPagination } from "@/components/common/cursor-pagination";
 import ErrorComponent from "@/components/common/error-component";
@@ -32,9 +31,11 @@ import NoProjectState from "@/components/common/no-project-state";
 import TablePageSkeleton from "@/components/common/table-page-skeleton";
 import ExpandedEventDetail from "@/components/events/expanded-event-detail";
 import { logColumns } from "@/components/events/log-columns";
+import { RESOURCE_TABLE_EMPTY_CLASS_NAME } from "@/components/tables/resource-table";
 import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import type { EventTrigger, PaginatedResponse } from "@/hooks/api/types";
 import { eventsQueryOptions } from "@/hooks/api/use-events";
+import { useAppReactTable } from "@/hooks/use-app-react-table";
 import { useCursorPagination } from "@/hooks/use-cursor-pagination";
 import { useHydratedTableData } from "@/hooks/use-hydrated-table-data";
 import { FileTextIcon, SearchIcon } from "@/lib/icons";
@@ -55,7 +56,6 @@ export const searchSchema = z.object({
 });
 
 export const Route = createFileRoute("/app/logs/")({
-  head: () => ({ meta: [{ title: "Logs · Strait" }] }),
   validateSearch: zodValidator(searchSchema),
   loaderDeps: ({ search }) => ({
     limit: search.perPage ?? 50,
@@ -71,10 +71,13 @@ export const Route = createFileRoute("/app/logs/")({
     }
     return { hasProject, session };
   },
+  head: () => ({ meta: [{ title: "Logs · Strait" }] }),
   pendingComponent: TablePageSkeleton,
   errorComponent: ErrorComponent,
   component: LogsPage,
 });
+
+const EMPTY_ARRAY: never[] = [];
 
 function LogsPage() {
   usePageEvent("logs_viewed");
@@ -96,38 +99,14 @@ function LogsPage() {
 
   const [expandedLogId, setExpandedLogId] = useState<string | null>(null);
 
-  const selectedStatuses = (search.statuses ?? []) as string[];
+  const selectedStatuses = (search.statuses ?? EMPTY_ARRAY) as string[];
 
   const typed = data as PaginatedResponse<EventTrigger> | undefined;
 
-  const allLogs = useMemo(() => {
-    let items = hasProject ? (typed?.data ?? []) : [];
-    const query = search.query?.trim().toLowerCase();
-    if (query) {
-      items = items.filter((event) =>
-        [
-          event.id,
-          event.event_key,
-          event.job_run_id,
-          event.workflow_run_id,
-          event.source_type,
-          event.status,
-          event.trigger_type,
-        ]
-          .filter(Boolean)
-          .some((value) => value?.toLowerCase().includes(query))
-      );
-    }
-    if (selectedStatuses.length > 0) {
-      items = items.filter((e: EventTrigger) =>
-        selectedStatuses.includes(e.status)
-      );
-    }
-    return items;
-  }, [typed, selectedStatuses, hasProject, search.query]);
+  const allLogs = hasProject ? (typed?.data ?? []) : [];
   const tableData = useHydratedTableData(allLogs);
 
-  const table = useReactTable({
+  const table = useAppReactTable({
     data: tableData.data,
     columns: logColumns,
     getCoreRowModel: getCoreRowModel(),
@@ -161,7 +140,7 @@ function LogsPage() {
   }
 
   const emptyState = hasProject ? (
-    <Empty className="h-[300px]">
+    <Empty className={RESOURCE_TABLE_EMPTY_CLASS_NAME}>
       <EmptyHeader>
         <EmptyMedia media="icon" size="lg">
           <HugeiconsIcon

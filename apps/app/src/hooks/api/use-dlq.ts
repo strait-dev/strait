@@ -18,7 +18,7 @@ import {
   requireActiveProjectAdmin,
 } from "@/middlewares/require-access";
 
-export const fetchDlqRuns = createServerFn({ method: "GET" })
+const fetchDlqRuns = createServerFn({ method: "GET" })
   .inputValidator((data: ListParams & { search?: string }) => data)
   .middleware([authMiddleware])
   .handler(
@@ -37,7 +37,7 @@ export const fetchDlqRuns = createServerFn({ method: "GET" })
     }
   );
 
-export const replayDlqRunFn = createServerFn({ method: "POST" })
+const replayDlqRunFn = createServerFn({ method: "POST" })
   .inputValidator((data: { runId: string }) => data)
   .middleware([authMiddleware])
   .handler(
@@ -52,7 +52,7 @@ export const replayDlqRunFn = createServerFn({ method: "POST" })
     }
   );
 
-export const purgeDlqRunFn = createServerFn({ method: "POST" })
+const purgeDlqRunFn = createServerFn({ method: "POST" })
   .inputValidator((data: { runId: string }) => data)
   .middleware([authMiddleware])
   .handler(async ({ context, data }): Promise<void> => {
@@ -64,7 +64,7 @@ export const purgeDlqRunFn = createServerFn({ method: "POST" })
     );
   });
 
-export const bulkReplayDlqFn = createServerFn({ method: "POST" })
+const bulkReplayDlqFn = createServerFn({ method: "POST" })
   .inputValidator((data: { run_ids: string[] }) => data)
   .middleware([authMiddleware])
   .handler(

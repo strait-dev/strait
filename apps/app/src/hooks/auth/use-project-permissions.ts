@@ -1,6 +1,6 @@
 import { queryOptions, useQuery } from "@tanstack/react-query";
 import { createServerFn } from "@tanstack/react-start";
-import { useEffect, useState } from "react";
+import { useIsHydrated } from "@/hooks/use-is-hydrated";
 import { apiPath, apiRequest } from "@/lib/api-client.server";
 import { authMiddleware } from "@/middlewares/auth";
 import {
@@ -55,7 +55,7 @@ export type ProjectPermissionFlags = {
   canManageProjects: boolean;
 };
 
-export const emptyProjectPermissionFlags: ProjectPermissionFlags = {
+const emptyProjectPermissionFlags: ProjectPermissionFlags = {
   permissions: [],
   canWriteJobs: false,
   canTriggerJobs: false,
@@ -126,7 +126,7 @@ async function findProjectMembership(projectId: string, userId: string) {
   }
 }
 
-export const fetchProjectPermissionsFn = createServerFn({ method: "GET" })
+const fetchProjectPermissionsFn = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async ({ context }) => {
     const projectId = await requireActiveProjectAccess(context);
@@ -160,7 +160,7 @@ export const fetchProjectPermissionsFn = createServerFn({ method: "GET" })
     return flagsFromPermissions(permissions);
   });
 
-export const projectPermissionsQueryOptions = (projectId?: string | null) =>
+const projectPermissionsQueryOptions = (projectId?: string | null) =>
   queryOptions({
     queryKey: queryKeys.projectPermissions.detail(projectId ?? "none").queryKey,
     queryFn: () => fetchProjectPermissionsFn(),
@@ -170,12 +170,8 @@ export const projectPermissionsQueryOptions = (projectId?: string | null) =>
   });
 
 export function useProjectPermissions(projectId?: string | null) {
-  const [isHydrated, setIsHydrated] = useState(false);
+  const isHydrated = useIsHydrated();
   const query = useQuery(projectPermissionsQueryOptions(projectId));
-
-  useEffect(() => {
-    setIsHydrated(true);
-  }, []);
 
   return {
     ...query,

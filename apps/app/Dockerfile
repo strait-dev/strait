@@ -43,7 +43,6 @@ RUN bun install --frozen-lockfile
 COPY apps/app/instrument.server.ts apps/app/knip.json apps/app/tsconfig.json apps/app/vite.config.ts apps/app/vitest.config.ts apps/app/
 COPY apps/app/public apps/app/public
 COPY apps/app/scripts apps/app/scripts
-COPY apps/app/server apps/app/server
 COPY apps/app/src apps/app/src
 COPY packages packages
 

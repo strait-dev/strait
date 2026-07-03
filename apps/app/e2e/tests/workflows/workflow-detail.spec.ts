@@ -57,10 +57,10 @@ test.describe("Workflow Detail Page", () => {
     ).toBeVisible();
     await expect(page.getByRole("button", { name: "Trigger" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Pause" })).toBeVisible();
-    await expect(page.getByText("Success Rate")).toBeVisible();
-    await expect(page.getByText("Total Runs")).toBeVisible();
+    await expect(page.getByText("Success rate")).toBeVisible();
+    await expect(page.getByText("Total runs")).toBeVisible();
     await expect(
-      page.getByText("Recent Activity", { exact: true })
+      page.getByText("Recent activity", { exact: true })
     ).toBeVisible();
   });
 

@@ -6,18 +6,18 @@ test.describe("Dashboard Charts", () => {
   });
 
   test("run activity chart renders", async ({ page }) => {
-    await expect(page.getByText("Run Activity", { exact: true })).toBeVisible();
+    await expect(page.getByText("Run activity", { exact: true })).toBeVisible();
   });
 
   test("status distribution chart renders", async ({ page }) => {
     await expect(
-      page.getByText("Status Distribution", { exact: true })
+      page.getByText("Status distribution", { exact: true })
     ).toBeVisible();
   });
 
   test("failed runs by job chart renders", async ({ page }) => {
     await expect(
-      page.getByText("Failed Runs by Job", { exact: true })
+      page.getByText("Failed runs by Job", { exact: true })
     ).toBeVisible();
   });
 
@@ -42,8 +42,8 @@ test.describe("Dashboard Charts", () => {
     });
 
     await page.goto("/app/dashboard", { waitUntil: "domcontentloaded" });
-    await expect(page.getByText("Run Activity", { exact: true })).toBeVisible();
-    await expect(page.getByText("Status Distribution")).toBeVisible();
+    await expect(page.getByText("Run activity", { exact: true })).toBeVisible();
+    await expect(page.getByText("Status distribution")).toBeVisible();
     await expect(page.getByText("Throughput (24h)")).toBeVisible();
 
     expect(rechartsWarnings).toEqual([]);

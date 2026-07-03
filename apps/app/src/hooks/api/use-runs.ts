@@ -30,7 +30,7 @@ const RUN_DETAIL_RETRY_MAX_MS = 3000;
 const runDetailRetryDelay = (attempt: number) =>
   Math.min(RUN_DETAIL_RETRY_BASE_MS * attempt, RUN_DETAIL_RETRY_MAX_MS);
 
-export const fetchRuns = createServerFn({ method: "GET" })
+const fetchRuns = createServerFn({ method: "GET" })
   .inputValidator(
     (
       data: ListParams & {
@@ -59,7 +59,7 @@ export const fetchRuns = createServerFn({ method: "GET" })
     }
   );
 
-export const fetchRun = createServerFn({ method: "GET" })
+const fetchRun = createServerFn({ method: "GET" })
   .inputValidator((data: { id: string }) => data)
   .middleware([authMiddleware])
   .handler(
@@ -72,7 +72,7 @@ export const fetchRun = createServerFn({ method: "GET" })
     }
   );
 
-export const fetchRunEvents = createServerFn({ method: "GET" })
+const fetchRunEvents = createServerFn({ method: "GET" })
   .inputValidator(
     (data: { runId: string; limit?: number; cursor?: string }) => data
   )
@@ -92,7 +92,7 @@ export const fetchRunEvents = createServerFn({ method: "GET" })
     }
   );
 
-export const replayRunFn = createServerFn({ method: "POST" })
+const replayRunFn = createServerFn({ method: "POST" })
   .inputValidator((data: { runId: string }) => data)
   .middleware([authMiddleware])
   .handler(
@@ -107,7 +107,7 @@ export const replayRunFn = createServerFn({ method: "POST" })
     }
   );
 
-export const cancelRunFn = createServerFn({ method: "POST" })
+const cancelRunFn = createServerFn({ method: "POST" })
   .inputValidator((data: { runId: string }) => data)
   .middleware([authMiddleware])
   .handler(async ({ context, data }): Promise<void> => {

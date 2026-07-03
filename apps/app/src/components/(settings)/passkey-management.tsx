@@ -26,6 +26,17 @@ import {
 } from "@/hooks/auth/use-account";
 import { KeyIcon, TrashIcon } from "@/lib/icons";
 
+const formatDate = (date: string | Date | null) => {
+  if (!date) {
+    return "Unknown";
+  }
+  return new Date(date).toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+};
+
 const PasskeyManagement = () => {
   const { data: passkeys = [], isLoading } = useQuery(passkeysQueryOptions());
   const addPasskey = useAddPasskey();
@@ -51,17 +62,6 @@ const PasskeyManagement = () => {
         error instanceof Error ? error.message : "Failed to remove passkey."
       );
     }
-  };
-
-  const formatDate = (date: string | Date | null) => {
-    if (!date) {
-      return "Unknown";
-    }
-    return new Date(date).toLocaleDateString("en-US", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    });
   };
 
   return (

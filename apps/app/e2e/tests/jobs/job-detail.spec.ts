@@ -36,9 +36,9 @@ test.describe("Job Detail", () => {
     await expect(page.getByRole("button", { name: "Pause" })).toBeVisible();
     await expect(page.getByRole("button", { name: "1 hour" })).toBeVisible();
     await expect(page.getByRole("button", { name: "7 days" })).toBeVisible();
-    await expect(page.getByText("Success Rate")).toBeVisible();
-    await expect(page.getByText("Total Runs")).toBeVisible();
-    await expect(page.getByText("Run Status Distribution")).toBeVisible();
+    await expect(page.getByText("Success rate")).toBeVisible();
+    await expect(page.getByText("Total runs")).toBeVisible();
+    await expect(page.getByText("Run status distribution")).toBeVisible();
     await expect(page.getByText("Configuration")).toBeVisible();
     await expect(page.getByText(endpointUrl)).toBeVisible();
   });
@@ -48,6 +48,6 @@ test.describe("Job Detail", () => {
 
     await page.getByRole("button", { name: "30 days" }).click();
     await expect(page.getByRole("button", { name: "30 days" })).toBeVisible();
-    await expect(page.getByText("Failed Runs")).toBeVisible();
+    await expect(page.getByText("Failed runs")).toBeVisible();
   });
 });

@@ -11,11 +11,15 @@ import {
 } from "@strait/ui/components/card";
 import { Shell } from "@strait/ui/components/shell";
 import { toast } from "@strait/ui/components/toast";
-import { useMutation, useSuspenseQuery } from "@tanstack/react-query";
+import {
+  useMutation,
+  useQueryClient,
+  useSuspenseQuery,
+} from "@tanstack/react-query";
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
 import { zodValidator } from "@tanstack/zod-adapter";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import * as z from "zod";
 import DowngradePreviewDialog from "@/components/billing/downgrade-preview-dialog";
 import ErrorComponent from "@/components/common/error-component";
@@ -26,6 +30,7 @@ import type {
 import { PlanSelection } from "@/components/upgrade/plan-selection";
 import { useAnalytics } from "@/hooks/analytics/use-analytics";
 import { usePageEvent } from "@/hooks/analytics/use-page-event";
+import { orgUsageQueryOptions } from "@/hooks/billing/use-org-usage";
 import {
   apiPlansToComparisonFeatures,
   apiPlansToPricingPlans,
@@ -62,10 +67,10 @@ const startCheckoutInputSchema = z.object({
  * Reuses existing Stripe customers to avoid duplicates.
  */
 const startCheckoutServerFn = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
   .inputValidator((data: StartCheckoutInput) =>
     startCheckoutInputSchema.parse(data)
   )
-  .middleware([authMiddleware])
   .handler(async ({ data, context }) => {
     // Defense in depth: refuse to talk to Stripe in community edition
     // even if a caller bypasses the route guard below.
@@ -143,7 +148,6 @@ const upgradeSearchSchema = z.object({
 });
 
 export const Route = createFileRoute("/app/upgrade")({
-  head: () => ({ meta: [{ title: "Upgrade · Strait" }] }),
   validateSearch: zodValidator(upgradeSearchSchema),
   // Cloud-only: plan selection + Stripe checkout are not available
   // in the community edition. Redirect any inbound request to /app.
@@ -163,6 +167,7 @@ export const Route = createFileRoute("/app/upgrade")({
       comparisonFeatures: apiPlansToComparisonFeatures(apiPlans),
     };
   },
+  head: () => ({ meta: [{ title: "Upgrade · Strait" }] }),
   errorComponent: ErrorComponent,
   component: RouteComponent,
 });
@@ -191,6 +196,7 @@ function RouteComponent() {
   const [downgradeTarget, setDowngradeTarget] = useState<string | null>(null);
   const { trackSubscription } = useAnalytics();
   const hasTrackedPageView = useRef(false);
+  const queryClient = useQueryClient();
 
   useEffect(() => {
     if (!hasTrackedPageView.current) {
@@ -213,7 +219,15 @@ function RouteComponent() {
           billingInterval: params.billingInterval,
         },
       }),
-    onSuccess: (data, variables) => {
+    onSuccess: async (data, variables) => {
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: subscriptionStateQueryOptions().queryKey,
+        }),
+        queryClient.invalidateQueries({
+          queryKey: orgUsageQueryOptions().queryKey,
+        }),
+      ]);
       getPostHog()?.capture("subscription_checkout_started", {
         plan: variables.planSlug,
         billing_interval: variables.billingInterval,
@@ -230,36 +244,27 @@ function RouteComponent() {
     },
   });
 
-  const handleStartCheckout = useCallback(
-    (targetPlan: PlanType = selectedPlan) => {
-      if (targetPlan === "free") {
-        window.location.assign("/app");
-        return;
-      }
-      if (targetPlan === "enterprise") {
-        window.location.assign("/app/enterprise-contact");
-        return;
-      }
-      if (checkIsDowngrade(currentPlan, targetPlan)) {
-        setDowngradeTarget(targetPlan);
-        return;
-      }
-      trackSubscription("CHECKOUT_STARTED", {
-        plan: targetPlan,
-        billing_interval: billingInterval,
-      });
-      startCheckout.mutate({ planSlug: targetPlan, billingInterval });
-    },
-    [
-      startCheckout,
-      trackSubscription,
-      selectedPlan,
-      billingInterval,
-      currentPlan,
-    ]
-  );
+  const handleStartCheckout = (targetPlan: PlanType = selectedPlan) => {
+    if (targetPlan === "free") {
+      window.location.assign("/app");
+      return;
+    }
+    if (targetPlan === "enterprise") {
+      window.location.assign("/app/enterprise-contact");
+      return;
+    }
+    if (checkIsDowngrade(currentPlan, targetPlan)) {
+      setDowngradeTarget(targetPlan);
+      return;
+    }
+    trackSubscription("CHECKOUT_STARTED", {
+      plan: targetPlan,
+      billing_interval: billingInterval,
+    });
+    startCheckout.mutate({ planSlug: targetPlan, billingInterval });
+  };
 
-  const handleConfirmDowngrade = useCallback(() => {
+  const handleConfirmDowngrade = () => {
     const targetPlan = downgradeTarget as Exclude<PlanType, "free"> | null;
     setDowngradeTarget(null);
     if (!targetPlan || targetPlan === "enterprise") {
@@ -270,24 +275,24 @@ function RouteComponent() {
       billing_interval: billingInterval,
     });
     startCheckout.mutate({ planSlug: targetPlan, billingInterval });
-  }, [startCheckout, trackSubscription, downgradeTarget, billingInterval]);
+  };
 
-  const handleOpenPortal = useCallback(async () => {
+  const handleOpenPortal = async () => {
     trackSubscription("PORTAL_OPENED");
     setIsPortalLoading(true);
     try {
       const result = await getCustomerPortalUrlServerFn();
       if (result.error || !result.url) {
         toast.error(result.error || "Failed to open customer portal");
+        setIsPortalLoading(false);
         return;
       }
-      window.location.href = result.url;
+      window.location.assign(result.url);
     } catch {
       toast.error("Failed to open customer portal");
-    } finally {
-      setIsPortalLoading(false);
     }
-  }, [trackSubscription]);
+    setIsPortalLoading(false);
+  };
 
   const hasActiveSubscription = isActive;
 

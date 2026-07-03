@@ -35,7 +35,7 @@ test.describe("Cross-page backend state", () => {
 
     await page.goto(`/app/jobs/${jobId}`, { waitUntil: "domcontentloaded" });
     await expect(page.getByRole("heading", { name: jobName })).toBeVisible();
-    await selectTab(page, "Recent Runs");
+    await selectTab(page, "Recent runs");
     await expect(
       page.getByRole("link", { name: runId.slice(0, 8) }).first()
     ).toBeVisible();

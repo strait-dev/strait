@@ -1,7 +1,6 @@
 import { Shell } from "@strait/ui/components/shell";
 import { createFileRoute } from "@tanstack/react-router";
 import { zodValidator } from "@tanstack/zod-adapter";
-import { useCallback } from "react";
 import * as z from "zod";
 
 import { GettingStarted } from "@/components/common/getting-started";
@@ -33,12 +32,12 @@ function RouteComponent() {
   const search = Route.useSearch();
   const { session } = Route.useLoaderData();
 
-  const handleUrlCleanup = useCallback(() => {
+  const handleUrlCleanup = () => {
     navigate({
       search: {},
       replace: true,
     });
-  }, [navigate]);
+  };
 
   return (
     <Shell>

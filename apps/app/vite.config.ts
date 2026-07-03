@@ -205,8 +205,11 @@ export default defineConfig(({ command }) => ({
     ...(enableNgrok ? [ngrok()] : []),
   ],
   optimizeDeps: {
+    entries: ["src/**/*.{ts,tsx}", "!src/**/*.test.{ts,tsx}"],
     include: [
       "@hugeicons/react",
+      "defu",
+      "jose/errors",
       "use-sync-external-store/shim",
       "use-sync-external-store/shim/with-selector",
     ],

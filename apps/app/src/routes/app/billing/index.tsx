@@ -52,7 +52,6 @@ const UsageHistoryTab = lazy(
 const tabFallback = <Skeleton className="h-64" />;
 
 export const Route = createFileRoute("/app/billing/")({
-  head: () => ({ meta: [{ title: "Billing · Strait" }] }),
   // Cloud-only: Billing, usage history, spending limits, and Stripe
   // addon purchases are not available in the community edition.
   // See `src/lib/edition.ts` for the gate.
@@ -73,6 +72,7 @@ export const Route = createFileRoute("/app/billing/")({
       ctx.queryClient.ensureQueryData(anomalyConfigQueryOptions()),
     ]);
   },
+  head: () => ({ meta: [{ title: "Billing · Strait" }] }),
   errorComponent: DefaultCatchBoundary,
   notFoundComponent: () => <NotFound />,
   component: RouteComponent,
@@ -115,11 +115,11 @@ function RouteComponent() {
             </TabsTrigger>
             <TabsTrigger className="flex items-center gap-2" value="history">
               <HugeiconsIcon className="size-4" icon={ActivityIcon} />
-              Usage History
+              Usage history
             </TabsTrigger>
             <TabsTrigger className="flex items-center gap-2" value="projects">
               <HugeiconsIcon className="size-4" icon={BriefcaseIcon} />
-              Project Costs
+              Project costs
             </TabsTrigger>
             <TabsTrigger className="flex items-center gap-2" value="spending">
               <HugeiconsIcon className="size-4" icon={TrendingUpIcon} />

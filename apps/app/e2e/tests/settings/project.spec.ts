@@ -37,7 +37,7 @@ test.describe("Settings - Project", () => {
   test("linked accounts section exists", async ({ page }) => {
     await page.goto("/app/settings");
     const section = page
-      .getByText("Linked Accounts", { exact: true })
+      .getByText("Linked accounts", { exact: true })
       .or(page.getByText(/linked|connected/i));
     if (
       await section

@@ -49,7 +49,7 @@ import {
 } from "@strait/ui/components/toggle-group";
 import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useState } from "react";
 import DetailPageSkeleton from "@/components/common/detail-page-skeleton";
 import EntityNotFound from "@/components/common/entity-not-found";
 import ErrorComponent from "@/components/common/error-component";
@@ -68,20 +68,23 @@ import {
   useRetryRun,
 } from "@/hooks/api/use-runs";
 import { useProjectPermissions } from "@/hooks/auth/use-project-permissions";
+import { useIsHydrated } from "@/hooks/use-is-hydrated";
 import { formatDuration } from "@/lib/format";
 import { AlertCircleIcon, RefreshIcon, XCircleIcon } from "@/lib/icons";
 import type { AppRouteContext } from "@/routes/app/layout";
 
 export const Route = createFileRoute("/app/runs/$id")({
-  head: () => ({ meta: [{ title: "Run details · Strait" }] }),
   loader: async ({ context, params }) => {
     const { session } = context as AppRouteContext;
-    await context.queryClient.ensureQueryData(runQueryOptions(params.id));
-    await context.queryClient
-      .prefetchQuery(runEventsQueryOptions(params.id))
-      .catch(() => undefined);
+    await Promise.all([
+      context.queryClient.ensureQueryData(runQueryOptions(params.id)),
+      context.queryClient
+        .prefetchQuery(runEventsQueryOptions(params.id))
+        .catch(() => undefined),
+    ]);
     return { session };
   },
+  head: () => ({ meta: [{ title: "Run details · Strait" }] }),
   pendingComponent: DetailPageSkeleton,
   errorComponent: ErrorComponent,
   component: RunDetailPage,
@@ -103,6 +106,8 @@ const ACTIVE_STATUSES: ReadonlySet<RunStatus> = new Set([
 const LEVEL_FILTERS = ["all", "error", "warn", "info", "debug"] as const;
 type LevelFilter = (typeof LEVEL_FILTERS)[number];
 
+const EMPTY_ARRAY: never[] = [];
+
 const EXECUTION_TRACE_SEGMENTS: {
   key: keyof ExecutionTrace;
   label: string;
@@ -110,7 +115,7 @@ const EXECUTION_TRACE_SEGMENTS: {
 }[] = [
   {
     key: "queue_wait_ms",
-    label: "Queue Wait",
+    label: "Queue wait",
     color: "var(--muted-foreground)",
   },
   { key: "dequeue_ms", label: "Dequeue", color: "var(--chart-1)" },
@@ -139,38 +144,30 @@ function RunDetailPage() {
     isError: boolean;
     isLoading: boolean;
   };
-  const events = eventsData?.data ?? [];
+  const events = eventsData?.data ?? EMPTY_ARRAY;
   const [activeTab, setActiveTab] = useState("logs");
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
-  const [isHydrated, setIsHydrated] = useState(false);
+  const isHydrated = useIsHydrated();
   const [levelFilter, setLevelFilter] = useState<LevelFilter>("all");
   const retryRun = useRetryRun();
   const cancelRun = useCancelRun();
   const { permissions } = useProjectPermissions(session.user.activeProjectId);
 
-  useEffect(() => {
-    setIsHydrated(true);
-  }, []);
-
-  const filteredEvents = useMemo(() => {
+  const filteredEvents = (() => {
     if (levelFilter === "all") {
       return events;
     }
     return events.filter(
       (e) => (e.level ?? "info").toLowerCase() === levelFilter
     );
-  }, [events, levelFilter]);
+  })();
 
-  const logText = useMemo(
-    () =>
-      filteredEvents
-        .map(
-          (e) =>
-            `[${new Date(e.created_at).toISOString()}] [${(e.level ?? "info").toUpperCase()}] ${e.message}`
-        )
-        .join("\n"),
-    [filteredEvents]
-  );
+  const logText = filteredEvents
+    .map(
+      (e) =>
+        `[${new Date(e.created_at).toISOString()}] [${(e.level ?? "info").toUpperCase()}] ${e.message}`
+    )
+    .join("\n");
 
   if (!run) {
     return (
@@ -239,7 +236,7 @@ function RunDetailPage() {
                 }
                 variant="destructive"
               >
-                {cancelRun.isPending ? "Cancelling..." : "Cancel run"}
+                {cancelRun.isPending ? "Canceling..." : "Cancel run"}
               </Button>
             </>
           )}
@@ -250,7 +247,7 @@ function RunDetailPage() {
               variant="outline"
             >
               <HugeiconsIcon className="mr-1.5" icon={XCircleIcon} size={14} />
-              {cancelRun.isPending ? "Cancelling..." : "Cancel"}
+              {cancelRun.isPending ? "Canceling..." : "Cancel"}
             </Button>
           )}
         </div>
@@ -386,7 +383,7 @@ function formatTimelineTimestamp(value: string) {
 }
 
 function RunTimeline({ run }: { run: JobRun }) {
-  const [isHydrated, setIsHydrated] = useState(false);
+  const isHydrated = useIsHydrated();
   const steps: TimelineStep[] = [
     { label: "Created", at: run.created_at },
     { label: "Scheduled", at: run.scheduled_at },
@@ -398,10 +395,6 @@ function RunTimeline({ run }: { run: JobRun }) {
     run.finished_at || isHydrated
       ? formatDuration(run.started_at ?? null, run.finished_at ?? null)
       : "In progress";
-
-  useEffect(() => {
-    setIsHydrated(true);
-  }, []);
 
   return (
     <div className="flex flex-col gap-4">

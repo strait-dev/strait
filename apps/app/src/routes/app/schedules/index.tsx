@@ -28,15 +28,14 @@ import { InputWithStartIcon } from "@strait/ui/components/input-with-start-icon"
 import { Shell } from "@strait/ui/components/shell";
 import { StatusBadge } from "@strait/ui/components/status-badge";
 import { useQuery } from "@tanstack/react-query";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import {
   getCoreRowModel,
   getFilteredRowModel,
   getSortedRowModel,
-  useReactTable,
 } from "@tanstack/react-table";
 import { zodValidator } from "@tanstack/zod-adapter";
-import { useCallback, useMemo, useState } from "react";
+import { useState } from "react";
 import { z } from "zod/v4";
 import { CursorPagination } from "@/components/common/cursor-pagination";
 import ErrorComponent from "@/components/common/error-component";
@@ -48,6 +47,7 @@ import JobFormDialog from "@/components/jobs/job-form-dialog";
 import {
   getResourceTableInitialState,
   RESOURCE_TABLE_CLASS_NAMES,
+  RESOURCE_TABLE_EMPTY_CLASS_NAME,
 } from "@/components/tables/resource-table";
 import { createScheduleColumns } from "@/components/tables/schedules-columns";
 import { usePageEvent } from "@/hooks/analytics/use-page-event";
@@ -60,6 +60,7 @@ import {
   useTriggerSchedule,
 } from "@/hooks/api/use-schedules";
 import { useProjectPermissions } from "@/hooks/auth/use-project-permissions";
+import { useAppReactTable } from "@/hooks/use-app-react-table";
 import { useCursorPagination } from "@/hooks/use-cursor-pagination";
 import { useHydratedTableData } from "@/hooks/use-hydrated-table-data";
 import { usePermissionGatedCreateQuery } from "@/hooks/use-permission-gated-create-query";
@@ -94,8 +95,9 @@ export const searchSchema = z.object({
   create: createSearchSchema,
 });
 
+const EMPTY_ARRAY: never[] = [];
+
 export const Route = createFileRoute("/app/schedules/")({
-  head: () => ({ meta: [{ title: "Schedules · Strait" }] }),
   validateSearch: zodValidator(searchSchema),
   loaderDeps: ({ search }) => ({
     limit: search.perPage ?? 20,
@@ -116,6 +118,7 @@ export const Route = createFileRoute("/app/schedules/")({
     }
     return { hasProject, session };
   },
+  head: () => ({ meta: [{ title: "Schedules · Strait" }] }),
   pendingComponent: TablePageSkeleton,
   errorComponent: ErrorComponent,
   component: SchedulesPage,
@@ -143,23 +146,16 @@ function SchedulesPage() {
     useProjectPermissions(session.user.activeProjectId);
   const actionPermissions = scheduleResourcePermissions(permissions);
 
-  const openCreateDialog = useCallback(() => {
+  const openCreateDialog = () => {
     setEditingSchedule(null);
     setFormOpen(true);
-  }, []);
-
-  const clearCreateQuery = useCallback(() => {
-    navigate({
-      search: (prev) => ({ ...prev, create: undefined }),
-      replace: true,
-    });
-  }, [navigate]);
+  };
 
   usePermissionGatedCreateQuery({
     canCreate: actionPermissions.canCreate,
-    clearCreateQuery,
     create: search.create,
     isReady: permissionsHydrated,
+    navigate,
     openCreateDialog,
   });
 
@@ -172,11 +168,11 @@ function SchedulesPage() {
     enabled: hasProject,
   });
 
-  const selectedStatuses = search.status ?? [];
+  const selectedStatuses = search.status ?? EMPTY_ARRAY;
 
   const typed = data as PaginatedResponse<Job> | undefined;
 
-  const filteredData = useMemo(() => {
+  const filteredData = (() => {
     let jobs = hasProject ? (typed?.data ?? []) : [];
     const normalizedQuery = search.query?.trim().toLowerCase();
     if (normalizedQuery) {
@@ -198,12 +194,12 @@ function SchedulesPage() {
       }
       return false;
     });
-  }, [typed, selectedStatuses, hasProject, search.query]);
+  })();
 
   const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({});
   const tableData = useHydratedTableData(filteredData);
 
-  const table = useReactTable({
+  const table = useAppReactTable({
     data: tableData.data,
     columns: createScheduleColumns({
       onView: (schedule) => {
@@ -255,18 +251,11 @@ function SchedulesPage() {
     (id) => rowSelection[id]
   );
 
-  const summary = useMemo(() => {
-    let enabled = 0;
-    let paused = 0;
-    for (const job of filteredData) {
-      if (job.enabled) {
-        enabled++;
-      } else {
-        paused++;
-      }
-    }
-    return { enabled, paused };
-  }, [filteredData]);
+  const enabled = filteredData.filter((schedule) => schedule.enabled).length;
+  const paused = filteredData.filter(
+    (schedule) => schedule.paused || !schedule.enabled
+  ).length;
+  const summary = { enabled, paused };
 
   function handleStatusFiltersChange(statuses: string[]) {
     navigate({
@@ -279,7 +268,7 @@ function SchedulesPage() {
   }
 
   const emptyState = hasProject ? (
-    <Empty className="h-[300px]">
+    <Empty className={RESOURCE_TABLE_EMPTY_CLASS_NAME}>
       <EmptyHeader>
         <EmptyMedia media="icon" size="lg">
           <HugeiconsIcon
@@ -349,11 +338,7 @@ function SchedulesPage() {
         {actionPermissions.canCreate && (
           <Button
             className="shrink-0"
-            render={(props) => (
-              <a {...props} href="/app/schedules?create=1">
-                {props.children}
-              </a>
-            )}
+            render={<Link search={{ create: "1" }} to="/app/schedules" />}
           >
             <HugeiconsIcon className="size-4" icon={PlusIcon} />
             Create schedule

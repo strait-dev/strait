@@ -32,8 +32,7 @@ const RAW_EDITION: string | undefined =
     ? undefined
     : process.env.VITE_STRAIT_EDITION);
 
-export const EDITION: Edition =
-  RAW_EDITION === "community" ? "community" : "cloud";
+const EDITION: Edition = RAW_EDITION === "community" ? "community" : "cloud";
 
 export const isCommunityEdition = EDITION === "community";
 

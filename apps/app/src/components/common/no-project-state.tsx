@@ -9,6 +9,7 @@ import {
   EmptyTitle,
 } from "@strait/ui/components/empty";
 import { useState } from "react";
+import { RESOURCE_TABLE_EMPTY_CLASS_NAME } from "@/components/tables/resource-table";
 import { BriefcaseIcon, PlusIcon } from "@/lib/icons";
 import type { AuthUser } from "@/routes/__root";
 import CreateProjectDialog from "../project/create-project-dialog";
@@ -22,7 +23,7 @@ const NoProjectState = ({ user }: Props) => {
   const organizationId = user.defaultOrganizationId;
 
   return (
-    <Empty className="h-[300px]">
+    <Empty className={RESOURCE_TABLE_EMPTY_CLASS_NAME}>
       <EmptyHeader>
         <EmptyMedia media="icon" size="lg">
           <HugeiconsIcon

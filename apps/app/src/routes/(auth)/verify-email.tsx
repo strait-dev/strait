@@ -16,13 +16,13 @@ const verifyEmailSearchSchema = z.object({
 });
 
 export const Route = createFileRoute("/(auth)/verify-email")({
-  head: () => ({ meta: [{ title: "Verify email · Strait" }] }),
   validateSearch: verifyEmailSearchSchema,
   beforeLoad: ({ context }) => {
     if (context.isAuthenticated) {
       throw redirect({ to: "/app" });
     }
   },
+  head: () => ({ meta: [{ title: "Verify email · Strait" }] }),
   errorComponent: ErrorComponent,
   notFoundComponent: NotFound,
   component: VerifyEmailPage,

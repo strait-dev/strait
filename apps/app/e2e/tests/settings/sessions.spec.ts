@@ -1,6 +1,6 @@
 import { expect, test } from "../../fixtures";
 
-test.describe("Session Management", () => {
+test.describe("Session management", () => {
   test.slow();
   test.beforeEach(async ({ page }) => {
     await page.goto("/app/settings");
@@ -8,7 +8,7 @@ test.describe("Session Management", () => {
 
   test("active sessions section visible", async ({ page }) => {
     const sessions = page
-      .getByText("Active Sessions", { exact: true })
+      .getByText("Active sessions", { exact: true })
       .or(page.getByText("Sessions"));
     if (
       await sessions

@@ -31,7 +31,7 @@ const ThroughputChart = ({ hasProject = true }: { hasProject?: boolean }) => {
     ? [
         { status: "Completed", count: throughput.completed },
         { status: "Failed", count: throughput.failed },
-        { status: "Timed Out", count: throughput.timed_out },
+        { status: "Timed out", count: throughput.timed_out },
         { status: "Canceled", count: throughput.canceled },
       ]
     : [];

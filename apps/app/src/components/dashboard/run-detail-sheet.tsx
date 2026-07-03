@@ -135,10 +135,10 @@ const RunDetailSheet = ({ run, open, onOpenChange }: RunDetailSheetProps) => {
             </Alert>
           )}
 
-          {/* Execution Details */}
+          {/* Execution details */}
           <div>
             <h4 className="mb-3 font-medium text-muted-foreground text-xs uppercase">
-              Execution Details
+              Execution details
             </h4>
             <DescriptionList orientation="horizontal" size="sm">
               <DescriptionTerm>Attempt</DescriptionTerm>
@@ -170,16 +170,16 @@ const RunDetailSheet = ({ run, open, onOpenChange }: RunDetailSheetProps) => {
             </DescriptionList>
           </div>
 
-          {/* Execution Trace */}
+          {/* Execution trace */}
           {run.execution_trace && (
             <div>
               <h4 className="mb-3 font-medium text-muted-foreground text-xs uppercase">
-                Execution Trace
+                Execution trace
               </h4>
               <DescriptionList orientation="horizontal" size="sm">
                 {(
                   [
-                    ["Queue Wait", run.execution_trace.queue_wait_ms],
+                    ["Queue wait", run.execution_trace.queue_wait_ms],
                     ["Dequeue", run.execution_trace.dequeue_ms],
                     ["Connect", run.execution_trace.connect_ms],
                     ["TTFB", run.execution_trace.ttfb_ms],

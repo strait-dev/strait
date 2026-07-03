@@ -40,7 +40,7 @@ function validateApiKeyScopes(scopes: string[]): void {
   }
 }
 
-export const fetchApiKeys = createServerFn({ method: "GET" })
+const fetchApiKeys = createServerFn({ method: "GET" })
   .inputValidator((data: ListParams) => data)
   .middleware([authMiddleware])
   .handler(async ({ context, data }) => {
@@ -52,7 +52,7 @@ export const fetchApiKeys = createServerFn({ method: "GET" })
     );
   });
 
-export const createApiKeyFn = createServerFn({ method: "POST" })
+const createApiKeyFn = createServerFn({ method: "POST" })
   .inputValidator(
     (data: { name: string; scopes: string[]; expiresInDays?: number }) => data
   )
@@ -73,7 +73,7 @@ export const createApiKeyFn = createServerFn({ method: "POST" })
     );
   });
 
-export const revokeApiKeyFn = createServerFn({ method: "POST" })
+const revokeApiKeyFn = createServerFn({ method: "POST" })
   .inputValidator((data: { keyId: string }) => data)
   .middleware([authMiddleware])
   .handler(async ({ context, data }) => {

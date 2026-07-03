@@ -1,7 +1,7 @@
 import { ApiHelper, expect, test } from "../../fixtures";
 import { TestDataFactory } from "../../support/test-data";
 
-test.describe("Dead Letter Queue", () => {
+test.describe("Dead letter queue", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto("/app/dlq");
   });
@@ -92,7 +92,7 @@ test.describe("Dead Letter Queue", () => {
         await page.waitForTimeout(500);
       }
       await expect(runDetailSheet).toContainText(run.id);
-      await expect(runDetailSheet).toContainText("Dead Letter");
+      await expect(runDetailSheet).toContainText("Dead letter");
       await expect(runDetailSheet).toContainText("exhausted retries in e2e");
     } finally {
       await data.cleanup.run();

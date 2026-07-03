@@ -66,9 +66,8 @@ const HeaderUserMenu = ({ user }: Props) => {
     } catch (error) {
       captureException(error);
       toast.error("Error signing out. Please try again.");
-    } finally {
-      setIsSigningOut(false);
     }
+    setIsSigningOut(false);
   };
 
   return (
@@ -76,7 +75,7 @@ const HeaderUserMenu = ({ user }: Props) => {
       <DropdownMenuTrigger render={<Button size="icon" variant="ghost" />}>
         <Avatar className="size-8">
           {user.image ? (
-            <AvatarImage alt="User Avatar" src={user.image} />
+            <AvatarImage alt="User avatar" src={user.image} />
           ) : (
             <AvatarFallback className="text-xs">{getInitials()}</AvatarFallback>
           )}
@@ -88,7 +87,7 @@ const HeaderUserMenu = ({ user }: Props) => {
             <div className="flex items-center gap-2 px-1 py-1.5 text-left text-sm">
               <Avatar className="size-8">
                 {user.image ? (
-                  <AvatarImage alt="User Avatar" src={user.image} />
+                  <AvatarImage alt="User avatar" src={user.image} />
                 ) : (
                   <AvatarFallback className="text-xs">
                     {getInitials()}
@@ -110,7 +109,7 @@ const HeaderUserMenu = ({ user }: Props) => {
             render={<Link preload="intent" to="/app/settings" />}
           >
             <HugeiconsIcon className="size-4" icon={SettingsOutlineIcon} />
-            Account Settings
+            Account settings
           </DropdownMenuItem>
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
