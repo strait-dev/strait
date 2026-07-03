@@ -10,7 +10,7 @@ import {
   CredenzaTitle,
 } from "@strait/ui/components/credenza";
 import { EmptyMedia } from "@strait/ui/components/empty";
-import { useEffect, useEffectEvent, useRef, useState } from "react";
+import { useState } from "react";
 import { CheckCircle2Icon, CreditCardIcon, SparklesIcon } from "@/lib/icons";
 
 type SubscriptionSuccessDialogProps = {
@@ -34,7 +34,6 @@ const SubscriptionSuccessDialog = ({
   const [dismissedKeys, setDismissedKeys] = useState<ReadonlySet<string>>(
     () => new Set()
   );
-  const cleanedKeysRef = useRef<Set<string> | null>(null);
   let successKey: string | null = null;
   if (isNewSubscription) {
     successKey = `new:${timestamp ?? "current"}`;
@@ -42,26 +41,13 @@ const SubscriptionSuccessDialog = ({
     successKey = `upgrade:${timestamp}`;
   }
   const open = Boolean(successKey && !dismissedKeys.has(successKey));
-  const cleanupUrl = useEffectEvent(() => {
-    onUrlCleanup?.();
-  });
-
-  useEffect(() => {
-    if (!cleanedKeysRef.current) {
-      cleanedKeysRef.current = new Set<string>();
-    }
-
-    if (successKey && open && !cleanedKeysRef.current.has(successKey)) {
-      cleanedKeysRef.current.add(successKey);
-      cleanupUrl();
-    }
-  }, [open, successKey]);
 
   const handleOpenChange = (nextOpen: boolean) => {
     if (nextOpen || !successKey) {
       return;
     }
     setDismissedKeys((current) => new Set(current).add(successKey));
+    onUrlCleanup?.();
     onClose?.();
   };
 
