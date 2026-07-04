@@ -82,13 +82,11 @@
     "reflect-metadata": "^0.2.2",
     "resend": "^6.16.0",
     "stripe": "^22.3.0",
-    "use-sync-external-store": "^1.6.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "1.39.2",
     "@playwright/test": "^1.61.1",
-    "@rsbuild/core": "^2.1.1",
     "@sentry/cli": "3.6.0",
     "@tailwindcss/vite": "4.3.1",
     "@tanstack/react-query-devtools": "^5.101.2",

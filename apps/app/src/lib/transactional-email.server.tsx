@@ -1,8 +1,5 @@
 import { createHash, timingSafeEqual } from "node:crypto";
-import {
-  resolveTransactionalEmailTemplate,
-  type TransactionalEmailTemplateId,
-} from "@strait/transactional/registry";
+import { resolveTransactionalEmailTemplate } from "@strait/transactional/registry";
 import { z } from "zod";
 import { getResend } from "@/lib/resend.server";
 import { captureException } from "@/lib/sentry";
@@ -198,7 +195,3 @@ export async function handleTransactionalEmailRequest(
 
   return json({ id: response.data?.id ?? null });
 }
-
-export type TransactionalEmailRequestBody = z.infer<typeof requestSchema> & {
-  template: TransactionalEmailTemplateId;
-};

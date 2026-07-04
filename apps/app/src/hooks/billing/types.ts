@@ -32,25 +32,8 @@ export type AnomalySeverity = "warning" | "high" | "critical";
 /** Downgrade resource impact action. */
 export type ResourceAction = "ok" | "reduce" | "remove";
 
-/** Enterprise contract billing cadence. */
-export type BillingCadence = "annual" | "quarterly";
-
-/** Support level identifiers matching the Go backend `billing.SupportLevel`. */
-export type SupportLevel =
-  | "community"
-  | "email_72h"
-  | "priority_24h"
-  | "priority_slack_8h"
-  | "dedicated";
-
-/** Organization payment status. */
-export type PaymentStatus = "ok" | "grace" | "restricted";
-
 /** Role-based access control level. */
 export type RBACLevel = "none" | "basic" | "full" | "advanced";
-
-/** Webhook event filtering level. */
-export type WebhookEventLevel = "none" | "basic" | "all" | "all_custom";
 
 /** Refetch every 5 minutes (300,000 ms). Used for high-traffic billing queries. */
 export const REFETCH_5M = 300_000;

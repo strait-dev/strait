@@ -3,8 +3,6 @@
 package loadtest
 
 import (
-	"context"
-	"fmt"
 	"time"
 )
 
@@ -244,31 +242,6 @@ func ArchiveStress() Scenario {
 		Tier:        2,
 		Duration:    5 * time.Minute,
 	}
-}
-
-// workerScenario is the entry point for ModeWorker load tests. It spins up
-// N in-process gRPC workers connected to the target server, drives them to
-// claim and report results over the bidirectional WorkerService stream, and
-// collects per-worker throughput and error metrics.
-//
-// Configuration is read from WorkerConfig; see DefaultWorkerConfig() and the
-// LOADTEST_GRPC_ADDR / LOADTEST_WORKER_COUNT environment variables recognized
-// by the loadtest entrypoint.
-func workerScenario(h *Harness, s Scenario) error { //nolint:unused // called by the loadtest entrypoint when ExecutionMode == ModeWorker
-	cfg := DefaultWorkerConfig()
-	if h.Config.WorkerConfig != nil {
-		cfg = *h.Config.WorkerConfig
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), s.Duration)
-	defer cancel()
-
-	result, err := workerScenarioImpl(ctx, cfg)
-	if err != nil {
-		return fmt.Errorf("worker scenario: %w", err)
-	}
-
-	return h.WriteResult("worker_scenario_result.json", result)
 }
 
 // AllScenarios returns every pre-defined scenario.
