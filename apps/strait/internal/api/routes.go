@@ -66,10 +66,10 @@ func (s *Server) routes() chi.Router {
 		requestTimeout = 30 * time.Second
 	}
 	if s.config.RateLimitRequests > 0 {
-		globalRateLimit := httprate.Limit(
+		globalRateLimit := httprate.LimitBy(
 			s.config.RateLimitRequests,
 			s.config.RateLimitWindow,
-			httprate.WithKeyFuncs(s.rateLimitKeyByIP),
+			s.rateLimitKeyByIP,
 		)
 		r.Use(func(next http.Handler) http.Handler {
 			limited := globalRateLimit(next)
@@ -109,10 +109,10 @@ func (s *Server) routes() chi.Router {
 		// the whole tenant pool over the limit. rateLimitKeyByIP walks
 		// X-Forwarded-For across trusted proxies the same way realIP
 		// does for auth-lockout accounting.
-		return httprate.Limit(
+		return httprate.LimitBy(
 			requests,
 			window,
-			httprate.WithKeyFuncs(s.rateLimitKeyByIP),
+			s.rateLimitKeyByIP,
 		)
 	}
 
