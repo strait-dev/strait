@@ -316,3 +316,11 @@ backend.hcl
 
 # Local Claude Code runtime files
 .claude/scheduled_tasks.lock
+
+# Local AI-assistant tooling and skills (kept out of the shared repo)
+.agents/
+.impeccable/
+.impeccable.md
+.factory/
+.windsurf/
+.claude/skills/
