@@ -2,6 +2,7 @@ package billing
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"time"
@@ -224,17 +225,30 @@ func (r *RunCostRecorder) recordUsageOnce(ctx context.Context, rec *UsageRecord,
 
 // emitClickHouse sends a billing event to ClickHouse run_analytics if the exporter
 // is configured. Errors are logged but not returned — ClickHouse is non-critical.
+//
+// ProjectID carries per-project attribution; runID and the recorded cost go into
+// the Details JSON blob so completed-run events can be correlated back to the run
+// and reconciled against usage_records.
 func (r *RunCostRecorder) emitClickHouse(orgID, projectID, runID string, costMicroUSD int64, executionMode string) {
 	if r.chExporter == nil {
 		return
 	}
+	details, err := json.Marshal(struct {
+		RunID        string `json:"run_id"`
+		CostMicroUSD int64  `json:"cost_micro_usd"`
+	}{RunID: runID, CostMicroUSD: costMicroUSD})
+	if err != nil {
+		// Marshalling two scalars cannot realistically fail; log and emit the
+		// event without details rather than dropping attribution entirely.
+		r.logger.Warn("marshalling billing event details", "run_id", runID, "error", err)
+		details = nil
+	}
 	r.chExporter.Enqueue(clickhouse.BillingEventRecord{
 		Timestamp: time.Now(),
 		OrgID:     orgID,
+		ProjectID: projectID,
 		EventType: executionMode + "_run_completed",
 		PlanTier:  "", // caller does not need to know the tier for cost recording
+		Details:   string(details),
 	})
-	_ = projectID
-	_ = runID
-	_ = costMicroUSD
 }

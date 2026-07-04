@@ -43,6 +43,7 @@ import {
   STRAIT_API_SCOPES,
 } from "@/lib/oauth-scopes";
 import { getResend } from "@/lib/resend.server";
+import { captureException } from "@/lib/sentry";
 import { findOrCreateCustomerForOrg } from "@/lib/stripe.server";
 
 /**
@@ -411,6 +412,13 @@ const createAuth = () => {
                     user.id,
                     projectErr
                   );
+                  captureException(projectErr, {
+                    tags: {
+                      feature: "onboarding",
+                      action: "create_default_project",
+                    },
+                    extra: { userId: user.id, organizationId: org.id },
+                  });
                 }
               }
             } catch (err) {
@@ -419,8 +427,12 @@ const createAuth = () => {
                 user.id,
                 err
               );
-              // TODO: Add Sentry capture and reconciliation job for users
-              // that end up without an organization due to this failure.
+              // A user reaching this branch has no organization; surface it so
+              // it can be reconciled rather than failing silently.
+              captureException(err, {
+                tags: { feature: "onboarding", action: "create_workspace" },
+                extra: { userId: user.id },
+              });
             }
           },
         },
