@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // queryRecorderDBTX records all SQL queries that pass through it. Used to
@@ -35,7 +36,13 @@ func (r *queryRecorderDBTX) QueryRow(_ context.Context, sql string, _ ...any) pg
 	if r.onQueryRow != nil {
 		r.onQueryRow(sql)
 	}
-	return &errorRow{err: pgx.ErrNoRows}
+	// Grant the advisory locks CreateAuditEvent takes before its tail-read so
+	// execution flows past lock acquisition to the query under test. Other
+	// reads scan as no-ops: these tests assert on the SQL text, not row data.
+	if strings.Contains(sql, "pg_try_advisory_xact_lock") {
+		return advisoryGrantedRow{}
+	}
+	return noopScanRow{}
 }
 
 type emptyRows struct{}
@@ -50,9 +57,23 @@ func (e *emptyRows) Conn() *pgx.Conn                              { return nil }
 func (e *emptyRows) Next() bool                                   { return false }
 func (e *emptyRows) Scan(_ ...any) error                          { return nil }
 
-type errorRow struct{ err error }
+// advisoryGrantedRow satisfies the pg_try_advisory_xact_lock read by reporting
+// the lock as acquired, so AcquireAdvisoryLock returns instead of spinning.
+type advisoryGrantedRow struct{}
 
-func (r *errorRow) Scan(_ ...any) error { return r.err }
+func (advisoryGrantedRow) Scan(dest ...any) error {
+	if len(dest) == 1 {
+		if acquired, ok := dest[0].(*bool); ok {
+			*acquired = true
+		}
+	}
+	return nil
+}
+
+// noopScanRow leaves scan destinations untouched and reports success.
+type noopScanRow struct{}
+
+func (noopScanRow) Scan(_ ...any) error { return nil }
 
 func domainAuditEventForTest() domain.AuditEvent {
 	return domain.AuditEvent{
@@ -129,19 +150,26 @@ func TestCreateAuditEvent_TailReadHasIDTiebreaker(t *testing.T) {
 
 	found := false
 	for _, sql := range queries {
-		if strings.Contains(sql, "SELECT COALESCE") && strings.Contains(sql, "FROM audit_events") {
-			if strings.Contains(sql, expected) {
+		// The SQL is multi-line; collapse whitespace so substring checks are
+		// not defeated by the newline between SELECT and its columns.
+		normalized := strings.Join(strings.Fields(sql), " ")
+		// Identify the chain tail-read by its previous-hash lookup; the INSERT
+		// and advisory-lock queries do not read the signature back.
+		if strings.Contains(normalized, "SELECT signature FROM audit_events") {
+			if strings.Contains(normalized, expected) {
 				found = true
 			} else {
-				assert.Failf(t, "test failure",
-
-					"tail-read query missing %q.\nGot: %s", expected, extractOrderBy(sql))
+				assert.Failf(t, "tail-read missing tiebreaker",
+					"tail-read query missing %q.\nGot: %s", expected, normalized)
 			}
 		}
 	}
-	if !found && len(queries) == 0 {
-		t.Skip("no QueryRow calls captured (fake may not reach tail-read)")
-	}
+	// Fail loudly rather than skipping. Skipping here would let a refactor that
+	// stops routing CreateAuditEvent's tail-read through QueryRow (or drops it
+	// entirely) silently lose coverage of the id-tiebreaker determinism the
+	// audit hash chain depends on.
+	require.NotEmpty(t, queries, "CreateAuditEvent should issue at least one QueryRow (the tail-read)")
+	assert.True(t, found, "chain tail-read (SELECT signature FROM audit_events ...) not found among the captured QueryRow calls")
 }
 
 // TestListAuditEvents_QueryHasIDTiebreaker verifies that the ListAuditEvents
@@ -170,13 +198,4 @@ func TestListAuditEvents_QueryHasIDTiebreaker(t *testing.T) {
 			)
 		})
 	}
-}
-
-func extractOrderBy(sql string) string {
-	idx := strings.Index(strings.ToUpper(sql), "ORDER BY")
-	if idx < 0 {
-		return "(no ORDER BY found)"
-	}
-	end := min(idx+100, len(sql))
-	return sql[idx:end]
 }
