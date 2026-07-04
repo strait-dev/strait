@@ -18,6 +18,11 @@ Playwright tests for the Strait dashboard. Run these to verify end-to-end user f
 - Root `.env` and `apps/app/.env` populated from the example files
 - Playwright browsers installed (`cd apps/app && bunx playwright install chromium`)
 
+When Playwright starts its own dev server locally (i.e. not in CI), the
+`webServer` command in `playwright.config.ts` runs `bun run db:migrate:bun`
+before starting `bun run dev`. Better Auth migration failures surface here,
+before any test runs.
+
 ## Running locally
 
 ```bash
@@ -89,6 +94,11 @@ The focused suites split coverage by stability and blast radius:
 - `e2e:settings`: destructive or settings-heavy account, org, project, and security flows.
 - `e2e:visual`: chart rendering, responsive layout, and theme checks.
 
+All suites run under a single Playwright project, `chromium` (Desktop
+Chrome), configured in `playwright.config.ts`. "Focused suites" narrows which
+spec directories run, not which browsers -- there is no cross-browser
+coverage today.
+
 ## Environment variables
 
 | Variable | Required | Description |
@@ -102,6 +112,9 @@ The focused suites split coverage by stability and blast radius:
 | `E2E_FAKE_ENDPOINT_PUBLIC_HOST` | No | Hostname published for the managed fake endpoint (default: `127.0.0.1`). |
 | `BETTER_AUTH_SECRET` | Yes | Better Auth secret |
 | `BETTER_AUTH_URL` | Yes | Better Auth URL |
+| `EXPECT_BASE_URL` | No | Base URL global setup/teardown and Playwright's `use.baseURL` target (default: `http://localhost:5173`) |
+| `E2E_LIMITED_USER_EMAIL` | No | Email for the limited-permission test member (default: `e2e-limited@example.com`) |
+| `E2E_LIMITED_USER_PASSWORD` | No | Password for the limited-permission test member (default: `E2E_USER_PASSWORD`, then a hardcoded fallback) |
 
 Set these in `.env`, `apps/app/.env`, `apps/app/.dev.vars`, or the shell that
 runs Playwright.
@@ -126,8 +139,19 @@ job dispatch and webhook delivery can call the loopback test server.
 ```
 e2e/
   playwright.config.ts    # Playwright config
-  global-setup.ts         # Signup test user, save storageState
-  global-teardown.ts      # Delete test user
+  global-setup.ts         # Signup test users, save storageState, start the fake endpoint
+  global-teardown.ts      # Delete test users, stop the fake endpoint
+  setup/
+    auth.ts               # Sign in and persist storageState
+    db.ts                 # Ensure test users, org, project, RBAC rows exist
+  support/
+    auth-db.ts            # Grant the unlimited e2e plan directly against the auth DB
+    env.ts                 # Load .env / .dev.vars for the Playwright process
+    fake-endpoint-server.mjs # Managed local fake job endpoint
+    navigation.ts          # Shared navigation helpers
+    route-crashes.ts       # Route-crash assertions
+    run-context.ts         # Shared run context (project/org/user ids) across tests
+    test-data.ts           # TestDataFactory for seeding and cleanup
   fixtures/
     api.ts                # API helper for data seeding
     auth.ts               # Authenticated test fixture
@@ -136,7 +160,12 @@ e2e/
     auth/                 # Login, signup, session
     dashboard/            # Metrics, charts, activity
     core-dashboard/       # Backend-backed dashboard, jobs, runs, and ops surfaces
+    crud/                 # End-to-end job lifecycle
+    data/                 # Cross-page state, filter combinations, webhook delivery
+    dogfood/              # Local release-readiness journeys (see dogfood.md)
     harness/              # Local service and setup smoke tests
+    interaction/          # Accessibility, clipboard, command palette, responsive, theme
+    invitation/            # Org invitation accept flow
     jobs/                 # Jobs list, job detail
     runs/                 # Runs list, run detail
     workflows/            # Workflows list
@@ -144,18 +173,29 @@ e2e/
     webhooks/             # Webhooks list
     billing/              # Billing tabs
     settings/             # Account, project settings
+    org/                   # Org settings and operations
+    projects/              # Project settings and switching
     onboarding/           # New user flow
     dlq/                  # Failed run review
     events-logs/          # Events, logs
     navigation/           # Sidebar, routing
     error-states/         # 404, auth errors
+    security/              # Contact form and security-sensitive flows
 ```
+
+See [`dogfood.md`](./dogfood.md) for the local release-readiness workflow. Run
+it with `bun run dogfood` (`scripts/dogfood-local.mjs`); it starts or reuses
+Postgres, Redis, the Go backend, the dashboard, the fake customer endpoint, a
+real gRPC worker, and both an owner and a limited-member browser session.
 
 ## CI
 
-The backend-backed dashboard suite is currently intended for local validation.
-CI can enable it later by provisioning Postgres, Redis, the Go API, and
-Playwright browsers, then running `bun run e2e:core`.
+The `E2E` workflow (`.github/workflows/e2e.yml`) already exists and runs the
+full suite: it provisions Postgres and Redis, builds and starts the Go
+backend and the app, installs Playwright, and runs the entire test suite
+sharded across 4 runners (`playwright test --shard=N/4`). It is
+`workflow_dispatch`-only, so it does not run automatically on pull requests.
+The open item is wiring it into required PR checks.
 
 ## Validation
 
