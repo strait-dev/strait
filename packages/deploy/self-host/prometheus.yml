@@ -1,8 +1,0 @@
-global:
-  scrape_interval: 15s
-
-scrape_configs:
-  - job_name: strait
-    static_configs:
-      - targets: ['strait:8080']
-    metrics_path: /metrics
