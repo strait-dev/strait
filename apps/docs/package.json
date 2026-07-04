@@ -12,6 +12,9 @@
     "typecheck": "echo 'No typecheck needed for Mintlify docs'"
   },
   "devDependencies": {
-    "mintlify": "^4.2.647"
+    "mintlify": "^4.2.656"
+  },
+  "dependencies": {
+    "@typescript/native-preview": "^7.0.0-dev.20260701.1"
   }
 }

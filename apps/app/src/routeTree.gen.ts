@@ -519,8 +519,8 @@ export interface RootRouteChildren {
   authSsoRoute: typeof authSsoRoute
   authTwoFactorRoute: typeof authTwoFactorRoute
   authVerifyEmailRoute: typeof authVerifyEmailRoute
-  InvitationIdRoute: typeof InvitationIdRoute
   InternalTransactionalEmailRoute: typeof InternalTransactionalEmailRoute
+  InvitationIdRoute: typeof InvitationIdRoute
   authOauthConsentRoute: typeof authOauthConsentRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   ApiAuthJwksRoute: typeof ApiAuthJwksRoute
@@ -881,8 +881,8 @@ const rootRouteChildren: RootRouteChildren = {
   authSsoRoute: authSsoRoute,
   authTwoFactorRoute: authTwoFactorRoute,
   authVerifyEmailRoute: authVerifyEmailRoute,
-  InvitationIdRoute: InvitationIdRoute,
   InternalTransactionalEmailRoute: InternalTransactionalEmailRoute,
+  InvitationIdRoute: InvitationIdRoute,
   authOauthConsentRoute: authOauthConsentRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   ApiAuthJwksRoute: ApiAuthJwksRoute,
