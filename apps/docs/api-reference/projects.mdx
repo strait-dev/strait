@@ -1,0 +1,65 @@
+---
+title: "Projects API"
+description: "Common API operations for listing, inspecting, and administering projects, including project-level audit settings."
+icon: "folder"
+---
+
+Use the Projects API to list and inspect projects, and to manage project-level audit and quota settings.
+
+For request body fields generated from the runtime OpenAPI schema, see [Generated API Fields](/api-reference/generated-fields#projects-and-api-keys).
+
+## Prerequisites
+
+```bash
+export STRAIT_BASE_URL=https://api.strait.dev
+export STRAIT_API_KEY=strait_replace_with_your_key
+export STRAIT_PROJECT_ID=proj_replace_with_your_project_id
+```
+
+## List Projects
+
+```bash
+curl -sS "$STRAIT_BASE_URL/v1/projects" \
+  -H "Authorization: Bearer $STRAIT_API_KEY" | jq
+```
+
+Expected result: a paginated list of projects accessible by the current API key.
+
+## Get Project Settings
+
+```bash
+curl -sS "$STRAIT_BASE_URL/v1/projects/$STRAIT_PROJECT_ID/settings" \
+  -H "Authorization: Bearer $STRAIT_API_KEY" | jq
+```
+
+Expected result: the project's current settings object.
+
+## Common Operations
+
+| Operation | Method and path |
+|---|---|
+| List projects | `GET /v1/projects` |
+| Get project | `GET /v1/projects/{projectID}` |
+| Delete project | `DELETE /v1/projects/{projectID}` |
+| Get project settings | `GET /v1/projects/{projectID}/settings` |
+| Stream project activity | `GET /v1/projects/{projectID}/activity/stream` |
+| Update audit export row cap | `PUT /v1/projects/{id}/quotas/audit-export-cap` |
+| Get audit retention override | `GET /v1/projects/{id}/audit/retention` |
+| Update audit retention override | `PUT /v1/projects/{id}/audit/retention` |
+| Rotate audit signing key | `POST /v1/projects/{id}/audit/rotate-key` |
+
+## Failure Cases
+
+| Status | Meaning |
+|---|---|
+| `400` | Query or body is invalid. |
+| `401` | API key missing or invalid. |
+| `403` | API key does not have permission for the project, or the operation is admin-only. |
+| `404` | Project does not exist or is not accessible by this API key. |
+| `503` | The project activity stream is temporarily unavailable. |
+
+## Next
+
+- [Projects](/concepts/projects)
+- [Audit Logging](/concepts/audit-logging)
+- [Audit Events](/guides/audit-events)

@@ -47,7 +47,12 @@ curl -sS -X POST "$STRAIT_BASE_URL/v1/webhooks/test" \
 | Create subscription | `POST /v1/webhooks/subscriptions` |
 | Delete subscription | `DELETE /v1/webhooks/subscriptions/{id}` |
 | Rotate signing secret | `POST /v1/webhooks/subscriptions/{id}/rotate-secret` |
+| List deliveries | `GET /v1/webhooks/deliveries` |
+| Get delivery | `GET /v1/webhooks/deliveries/{id}` |
+| Retry delivery | `POST /v1/webhooks/deliveries/{id}/retry` |
 | Replay delivery | `POST /v1/webhooks/deliveries/{id}/replay` |
+| List deliveries (legacy) | `GET /v1/webhook-deliveries` |
+| Retry delivery (legacy) | `POST /v1/webhook-deliveries/{deliveryID}/retry` |
 
 ## Failure Cases
 

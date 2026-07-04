@@ -45,13 +45,26 @@ curl -sS -X POST "$STRAIT_BASE_URL/v1/runs/$STRAIT_RUN_ID/replay" \
 |---|---|
 | List runs | `GET /v1/runs` |
 | List dead-letter runs | `GET /v1/runs/dlq` |
+| Bulk cancel all active runs | `POST /v1/runs/bulk-cancel-all` |
 | Get run | `GET /v1/runs/{runID}` |
 | Cancel run | `DELETE /v1/runs/{runID}` |
 | Replay run | `POST /v1/runs/{runID}/replay` |
 | Replay dead-letter run | `POST /v1/runs/{runID}/dlq-replay` |
+| List child runs | `GET /v1/runs/{runID}/children` |
 | List events | `GET /v1/runs/{runID}/events` |
 | List outputs | `GET /v1/runs/{runID}/outputs` |
 | List checkpoints | `GET /v1/runs/{runID}/checkpoints` |
+| Set debug mode | `POST /v1/runs/{runID}/debug` |
+| List run lineage | `GET /v1/runs/{runID}/lineage` |
+| Reset idempotency key | `DELETE /v1/runs/{runID}/idempotency-key` |
+| Reschedule run | `POST /v1/runs/{runID}/reschedule` |
+| Pause run | `POST /v1/runs/{runID}/pause` |
+| Resume run | `POST /v1/runs/{runID}/resume` |
+| Restart run | `POST /v1/runs/{runID}/restart` |
+| List run state | `GET /v1/runs/{runID}/state` |
+| List run resources | `GET /v1/runs/{runID}/resources` |
+| Stream run updates | `GET /v1/runs/{runID}/stream` |
+| Get run stream chunks | `GET /v1/runs/{runID}/stream/chunks` |
 
 ## Failure Cases
 

@@ -243,6 +243,7 @@
                   "api-reference/webhooks",
                   "api-reference/event-sources",
                   "api-reference/workers",
+                  "api-reference/projects",
                   "api-reference/admin-ops",
                   "api-reference/generated-fields"
                 ]

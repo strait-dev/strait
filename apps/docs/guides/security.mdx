@@ -90,6 +90,25 @@ Strait takes a strict approach to input:
 
 Every API key has a set of scopes that restrict what it can do. Scopes are checked on every request. See [Authentication & Authorization](/guides/authentication) for the full scope list.
 
+For example, a key created with only `jobs:read` is rejected when it tries to trigger a job:
+
+```bash
+curl -sS -X POST "$STRAIT_BASE_URL/v1/jobs/$STRAIT_JOB_ID/trigger" \
+  -H "Authorization: Bearer $STRAIT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{}'
+```
+
+```json
+{
+  "error": {
+    "code": "forbidden",
+    "message": "insufficient permissions: requires jobs:trigger"
+  },
+  "request_id": "req_abc123"
+}
+```
+
 Keys with empty scopes (`[]`) retain full access for backward compatibility.
 
 ## Role-Based Access Control
