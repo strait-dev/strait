@@ -1,6 +1,12 @@
 name: E2E
 
 on:
+  push:
+    paths:
+      - "apps/app/**"
+      - "packages/**"
+      - "bun.lock"
+      - ".github/workflows/e2e.yml"
   workflow_dispatch:
 
 permissions:
