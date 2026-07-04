@@ -1,4 +1,9 @@
-# Impeccable Design Context
+# Strait Design Context
+
+Design and brand reference for the app, docs, and marketing site: voice, visual
+direction, and the shared design-system tokens. This is not a product overview;
+for what Strait does, see [`README.md`](README.md) and
+[`apps/docs/introduction.mdx`](apps/docs/introduction.mdx).
 
 ## Product
 

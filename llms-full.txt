@@ -114,7 +114,7 @@ Related: https://docs.strait.dev/guides/private-workers
 - Go: https://docs.strait.dev/sdks/go
 - Ruby: https://docs.strait.dev/sdks/ruby
 - Rust: https://docs.strait.dev/sdks/rust
-- MCP Server: https://docs.strait.dev/sdks/mcp
+- MCP Server: https://github.com/strait-dev/mcp
 
 ## Compare
 

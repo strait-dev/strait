@@ -117,6 +117,7 @@ Cloud is the default hosted product. Community self-hosting runs the open-source
 | SDK reference | [`apps/docs/sdks/overview.mdx`](apps/docs/sdks/overview.mdx) |
 | Guides | [`apps/docs/guides/production-job.mdx`](apps/docs/guides/production-job.mdx) |
 | Contributor operating guide | [`AGENTS.md`](AGENTS.md) |
+| Design and brand context | [`DESIGN.md`](DESIGN.md) |
 
 Dedicated repositories:
 
@@ -141,9 +142,10 @@ apps/
   strait/   Go service. API, worker, scheduler, all in one binary.
   app/      TanStack Start dashboard (React 19, Vite).
   docs/     Mintlify docs.
-packages/   Shared TS packages (ui, billing, config, transactional, ...).
-docker-compose.base.yml       Shared runtime stack.
-docker-compose.selfhost.yml   Self-host overrides and dashboard profile.
+packages/   Shared TS workspaces (billing, config, transactional) plus repo config and ops helpers (configs, monitoring, scripts). The @strait/ui component library ships as an external npm package.
+docker-compose.base.yml         Shared runtime stack.
+apps/strait/docker-compose.yml  Dev dependency ports (Postgres 15432, Redis 16379).
+docker-compose.selfhost.yml     Self-host overrides and dashboard profile.
 SELFHOST.md                   Self-host walkthrough.
 AGENTS.md                     Contributor operating guide.
 ```
