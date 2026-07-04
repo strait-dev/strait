@@ -19,6 +19,25 @@ Dashboards:
 - `billing-cloud.json` - cloud-edition billing enforcement, Stripe ingestion, usage records, and plan gates
 - `audit-events.json` - audit pipeline, SIEM forwarding, retention, export caps, and chain verification
 
+## Alert rules
+
+Two Prometheus rule files back these dashboards:
+
+- `../prometheus-rules.yaml` (sibling to this directory, at `monitoring/prometheus-rules.yaml`) - the main
+  Prometheus rules: recording rules (`strait:*`) that pre-aggregate request rate,
+  latency percentiles, queue depth, worker dispatch, workflow, scheduler, auth,
+  Redis, and cache metrics for the dashboards above, plus the general alerting
+  rules built on top of them.
+- `audit-alerts.yaml` (in this directory) - alert rules scoped to the audit
+  subsystem: deadletter growth (`AuditDLQRising`), drainer queue saturation
+  (`AuditDrainerSaturated`), SIEM forwarder circuit breaker trips
+  (`AuditSIEMForwardFailing`), and audit hash-chain verification failures
+  (`AuditChainVerificationFailed`).
+
+Prometheus loads both files through its `rule_files:` configuration directive;
+neither is picked up automatically, so a Prometheus deployment must list both
+paths explicitly.
+
 Provisioning files under `provisioning/` expect dashboards to be mounted at
 `/var/lib/grafana/dashboards/strait` and a `PROMETHEUS_URL` environment
 variable for the Prometheus datasource.

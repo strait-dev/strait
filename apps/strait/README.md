@@ -7,12 +7,14 @@ The core backend for Strait. This service handles the REST API, job dispatch, wo
 - [Architecture](#architecture)
 - [Editions](#editions)
 - [Getting started](#getting-started)
+- [Source Of Truth](#source-of-truth)
 - [Packages](#packages)
 - [Configuration](#configuration)
 - [Database and migrations](#database-and-migrations)
 - [Testing](#testing)
 - [Monitoring](#monitoring)
 - [Contributing](#contributing)
+- [Docs Impact](#docs-impact)
 
 ---
 
@@ -127,7 +129,7 @@ See `internal/config/config.go` for every supported env var and its default valu
 | `worker` | Claims and dispatches job runs. HTTP-mode dispatch posts to the job's endpoint URL; worker-mode dispatch streams the run to a connected worker over gRPC. Manages concurrency, retries, and graceful drain. |
 | `workflow` | Durable multi-step workflow engine. Sequential, conditional, loop, and compensation steps. |
 | `pubsub` | In-process event broadcasting (run status, workflow steps for SSE). |
-| `webhook` | Durable webhook delivery with retries. Failed deliveries are sent to a review queue for inspection. |
+| `webhook` | Durable webhook delivery with retries. Once retries are exhausted, a delivery moves to a `dead` (dead-letter) status; dead and failed deliveries are inspectable and retriable through the API. |
 | `billing` | Usage-based quota enforcement and Stripe integration (cloud edition only). |
 | `clickhouse` | Optional analytics backend. Batched event export with Postgres fallback. |
 | `telemetry` | Initializes traces, metrics, profiling, and error reporting. |
@@ -136,6 +138,22 @@ See `internal/config/config.go` for every supported env var and its default valu
 | `cdc` | Change data capture via Sequin. Propagates Postgres row changes to pub/sub topics. |
 | `cache` | In-memory TTL cache (Otter) for hot-path reads like quota snapshots. |
 | `testutil` | Test helpers: real Postgres containers, in-memory Redis, domain object factories. |
+| `apikeycache` | Versioned, negative-cache-aware lookup layer for API keys, shared by REST and worker-plane auth. |
+| `bundle` | Export and import of jobs and workflows as portable bundles (config as code). |
+| `crypto` | Secret encryption, API key hashing, HMAC signing. |
+| `dbscan` | Anomaly detection on run metrics. |
+| `debug` | Debug bundle generation for support and troubleshooting. |
+| `e2e` | End-to-end test suite exercising the full API and worker stack against real infrastructure. |
+| `errors` | Typed error helpers. |
+| `eventfilter` | Event-trigger matching rules. |
+| `health` | Health checks and scoring. |
+| `httputil` | HTTP client helpers (SSRF guards, timeouts). |
+| `logdrain` | Datadog / Splunk / HTTP log forwarding, including audit-event SIEM forwarding. |
+| `migrationlint` | Safety linter for SQL migrations; flags statements that are dangerous on a live database. |
+| `notification` | Slack / email / PagerDuty channels. |
+| `queue` | Lock-free claim, concurrency control. |
+| `ratelimit` | Per-job, per-IP, per-project limits. |
+| `transactional` | Client for sending transactional emails (invites, billing notices, alerts) via `apps/app`'s render-and-send endpoint. |
 
 For detailed package notes, contribution rules, and architecture context, see [AGENTS.md](../../AGENTS.md) and the [architecture docs](../../apps/docs/architecture.mdx).
 
@@ -168,6 +186,10 @@ go test -race ./...                 # race detector. Run before every PR.
 go test -tags=integration ./...     # integration tests (real Postgres via testcontainers)
 ```
 
+`go test -tags=integration ./...` above runs every integration-tagged test in the
+module. `make test-integration` runs the narrower, race-enabled variant that CI
+relies on: `go test -race -tags=integration -timeout=20m ./internal/store ./internal/queue ./internal/pubsub ./internal/e2e`.
+
 For repeated local integration runs, keep shared Postgres and Redis containers
 alive across `go test` package processes during a controlled sharded run:
 
@@ -191,6 +213,12 @@ target and you want the next command to reuse already warm containers.
 | `*_fuzz_test.go` | Go fuzz tests for input parsing |
 
 Mocks are generated via `moq`. Run `go generate ./...` after interface changes.
+
+`internal/loadtest` is the throughput/concurrency/chaos/endurance harness for
+measuring Strait's performance limits; see its own
+[README](internal/loadtest/README.md). `test/loadtest` is a separate,
+build-tagged suite of API/functional tests (`-tags loadtest,integration`) run
+through the root Makefile's `make test-load`.
 
 ---
 
