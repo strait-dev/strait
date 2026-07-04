@@ -43,7 +43,6 @@ apps/website/public
 **/coverage
 *.log
 
-# Ops, monitoring, scripts, deploy configs.
+# Ops, monitoring, scripts configs.
 packages/monitoring
 packages/scripts
-packages/deploy
