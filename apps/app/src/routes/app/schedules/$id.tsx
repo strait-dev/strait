@@ -1,6 +1,5 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Badge } from "@strait/ui/components/badge";
-
 import { Button } from "@strait/ui/components/button";
 import {
   Card,
@@ -67,6 +66,7 @@ import {
   RefreshIcon,
   TagIcon,
 } from "@/lib/icons";
+import { seo } from "@/lib/seo";
 import type { AppRouteContext } from "@/routes/app/layout";
 
 export const Route = createFileRoute("/app/schedules/$id")({
@@ -80,7 +80,7 @@ export const Route = createFileRoute("/app/schedules/$id")({
     ]);
     return { session };
   },
-  head: () => ({ meta: [{ title: "Schedule · Strait" }] }),
+  head: () => ({ meta: seo({ title: "Schedule" }) }),
   pendingComponent: DetailPageSkeleton,
   errorComponent: ErrorComponent,
   component: ScheduleDetailPage,

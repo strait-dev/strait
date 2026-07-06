@@ -72,8 +72,18 @@ go test -race ./...
 # Integration tests (requires running Postgres + Redis via docker compose).
 go test -tags=integration ./...
 
-# Frontend tests.
-cd apps/app && bun test
+# Frontend tests (Vitest; `bun test` runs Bun's own runner and skips the suite).
+cd apps/app && bun run test
+```
+
+## Building
+
+Both editions must compile before pushing (edition is a compile-time build tag):
+
+```bash
+cd apps/strait
+go build ./...            # community
+go build -tags cloud ./...  # cloud
 ```
 
 ## Linting
@@ -143,7 +153,7 @@ Key directories:
 - `apps/strait/`: Go API server, worker, scheduler.
 - `apps/app/`: TanStack Start dashboard (React).
 - `apps/docs/`: Documentation site.
-- `packages/`: Shared packages (UI, utils, SDK, billing).
+- `packages/`: Shared TS workspaces (`billing`, `config`, `transactional`) plus repo config and ops helpers (`configs`, `monitoring`, `scripts`). The `@strait/ui` component library is an external npm package.
 
 The marketing website lives in its own repo: <https://github.com/strait-dev/website>
 

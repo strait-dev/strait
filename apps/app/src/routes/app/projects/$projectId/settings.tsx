@@ -8,9 +8,10 @@ import { Shell } from "@strait/ui/components/shell";
 import { createFileRoute } from "@tanstack/react-router";
 import DefaultCatchBoundary from "@/components/common/default-catch-boundary";
 import NotFound from "@/components/common/not-found";
+import { seo } from "@/lib/seo";
 
 export const Route = createFileRoute("/app/projects/$projectId/settings")({
-  head: () => ({ meta: [{ title: "Project settings · Strait" }] }),
+  head: () => ({ meta: seo({ title: "Project settings" }) }),
   errorComponent: DefaultCatchBoundary,
   notFoundComponent: () => <NotFound />,
   component: RouteComponent,

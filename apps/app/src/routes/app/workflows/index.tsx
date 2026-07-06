@@ -73,6 +73,7 @@ import {
   WorkflowIcon,
 } from "@/lib/icons";
 import { workflowResourcePermissions } from "@/lib/resource-permissions";
+import { seo } from "@/lib/seo";
 import { ENABLED_STATUS_OPTIONS } from "@/lib/status";
 import type { AppRouteContext } from "@/routes/app/layout";
 
@@ -117,7 +118,7 @@ export const Route = createFileRoute("/app/workflows/")({
     }
     return { hasProject, session };
   },
-  head: () => ({ meta: [{ title: "Workflows · Strait" }] }),
+  head: () => ({ meta: seo({ title: "Workflows" }) }),
   pendingComponent: TablePageSkeleton,
   errorComponent: ErrorComponent,
   component: WorkflowsPage,

@@ -18,8 +18,10 @@ These scripts are called by root Makefile targets. User-facing setup and backup 
 Called by Makefile targets:
 
 ```bash
-make selfhost        # runs selfhost-init.sh then starts compose
-make selfhost-reset  # runs selfhost-init.sh --reset
+make selfhost              # runs selfhost-init.sh then starts the full compose stack
+make selfhost-core         # runs selfhost-init.sh then starts the API-only stack
+make selfhost-observability # runs selfhost-init.sh then starts the stack with Prometheus
+make selfhost-reset        # runs selfhost-init.sh --reset
 ```
 
 `selfhost-backup.sh` is intended for cron scheduling:
@@ -29,9 +31,9 @@ make selfhost-reset  # runs selfhost-init.sh --reset
 ```
 
 Referenced by:
-- `Makefile` (`selfhost`, `selfhost-reset` targets)
+- `Makefile` (`selfhost`, `selfhost-core`, `selfhost-observability`, `selfhost-reset` targets)
 - `SELFHOST.md` (self-host guide)
-- `docker-compose.selfhost.yml` (comment header)
+- `docker-compose.selfhost.yml` (inline required-env-var error messages -- `${VAR:?run ./packages/scripts/selfhost-init.sh}` -- shown if `.env.selfhost` hasn't been generated yet)
 
 ## Validation
 

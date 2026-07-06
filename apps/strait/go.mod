@@ -7,7 +7,7 @@ require (
 	github.com/MarceloPetrucio/go-scalar-api-reference v0.0.0-20240521013641-ce5d2efe0e06
 	github.com/alicebob/miniredis/v2 v2.37.0
 	github.com/alitto/pond/v2 v2.7.1
-	github.com/arl/statsviz v0.8.0
+	github.com/arl/statsviz v0.8.1
 	github.com/cristalhq/aconfig v0.19.0
 	github.com/danielgtaylor/huma/v2 v2.38.0
 	github.com/exaring/otelpgx v0.11.1
@@ -16,14 +16,14 @@ require (
 	github.com/getsentry/sentry-go v0.47.0
 	github.com/go-chi/chi/v5 v5.3.0
 	github.com/go-chi/cors v1.2.2
-	github.com/go-chi/httprate v0.15.0
+	github.com/go-chi/httprate v0.16.0
 	github.com/go-pdf/fpdf v0.9.0
 	github.com/go-playground/validator/v10 v10.30.3
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/golang-migrate/migrate/v4 v4.19.1
 	github.com/google/go-cmp v0.7.0
 	github.com/google/uuid v1.6.0
-	github.com/grafana/pyroscope-go v1.3.1
+	github.com/grafana/pyroscope-go v1.4.0
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/jarcoal/httpmock v1.4.1
 	github.com/lmittmann/tint v1.1.3

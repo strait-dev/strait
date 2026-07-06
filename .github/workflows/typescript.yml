@@ -63,6 +63,22 @@ jobs:
       - name: Typecheck
         run: bun run typecheck
 
+  knip:
+    name: Knip (dead code)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-js
+
+      - name: Knip (root)
+        run: bun run knip
+
+      - name: Knip (app)
+        run: bun run --cwd apps/app knip
+
   app-build:
     name: App build targets
     runs-on: ubuntu-latest

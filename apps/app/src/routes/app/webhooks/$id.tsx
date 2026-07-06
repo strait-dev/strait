@@ -74,6 +74,7 @@ import {
   TrashIcon,
   WebhookIcon,
 } from "@/lib/icons";
+import { seo } from "@/lib/seo";
 import type { AppRouteContext } from "@/routes/app/layout";
 
 export const Route = createFileRoute("/app/webhooks/$id")({
@@ -82,7 +83,7 @@ export const Route = createFileRoute("/app/webhooks/$id")({
     await context.queryClient.ensureQueryData(webhookQueryOptions(params.id));
     return { session };
   },
-  head: () => ({ meta: [{ title: "Webhook · Strait" }] }),
+  head: () => ({ meta: seo({ title: "Webhook" }) }),
   pendingComponent: DetailPageSkeleton,
   errorComponent: ErrorComponent,
   component: WebhookDetailPage,

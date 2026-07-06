@@ -53,7 +53,7 @@ Monorepo. Top level:
 - `apps/strait/`: the Go server (this is where most work happens)
 - `apps/docs/`: Mintlify docs (`.mdx` files plus `docs.json` nav)
 - `apps/app/`: web app dashboard
-- `packages/`: shared TS packages (`ui`, `billing`, `config`, `configs`, `deploy`, `monitoring`, `scripts`, `transactional`)
+- `packages/`: shared TS workspaces (`billing`, `config`, `transactional`) plus repo config and ops helpers (`configs`, `monitoring`, `scripts`). The `@strait/ui` component library is an external npm package, not a local workspace.
 - `.github/workflows/`: CI
 - `lefthook.yml`: git hooks
 - Marketing site lives in its own repo: <https://github.com/strait-dev/website>

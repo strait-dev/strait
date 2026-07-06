@@ -47,6 +47,7 @@ make loadtest-errors       # Test all 12 error scenarios
 make loadtest-all          # Run quick + throughput + concurrency
 make loadtest-report       # Generate HTML/JSON report from results
 make loadtest-unit         # Run unit tests for the framework itself
+make loadtest-flush        # Delete queued/running load test job runs from Postgres
 ```
 
 Note: The `make loadtest-*` targets are defined in the loadtest Makefile at `apps/strait/Makefile`. Run them from the `apps/strait/` directory.
@@ -107,6 +108,9 @@ so metrics, traces, and logs can be correlated and filtered by environment.
 | `LOADTEST_TENANTS` | `500` | Tenant count for production simulation |
 | `LOADTEST_DURATION` | `4h` | Duration for simulation/endurance tests |
 | `LOADTEST_TARGET_RATE` | auto | Override target rate for endurance |
+| `LOADTEST_POSTGRES_CONTAINER` | `strait-postgres` | Docker container name the chaos scenarios expect for the Postgres service (used by `chaos.go` failover/kill scenarios) |
+| `LOADTEST_REDIS_CONTAINER` | `strait-redis` | Docker container name the chaos scenarios expect for the Redis service |
+| `LOADTEST_STRAIT_CONTAINER` | `strait-api` | Docker container name the chaos scenarios expect for the Strait API service |
 
 ## Results
 
@@ -149,6 +153,15 @@ go test -tags=loadtest -run TestErrorScenarios -timeout 1h -v ./internal/loadtes
 
 # Production validation (requires LOADTEST_STRAIT_URL pointing to deployed instance)
 LOADTEST_STRAIT_URL=https://your-strait-instance go test -tags=loadtest -run TestProductionValidation -timeout 1h -v ./internal/loadtest/...
+
+# Multi-tenant production simulation (4-8h)
+LOADTEST_TENANTS=2000 LOADTEST_DURATION=8h go test -tags=loadtest -run TestProductionSimulation -timeout 10h ./internal/loadtest/...
+
+# Breaking point: adds tenants until the system degrades (2-6h)
+go test -tags=loadtest -run TestBreakingPoint -timeout 12h ./internal/loadtest/...
+
+# Endurance weekend: 70% of throughput ceiling for 72h
+go test -tags=loadtest -run TestEnduranceWeekend -timeout 74h ./internal/loadtest/...
 ```
 
 ## Test Server Endpoints

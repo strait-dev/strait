@@ -132,8 +132,7 @@ can prompt users to override them.
 | Better Auth | Authentication (PostgreSQL + organization plugin) |
 | Stripe | Billing, subscriptions, and usage-based metering |
 | Effect | Error handling |
-| Zustand | Client-side UI state |
-| Recharts | Dashboard and billing charts |
+| Recharts (via @strait/ui) | Dashboard and billing charts |
 | Biome | Linting and formatting |
 
 ## Project Structure
@@ -141,47 +140,65 @@ can prompt users to override them.
 ```text
 src/
   routes/            File-based routing (TanStack Router)
-    (auth)/           Unauthenticated routes (login, signup, 2FA, etc.)
-    app/              Authenticated app shell
+    (auth)/           Unauthenticated routes (login, signup, SSO, 2FA, magic link, device, passkeys)
+      oauth/           OAuth authorize/callback routes
+    api/               Backend-style route handlers
+      auth/            Better Auth catch-all handler and JWKS endpoint
+    app/               Authenticated app shell
       billing/        Billing overview
       dlq/            Failed run review
       events/         Event stream
       jobs/            Job list + detail
       logs/            Log viewer
+      org/             Organization settings
+      pricing/         Pricing/plan comparison
+      projects/        Project settings
+        $projectId/     Per-project settings routes
       runs/            Run list + detail
       schedules/       Schedule list + detail
       settings/        User/account settings
       webhooks/        Webhook management
       workflows/       Workflow list + detail
-    onboarding/       Onboarding flow
+    internal/         Internal endpoints called by the Go service (transactional email)
+    invitation/       Org invitation accept flow
   components/         UI components organized by domain
     (auth)/            Auth form components
     (settings)/        Settings page components
     billing/           Billing dashboard, budgets, alerts, charts
     common/            Sidebar, error states, skeletons, theme toggle
     dashboard/         Dashboard charts, detail sheets, status badge
-    feature-gates/     Plan limit enforcement
+    events/            Event and log detail renderers
+    help/              Feedback and support dialogs
+    jobs/              Job create/edit dialog
     organization/      Org creation, switching
     project/           Project creation, settings, switcher
+    providers/         PostHog provider
+    subscription/      Subscription state cards (payment pending, upgrade success)
     tables/            Column definitions for data tables
-    upgrade/           Plan selection, trial modal
+    upgrade/           Plan selection, pricing calculator
+    workflows/         Workflow create/edit dialog
   hooks/              Server functions + TanStack Query hooks
     api/               Entity hooks (jobs, runs, events, webhooks, etc.)
+    analytics/         Analytics/PostHog event hooks
     auth/              Auth hooks (account, org, members, permissions)
     billing/           Billing hooks (usage, budget, limits, forecasts)
     subscription/      Subscription state management
+    (top-level files)  Shared hook utilities (query keys, table pagination, hydration)
   lib/                Shared utilities
     api-client.server  Server-only HTTP client for Go API
     effect-api.server  Effect-based API layer with Sentry reporting
-    auth.server        Better Auth server instance
-    status             Centralized status constants for all entities
-    sentry             Sentry initialization and error capture
-    kv.server          Upstash Redis KV client
-    format             Number and date formatting helpers
+    auth.server         Better Auth server instance
+    edition             Build-time community/cloud edition gate
+    stripe.server        Stripe client
+    status               Centralized status constants for all entities
+    sentry               Sentry initialization and error capture
+    kv.server            Upstash Redis KV client
+    format               Number and date formatting helpers
   middlewares/        Server function middleware
-    auth               Session validation, attaches user context
-    require-access     IDOR protection (org/project ownership checks)
-  stores/             Zustand client-side stores
+    auth.ts                    Session validation, attaches user context
+    require-access.ts          IDOR protection (org/project ownership checks)
+    require-project-scope.ts   Project-scope enforcement
+  types/              Ambient type declarations
   utils/              Constants and helpers
 ```
 
@@ -195,13 +212,21 @@ src/
 | `bun run build:vercel` | Build Vercel output |
 | `bun run build:cloudflare` | Build Cloudflare Worker output |
 | `bun start` | Start the built Node server |
-| `bun test` | Run Vitest tests |
+| `bun run test` | Run Vitest tests |
 | `bun run test:watch` | Run tests in watch mode |
 | `bun run typecheck` | TypeScript check (tsgo) |
 | `bun run biome:lint` | Lint with Biome |
+| `bun run generate:api` | Regenerate the typed API client from the Go backend's OpenAPI doc |
+| `bun run db:migrate` | Run Better Auth database migrations |
+| `bun run db:migrate:dry` | Print pending Better Auth migrations without applying them |
+| `bun run db:migrate:bun` | Run Better Auth database migrations with the `bun` runtime (used by the Playwright `webServer`) |
 | `bun run e2e:core` | Run backend-backed dashboard E2E tests against a running Go API |
 | `bun run run-all` | Biome fix + format + lint + typecheck |
 | `bun run knip` | Detect unused code and dependencies |
+| `bun run biome:format` / `biome:write` / `biome:fix:unsafe` | Additional Biome format/fix variants |
+| `bun run clean` | Remove build output and `node_modules` |
+| `bun run preview` | Preview a production build locally |
+| `bun run deploy` | Build for Vercel and upload Sentry sourcemaps |
 
 ## Environment Variables
 
@@ -216,16 +241,19 @@ secrets out of git.
 | `STRAIT_API_URL` | Go API backend URL (default: `http://localhost:8080`) |
 | `INTERNAL_SECRET` | Shared secret for app-to-backend requests |
 | `VITE_BASE_URL` | Frontend base URL |
+| `VITE_STRAIT_EDITION` | Build-time edition flag (`src/lib/edition.ts`) that gates billing and Stripe UI. Defaults to `cloud` when unset; the Dockerfile overrides it to `community` for the self-host image. |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Google OAuth |
 | `VITE_GOOGLE_CLIENT_ID` | Google One Tap (client-side) |
 | `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | GitHub OAuth |
 | `STRIPE_SECRET_KEY` | Stripe API secret key |
-| `STRIPE_PUBLISHABLE_KEY` | Stripe publishable key (client-side) |
-| `STRIPE_WEBHOOK_SECRET` | Stripe webhook signature verification |
 | `RESEND_API_KEY` | Transactional email via Resend |
 | `RESEND_FROM_EMAIL` | Default sender for internal transactional emails |
 | `RESEND_SUPPORT_EMAIL` | Fallback sender for support and auth emails |
 | `VITE_SENTRY_DSN` | Sentry client-side DSN |
+| `VITE_SENTRY_ENVIRONMENT` | Sentry environment tag reported by the client |
+| `SENTRY_ORG` | Sentry organization slug, used when uploading sourcemaps |
+| `SENTRY_PROJECT` | Sentry project slug, used when uploading sourcemaps |
+| `SENTRY_AUTH_TOKEN` | Auth token for the Sentry sourcemap upload step (`bun run deploy`) |
 | `VITE_POSTHOG_KEY` / `VITE_POSTHOG_HOST` | PostHog analytics |
 
 ### Internal Transactional Email Endpoint
@@ -291,7 +319,7 @@ Run focused checks before opening a frontend PR:
 cd apps/app
 bun run biome:lint
 bun run typecheck
-bun test
+bun run test
 ```
 
 Start the Go API locally, then run `bun run e2e:core` when touching flows that

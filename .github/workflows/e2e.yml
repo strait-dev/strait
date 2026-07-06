@@ -1,5 +1,7 @@
 name: E2E
 
+# E2E runs on demand only. Trigger it manually from the Actions tab (or run it
+# locally) rather than on every push or PR.
 on:
   workflow_dispatch:
 

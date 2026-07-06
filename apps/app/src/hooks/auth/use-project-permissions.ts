@@ -11,24 +11,20 @@ import {
 import { queryKeys } from "../query-keys";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "../utils";
 
-const SCOPE_ALL = "*";
-const SCOPE_JOBS_WRITE = "jobs:write";
-const SCOPE_JOBS_TRIGGER = "jobs:trigger";
-const SCOPE_RUNS_WRITE = "runs:write";
-const SCOPE_WORKFLOWS_WRITE = "workflows:write";
-const SCOPE_WORKFLOWS_TRIGGER = "workflows:trigger";
-const SCOPE_WEBHOOKS_WRITE = "webhooks:write";
-const SCOPE_API_KEYS_MANAGE = "api-keys:manage";
-const SCOPE_PROJECTS_WRITE = "projects:write";
-const SCOPE_PROJECTS_MANAGE = "projects:manage";
+import {
+  emptyProjectPermissionFlags,
+  flagsFromPermissions,
+  type ProjectRole,
+  type RoleWithLineageResponse,
+  rolePermissions,
+  SCOPE_ALL,
+} from "./project-permissions";
+
+export type { ProjectPermissionFlags } from "./project-permissions";
 
 type ProjectMemberRole = {
   user_id: string;
   role_id: string;
-};
-
-type ProjectRole = {
-  permissions: string[] | null;
 };
 
 type PaginatedResponse<T> = {
@@ -36,71 +32,6 @@ type PaginatedResponse<T> = {
   has_more?: boolean;
   next_cursor?: string;
 };
-
-type RoleWithLineageResponse = {
-  role?: ProjectRole;
-  lineage?: ProjectRole[];
-};
-
-export type ProjectPermissionFlags = {
-  permissions: string[];
-  canWriteJobs: boolean;
-  canTriggerJobs: boolean;
-  canWriteRuns: boolean;
-  canWriteWorkflows: boolean;
-  canTriggerWorkflows: boolean;
-  canWriteWebhooks: boolean;
-  canManageApiKeys: boolean;
-  canWriteProjects: boolean;
-  canManageProjects: boolean;
-};
-
-const emptyProjectPermissionFlags: ProjectPermissionFlags = {
-  permissions: [],
-  canWriteJobs: false,
-  canTriggerJobs: false,
-  canWriteRuns: false,
-  canWriteWorkflows: false,
-  canTriggerWorkflows: false,
-  canWriteWebhooks: false,
-  canManageApiKeys: false,
-  canWriteProjects: false,
-  canManageProjects: false,
-};
-
-function hasScope(permissions: string[], scope: string) {
-  return permissions.includes(SCOPE_ALL) || permissions.includes(scope);
-}
-
-function flagsFromPermissions(permissions: string[]): ProjectPermissionFlags {
-  return {
-    permissions,
-    canWriteJobs: hasScope(permissions, SCOPE_JOBS_WRITE),
-    canTriggerJobs:
-      hasScope(permissions, SCOPE_JOBS_TRIGGER) ||
-      hasScope(permissions, SCOPE_JOBS_WRITE),
-    canWriteRuns: hasScope(permissions, SCOPE_RUNS_WRITE),
-    canWriteWorkflows: hasScope(permissions, SCOPE_WORKFLOWS_WRITE),
-    canTriggerWorkflows:
-      hasScope(permissions, SCOPE_WORKFLOWS_TRIGGER) ||
-      hasScope(permissions, SCOPE_WORKFLOWS_WRITE),
-    canWriteWebhooks: hasScope(permissions, SCOPE_WEBHOOKS_WRITE),
-    canManageApiKeys: hasScope(permissions, SCOPE_API_KEYS_MANAGE),
-    canWriteProjects: hasScope(permissions, SCOPE_PROJECTS_WRITE),
-    canManageProjects: hasScope(permissions, SCOPE_PROJECTS_MANAGE),
-  };
-}
-
-function rolePermissions(response: ProjectRole | RoleWithLineageResponse) {
-  if ("permissions" in response) {
-    return response.permissions ?? [];
-  }
-
-  return [
-    ...(response.role?.permissions ?? []),
-    ...(response.lineage ?? []).flatMap((role) => role.permissions ?? []),
-  ];
-}
 
 async function findProjectMembership(projectId: string, userId: string) {
   let cursor: string | undefined;

@@ -1,12 +1,11 @@
 import { fileURLToPath } from "node:url";
-import { cloudflare } from "@cloudflare/vite-plugin";
 import { sentryTanstackStart } from "@sentry/tanstackstart-react/vite";
 import tailwindcss from "@tailwindcss/vite";
 import { devtools } from "@tanstack/devtools-vite";
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import viteReact from "@vitejs/plugin-react";
 import { nitro } from "nitro/vite";
-import type { Plugin } from "vite";
+import type { Plugin, Rollup } from "vite";
 import { defineConfig } from "vite";
 import { ngrok } from "vite-plugin-ngrok";
 import { resolveSentryRelease } from "./scripts/sentry-release";
@@ -103,148 +102,160 @@ function wellKnownOAuthPlugin(): Plugin {
   };
 }
 
-export default defineConfig(({ command }) => ({
-  resolve: {
-    alias: {
-      "decimal.js-light": fileURLToPath(
-        new URL(
-          "../../node_modules/.bun/decimal.js-light@2.5.1/node_modules/decimal.js-light/decimal.mjs",
-          import.meta.url
-        )
-      ),
-      eventemitter3: fileURLToPath(
-        new URL(
-          "../../node_modules/.bun/eventemitter3@5.0.4/node_modules/eventemitter3/index.mjs",
-          import.meta.url
-        )
-      ),
-      "react-is": fileURLToPath(
-        new URL("./src/lib/react-is.ts", import.meta.url)
-      ),
-      "es-toolkit/compat/get": fileURLToPath(
-        new URL("./src/lib/es-toolkit-compat-get.ts", import.meta.url)
-      ),
-      "es-toolkit/compat/isPlainObject": fileURLToPath(
-        new URL(
-          "./src/lib/es-toolkit-compat-is-plain-object.ts",
-          import.meta.url
-        )
-      ),
-      "es-toolkit/compat/last": fileURLToPath(
-        new URL("./src/lib/es-toolkit-compat-last.ts", import.meta.url)
-      ),
-      "es-toolkit/compat/maxBy": fileURLToPath(
-        new URL("./src/lib/es-toolkit-compat-max-by.ts", import.meta.url)
-      ),
-      "es-toolkit/compat/minBy": fileURLToPath(
-        new URL("./src/lib/es-toolkit-compat-min-by.ts", import.meta.url)
-      ),
-      "es-toolkit/compat/omit": fileURLToPath(
-        new URL("./src/lib/es-toolkit-compat-omit.ts", import.meta.url)
-      ),
-      "es-toolkit/compat/range": fileURLToPath(
-        new URL("./src/lib/es-toolkit-compat-range.ts", import.meta.url)
-      ),
-      "es-toolkit/compat/sortBy": fileURLToPath(
-        new URL("./src/lib/es-toolkit-compat-sort-by.ts", import.meta.url)
-      ),
-      "es-toolkit/compat/sumBy": fileURLToPath(
-        new URL("./src/lib/es-toolkit-compat-sum-by.ts", import.meta.url)
-      ),
-      "es-toolkit/compat/throttle": fileURLToPath(
-        new URL("./src/lib/es-toolkit-compat-throttle.ts", import.meta.url)
-      ),
-      "es-toolkit/compat/uniqBy": fileURLToPath(
-        new URL("./src/lib/es-toolkit-compat-uniq-by.ts", import.meta.url)
-      ),
-      "use-sync-external-store/with-selector": fileURLToPath(
-        new URL(
-          "./src/lib/use-sync-external-store-with-selector.ts",
-          import.meta.url
-        )
-      ),
-      "use-sync-external-store/with-selector.js": fileURLToPath(
-        new URL(
-          "./src/lib/use-sync-external-store-with-selector.ts",
-          import.meta.url
-        )
-      ),
-    },
-    tsconfigPaths: true,
-  },
-  plugins: [
-    ...(isCloudflareBuild
-      ? [cloudflare({ viteEnvironment: { name: "ssr" } })]
-      : []),
-    wellKnownOAuthPlugin(),
-    ...(command === "serve" ? [devtools()] : []),
-    tailwindcss(),
-    tanstackStart({
-      router: {
-        routeToken: "layout",
-      },
-      srcDirectory: "src",
-    }),
-    ...(isCloudflareBuild ? [] : [nitro({ preset: nitroPreset })]),
-    viteReact(),
-    sentryTanstackStart({
-      org: process.env.SENTRY_ORG,
-      project: process.env.SENTRY_PROJECT,
-      authToken: process.env.SENTRY_AUTH_TOKEN,
-      ...(sentryRelease
-        ? {
-            release: {
-              name: sentryRelease,
-              inject: true,
-              create: false,
-              finalize: false,
-            },
-          }
-        : {}),
-    }),
-    ...(enableNgrok ? [ngrok()] : []),
-  ],
-  optimizeDeps: {
-    entries: ["src/**/*.{ts,tsx}", "!src/**/*.test.{ts,tsx}"],
-    include: [
-      "@hugeicons/react",
-      "defu",
-      "jose/errors",
-      "use-sync-external-store/shim",
-      "use-sync-external-store/shim/with-selector",
-    ],
-    exclude: [
-      // Keep the design-system package out of Vite's prebundle cache. Its
-      // many subpath exports can otherwise be invalidated mid-reload in dev.
-      "@strait/ui",
-      "@electric-sql/pglite",
-      "drizzle-orm/pglite",
-    ],
-  },
-  build: {
-    sourcemap: emitSourcemapsForSentry,
-    rollupOptions: {
-      output: {
-        assetFileNames(assetInfo) {
-          if (assetInfo.names.some((name) => name.endsWith(".css"))) {
-            return "assets/[name][extname]";
-          }
+export default defineConfig(async ({ command }) => {
+  // Import the Cloudflare plugin only for the cloudflare target. Importing it
+  // eagerly pulls in workerd/miniflare, which reference `registerHooks` from
+  // node:module; Bun does not implement that export, so an unconditional import
+  // crashes config loading for the node and vercel builds under Bun.
+  const cloudflarePlugins = isCloudflareBuild
+    ? [
+        (await import("@cloudflare/vite-plugin")).cloudflare({
+          viteEnvironment: { name: "ssr" },
+        }),
+      ]
+    : [];
 
-          return "assets/[name]-[hash][extname]";
-        },
+  return {
+    resolve: {
+      alias: {
+        "decimal.js-light": fileURLToPath(
+          new URL(
+            "../../node_modules/.bun/decimal.js-light@2.5.1/node_modules/decimal.js-light/decimal.mjs",
+            import.meta.url
+          )
+        ),
+        eventemitter3: fileURLToPath(
+          new URL(
+            "../../node_modules/.bun/eventemitter3@5.0.4/node_modules/eventemitter3/index.mjs",
+            import.meta.url
+          )
+        ),
+        "react-is": fileURLToPath(
+          new URL("./src/lib/react-is.ts", import.meta.url)
+        ),
+        "es-toolkit/compat/get": fileURLToPath(
+          new URL("./src/lib/es-toolkit-compat-get.ts", import.meta.url)
+        ),
+        "es-toolkit/compat/isPlainObject": fileURLToPath(
+          new URL(
+            "./src/lib/es-toolkit-compat-is-plain-object.ts",
+            import.meta.url
+          )
+        ),
+        "es-toolkit/compat/last": fileURLToPath(
+          new URL("./src/lib/es-toolkit-compat-last.ts", import.meta.url)
+        ),
+        "es-toolkit/compat/maxBy": fileURLToPath(
+          new URL("./src/lib/es-toolkit-compat-max-by.ts", import.meta.url)
+        ),
+        "es-toolkit/compat/minBy": fileURLToPath(
+          new URL("./src/lib/es-toolkit-compat-min-by.ts", import.meta.url)
+        ),
+        "es-toolkit/compat/omit": fileURLToPath(
+          new URL("./src/lib/es-toolkit-compat-omit.ts", import.meta.url)
+        ),
+        "es-toolkit/compat/range": fileURLToPath(
+          new URL("./src/lib/es-toolkit-compat-range.ts", import.meta.url)
+        ),
+        "es-toolkit/compat/sortBy": fileURLToPath(
+          new URL("./src/lib/es-toolkit-compat-sort-by.ts", import.meta.url)
+        ),
+        "es-toolkit/compat/sumBy": fileURLToPath(
+          new URL("./src/lib/es-toolkit-compat-sum-by.ts", import.meta.url)
+        ),
+        "es-toolkit/compat/throttle": fileURLToPath(
+          new URL("./src/lib/es-toolkit-compat-throttle.ts", import.meta.url)
+        ),
+        "es-toolkit/compat/uniqBy": fileURLToPath(
+          new URL("./src/lib/es-toolkit-compat-uniq-by.ts", import.meta.url)
+        ),
+        "use-sync-external-store/with-selector": fileURLToPath(
+          new URL(
+            "./src/lib/use-sync-external-store-with-selector.ts",
+            import.meta.url
+          )
+        ),
+        "use-sync-external-store/with-selector.js": fileURLToPath(
+          new URL(
+            "./src/lib/use-sync-external-store-with-selector.ts",
+            import.meta.url
+          )
+        ),
       },
-      // Externalize PGlite and test-only dependencies to prevent bundling
-      // PGlite is a 20MB in-memory PostgreSQL used only for API tests
-      external: [
+      tsconfigPaths: true,
+    },
+    plugins: [
+      ...cloudflarePlugins,
+      wellKnownOAuthPlugin(),
+      ...(command === "serve" ? [devtools()] : []),
+      tailwindcss(),
+      tanstackStart({
+        router: {
+          routeToken: "layout",
+        },
+        srcDirectory: "src",
+      }),
+      ...(isCloudflareBuild ? [] : [nitro({ preset: nitroPreset })]),
+      viteReact(),
+      sentryTanstackStart({
+        org: process.env.SENTRY_ORG,
+        project: process.env.SENTRY_PROJECT,
+        authToken: process.env.SENTRY_AUTH_TOKEN,
+        ...(sentryRelease
+          ? {
+              release: {
+                name: sentryRelease,
+                inject: true,
+                create: false,
+                finalize: false,
+              },
+            }
+          : {}),
+      }),
+      ...(enableNgrok ? [ngrok()] : []),
+    ],
+    optimizeDeps: {
+      entries: ["src/**/*.{ts,tsx}", "!src/**/*.test.{ts,tsx}"],
+      include: [
+        "@hugeicons/react",
+        "defu",
+        "jose/errors",
+        "use-sync-external-store/shim",
+        "use-sync-external-store/shim/with-selector",
+      ],
+      exclude: [
+        // Keep the design-system package out of Vite's prebundle cache. Its
+        // many subpath exports can otherwise be invalidated mid-reload in dev.
+        "@strait/ui",
         "@electric-sql/pglite",
         "drizzle-orm/pglite",
-        "drizzle-orm/pglite/migrator",
       ],
     },
-  },
-  server: {
-    port: 5173,
-    host: "localhost",
-    strictPort: true,
-  },
-}));
+    build: {
+      sourcemap: emitSourcemapsForSentry,
+      rollupOptions: {
+        output: {
+          assetFileNames(assetInfo: Rollup.PreRenderedAsset) {
+            if (assetInfo.names.some((name) => name.endsWith(".css"))) {
+              return "assets/[name][extname]";
+            }
+
+            return "assets/[name]-[hash][extname]";
+          },
+        },
+        // Externalize PGlite and test-only dependencies to prevent bundling
+        // PGlite is a 20MB in-memory PostgreSQL used only for API tests
+        external: [
+          "@electric-sql/pglite",
+          "drizzle-orm/pglite",
+          "drizzle-orm/pglite/migrator",
+        ],
+      },
+    },
+    server: {
+      port: 5173,
+      host: "localhost",
+      strictPort: true,
+    },
+  };
+});

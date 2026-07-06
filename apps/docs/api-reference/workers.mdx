@@ -42,6 +42,15 @@ Set the queue name in `strait.json`:
 
 Start the worker with the Strait CLI or SDK worker runtime.
 
+## Common Operations
+
+| Operation | Method and path |
+|---|---|
+| List workers | `GET /v1/workers` |
+| Get worker | `GET /v1/workers/{workerID}` |
+| Force-disconnect worker | `DELETE /v1/workers/{workerID}` |
+| List worker tasks | `GET /v1/workers/{workerID}/tasks` |
+
 ## Common Surfaces
 
 | Surface | Purpose |

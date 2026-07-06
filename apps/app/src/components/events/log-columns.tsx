@@ -7,7 +7,7 @@ import { formatDistanceToNow } from "date-fns";
 
 import { createActionsColumn } from "@/components/tables/shared-columns";
 import type { EventTrigger } from "@/hooks/api/types";
-import { EyeIcon, FileTextIcon, LinkSquareIcon } from "@/lib/icons";
+import { FileTextIcon, LinkSquareIcon } from "@/lib/icons";
 
 export const logColumns: ColumnDef<EventTrigger>[] = [
   {
@@ -78,13 +78,6 @@ export const logColumns: ColumnDef<EventTrigger>[] = [
           Copy run ID
         </DropdownMenuItem>
       ),
-    },
-    {
-      label: "View details",
-      icon: EyeIcon,
-      onClick: () => {
-        // TODO: navigate to event detail
-      },
     },
   ]),
 ];

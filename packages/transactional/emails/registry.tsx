@@ -32,12 +32,14 @@ const defineTemplate = <TProps extends z.ZodType>(
 ): TransactionalTemplate<TProps> => template;
 
 const strictObject = <TShape extends z.ZodRawShape>(shape: TShape) =>
-  z.object(shape).strict();
+  z.strictObject(shape);
 
 const requiredString = () => z.string().min(1);
-const finiteNumber = () => z.number().finite();
-const noPropsSchema = z.object({}).strict();
-const displayValueSchema = z.union([z.string().min(1), z.number().finite()]);
+// Zod 4's z.number() rejects Infinity, -Infinity, and NaN by default, so the
+// deprecated .finite() check is redundant; the name documents the requirement.
+const finiteNumber = () => z.number();
+const noPropsSchema = z.strictObject({});
+const displayValueSchema = z.union([z.string().min(1), z.number()]);
 
 const displayValue = (value: string | number): string =>
   typeof value === "number" ? value.toLocaleString("en-US") : value;

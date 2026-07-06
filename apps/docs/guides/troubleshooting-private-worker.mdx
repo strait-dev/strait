@@ -9,13 +9,20 @@ Use this page when private worker jobs stay queued or worker logs show reconnect
 ## Prerequisites
 
 - Worker logs
-- Project API key
+- `STRAIT_BASE_URL`, `STRAIT_API_KEY`, and the job's `STRAIT_JOB_ID`
 - Worker queue name
 - Access to the network path between worker and Strait
 
 ## 1. Confirm the Queue Name
 
 The job `queue_name` must match the worker `worker.queue_name`.
+
+Fetch the job and compare its `queue_name` against the `worker.queue_name` in the worker's `strait.json`:
+
+```bash
+curl -sS "$STRAIT_BASE_URL/v1/jobs/$STRAIT_JOB_ID" \
+  -H "Authorization: Bearer $STRAIT_API_KEY" | jq '.queue_name'
+```
 
 Expected result: the worker drains the same queue as the job.
 

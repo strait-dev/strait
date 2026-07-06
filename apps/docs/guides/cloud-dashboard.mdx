@@ -51,6 +51,15 @@ Use separate keys for local development, CI, and production services.
 
 Expected result: the job appears in the job list and can be triggered.
 
+The same job maps to a single API call, using the fixture at `apps/docs/examples/requests/create-http-job.json`:
+
+```bash
+curl -sS -X POST "$STRAIT_BASE_URL/v1/jobs" \
+  -H "Authorization: Bearer $STRAIT_API_KEY" \
+  -H "Content-Type: application/json" \
+  --data @apps/docs/examples/requests/create-http-job.json | jq
+```
+
 For production settings, read [Create a Production Job](/guides/production-job).
 
 ## 4. Create a Private Worker Job

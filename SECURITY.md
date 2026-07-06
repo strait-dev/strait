@@ -29,12 +29,12 @@ For non-security bugs, setup questions, and feature requests, use GitHub Issues 
 
 ## Security Practices
 
-- Go dependencies are checked with `govulncheck`
-- JavaScript dependencies are checked with Bun audit, with critical advisories treated as release blockers
+- Go dependencies are scanned with `govulncheck`
+- Go code is statically analyzed with `gosec`, and dependency licenses are checked with `go-licenses`
 - Secrets are scanned with gitleaks in local hooks and CI
 - GitHub Actions workflows use pinned SHA hashes for supply chain security
-- Docker images are published to `ghcr.io` with signed metadata
-- The Go binary is compiled with race detection in CI
+- Docker images are published to `ghcr.io` with keyless cosign signatures
+- The Go test suite runs under the race detector in CI
 - Secrets are never logged or exposed in error messages
 - RBAC and scoped API keys enforce least-privilege access
 - Webhook endpoints validate TLS and reject private IP ranges (configurable)

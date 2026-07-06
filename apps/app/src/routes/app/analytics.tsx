@@ -19,6 +19,7 @@ import {
   performanceQueryOptions,
   topCostsQueryOptions,
 } from "@/hooks/api/use-analytics";
+import { seo } from "@/lib/seo";
 
 type AnalyticsWindow = "7d" | "30d" | "90d";
 
@@ -62,7 +63,7 @@ export const Route = createFileRoute("/app/analytics")({
       context.queryClient.ensureQueryData(performanceQueryOptions(deps.window)),
     ]);
   },
-  head: () => ({ meta: [{ title: "Analytics · Strait" }] }),
+  head: () => ({ meta: seo({ title: "Analytics" }) }),
   errorComponent: ErrorComponent,
   component: AnalyticsPage,
 });

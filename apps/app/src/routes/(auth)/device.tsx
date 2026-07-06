@@ -13,6 +13,7 @@ import ErrorComponent from "@/components/common/error-component";
 import NotFound from "@/components/common/not-found";
 import { apiRequest } from "@/lib/api-client.server";
 import { CheckCircleIcon } from "@/lib/icons";
+import { seo } from "@/lib/seo";
 import { authMiddleware } from "@/middlewares/auth";
 import { requireActiveProjectAccess } from "@/middlewares/require-access";
 
@@ -55,7 +56,7 @@ export const Route = createFileRoute("/(auth)/device")({
       });
     }
   },
-  head: () => ({ meta: [{ title: "Device authorization · Strait" }] }),
+  head: () => ({ meta: seo({ title: "Device authorization" }) }),
   errorComponent: ErrorComponent,
   notFoundComponent: NotFound,
   component: DeviceAuthPage,

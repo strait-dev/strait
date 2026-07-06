@@ -5,6 +5,7 @@ import SignUpForm from "@/components/(auth)/sign-up-form";
 import ErrorComponent from "@/components/common/error-component";
 import NotFound from "@/components/common/not-found";
 import { authSearchSchema } from "@/lib/auth-search-schema";
+import { seoHead } from "@/lib/seo";
 import { storeUtmParams } from "@/lib/utm";
 
 export const Route = createFileRoute("/(auth)/signup")({
@@ -14,7 +15,13 @@ export const Route = createFileRoute("/(auth)/signup")({
       throw redirect({ to: search.redirect ?? "/app" });
     }
   },
-  head: () => ({ meta: [{ title: "Sign up · Strait" }] }),
+  head: () =>
+    seoHead({
+      title: "Sign up",
+      description:
+        "Create a Strait account to orchestrate jobs, workflows, and scheduled runs.",
+      path: "/signup",
+    }),
   errorComponent: ErrorComponent,
   notFoundComponent: NotFound,
   component: SignUpPage,

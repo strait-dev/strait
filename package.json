@@ -56,14 +56,14 @@
   },
   "trustedDependencies": [],
   "devDependencies": {
-    "@biomejs/biome": "2.5.1",
+    "@biomejs/biome": "2.5.2",
     "@manypkg/cli": "^0.25.1",
-    "@typescript/native-preview": "^7.0.0-dev.20260628.1",
+    "@typescript/native-preview": "^7.0.0-dev.20260701.1",
     "knip": "^6.23.0",
     "lefthook": "^2.1.9",
     "openapi-typescript": "^7.13.0",
     "react-doctor": "0.6.0",
-    "turbo": "^2.10.0",
+    "turbo": "^2.10.2",
     "ultracite": "7.8.3"
   }
 }

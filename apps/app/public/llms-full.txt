@@ -17,12 +17,35 @@ Strait is useful when you need more than a message queue or cron:
 - live updates, webhooks, audit events, and logs
 - SDKs for TypeScript, Python, Go, Ruby, and Rust
 
+## How Strait Works
+
+Strait is a job orchestration and workflow platform shipped as a single Go binary. PostgreSQL is the source of truth. Strait owns run state, execution ownership, retries, workflows, workers, observability, and APIs; its internal queue uses a vendored SQL snapshot of PgQue as the ready-event log. Redis powers pub/sub and Server-Sent Events for live updates.
+
+Strait never runs your code itself. Job code lives on your infrastructure and is reached one of two ways:
+
+- HTTP dispatch: Strait sends an HTTP POST to an endpoint you expose.
+- Worker plane: a long-lived worker process connects to the API over gRPC and streams runs back, keeping your code inside a private network with no inbound ports.
+
+The binary runs in `api`, `worker`, or `all` mode, so a single deployment can serve the API and process work, or the roles can scale independently. Two editions are selected at compile time: community (self-hosted, open source, no billing) and cloud (the hosted orchestrator at strait.dev with Stripe billing, multi-region, and advanced analytics). In every edition, customer job code runs on customer infrastructure.
+
+Learn more: https://docs.strait.dev/architecture
+
 ## Getting Started
 
 - Introduction: https://docs.strait.dev/introduction
 - Choose Your Path: https://docs.strait.dev/choose-your-path
 - Quickstart: https://docs.strait.dev/quickstart
 - Create a Production Job: https://docs.strait.dev/guides/production-job
+- Glossary: https://docs.strait.dev/glossary
+- FAQ: https://docs.strait.dev/faq
+
+## Use Cases
+
+- Background Jobs: https://docs.strait.dev/use-cases/background-jobs
+- Scheduled Work: https://docs.strait.dev/use-cases/scheduled-work
+- Multi-Step Workflows: https://docs.strait.dev/use-cases/multi-step-workflows
+- Private Network Jobs: https://docs.strait.dev/use-cases/private-network-jobs
+- Replay Failed Work: https://docs.strait.dev/use-cases/replay-failed-work
 
 ## Core Concepts
 
@@ -53,22 +76,34 @@ HTTP jobs call an endpoint you expose. Worker jobs keep your code inside a priva
 Learn more: https://docs.strait.dev/concepts/execution-modes
 Related: https://docs.strait.dev/guides/private-workers
 
+### Projects
+
+Projects isolate jobs, runs, workers, and members. Projects are the unit of access control and the scope for API keys.
+
+Learn more: https://docs.strait.dev/concepts/projects
+
 ## Job Features
 
 - Retry Strategies: https://docs.strait.dev/concepts/retry-strategies
 - Scheduling: https://docs.strait.dev/concepts/scheduling
-- Event Triggers: https://docs.strait.dev/concepts/event-triggers
-- Event Sources: https://docs.strait.dev/concepts/event-sources
 - Batch Operations: https://docs.strait.dev/concepts/batch-operations
 - Job Chaining: https://docs.strait.dev/concepts/job-chaining
 - Versioning: https://docs.strait.dev/concepts/versioning
 - Environments: https://docs.strait.dev/concepts/environments
 
+## Triggers and Events
+
+- Event Triggers: https://docs.strait.dev/concepts/event-triggers
+- Event Sources: https://docs.strait.dev/concepts/event-sources
+- Webhooks: https://docs.strait.dev/concepts/webhooks
+- Webhook Subscriptions: https://docs.strait.dev/concepts/webhook-subscriptions
+- Event Triggers Guide: https://docs.strait.dev/guides/event-triggers
+- Webhooks and Events Guide: https://docs.strait.dev/guides/webhooks-and-events
+
 ## Monitoring and Audit
 
 - Real-Time Streaming: https://docs.strait.dev/concepts/real-time
-- Webhooks: https://docs.strait.dev/concepts/webhooks
-- Webhook Subscriptions: https://docs.strait.dev/concepts/webhook-subscriptions
+- Inspect Runs: https://docs.strait.dev/guides/inspect-runs
 - Log Drains: https://docs.strait.dev/concepts/log-drains
 - ClickHouse Analytics: https://docs.strait.dev/concepts/clickhouse-analytics
 - Notifications: https://docs.strait.dev/concepts/notifications
@@ -79,14 +114,25 @@ Related: https://docs.strait.dev/guides/private-workers
 
 - Durable Workflows: https://docs.strait.dev/concepts/durable-workflows
 - Compensating Transactions: https://docs.strait.dev/concepts/compensating-transactions
+- Workflow Simulator: https://docs.strait.dev/concepts/workflow-simulator
+- Workflow Test Suites: https://docs.strait.dev/concepts/workflow-test-suites
+- Workflow Debugger: https://docs.strait.dev/concepts/workflow-debugger
+
+## Reliability and Operations
+
 - Adaptive Concurrency: https://docs.strait.dev/concepts/adaptive-concurrency
 - Canary Deployments: https://docs.strait.dev/concepts/canary-deployments
 - Cost Budgets: https://docs.strait.dev/concepts/cost-budgets
 - SLOs and Anomaly Detection: https://docs.strait.dev/concepts/slos
 - Debug Bundles: https://docs.strait.dev/concepts/debug-bundles
-- Workflow Simulator: https://docs.strait.dev/concepts/workflow-simulator
-- Workflow Test Suites: https://docs.strait.dev/concepts/workflow-test-suites
-- Workflow Debugger: https://docs.strait.dev/concepts/workflow-debugger
+- Health and Readiness: https://docs.strait.dev/operations/health-readiness
+- Observability: https://docs.strait.dev/operations/observability
+- Incident Response: https://docs.strait.dev/operations/incident-response
+- Queue Backlog: https://docs.strait.dev/operations/queue-backlog
+- Database Saturation: https://docs.strait.dev/operations/database-saturation
+- Redis and Sequin Outage: https://docs.strait.dev/operations/redis-sequin-outage
+- Webhook Delivery Backlog: https://docs.strait.dev/operations/webhook-delivery-backlog
+- Worker Fleet Scaling: https://docs.strait.dev/operations/worker-fleet-scaling
 
 ## Guides
 
@@ -99,8 +145,23 @@ Related: https://docs.strait.dev/guides/private-workers
 - Idempotency: https://docs.strait.dev/guides/idempotency
 - Security: https://docs.strait.dev/guides/security
 - SDK Integration: https://docs.strait.dev/guides/sdk-integration
-- Event Triggers: https://docs.strait.dev/guides/event-triggers
-- Workflow Approvals: https://docs.strait.dev/guides/workflow-approvals
+- Cloud Dashboard: https://docs.strait.dev/guides/cloud-dashboard
+- Cloud Project Setup: https://docs.strait.dev/guides/cloud-project-setup
+
+## Troubleshooting
+
+- Troubleshooting Index: https://docs.strait.dev/guides/troubleshooting
+- Runs Queued: https://docs.strait.dev/guides/troubleshooting-runs-queued
+- Run Failed: https://docs.strait.dev/guides/troubleshooting-run-failed
+- Private Worker: https://docs.strait.dev/guides/troubleshooting-private-worker
+- Event Triggers: https://docs.strait.dev/guides/troubleshooting-event-triggers
+- Webhooks: https://docs.strait.dev/guides/troubleshooting-webhooks
+- Self-Host Health: https://docs.strait.dev/guides/troubleshooting-self-host-health
+
+## Tutorials
+
+- Data Pipeline: https://docs.strait.dev/tutorials/data-pipeline
+- Webhook Processor: https://docs.strait.dev/tutorials/webhook-processor
 
 ## SDKs
 
@@ -117,6 +178,23 @@ Use SDKs to trigger jobs, report progress, manage runs, and define workflows fro
 - Ruby: https://docs.strait.dev/sdks/ruby
 - Rust: https://docs.strait.dev/sdks/rust
 
+## Self-Hosting and Deployment
+
+- Self-Hosting: https://docs.strait.dev/guides/self-hosting
+- Deployment: https://docs.strait.dev/guides/deployment
+- Backup and Restore: https://docs.strait.dev/guides/self-host-backup-restore
+- Upgrades: https://docs.strait.dev/guides/self-host-upgrades
+- Environment Variables: https://docs.strait.dev/configuration/environment-variables
+
+## Billing
+
+- Pricing: https://docs.strait.dev/billing/pricing
+- Billing FAQ: https://docs.strait.dev/billing/faq
+
+## Integrations
+
+- Integrations: https://docs.strait.dev/integrations/index
+
 ## Compare
 
 - Strait and Message Queues: https://docs.strait.dev/compare/message-queues
@@ -126,9 +204,23 @@ Use SDKs to trigger jobs, report progress, manage runs, and define workflows fro
 
 ## API and CLI
 
-- API Reference: https://docs.strait.dev/api-reference/overview
+- API Overview: https://docs.strait.dev/api-reference/overview
+- Jobs API: https://docs.strait.dev/api-reference/jobs
+- Runs API: https://docs.strait.dev/api-reference/runs
+- Workers API: https://docs.strait.dev/api-reference/workers
+- Webhooks API: https://docs.strait.dev/api-reference/webhooks
+- Event Sources API: https://docs.strait.dev/api-reference/event-sources
+- Projects API: https://docs.strait.dev/api-reference/projects
+- Admin Operations API: https://docs.strait.dev/api-reference/admin-ops
+- Generated API Fields: https://docs.strait.dev/api-reference/generated-fields
 - CLI Overview: https://docs.strait.dev/cli/overview
 - CLI API Keys: https://docs.strait.dev/cli/api-keys
+
+## Reference
+
+- Architecture: https://docs.strait.dev/architecture
+- Glossary: https://docs.strait.dev/glossary
+- FAQ: https://docs.strait.dev/faq
 - Environment Variables: https://docs.strait.dev/configuration/environment-variables
 
 ## Repositories

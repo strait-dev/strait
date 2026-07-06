@@ -10,9 +10,9 @@ This package owns shared production rules and dashboards. Built-in Go service da
 
 | File | Purpose |
 |------|---------|
-| `alerts-strait-core.yaml` | Alert rules for dispatch errors, queue depth, latency, consumer lag, WAL growth, replication slot health, and more (189 lines, ~15 rules) |
+| `alerts-strait-core.yaml` | Alert rules for dispatch errors, queue depth, latency, consumer lag, WAL growth, replication slot health, and more |
 | `alerts-authz-rbac.yaml` | Alert rules for authorization failures (403 rate), permission cache hit ratio, and audit event insert errors |
-| `grafana-authz-rbac-dashboard.json` | Grafana dashboard for AuthZ/RBAC metrics (HTTP 401/403 rates, cache performance) |
+| `grafana-authz-rbac-dashboard.json` | Grafana dashboard for AuthZ/RBAC metrics: HTTP 401/403 rate, permission cache hit ratio, RBAC mutations, audit event insert errors, and webhook delivery failures |
 
 ## Alert groups
 

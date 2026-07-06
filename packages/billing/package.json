@@ -13,5 +13,8 @@
     "check:generated": "node ./scripts/generate-catalog.mjs --check",
     "typecheck": "echo 'No typecheck step for @strait/billing'",
     "clean": "git clean -xdf .turbo node_modules"
+  },
+  "dependencies": {
+    "@typescript/native-preview": "^7.0.0-dev.20260701.1"
   }
 }

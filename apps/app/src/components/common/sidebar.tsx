@@ -125,11 +125,11 @@ const AppSidebar = ({ session }: Props) => {
           <Link to="/app">
             <span className="sr-only">Strait</span>
             <img
-              alt="Strait logo"
+              alt="Strait"
               className="h-8 w-auto"
-              height={20}
-              src="/strait-logo-black.svg"
-              width={20}
+              height={32}
+              src="/strait-logo-wordmark.svg"
+              width={74}
             />
           </Link>
         </div>

@@ -3,14 +3,19 @@
 @source "./**/*.{ts,tsx}";
 @source "../node_modules/@strait/ui/dist/**/*.{js,ts,tsx}";
 
+/*
+ * Sidebar hover (accent) and active tints. Same brand hue as the primary
+ * (37.42); the chroma is raised from the previous near-grey values so an active
+ * item reads as an intentional warm orange highlight rather than a muddy red.
+ */
 :root {
-  --sidebar-accent: oklch(0.95 0.035 37.42);
+  --sidebar-accent: oklch(0.94 0.06 37.42);
   --sidebar-accent-foreground: var(--sidebar-foreground);
-  --sidebar-active: oklch(0.92 0.055 37.42);
+  --sidebar-active: oklch(0.9 0.1 37.42);
 }
 
 .dark {
-  --sidebar-accent: oklch(0.28 0.055 37.42);
+  --sidebar-accent: oklch(0.3 0.085 37.42);
   --sidebar-accent-foreground: var(--sidebar-foreground);
-  --sidebar-active: oklch(0.33 0.075 37.42);
+  --sidebar-active: oklch(0.36 0.11 37.42);
 }

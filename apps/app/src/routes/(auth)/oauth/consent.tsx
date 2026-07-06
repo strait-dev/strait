@@ -22,6 +22,7 @@ import {
   SCOPE_DESCRIPTIONS,
 } from "@/lib/oauth-scopes";
 import { captureException } from "@/lib/sentry";
+import { seoHead } from "@/lib/seo";
 import { authMiddleware } from "@/middlewares/auth";
 import { type ClientInfo, resolveRedirectHost } from "./-consent-utils";
 
@@ -161,6 +162,13 @@ export const Route = createFileRoute("/(auth)/oauth/consent")({
     }
     return null;
   },
+  head: () =>
+    seoHead({
+      title: "Authorize application",
+      description:
+        "Review and authorize an application requesting access to your Strait account.",
+      path: "/oauth/consent",
+    }),
   errorComponent: ErrorComponent,
   notFoundComponent: NotFound,
   component: OAuthConsentPage,

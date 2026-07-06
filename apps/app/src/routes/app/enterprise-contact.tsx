@@ -34,6 +34,7 @@ import { formatFieldErrors } from "@/lib/form-errors";
 import { ChevronLeftIcon } from "@/lib/icons";
 import { enforceRateLimit } from "@/lib/rate-limit.server";
 import { getResend } from "@/lib/resend.server";
+import { seo } from "@/lib/seo";
 import { authMiddleware } from "@/middlewares/auth";
 
 const submitEnterpriseContact = createServerFn({ method: "POST" })
@@ -72,7 +73,7 @@ const submitEnterpriseContact = createServerFn({ method: "POST" })
   });
 
 export const Route = createFileRoute("/app/enterprise-contact")({
-  head: () => ({ meta: [{ title: "Contact sales · Strait" }] }),
+  head: () => ({ meta: seo({ title: "Contact sales" }) }),
   errorComponent: ErrorComponent,
   component: EnterpriseContactPage,
 });

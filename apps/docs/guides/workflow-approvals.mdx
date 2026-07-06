@@ -116,3 +116,12 @@ A single workflow can include several approval steps at different stages:
 
 - [Event Triggers](/concepts/event-triggers): event-based workflow pauses.
 - [Audit Events](/guides/audit-events): approval actions are recorded in the audit log.
+
+## Related Concepts
+
+- [Workflows](/concepts/workflows): dependencies, retries, and step types that approval gates fit into.
+- [Durable Workflows](/concepts/durable-workflows): how a workflow can wait on an approval for hours or days without losing progress.
+- [Compensating Transactions](/concepts/compensating-transactions): undo earlier steps when a rejected approval fails the workflow.
+- [Workflow Simulator](/concepts/workflow-simulator): preview where an approval gate falls in the step order before triggering a real run.
+- [Workflow Debugger](/concepts/workflow-debugger): inspect a workflow run to see when a step entered `waiting_for_approval` and how long it waited.
+- [Workflow Test Suites](/concepts/workflow-test-suites): check approval gate behavior in CI before deploying workflow changes.

@@ -64,6 +64,7 @@ import { useCursorPagination } from "@/hooks/use-cursor-pagination";
 import { useHydratedTableData } from "@/hooks/use-hydrated-table-data";
 import { AlertIcon, RefreshIcon, SearchIcon, TrashIcon } from "@/lib/icons";
 import { dlqResourcePermissions } from "@/lib/resource-permissions";
+import { seo } from "@/lib/seo";
 import { DLQ_ERROR_TYPES } from "@/lib/status";
 import type { AppRouteContext } from "@/routes/app/layout";
 
@@ -97,7 +98,7 @@ export const Route = createFileRoute("/app/dlq/")({
     }
     return { hasProject, session };
   },
-  head: () => ({ meta: [{ title: "Dead letter queue · Strait" }] }),
+  head: () => ({ meta: seo({ title: "Dead letter queue" }) }),
   pendingComponent: TablePageSkeleton,
   errorComponent: ErrorComponent,
   component: DlqPage,

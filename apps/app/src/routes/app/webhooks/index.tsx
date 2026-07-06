@@ -66,6 +66,7 @@ import {
   WebhookIcon,
 } from "@/lib/icons";
 import { webhookResourcePermissions } from "@/lib/resource-permissions";
+import { seo } from "@/lib/seo";
 import { WEBHOOK_STATUS_OPTIONS } from "@/lib/status";
 import type { AppRouteContext } from "@/routes/app/layout";
 
@@ -97,7 +98,7 @@ export const Route = createFileRoute("/app/webhooks/")({
     }
     return { hasProject, session };
   },
-  head: () => ({ meta: [{ title: "Webhooks · Strait" }] }),
+  head: () => ({ meta: seo({ title: "Webhooks" }) }),
   pendingComponent: TablePageSkeleton,
   errorComponent: ErrorComponent,
   component: WebhooksPage,

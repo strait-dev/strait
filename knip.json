@@ -6,7 +6,8 @@
     "openapi-typescript"
   ],
   "ignoreWorkspaces": ["apps/strait", "apps/app", "packages/*"],
-  "ignoreBinaries": ["go"],
+  "ignore": ["doctor.config.ts", "apps/docs/examples/snippets/trigger-job.ts"],
+  "ignoreBinaries": ["go", "python3", "gofmt"],
   "workspaces": {
     "apps/docs": {
       "entry": ["docs.json"]

@@ -16,6 +16,7 @@ import { authClient } from "@/lib/auth-client";
 import { formatFieldErrors } from "@/lib/form-errors";
 import { CheckCircleIcon } from "@/lib/icons";
 import { captureSentryAuthError } from "@/lib/sentry";
+import { seo } from "@/lib/seo";
 
 const resetPasswordSearchSchema = z.object({
   token: z.string(),
@@ -39,7 +40,7 @@ export const Route = createFileRoute("/(auth)/reset-password")({
       throw redirect({ to: "/app" });
     }
   },
-  head: () => ({ meta: [{ title: "Reset password · Strait" }] }),
+  head: () => ({ meta: seo({ title: "Reset password" }) }),
   errorComponent: ErrorComponent,
   notFoundComponent: NotFound,
   component: ResetPasswordPage,

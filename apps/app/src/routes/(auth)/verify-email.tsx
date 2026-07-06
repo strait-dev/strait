@@ -10,6 +10,7 @@ import ErrorComponent from "@/components/common/error-component";
 import NotFound from "@/components/common/not-found";
 import { authClient } from "@/lib/auth-client";
 import { CheckCircleIcon, XCircleIcon } from "@/lib/icons";
+import { seo } from "@/lib/seo";
 
 const verifyEmailSearchSchema = z.object({
   token: z.string(),
@@ -22,7 +23,7 @@ export const Route = createFileRoute("/(auth)/verify-email")({
       throw redirect({ to: "/app" });
     }
   },
-  head: () => ({ meta: [{ title: "Verify email · Strait" }] }),
+  head: () => ({ meta: seo({ title: "Verify email" }) }),
   errorComponent: ErrorComponent,
   notFoundComponent: NotFound,
   component: VerifyEmailPage,

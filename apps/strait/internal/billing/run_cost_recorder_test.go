@@ -2,16 +2,56 @@ package billing
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"testing"
 	"time"
 
+	"strait/internal/clickhouse"
+
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// captureEnqueuer records enqueued ClickHouse events for assertions.
+type captureEnqueuer struct {
+	records []any
+}
+
+func (c *captureEnqueuer) Enqueue(record any) bool {
+	c.records = append(c.records, record)
+	return true
+}
+
+// TestEmitClickHouse_IncludesProjectAndRunAttribution guards that completed-run
+// billing events carry project attribution and correlate back to the run and its
+// recorded cost. Regression: ProjectID, runID, and costMicroUSD were previously
+// discarded, leaving every billing_events row without project or run/cost context.
+func TestEmitClickHouse_IncludesProjectAndRunAttribution(t *testing.T) {
+	enq := &captureEnqueuer{}
+	r := NewRunCostRecorder(&recordingStore{}, nil, enq, slog.Default())
+
+	r.emitClickHouse("org-1", "proj-9", "run-42", 20, "http")
+
+	require.Len(t, enq.records, 1)
+	rec, ok := enq.records[0].(clickhouse.BillingEventRecord)
+	require.True(t, ok, "expected a BillingEventRecord")
+	assert.Equal(t, "org-1", rec.OrgID)
+	assert.Equal(t, "proj-9", rec.ProjectID)
+	assert.Equal(t, "http_run_completed", rec.EventType)
+
+	var details struct {
+		RunID        string `json:"run_id"`
+		CostMicroUSD int64  `json:"cost_micro_usd"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(rec.Details), &details))
+	assert.Equal(t, "run-42", details.RunID)
+	assert.Equal(t, int64(20), details.CostMicroUSD)
+}
 
 // recordingStore counts UpsertUsageRecord calls so tests can assert idempotency.
 type recordingStore struct {

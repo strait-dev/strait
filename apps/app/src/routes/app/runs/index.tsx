@@ -57,6 +57,7 @@ import {
   XCircleIcon,
 } from "@/lib/icons";
 import { runResourcePermissions } from "@/lib/resource-permissions";
+import { seo } from "@/lib/seo";
 import { RUN_STATUS_OPTIONS } from "@/lib/status";
 import { stopInteractiveRowClick } from "@/lib/table-interactions";
 import type { AppRouteContext } from "@/routes/app/layout";
@@ -89,7 +90,7 @@ export const Route = createFileRoute("/app/runs/")({
     }
     return { hasProject, session };
   },
-  head: () => ({ meta: [{ title: "Runs · Strait" }] }),
+  head: () => ({ meta: seo({ title: "Runs" }) }),
   pendingComponent: TablePageSkeleton,
   errorComponent: ErrorComponent,
   component: RunsPage,

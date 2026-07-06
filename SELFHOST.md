@@ -25,7 +25,8 @@ make selfhost
 
 ```bash
 curl http://localhost:8080/health
-# {"edition":"community","status":"ok"}
+# {"status":"ok","version":"...","timestamp":"..."}
+# (edition and build details are only returned with a valid X-Internal-Secret header)
 
 open http://localhost:3000
 ```

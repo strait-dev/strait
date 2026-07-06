@@ -1,5 +1,4 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-
 import {
   Alert,
   AlertDescription,
@@ -71,6 +70,7 @@ import { useProjectPermissions } from "@/hooks/auth/use-project-permissions";
 import { useIsHydrated } from "@/hooks/use-is-hydrated";
 import { formatDuration } from "@/lib/format";
 import { AlertCircleIcon, RefreshIcon, XCircleIcon } from "@/lib/icons";
+import { seo } from "@/lib/seo";
 import type { AppRouteContext } from "@/routes/app/layout";
 
 export const Route = createFileRoute("/app/runs/$id")({
@@ -84,7 +84,7 @@ export const Route = createFileRoute("/app/runs/$id")({
     ]);
     return { session };
   },
-  head: () => ({ meta: [{ title: "Run details · Strait" }] }),
+  head: () => ({ meta: seo({ title: "Run details" }) }),
   pendingComponent: DetailPageSkeleton,
   errorComponent: ErrorComponent,
   component: RunDetailPage,

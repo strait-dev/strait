@@ -14,6 +14,7 @@ import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools";
 import { ThemeProvider } from "next-themes";
 import { getSession } from "@/lib/auth-handler";
 import { captureException } from "@/lib/sentry";
+import { seo, siteStructuredData } from "@/lib/seo";
 import css from "@/styles.css?url";
 
 export type AuthUser = {
@@ -70,24 +71,18 @@ export const Route = createRootRouteWithContext<RouterContext>()({
         name: "viewport",
         content: "width=device-width, initial-scale=1",
       },
+      ...seo(),
+      { name: "application-name", content: "Strait" },
+      { name: "apple-mobile-web-app-title", content: "Strait" },
+      { name: "apple-mobile-web-app-capable", content: "yes" },
+      { name: "mobile-web-app-capable", content: "yes" },
       {
-        title: "Strait",
+        name: "apple-mobile-web-app-status-bar-style",
+        content: "black-translucent",
       },
-      {
-        name: "description",
-        content:
-          "Strait is a production-grade job orchestration platform for scheduling, executing, and monitoring distributed workloads.",
-      },
-      { property: "og:title", content: "Strait" },
-      {
-        property: "og:description",
-        content:
-          "Strait is a production-grade job orchestration platform for scheduling, executing, and monitoring distributed workloads.",
-      },
-      { property: "og:image", content: "/og.png" },
-      { property: "og:type", content: "website" },
-      { name: "twitter:card", content: "summary_large_image" },
-      { name: "twitter:image", content: "/og.png" },
+      { name: "format-detection", content: "telephone=no" },
+      { name: "theme-color", content: "#ffffff" },
+      { "script:ld+json": siteStructuredData() },
     ],
     links: [
       { rel: "stylesheet", href: css },
@@ -97,7 +92,8 @@ export const Route = createRootRouteWithContext<RouterContext>()({
         rel: "stylesheet",
         href: "https://fonts.googleapis.com/css2?family=Geist:wght@100;200;300;400;500;600;700;800;900&family=Geist+Mono:wght@100;200;300;400;500;600;700;800;900&display=swap",
       },
-      { rel: "icon", href: "/favicon.ico" },
+      { rel: "icon", href: "/favicon.ico", sizes: "32x32" },
+      { rel: "icon", type: "image/svg+xml", href: "/favicon.svg" },
       {
         rel: "icon",
         type: "image/png",

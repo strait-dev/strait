@@ -45,9 +45,17 @@ curl -sS -X POST "$STRAIT_BASE_URL/v1/events/dispatch" \
 | Update event source | `PATCH /v1/event-sources/{sourceID}` |
 | Delete event source | `DELETE /v1/event-sources/{sourceID}` |
 | Subscribe target | `POST /v1/event-sources/{sourceID}/subscribe` |
+| List event source subscriptions | `GET /v1/event-sources/{sourceID}/subscriptions` |
 | Delete subscription | `DELETE /v1/event-sources/{sourceID}/subscriptions/{subID}` |
 | Dispatch event | `POST /v1/events/dispatch` |
+| List event triggers | `GET /v1/events` |
+| Get event trigger statistics | `GET /v1/events/stats` |
+| Purge event triggers | `POST /v1/events/purge` |
+| Send event by prefix | `POST /v1/events/prefix/{prefix}/send` |
+| Get event trigger | `GET /v1/events/{eventKey}` |
+| Cancel event trigger | `DELETE /v1/events/{eventKey}` |
 | Send event key | `POST /v1/events/{eventKey}/send` |
+| Stream event trigger updates | `GET /v1/events/{eventKey}/stream` |
 
 ## Failure Cases
 

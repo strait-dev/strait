@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
 	"time"
@@ -1781,8 +1782,12 @@ func (q *Queries) appendRunLifecycleEvent(ctx context.Context, id string, from, 
 	attemptValue := 0
 	if attempt != nil {
 		attemptValue = *attempt
-	} else {
-		_ = q.db.QueryRow(ctx, `SELECT attempt FROM job_run_state WHERE run_id = $1`, id).Scan(&attemptValue)
+	} else if err := q.db.QueryRow(ctx, `SELECT attempt FROM job_run_state WHERE run_id = $1`, id).Scan(&attemptValue); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		// A missing row is expected (attempt clamps to 1 below); a real query
+		// error must not be swallowed, or lifecycle events silently record the
+		// wrong attempt number with no trace of why.
+		slog.Warn("looking up attempt for run lifecycle event; defaulting to 1",
+			"run_id", id, "error", err)
 	}
 	if attemptValue <= 0 {
 		attemptValue = 1

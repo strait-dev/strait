@@ -31,8 +31,11 @@ func (q *Queries) GetJobCostEstimate(ctx context.Context, jobID string) (*domain
 	if q.chDB != nil {
 		est, err := q.jobCostEstimateFromClickHouse(ctx, jobID)
 		if err != nil {
-			// ClickHouse is optional; fall through to the flat-rate fallback.
-			_ = err
+			// ClickHouse is optional; fall through to the flat-rate fallback,
+			// but record the failure on the span so an outage degrading every
+			// estimate to the flat rate is visible in traces rather than silent.
+			span.RecordError(err)
+			span.AddEvent("clickhouse cost estimate unavailable; using flat-rate fallback")
 		} else if est != nil {
 			return est, nil
 		}

@@ -32,6 +32,7 @@ import { useCurrentPlan } from "@/hooks/billing/use-current-plan";
 import { useIsHydrated } from "@/hooks/use-is-hydrated";
 import { CheckIcon, ChevronLeftIcon, PlusIcon } from "@/lib/icons";
 import { tierAtLeast } from "@/lib/plan-tiers";
+import { seo } from "@/lib/seo";
 
 const BASIC_EVENTS = [
   {
@@ -130,7 +131,7 @@ const createWebhookSchema = z.object({
 });
 
 export const Route = createFileRoute("/app/webhooks/new")({
-  head: () => ({ meta: [{ title: "New webhook · Strait" }] }),
+  head: () => ({ meta: seo({ title: "New webhook" }) }),
   errorComponent: ErrorComponent,
   component: CreateWebhookPage,
 });

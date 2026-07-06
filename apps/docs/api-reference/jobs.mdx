@@ -44,12 +44,24 @@ Expected result: a run object.
 |---|---|
 | List jobs | `GET /v1/jobs` |
 | Create job | `POST /v1/jobs` |
+| Batch create jobs | `POST /v1/jobs/batch` |
+| Batch enable jobs | `POST /v1/jobs/batch-enable` |
+| Batch disable jobs | `POST /v1/jobs/batch-disable` |
 | Get job | `GET /v1/jobs/{jobID}` |
 | Update job | `PATCH /v1/jobs/{jobID}` |
 | Delete job | `DELETE /v1/jobs/{jobID}` |
 | Trigger job | `POST /v1/jobs/{jobID}/trigger` |
+| Create job dependency | `POST /v1/jobs/{jobID}/dependencies` |
+| List job dependencies | `GET /v1/jobs/{jobID}/dependencies` |
+| Delete job dependency | `DELETE /v1/jobs/{jobID}/dependencies/{depID}` |
+| List job versions | `GET /v1/jobs/{jobID}/versions` |
+| Get job version | `GET /v1/jobs/{jobID}/versions/{versionID}` |
+| Clone job | `POST /v1/jobs/{jobID}/clone` |
+| Get job health | `GET /v1/jobs/{jobID}/health` |
 | Pause job | `POST /v1/jobs/{jobID}/pause` |
 | Resume job | `POST /v1/jobs/{jobID}/resume` |
+| Set job endpoint | `POST /v1/jobs/{jobID}/endpoint` |
+| Verify job endpoint | `POST /v1/jobs/{jobID}/endpoint/verify` |
 
 ## Failure Cases
 

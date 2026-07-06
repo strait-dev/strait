@@ -62,6 +62,36 @@ await sender.send({
 });
 ```
 
+Go-triggered emails do not import template components directly. The internal
+`POST /internal/transactional-email` endpoint in `apps/app` resolves the
+template id sent by the Go service, validates the untyped `props` payload
+against that template's own schema, then renders and sends it:
+
+```tsx
+import { resolveTransactionalEmailTemplate } from "@strait/transactional/registry";
+
+const template = resolveTransactionalEmailTemplate("billing.payment_failed");
+if (!template) {
+  throw new Error("unknown transactional email template");
+}
+
+const parsedProps = template.schema.safeParse({
+  gracePeriodEnd: "April 15, 2026",
+  name: "Leonardo",
+  planName: "Pro",
+});
+if (!parsedProps.success) {
+  throw new Error("invalid transactional email template props");
+}
+
+const subject = template.subject(parsedProps.data);
+const element = template.render(parsedProps.data);
+```
+
+`transactionalEmailTemplateIds` (every valid template id) and the
+`TransactionalEmailTemplateId` union type are exported from the same
+`./registry` entry point for validating or typing template ids elsewhere.
+
 ## Used by
 
 - `apps/app` -- sends app-owned emails via `auth.server.ts`,
@@ -97,4 +127,5 @@ bun run typecheck    # type-check with tsgo
 ```bash
 bun run --cwd packages/transactional typecheck
 bun run --cwd packages/transactional biome:lint
+bun run --cwd packages/transactional test
 ```

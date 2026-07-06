@@ -11,7 +11,7 @@
     "@/*": ["./src/*"],
     "@strait/transactional": ["../../packages/transactional/src/index.ts"]
   },
-  "ignoreDependencies": ["@sentry/cli", "use-sync-external-store"],
+  "ignoreDependencies": ["@sentry/cli"],
   "ignoreBinaries": ["biome", "go", "openapi-typescript"],
   "includeEntryExports": false,
   "ignoreExportsUsedInFile": true,

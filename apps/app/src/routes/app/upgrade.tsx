@@ -42,6 +42,7 @@ import { assertCloudEdition, isCommunityEdition } from "@/lib/edition";
 import { AlertCircleIcon, LinkSquareIcon } from "@/lib/icons";
 import { isDowngrade as checkIsDowngrade } from "@/lib/plan-tiers";
 import { enforceRateLimit } from "@/lib/rate-limit.server";
+import { seo } from "@/lib/seo";
 import {
   findOrCreateCustomerForOrg,
   getStripeClient,
@@ -167,7 +168,7 @@ export const Route = createFileRoute("/app/upgrade")({
       comparisonFeatures: apiPlansToComparisonFeatures(apiPlans),
     };
   },
-  head: () => ({ meta: [{ title: "Upgrade · Strait" }] }),
+  head: () => ({ meta: seo({ title: "Upgrade" }) }),
   errorComponent: ErrorComponent,
   component: RouteComponent,
 });
