@@ -24,8 +24,8 @@ const BASE_URL = (
 ).replace(TRAILING_SLASH, "");
 
 const OG_IMAGE_URL = `${BASE_URL}/og.png`;
-const OG_IMAGE_WIDTH = "7680";
-const OG_IMAGE_HEIGHT = "4000";
+const OG_IMAGE_WIDTH = "4800";
+const OG_IMAGE_HEIGHT = "2500";
 const OG_IMAGE_ALT = `${SITE_NAME} — job orchestration platform`;
 
 type MetaTag =

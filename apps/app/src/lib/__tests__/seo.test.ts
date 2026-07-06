@@ -55,8 +55,8 @@ describe("seo", () => {
 
   it("declares the shared image dimensions and site name", () => {
     const tags = seo();
-    expect(property(tags, "og:image:width")).toBe("7680");
-    expect(property(tags, "og:image:height")).toBe("4000");
+    expect(property(tags, "og:image:width")).toBe("4800");
+    expect(property(tags, "og:image:height")).toBe("2500");
     expect(property(tags, "og:site_name")).toBe("Strait");
   });
 
