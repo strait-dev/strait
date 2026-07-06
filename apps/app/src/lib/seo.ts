@@ -27,11 +27,17 @@ const OG_IMAGE_URL = `${BASE_URL}/og.png`;
 const OG_IMAGE_WIDTH = "4800";
 const OG_IMAGE_HEIGHT = "2500";
 const OG_IMAGE_ALT = `${SITE_NAME} — job orchestration platform`;
+const OG_LOCALE = "en_US";
+
+/** The app's public origin, with any trailing slash removed. */
+export const SITE_URL = BASE_URL;
 
 type MetaTag =
   | { title: string }
   | { name: string; content: string }
   | { property: string; content: string };
+
+type LinkTag = { rel: string; href: string };
 
 type SeoOptions = {
   /** Page-specific title. Rendered as `${title} · Strait`; omit for the site default. */
@@ -42,11 +48,12 @@ type SeoOptions = {
   image?: string;
 };
 
-function toAbsolute(image: string): string {
-  if (image.startsWith("http://") || image.startsWith("https://")) {
-    return image;
+/** Resolve a root-relative path or partial URL against the public origin. */
+export function absoluteUrl(pathOrUrl: string): string {
+  if (pathOrUrl.startsWith("http://") || pathOrUrl.startsWith("https://")) {
+    return pathOrUrl;
   }
-  return `${BASE_URL}/${image.replace(LEADING_SLASH, "")}`;
+  return `${BASE_URL}/${pathOrUrl.replace(LEADING_SLASH, "")}`;
 }
 
 /**
@@ -56,7 +63,7 @@ function toAbsolute(image: string): string {
 export function seo({ title, description, image }: SeoOptions = {}): MetaTag[] {
   const pageTitle = title ? `${title} · ${SITE_NAME}` : SITE_NAME;
   const pageDescription = description ?? DEFAULT_DESCRIPTION;
-  const ogImage = image ? toAbsolute(image) : OG_IMAGE_URL;
+  const ogImage = image ? absoluteUrl(image) : OG_IMAGE_URL;
 
   return [
     { title: pageTitle },
@@ -65,6 +72,7 @@ export function seo({ title, description, image }: SeoOptions = {}): MetaTag[] {
     { property: "og:description", content: pageDescription },
     { property: "og:type", content: "website" },
     { property: "og:site_name", content: SITE_NAME },
+    { property: "og:locale", content: OG_LOCALE },
     { property: "og:image", content: ogImage },
     { property: "og:image:width", content: OG_IMAGE_WIDTH },
     { property: "og:image:height", content: OG_IMAGE_HEIGHT },
@@ -74,4 +82,50 @@ export function seo({ title, description, image }: SeoOptions = {}): MetaTag[] {
     { name: "twitter:description", content: pageDescription },
     { name: "twitter:image", content: ogImage },
   ];
+}
+
+type SeoHeadOptions = SeoOptions & {
+  /**
+   * The page's absolute path (e.g. `match.pathname`). When provided, the page
+   * advertises a canonical URL and `og:url`. Use for public, shareable pages;
+   * omit for authenticated dashboard routes where a canonical link is moot.
+   */
+  path?: string;
+};
+
+/**
+ * Build a full `head` fragment (`meta` plus an optional canonical `link`) for a
+ * public page. Prefer this over `seo()` when the page has a stable, shareable
+ * URL worth advertising as canonical.
+ */
+export function seoHead({ path, ...options }: SeoHeadOptions = {}): {
+  meta: MetaTag[];
+  links?: LinkTag[];
+} {
+  const meta = seo(options);
+  if (!path) {
+    return { meta };
+  }
+
+  const url = absoluteUrl(path);
+  meta.push({ property: "og:url", content: url });
+  return { meta, links: [{ rel: "canonical", href: url }] };
+}
+
+/**
+ * JSON-LD structured data describing the product. Rendered once in the document
+ * head. Only search crawlers consume this; it has no effect while the app is
+ * disallowed in robots.txt.
+ */
+export function siteStructuredData(): Record<string, unknown> {
+  return {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    name: SITE_NAME,
+    applicationCategory: "DeveloperApplication",
+    operatingSystem: "Web",
+    description: DEFAULT_DESCRIPTION,
+    url: BASE_URL,
+    image: OG_IMAGE_URL,
+  };
 }

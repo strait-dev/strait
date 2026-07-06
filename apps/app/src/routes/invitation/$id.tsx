@@ -17,7 +17,7 @@ import { authClient } from "@/lib/auth-client";
 import { getSession } from "@/lib/auth-handler";
 import { GlobeIcon, UsersAltIcon } from "@/lib/icons";
 import { captureException, captureSentryAuthError } from "@/lib/sentry";
-import { seo } from "@/lib/seo";
+import { seoHead } from "@/lib/seo";
 
 const searchParamsSchema = z.object({
   error: z.string().optional(),
@@ -85,7 +85,12 @@ export const Route = createFileRoute("/invitation/$id")({
       });
     }
   },
-  head: () => ({ meta: seo({ title: "Invitation" }) }),
+  head: ({ match }) =>
+    seoHead({
+      title: "Invitation",
+      description: "You have been invited to collaborate on Strait.",
+      path: match.pathname,
+    }),
   component: RouteComponent,
 });
 

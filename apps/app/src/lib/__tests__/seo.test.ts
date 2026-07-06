@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { seo } from "../seo";
+import { absoluteUrl, seo, seoHead, siteStructuredData } from "../seo";
 
 type MetaTag =
   | { title: string }
@@ -79,5 +79,49 @@ describe("seo", () => {
   it("leaves an already-absolute override image unchanged", () => {
     const remote = "https://cdn.example.com/share.png";
     expect(property(seo({ image: remote }), "og:image")).toBe(remote);
+  });
+
+  it("declares the content locale", () => {
+    expect(property(seo(), "og:locale")).toBe("en_US");
+  });
+});
+
+describe("absoluteUrl", () => {
+  it("resolves a root-relative path against the origin", () => {
+    const url = absoluteUrl("/login");
+    expect(url.startsWith("http")).toBe(true);
+    expect(url.endsWith("/login")).toBe(true);
+  });
+
+  it("passes an already-absolute URL through unchanged", () => {
+    expect(absoluteUrl("https://x.example.com/a")).toBe(
+      "https://x.example.com/a"
+    );
+  });
+});
+
+describe("seoHead", () => {
+  it("returns meta only and no canonical link without a path", () => {
+    const head = seoHead({ title: "Sign in" });
+    expect(title(head.meta)).toBe("Sign in · Strait");
+    expect(head.links).toBeUndefined();
+    expect(property(head.meta, "og:url")).toBeUndefined();
+  });
+
+  it("advertises a canonical URL and og:url when given a path", () => {
+    const head = seoHead({ title: "Sign in", path: "/login" });
+    const canonical = head.links?.[0];
+    expect(canonical?.rel).toBe("canonical");
+    expect(canonical?.href.endsWith("/login")).toBe(true);
+    expect(canonical?.href).toBe(property(head.meta, "og:url"));
+  });
+});
+
+describe("siteStructuredData", () => {
+  it("describes the product as a SoftwareApplication", () => {
+    const data = siteStructuredData();
+    expect(data["@type"]).toBe("SoftwareApplication");
+    expect(data.name).toBe("Strait");
+    expect(data["@context"]).toBe("https://schema.org");
   });
 });

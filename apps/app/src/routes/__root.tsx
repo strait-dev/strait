@@ -14,7 +14,7 @@ import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools";
 import { ThemeProvider } from "next-themes";
 import { getSession } from "@/lib/auth-handler";
 import { captureException } from "@/lib/sentry";
-import { seo } from "@/lib/seo";
+import { seo, siteStructuredData } from "@/lib/seo";
 import css from "@/styles.css?url";
 
 export type AuthUser = {
@@ -72,6 +72,17 @@ export const Route = createRootRouteWithContext<RouterContext>()({
         content: "width=device-width, initial-scale=1",
       },
       ...seo(),
+      { name: "application-name", content: "Strait" },
+      { name: "apple-mobile-web-app-title", content: "Strait" },
+      { name: "apple-mobile-web-app-capable", content: "yes" },
+      { name: "mobile-web-app-capable", content: "yes" },
+      {
+        name: "apple-mobile-web-app-status-bar-style",
+        content: "black-translucent",
+      },
+      { name: "format-detection", content: "telephone=no" },
+      { name: "theme-color", content: "#ffffff" },
+      { "script:ld+json": siteStructuredData() },
     ],
     links: [
       { rel: "stylesheet", href: css },
