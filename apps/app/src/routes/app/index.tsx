@@ -16,7 +16,6 @@ const subscriptionSearchSchema = z.object({
 });
 
 export const Route = createFileRoute("/app/")({
-  head: () => ({ meta: seo({ title: "Getting started" }) }),
   validateSearch: zodValidator(subscriptionSearchSchema),
   loader: async ({ context }) => {
     const { session } = context as AppRouteContext;
@@ -25,6 +24,7 @@ export const Route = createFileRoute("/app/")({
 
     return { session };
   },
+  head: () => ({ meta: seo({ title: "Getting started" }) }),
   component: RouteComponent,
 });
 

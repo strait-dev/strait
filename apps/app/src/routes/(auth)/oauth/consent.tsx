@@ -142,13 +142,6 @@ const submitConsent = createServerFn({ method: "POST" })
   });
 
 export const Route = createFileRoute("/(auth)/oauth/consent")({
-  head: () =>
-    seoHead({
-      title: "Authorize application",
-      description:
-        "Review and authorize an application requesting access to your Strait account.",
-      path: "/oauth/consent",
-    }),
   validateSearch: consentSearchSchema,
   loaderDeps: ({ search }) => ({ clientId: search.client_id }),
   beforeLoad: ({ context, location }) => {
@@ -169,6 +162,13 @@ export const Route = createFileRoute("/(auth)/oauth/consent")({
     }
     return null;
   },
+  head: () =>
+    seoHead({
+      title: "Authorize application",
+      description:
+        "Review and authorize an application requesting access to your Strait account.",
+      path: "/oauth/consent",
+    }),
   errorComponent: ErrorComponent,
   notFoundComponent: NotFound,
   component: OAuthConsentPage,
