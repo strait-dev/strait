@@ -4,12 +4,16 @@
 
 Strait coordinates work that runs on your infrastructure. It handles job triggers, retries, schedules, workflow steps, approvals, live run updates, and `dead_letter` recovery. Use it when a message queue or cron job no longer gives you enough control over execution history and failure handling.
 
+Strait ships as a single Go binary with PostgreSQL as the source of truth and Redis for live updates. It never runs your code itself: jobs reach your services over an HTTP endpoint Strait calls, or over a long-lived worker that connects to the API by gRPC and keeps your code inside a private network. The binary runs in `api`, `worker`, or `all` mode, and comes in a community (self-hosted) and a cloud edition.
+
 ## Start Here
 
 - Introduction: https://docs.strait.dev/introduction
 - Choose Your Path: https://docs.strait.dev/choose-your-path
 - Quickstart: https://docs.strait.dev/quickstart
 - Create a Production Job: https://docs.strait.dev/guides/production-job
+- Glossary: https://docs.strait.dev/glossary
+- FAQ: https://docs.strait.dev/faq
 
 ## Use Cases
 
@@ -43,6 +47,19 @@ Strait coordinates work that runs on your infrastructure. It handles job trigger
 - Security: https://docs.strait.dev/guides/security
 - Audit Events: https://docs.strait.dev/guides/audit-events
 
+## Tutorials
+
+- Data Pipeline: https://docs.strait.dev/tutorials/data-pipeline
+- Webhook Processor: https://docs.strait.dev/tutorials/webhook-processor
+
+## Self-Host and Operations
+
+- Self-Hosting: https://docs.strait.dev/guides/self-hosting
+- Backup and Restore: https://docs.strait.dev/guides/self-host-backup-restore
+- Upgrades: https://docs.strait.dev/guides/self-host-upgrades
+- Observability: https://docs.strait.dev/operations/observability
+- Incident Response: https://docs.strait.dev/operations/incident-response
+
 ## Compare
 
 - Strait and Message Queues: https://docs.strait.dev/compare/message-queues
@@ -68,6 +85,7 @@ Strait coordinates work that runs on your infrastructure. It handles job trigger
 - CLI: https://docs.strait.dev/cli/overview
 - Environment Variables: https://docs.strait.dev/configuration/environment-variables
 - Architecture: https://docs.strait.dev/architecture
+- Pricing: https://docs.strait.dev/billing/pricing
 
 ## Links
 
