@@ -4,6 +4,7 @@ import MagicLinkForm from "@/components/(auth)/magic-link-form";
 import ErrorComponent from "@/components/common/error-component";
 import NotFound from "@/components/common/not-found";
 import { authSearchSchema } from "@/lib/auth-search-schema";
+import { seo } from "@/lib/seo";
 
 export const Route = createFileRoute("/(auth)/magic-link")({
   validateSearch: authSearchSchema,
@@ -12,7 +13,7 @@ export const Route = createFileRoute("/(auth)/magic-link")({
       throw redirect({ to: search.redirect ?? "/app" });
     }
   },
-  head: () => ({ meta: [{ title: "Magic link sign in · Strait" }] }),
+  head: () => ({ meta: seo({ title: "Magic link sign in" }) }),
   errorComponent: ErrorComponent,
   notFoundComponent: NotFound,
   component: MagicLinkPage,

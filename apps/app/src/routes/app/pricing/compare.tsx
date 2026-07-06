@@ -5,6 +5,7 @@ import DefaultCatchBoundary from "@/components/common/default-catch-boundary";
 import NotFound from "@/components/common/not-found";
 import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import { isCommunityEdition } from "@/lib/edition";
+import { seo } from "@/lib/seo";
 
 export const Route = createFileRoute("/app/pricing/compare")({
   // Cloud-only: pricing comparison against competitors is not
@@ -14,7 +15,7 @@ export const Route = createFileRoute("/app/pricing/compare")({
       throw redirect({ to: "/app" });
     }
   },
-  head: () => ({ meta: [{ title: "Compare plans · Strait" }] }),
+  head: () => ({ meta: seo({ title: "Compare plans" }) }),
   errorComponent: DefaultCatchBoundary,
   notFoundComponent: () => <NotFound />,
   component: RouteComponent,

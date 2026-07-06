@@ -1,5 +1,4 @@
 import { createFileRoute } from "@tanstack/react-router";
-
 import ErrorComponent from "@/components/common/error-component";
 import DashboardContent from "@/components/dashboard/dashboard-content";
 import { usePageEvent } from "@/hooks/analytics/use-page-event";
@@ -9,6 +8,7 @@ import {
 } from "@/hooks/api/use-dashboard";
 import { runsQueryOptions } from "@/hooks/api/use-runs";
 import { projectCostsQueryOptions } from "@/hooks/billing/use-project-costs";
+import { seo } from "@/lib/seo";
 import type { AppRouteContext } from "@/routes/app/layout";
 
 const statsQueryOptions = statsQueryOptionsFn();
@@ -29,7 +29,7 @@ export const Route = createFileRoute("/app/dashboard")({
     }
     return { hasProject, activeProjectId };
   },
-  head: () => ({ meta: [{ title: "Dashboard · Strait" }] }),
+  head: () => ({ meta: seo({ title: "Dashboard" }) }),
   errorComponent: ErrorComponent,
   component: RouteComponent,
 });

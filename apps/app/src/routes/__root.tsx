@@ -14,6 +14,7 @@ import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools";
 import { ThemeProvider } from "next-themes";
 import { getSession } from "@/lib/auth-handler";
 import { captureException } from "@/lib/sentry";
+import { seo } from "@/lib/seo";
 import css from "@/styles.css?url";
 
 export type AuthUser = {
@@ -70,24 +71,7 @@ export const Route = createRootRouteWithContext<RouterContext>()({
         name: "viewport",
         content: "width=device-width, initial-scale=1",
       },
-      {
-        title: "Strait",
-      },
-      {
-        name: "description",
-        content:
-          "Strait is a production-grade job orchestration platform for scheduling, executing, and monitoring distributed workloads.",
-      },
-      { property: "og:title", content: "Strait" },
-      {
-        property: "og:description",
-        content:
-          "Strait is a production-grade job orchestration platform for scheduling, executing, and monitoring distributed workloads.",
-      },
-      { property: "og:image", content: "/og.png" },
-      { property: "og:type", content: "website" },
-      { name: "twitter:card", content: "summary_large_image" },
-      { name: "twitter:image", content: "/og.png" },
+      ...seo(),
     ],
     links: [
       { rel: "stylesheet", href: css },

@@ -74,6 +74,7 @@ import {
   TrashIcon,
 } from "@/lib/icons";
 import { scheduleResourcePermissions } from "@/lib/resource-permissions";
+import { seo } from "@/lib/seo";
 import { ENABLED_STATUS_OPTIONS } from "@/lib/status";
 import type { AppRouteContext } from "@/routes/app/layout";
 
@@ -118,7 +119,7 @@ export const Route = createFileRoute("/app/schedules/")({
     }
     return { hasProject, session };
   },
-  head: () => ({ meta: [{ title: "Schedules · Strait" }] }),
+  head: () => ({ meta: seo({ title: "Schedules" }) }),
   pendingComponent: TablePageSkeleton,
   errorComponent: ErrorComponent,
   component: SchedulesPage,

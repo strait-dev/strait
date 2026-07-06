@@ -33,6 +33,7 @@ import {
   CreditCardIcon,
   TrendingUpIcon,
 } from "@/lib/icons";
+import { seo } from "@/lib/seo";
 import type { AppRouteContext } from "@/routes/app/layout";
 
 const AddonsTab = lazy(() => import("@/components/billing/addons-tab"));
@@ -72,7 +73,7 @@ export const Route = createFileRoute("/app/billing/")({
       ctx.queryClient.ensureQueryData(anomalyConfigQueryOptions()),
     ]);
   },
-  head: () => ({ meta: [{ title: "Billing · Strait" }] }),
+  head: () => ({ meta: seo({ title: "Billing" }) }),
   errorComponent: DefaultCatchBoundary,
   notFoundComponent: () => <NotFound />,
   component: RouteComponent,

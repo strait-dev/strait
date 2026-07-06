@@ -83,6 +83,7 @@ import {
   TagIcon,
   XCircleIcon,
 } from "@/lib/icons";
+import { seo } from "@/lib/seo";
 import { stopInteractiveRowClick } from "@/lib/table-interactions";
 import type { AppRouteContext } from "@/routes/app/layout";
 
@@ -100,7 +101,7 @@ export const Route = createFileRoute("/app/jobs/$id")({
     ]);
     return { session };
   },
-  head: () => ({ meta: [{ title: "Job · Strait" }] }),
+  head: () => ({ meta: seo({ title: "Job" }) }),
   pendingComponent: DetailPageSkeleton,
   errorComponent: ErrorComponent,
   component: JobDetailPage,

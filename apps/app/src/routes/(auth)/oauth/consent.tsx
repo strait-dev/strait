@@ -22,6 +22,7 @@ import {
   SCOPE_DESCRIPTIONS,
 } from "@/lib/oauth-scopes";
 import { captureException } from "@/lib/sentry";
+import { seo } from "@/lib/seo";
 import { authMiddleware } from "@/middlewares/auth";
 import { type ClientInfo, resolveRedirectHost } from "./-consent-utils";
 
@@ -141,6 +142,7 @@ const submitConsent = createServerFn({ method: "POST" })
   });
 
 export const Route = createFileRoute("/(auth)/oauth/consent")({
+  head: () => ({ meta: seo({ title: "Authorize application" }) }),
   validateSearch: consentSearchSchema,
   loaderDeps: ({ search }) => ({ clientId: search.client_id }),
   beforeLoad: ({ context, location }) => {

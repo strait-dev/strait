@@ -14,6 +14,7 @@ import ErrorComponent from "@/components/common/error-component";
 import NotFound from "@/components/common/not-found";
 import { authSearchSchema } from "@/lib/auth-search-schema";
 import { MailIcon } from "@/lib/icons";
+import { seo } from "@/lib/seo";
 import { storeUtmParams } from "@/lib/utm";
 
 const OAUTH_ERROR_MESSAGES: Record<string, string> = {
@@ -50,7 +51,7 @@ export const Route = createFileRoute("/(auth)/login")({
     }
   },
   loader: () => getSocialProviderAvailability(),
-  head: () => ({ meta: [{ title: "Sign in · Strait" }] }),
+  head: () => ({ meta: seo({ title: "Sign in" }) }),
   errorComponent: ErrorComponent,
   notFoundComponent: NotFound,
   component: LoginPage,

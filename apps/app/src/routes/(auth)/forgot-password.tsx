@@ -4,6 +4,7 @@ import ForgotPasswordForm from "@/components/(auth)/forgot-password-form";
 import ErrorComponent from "@/components/common/error-component";
 import NotFound from "@/components/common/not-found";
 import { authSearchSchema } from "@/lib/auth-search-schema";
+import { seo } from "@/lib/seo";
 
 export const Route = createFileRoute("/(auth)/forgot-password")({
   validateSearch: authSearchSchema,
@@ -12,7 +13,7 @@ export const Route = createFileRoute("/(auth)/forgot-password")({
       throw redirect({ to: search.redirect ?? "/app" });
     }
   },
-  head: () => ({ meta: [{ title: "Forgot password · Strait" }] }),
+  head: () => ({ meta: seo({ title: "Forgot password" }) }),
   errorComponent: ErrorComponent,
   notFoundComponent: NotFound,
   component: ForgotPasswordPage,

@@ -4,6 +4,7 @@ import SsoForm from "@/components/(auth)/sso-form";
 import ErrorComponent from "@/components/common/error-component";
 import NotFound from "@/components/common/not-found";
 import { authSearchSchema } from "@/lib/auth-search-schema";
+import { seo } from "@/lib/seo";
 
 export const Route = createFileRoute("/(auth)/sso")({
   validateSearch: authSearchSchema,
@@ -12,7 +13,7 @@ export const Route = createFileRoute("/(auth)/sso")({
       throw redirect({ to: search.redirect ?? "/app" });
     }
   },
-  head: () => ({ meta: [{ title: "SSO · Strait" }] }),
+  head: () => ({ meta: seo({ title: "SSO" }) }),
   errorComponent: ErrorComponent,
   notFoundComponent: NotFound,
   component: SsoPage,

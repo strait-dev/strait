@@ -2,10 +2,10 @@ import { Shell } from "@strait/ui/components/shell";
 import { createFileRoute } from "@tanstack/react-router";
 import { zodValidator } from "@tanstack/zod-adapter";
 import * as z from "zod";
-
 import { GettingStarted } from "@/components/common/getting-started";
 import SubscriptionSuccessDialog from "@/components/subscription/subscription-success-dialog";
 import { subscriptionQueryOptions } from "@/hooks/subscription/use-subscription";
+import { seo } from "@/lib/seo";
 import type { AppRouteContext } from "@/routes/app/layout";
 
 const subscriptionSearchSchema = z.object({
@@ -16,6 +16,7 @@ const subscriptionSearchSchema = z.object({
 });
 
 export const Route = createFileRoute("/app/")({
+  head: () => ({ meta: seo({ title: "Getting started" }) }),
   validateSearch: zodValidator(subscriptionSearchSchema),
   loader: async ({ context }) => {
     const { session } = context as AppRouteContext;

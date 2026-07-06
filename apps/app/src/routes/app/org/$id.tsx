@@ -17,11 +17,11 @@ import SubscriptionOverview from "@/components/(settings)/subscription-overview"
 import TeamMembers from "@/components/(settings)/team-members";
 import DefaultCatchBoundary from "@/components/common/default-catch-boundary";
 import NotFound from "@/components/common/not-found";
-
 import { organizationQueryOptions } from "@/hooks/auth/use-organization";
 import { useOrganizationRole } from "@/hooks/auth/use-permissions";
 import { useIsHydrated } from "@/hooks/use-is-hydrated";
 import { BuildingIcon, CreditCardIcon, KeyIcon, UsersIcon } from "@/lib/icons";
+import { seo } from "@/lib/seo";
 import type { AppRouteContext } from "@/routes/app/layout";
 
 export const Route = createFileRoute("/app/org/$id")({
@@ -32,7 +32,7 @@ export const Route = createFileRoute("/app/org/$id")({
     );
     return { session };
   },
-  head: () => ({ meta: [{ title: "Organization · Strait" }] }),
+  head: () => ({ meta: seo({ title: "Organization" }) }),
   errorComponent: DefaultCatchBoundary,
   notFoundComponent: () => <NotFound />,
   component: RouteComponent,

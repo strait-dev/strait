@@ -4,6 +4,7 @@ import TwoFactorForm from "@/components/(auth)/two-factor-form";
 import ErrorComponent from "@/components/common/error-component";
 import NotFound from "@/components/common/not-found";
 import { authSearchSchema } from "@/lib/auth-search-schema";
+import { seo } from "@/lib/seo";
 
 export const Route = createFileRoute("/(auth)/two-factor")({
   validateSearch: authSearchSchema,
@@ -12,7 +13,7 @@ export const Route = createFileRoute("/(auth)/two-factor")({
       throw redirect({ to: search.redirect ?? "/app" });
     }
   },
-  head: () => ({ meta: [{ title: "Two-factor verification · Strait" }] }),
+  head: () => ({ meta: seo({ title: "Two-factor verification" }) }),
   errorComponent: ErrorComponent,
   notFoundComponent: NotFound,
   component: TwoFactorPage,

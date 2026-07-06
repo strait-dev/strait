@@ -93,6 +93,7 @@ import {
   WorkflowIcon,
 } from "@/lib/icons";
 import { canUseFeature } from "@/lib/plan-tiers";
+import { seo } from "@/lib/seo";
 import type { AppRouteContext } from "@/routes/app/layout";
 
 export const Route = createFileRoute("/app/workflows/$id")({
@@ -105,7 +106,7 @@ export const Route = createFileRoute("/app/workflows/$id")({
     ]);
     return { session };
   },
-  head: () => ({ meta: [{ title: "Workflow · Strait" }] }),
+  head: () => ({ meta: seo({ title: "Workflow" }) }),
   pendingComponent: DetailPageSkeleton,
   errorComponent: ErrorComponent,
   component: WorkflowDetailPage,

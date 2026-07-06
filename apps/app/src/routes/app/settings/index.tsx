@@ -27,6 +27,7 @@ import {
   useUpdateEmailPreferences,
 } from "@/hooks/billing/use-email-preferences";
 import { CreditCardIcon, LinkSquareIcon, UserIcon } from "@/lib/icons";
+import { seo } from "@/lib/seo";
 import type { AppRouteContext } from "@/routes/app/layout";
 
 export const Route = createFileRoute("/app/settings/")({
@@ -36,7 +37,7 @@ export const Route = createFileRoute("/app/settings/")({
       session,
     };
   },
-  head: () => ({ meta: [{ title: "Settings · Strait" }] }),
+  head: () => ({ meta: seo({ title: "Settings" }) }),
   errorComponent: DefaultCatchBoundary,
   notFoundComponent: () => <NotFound />,
   component: RouteComponent,

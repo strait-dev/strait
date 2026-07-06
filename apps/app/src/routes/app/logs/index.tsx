@@ -39,6 +39,7 @@ import { useAppReactTable } from "@/hooks/use-app-react-table";
 import { useCursorPagination } from "@/hooks/use-cursor-pagination";
 import { useHydratedTableData } from "@/hooks/use-hydrated-table-data";
 import { FileTextIcon, SearchIcon } from "@/lib/icons";
+import { seo } from "@/lib/seo";
 import { EVENT_STATUSES } from "@/lib/status";
 import { stopInteractiveRowClick } from "@/lib/table-interactions";
 import type { AppRouteContext } from "@/routes/app/layout";
@@ -71,7 +72,7 @@ export const Route = createFileRoute("/app/logs/")({
     }
     return { hasProject, session };
   },
-  head: () => ({ meta: [{ title: "Logs · Strait" }] }),
+  head: () => ({ meta: seo({ title: "Logs" }) }),
   pendingComponent: TablePageSkeleton,
   errorComponent: ErrorComponent,
   component: LogsPage,
